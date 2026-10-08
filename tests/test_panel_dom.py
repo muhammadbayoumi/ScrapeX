@@ -10153,12 +10153,29 @@ HARNESS_BUNDLE = {
 }
 
 
+#: A light file's index as the build reply carries it (#1199): the parts file the
+#: panel fetches next, and no faults.
+HARNESS_LIGHT = {
+    "light_format": 1,
+    "parts_file": {"name": "scrapex-bundle-20260906-000000-light.gz",
+                   "bytes": 512, "sha256": "b" * 64},
+    "tables": [], "faults": [],
+}
+
+
 def _backed_up_with(open_panel, **reply) -> str:
     """Press Back up on Manage account with this build reply; return what it said."""
+    return _press_back_up(open_panel, **reply).inner_text("#manage-backup-msg").strip()
+
+
+def _press_back_up(open_panel, *, harness=None, **reply):
+    """Press Back up on Manage account with this build reply and these harness
+    options; the page once it is done."""
     page = open_panel(
         signed_in=ACCOUNT,
         bundle={**HARNESS_BUNDLE, **reply},
         drive={"folder": "folder-1", "files": [], "pointer": None},
+        **(harness or {}),
     )
     page.wait_for_selector("#welcome-signed-in:visible")
     page.click("#manage-account")
@@ -10168,23 +10185,120 @@ def _backed_up_with(open_panel, **reply) -> str:
         "() => /Backed up/.test("
         "document.querySelector('#manage-backup-msg').innerText)",
         timeout=30000)
+    return page
+
+
+def test_the_light_file_reaches_drive_before_the_pointer_that_names_it(open_panel):
+    """#1199: the pointer is written last, so it can only name files already there."""
+    page = _press_back_up(open_panel, light=HARNESS_LIGHT, light_error=None)
+
+    uploads = page.evaluate("() => window.__sx_uploads")
+    assert page.evaluate("() => window.__sx_light_reads") == 1
+    assert HARNESS_LIGHT["parts_file"]["name"] in uploads, uploads
+    assert uploads.index(HARNESS_LIGHT["parts_file"]["name"]) < uploads.index("latest.json")
+
+
+def test_a_build_with_no_light_file_never_asks_for_one(open_panel):
+    """An engine that wrote none is never asked for one."""
+    page = _press_back_up(open_panel, light=None, light_error="OSError: disk full")
+
+    assert page.evaluate("() => window.__sx_light_reads || 0") == 0
+    assert not any(name.endswith("-light.gz")
+                   for name in page.evaluate("() => window.__sx_uploads"))
+
+
+def _carried_without_the_light_file(page) -> str:
+    """What a backup said whose archive and pointer reached Drive and whose light
+    file did not."""
+    uploads = page.evaluate("() => window.__sx_uploads")
+    assert HARNESS_BUNDLE["name"] in uploads and "latest.json" in uploads, uploads
+    assert not any(name.endswith("-light.gz") for name in uploads), uploads
     return page.inner_text("#manage-backup-msg").strip()
 
 
-def test_a_backup_says_which_tables_its_offline_copy_left_out(open_panel):
-    """#1199: the light file never fails a backup, so a table it could not write is
-    said where he reads the result, or it is a silent failure."""
-    said = _backed_up_with(open_panel, light_error=None, light={"faults": [
-        {"kind": "price", "site_key": "ELSEWEDYSHOP", "key": "ELSEWEDYSHOP",
-         "problem": "RuntimeError: the second card"}]})
+def test_an_engine_older_than_the_light_route_still_backs_up_and_says_restart(
+        open_panel):
+    """#1199: an engine from between #1488 and the light route sends the light
+    file's index and 404s its route, and it keeps running after the extension
+    reloads. The zip is the backup, so it still reaches Drive, and the sentence
+    names the step that carries the copy."""
+    page = _press_back_up(open_panel, light=HARNESS_LIGHT, light_error=None,
+                          harness={"bundle_light_route": False})
 
+    said = _carried_without_the_light_file(page)
+    assert page.evaluate("() => window.__sx_light_reads") == 1
+    assert said.endswith(
+        "The offline copy of the Data page was not carried to Drive: the engine "
+        "running is older than this panel. Restart it from the Engine page, then "
+        "back up again."), said
+
+
+def test_a_light_file_the_engine_cannot_serve_never_fails_the_backup(open_panel):
+    page = _press_back_up(open_panel, light=HARNESS_LIGHT, light_error=None,
+                          harness={"fail_routes": ("/api/bundle/light",)})
+
+    said = _carried_without_the_light_file(page)
+    assert said.endswith("The offline copy of the Data page was not carried to "
+                         "Drive: the engine could not do that."), said
+
+
+def test_a_light_file_with_every_table_left_out_is_not_asked_for(open_panel):
+    """Every table failed, so its parts file holds 0 bytes: the backup goes on, and
+    the faults sentence names what is missing."""
+    page = _press_back_up(open_panel, light_error=None, light={
+        **HARNESS_LIGHT,
+        "parts_file": {**HARNESS_LIGHT["parts_file"], "bytes": 0},
+        "faults": [{"kind": "price", "site_key": "ELSEWEDYSHOP", "key": "ELSEWEDYSHOP",
+                    "problem": "RuntimeError: the first card"}]})
+
+    said = _carried_without_the_light_file(page)
+    assert page.evaluate("() => window.__sx_light_reads || 0") == 0
     assert said.endswith(
         "The offline copy of the Data page left out 1 table: ELSEWEDYSHOP."), said
 
 
+def test_a_backup_says_which_tables_its_offline_copy_left_out(open_panel):
+    """#1199: the light file never fails a backup, so a table it could not write is
+    said where he reads the result, or it is a silent failure. The rest of the copy
+    still opens, so it is still carried."""
+    page = _press_back_up(open_panel, light_error=None, light={**HARNESS_LIGHT, "faults": [
+        {"kind": "price", "site_key": "ELSEWEDYSHOP", "key": "ELSEWEDYSHOP",
+         "problem": "RuntimeError: the second card"}]})
+
+    said = page.inner_text("#manage-backup-msg").strip()
+    assert said.endswith(
+        "The offline copy of the Data page left out 1 table: ELSEWEDYSHOP."), said
+    assert page.evaluate("() => window.__sx_light_reads") == 1
+    assert HARNESS_LIGHT["parts_file"]["name"] in page.evaluate("() => window.__sx_uploads")
+
+
+def test_a_copy_with_faults_that_was_not_carried_says_so_and_not_the_faults(open_panel):
+    """The tables it left out describe a copy that is not in Drive, so the sentence
+    is the one about carrying it, with the restart that would."""
+    page = _press_back_up(open_panel, light_error=None, light={**HARNESS_LIGHT, "faults": [
+        {"kind": "price", "site_key": "ELSEWEDYSHOP", "key": "ELSEWEDYSHOP",
+         "problem": "RuntimeError: the second card"}]},
+        harness={"bundle_light_route": False})
+
+    said = _carried_without_the_light_file(page)
+    assert "left out" not in said, said
+    assert said.endswith("Restart it from the Engine page, then back up again."), said
+
+
+def test_a_light_read_that_times_out_never_fails_the_backup(open_panel):
+    """A timeout is not an HTTP answer, and it is the panel's own sentence, which
+    already ends in a period."""
+    page = _press_back_up(open_panel, light=HARNESS_LIGHT, light_error=None,
+                          harness={"blackhole_routes": ("/api/bundle/light",)})
+
+    said = _carried_without_the_light_file(page)
+    assert said.endswith("The offline copy of the Data page was not carried to Drive: "
+                         "The request exceeded its 5000 ms deadline."), said
+
+
 def test_a_backup_names_every_table_its_offline_copy_left_out(open_panel):
     """Each by its key, a dataset's as well as a price source's, and counted."""
-    said = _backed_up_with(open_panel, light_error=None, light={"faults": [
+    said = _backed_up_with(open_panel, light_error=None, light={**HARNESS_LIGHT, "faults": [
         {"kind": "price", "site_key": "ELSEWEDYSHOP", "key": "ELSEWEDYSHOP",
          "problem": "RuntimeError: the second card"},
         {"kind": "dataset", "site_key": "muqawil_org", "key": "contractor_profiles",
@@ -10204,7 +10318,7 @@ def test_a_backup_says_when_its_offline_copy_was_not_written(open_panel):
 
 
 def test_a_whole_offline_copy_adds_nothing_to_the_sentence(open_panel):
-    said = _backed_up_with(open_panel, light={"faults": []}, light_error=None)
+    said = _backed_up_with(open_panel, light=HARNESS_LIGHT, light_error=None)
 
     assert "offline copy" not in said, said
 

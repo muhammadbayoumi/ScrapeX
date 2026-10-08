@@ -11,7 +11,7 @@ import assert from "node:assert/strict";
 import {
   backUp, download, fetchLatest, folderId, listing, prunable, upload,
   fetchPanelPack,
-  BUNDLE_FORMAT, DriveError, KEEP, LATEST, PANEL_PACK, expectSize,
+  BUNDLE_FORMAT, DriveError, KEEP, LATEST, LIGHT_SUFFIX, PANEL_PACK, expectSize,
 } from "../drive.js";
 import {readFileSync} from "node:fs";
 
@@ -504,6 +504,206 @@ test("only one panel pack ever exists, however many were there before", async ()
 });
 
 
+// ---- the light file beside every backup (#1199) ---------------------------------
+
+const LIGHT_NAME = "scrapex-bundle-20261005-000000-light.gz";
+const LIGHT_INDEX = {
+  light_format: 1,
+  parts_file: {name: LIGHT_NAME, bytes: 6, sha256: "c".repeat(64)},
+  tables: [], faults: [],
+};
+
+/** A Drive that records every upload, delete and pointer body, in one order. */
+function recordingDrive(files = []) {
+  const events = [];
+  let naming = null;
+  let pointer = null;
+  const fetchImpl = scripted([
+    [isSearch, (url) => (url.includes("mimeType")
+      ? reply(200, {body: {files: [{id: "folder-1"}]}})
+      : reply(200, {body: {files}}))],
+    [isStart, (_url, init) => {
+      naming = JSON.parse(init.body).name;
+      events.push(`upload ${naming}`);
+      return reply(200, {headers: {Location: SESSION}});
+    }],
+    [isPut, (_url, init) => {
+      const name = naming;
+      if (name === LATEST) {
+        return init.body.text().then((text) => {
+          pointer = JSON.parse(text);
+          return reply(200, {body: {id: "ptr", name: LATEST}});
+        });
+      }
+      return reply(200, {body: {id: `id-${name}`, name}});
+    }],
+    [(_url, init) => init.method === "DELETE",
+      (url) => { events.push(`delete ${url.split("/").pop()}`); return reply(204); }],
+  ]);
+  return {fetchImpl, events, pointer: () => pointer};
+}
+
+test("the light file goes up after the pack and before the pointer", async () => {
+  const drive = recordingDrive();
+
+  await backUp("tok", {
+    archive: new Blob(["a"]), name: "bundle.zip", panelPack: new Blob(["p"]),
+    light: new Blob(["light!"]), manifest: {light: LIGHT_INDEX},
+    fetchImpl: drive.fetchImpl,
+  });
+
+  assert.deepEqual(drive.events.filter((e) => e.startsWith("upload")),
+    ["upload bundle.zip", `upload ${PANEL_PACK}`, `upload ${LIGHT_NAME}`, `upload ${LATEST}`]);
+});
+
+test("the pointer names the light file and carries its whole index", async () => {
+  const drive = recordingDrive();
+
+  const result = await backUp("tok", {
+    archive: new Blob(["a"]), name: "bundle.zip",
+    light: new Blob(["light!"]), manifest: {light: LIGHT_INDEX},
+    fetchImpl: drive.fetchImpl,
+  });
+
+  assert.deepEqual(drive.pointer().light, {file_id: `id-${LIGHT_NAME}`, index: LIGHT_INDEX});
+  assert.deepEqual(result.light, drive.pointer().light);
+});
+
+test("a light file that differs from its index is refused before a byte leaves", async () => {
+  const drive = recordingDrive();
+
+  await assert.rejects(() => backUp("tok", {
+    archive: new Blob(["a"]), name: "bundle.zip",
+    light: new Blob(["five!"]), manifest: {light: LIGHT_INDEX},
+    fetchImpl: drive.fetchImpl,
+  }), (error) => error instanceof DriveError && error.kind === "mismatched");
+  assert.deepEqual(drive.events, [], "something was uploaded or deleted first");
+});
+
+test("an empty or unnamed light file is refused before a byte leaves", async () => {
+  for (const [light, index] of [
+    [new Blob([]), {...LIGHT_INDEX, parts_file: {...LIGHT_INDEX.parts_file, bytes: 0}}],
+    [new Blob(["light!"]), {...LIGHT_INDEX, parts_file: {bytes: 6}}],
+  ]) {
+    const drive = recordingDrive();
+    await assert.rejects(() => backUp("tok", {
+      archive: new Blob(["a"]), name: "bundle.zip", light, manifest: {light: index},
+      fetchImpl: drive.fetchImpl,
+    }), (error) => error instanceof DriveError && error.kind === "empty");
+    assert.deepEqual(drive.events, []);
+  }
+});
+
+test("an older light file is deleted only after the new pointer names its own", async () => {
+  // #1360's lesson: deleting before the pointer moves leaves the old pointer naming
+  // a file that is gone, the moment an upload in between fails.
+  const drive = recordingDrive([
+    {id: "old-light", name: "scrapex-bundle-20260101-000000-light.gz"},
+    {id: `id-${LIGHT_NAME}`, name: LIGHT_NAME},
+  ]);
+
+  await backUp("tok", {
+    archive: new Blob(["a"]), name: "bundle.zip",
+    light: new Blob(["light!"]), manifest: {light: LIGHT_INDEX},
+    fetchImpl: drive.fetchImpl,
+  });
+
+  const pointerAt = drive.events.indexOf(`upload ${LATEST}`);
+  const deletedAt = drive.events.indexOf("delete old-light");
+  assert.ok(deletedAt > pointerAt, drive.events.join(", "));
+  assert.ok(!drive.events.includes(`delete id-${LIGHT_NAME}`), "the new light file was deleted");
+});
+
+test("the light prune deletes light files only, and counts none of them as a backup", async () => {
+  // A folder as Drive holds it, not light files alone: a match on the bundle prefix
+  // would take the archive the new pointer names, and one on ".gz" the pack.
+  const archive = "scrapex-bundle-20261005-000000.zip";
+  const drive = recordingDrive([
+    {id: `id-${archive}`, name: archive, createdTime: "2026-10-05T00:00:00Z"},
+    {id: "older-zip", name: "scrapex-bundle-20261004-000000.zip",
+     createdTime: "2026-10-04T00:00:00Z"},
+    {id: "pack", name: PANEL_PACK},
+    {id: "old-ptr", name: LATEST},
+    {id: "old-light", name: "scrapex-bundle-20261004-000000-light.gz"},
+    {id: `id-${LIGHT_NAME}`, name: LIGHT_NAME},
+  ]);
+
+  const result = await backUp("tok", {
+    archive: new Blob(["a"]), name: archive,
+    light: new Blob(["light!"]), manifest: {light: LIGHT_INDEX},
+    fetchImpl: drive.fetchImpl,
+  });
+
+  assert.deepEqual(drive.events.filter((e) => e.startsWith("delete")),
+    ["delete old-ptr", "delete old-light"]);
+  assert.deepEqual(result.pruned, []);
+});
+
+test("a light file that left out a table is still carried and named", async () => {
+  // Its other tables still open, and the panel has just said which one is missing.
+  const partial = {...LIGHT_INDEX, faults: [
+    {kind: "price", site_key: "ELSEWEDYSHOP", key: "ELSEWEDYSHOP", problem: "boom"}]};
+  const drive = recordingDrive();
+
+  await backUp("tok", {
+    archive: new Blob(["a"]), name: "bundle.zip",
+    light: new Blob(["light!"]), manifest: {light: partial},
+    fetchImpl: drive.fetchImpl,
+  });
+
+  assert.deepEqual(drive.pointer().light, {file_id: `id-${LIGHT_NAME}`, index: partial});
+});
+
+test("a failed light upload leaves the pointer and the old light file alone", async () => {
+  const events = [];
+  let naming = null;
+  const fetchImpl = scripted([
+    [isSearch, (url) => (url.includes("mimeType")
+      ? reply(200, {body: {files: [{id: "folder-1"}]}})
+      : reply(200, {body: {files: [
+        {id: "old-light", name: "scrapex-bundle-20260101-000000-light.gz"}]}}))],
+    [isStart, (_url, init) => {
+      naming = JSON.parse(init.body).name;
+      events.push(`upload ${naming}`);
+      return reply(200, {headers: {Location: SESSION}});
+    }],
+    [isPut, () => (naming === LIGHT_NAME
+      ? reply(500, {body: "Drive is down"})
+      : reply(200, {body: {id: `id-${naming}`, name: naming}}))],
+    [(_url, init) => init.method === "DELETE",
+      (url) => { events.push(`delete ${url.split("/").pop()}`); return reply(204); }],
+  ]);
+
+  await assert.rejects(() => backUp("tok", {
+    archive: new Blob(["a"]), name: "bundle.zip",
+    light: new Blob(["light!"]), manifest: {light: LIGHT_INDEX}, fetchImpl,
+  }));
+  assert.ok(!events.includes(`upload ${LATEST}`), "a pointer was written after a failed upload");
+  assert.ok(!events.some((e) => e.startsWith("delete")), events.join(", "));
+});
+
+test("a backup without a light file names none, and removes the ones no pointer names", async () => {
+  const drive = recordingDrive([
+    {id: "old-light", name: "scrapex-bundle-20260101-000000-light.gz"}]);
+
+  await backUp("tok", {
+    archive: new Blob(["a"]), name: "bundle.zip", fetchImpl: drive.fetchImpl,
+  });
+
+  assert.equal(drive.pointer().light, null);
+  assert.ok(drive.events.includes("delete old-light"));
+});
+
+test("the panel and the engine agree on the light file's name", () => {
+  const python = readFileSync(
+    new URL("../../scrapex/lightfile.py", import.meta.url), "utf8");
+  const found = /^PARTS_SUFFIX\s*=\s*"([^"]+)"/m.exec(python);
+
+  assert.ok(found, "scrapex/lightfile.py no longer defines PARTS_SUFFIX");
+  assert.equal(found[1], LIGHT_SUFFIX);
+});
+
+
 test("an old backup with no pack is named, not reported as no data", async () => {
   // The owner's warehouse is safe; it is this one screen that cannot open it,
   // and the fix is one more backup. "No data" would say the opposite.
@@ -660,6 +860,19 @@ test("a size of zero does not disable the size check", () => {
                 (error) => error instanceof DriveError && error.kind === "mismatched");
   assert.throws(() => expectSize("archive", new Blob([]), 12),
                 (error) => error.kind === "mismatched");
+});
+
+test("the size refusal reads as a sentence for each thing it guards", () => {
+  // He reads this sentence, and the template read "built a archive" once a label
+  // started with a vowel; the light file's label is the second that does.
+  for (const [what, says] of [
+    ["archive", "The engine built an archive of 2 bytes"],
+    ["panel pack", "The engine built a panel pack of 2 bytes"],
+    ["offline copy", "The engine built an offline copy of 2 bytes"],
+  ]) {
+    assert.throws(() => expectSize(what, new Blob(["abc"]), 2),
+                  (error) => error.message.startsWith(says));
+  }
 });
 
 test("a size the engine did not describe is still forgiven", () => {
