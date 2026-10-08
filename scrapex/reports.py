@@ -2684,6 +2684,9 @@ TABLE_GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
          ("crawl_job", "One row per job you started, with its controls and outcome."),
          ("job_log_entry", "The log lines behind a job."),
          ("schedule", "When a source should run by itself."),
+         ("source_setting", "What you chose for one source: active, robots, agent "
+                            "and pace. An empty field follows what the source shipped "
+                            "with."),
          ("retention_policy", "How long raw material is kept."),
          ("retention_run", "What a retention pass actually removed."),
          ("retention_pin", "What you pinned so retention never touches it."),
