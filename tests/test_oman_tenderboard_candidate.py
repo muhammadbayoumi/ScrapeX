@@ -207,3 +207,303 @@ def test_an_unpairable_firm_reaches_the_candidate_as_a_refusal_not_a_gap():
     """The full English fixture still holds the firm with no CR number."""
     with pytest.raises(RegisterShapeError, match="no counterpart"):
         bilingual_listing_candidate(EN, AR)
+
+
+# --- a row whose two keys disagree (#1333) -------------------------------------------
+
+def _disagreeing(html: str, key: str = "00169963") -> str:
+    """The page with one firm's activities argument changed so its two keys disagree:
+    the shape of `ALWASIT` against `nabil` on page 369 of job 191."""
+    marked = html.replace(f"getProcActivities('{key}')", "getProcActivities('nabil')")
+    assert marked != html, f"the fixture no longer carries {key}'s activities call"
+    return marked
+
+
+def test_the_warning_column_is_declared_last_and_has_no_arabic_twin():
+    """LAST, so every column the Sheet already carries keeps its place; an identifier-
+    class field, so `R-12` gives it no `_ar` twin."""
+    assert FIELDS[-1] == "key_warning"
+    assert [f.field_key for f in _candidate().fields][-1] == "key_warning"
+    assert "key_warning" in NO_ARABIC_TWIN
+
+
+@pytest.mark.parametrize("english, arabic", [
+    pytest.param(True, False, id="english-only"),
+    pytest.param(False, True, id="arabic-only"),
+    pytest.param(True, True, id="both-views"),
+])
+def test_a_disagreeing_row_is_a_firm_whose_warning_column_says_why(english, arabic):
+    """His ruling on #1333: record every disagreeing row, never skip it. In whichever
+    view the keys disagree, the firm stays on the page under its commented key and its
+    `key_warning` names both keys; every other row's is empty."""
+    whole = _candidate()
+    candidate = bilingual_listing_candidate(
+        _disagreeing(_pairable_en()) if english else _pairable_en(),
+        _disagreeing(AR) if arabic else AR)
+
+    rows = {row["short_name"]: row for row in candidate.rows}
+    assert candidate.approvable
+    assert len(rows) == len(whole.rows), "no firm is left out"
+    warning = rows["00169963"]["key_warning"]
+    assert warning and "'00169963'" in warning and "'nabil'" in warning, warning
+    assert warning.count("disagree beyond case") == 1, (
+        f"the same sentence from both views is said once: {warning}")
+    assert [key for key, row in rows.items() if row["key_warning"]] == ["00169963"]
+    assert candidate.warnings == (f"row 00169963: {warning}",), candidate.warnings
+
+
+def test_a_page_whose_keys_all_agree_has_an_empty_warning_column():
+    candidate = _candidate()
+    assert all(row["key_warning"] is None for row in candidate.rows)
+    assert candidate.warnings == ()
+
+
+def _approve_log(tmp_path, monkeypatch, english: str, arabic: str, *, after=None
+                 ) -> tuple[str, dict[str, dict]]:
+    """What the real `contractors.approve` says over one stored Oman page pair, on the
+    real Oman directory and the real schema -- and the rows it stored, by key. `after`
+    is handed the connection once the approval is done, and its output is in the log."""
+    import io
+    import json
+    from contextlib import redirect_stdout
+
+    from scrapex import contractors, directories
+    from scrapex.databases import DatabaseRegistry, EngineDatabase
+    from scrapex.snapshotbody import encode
+
+    registry = DatabaseRegistry(EngineDatabase(tmp_path / "scrapex-engine.db"),
+                                pointer_file=tmp_path / "databases.json")
+    registry.initialize()
+    conn = registry.engine.connect()
+    try:
+        def stored(url: str, html: str) -> int:
+            body, codec, dict_id = encode(conn, html, label=None)
+            cursor = conn.execute(
+                "INSERT INTO generic_page_snapshot (source_url, html_content, "
+                " content_hash, crawl_run_ref, html_codec, html_dict_id, captured_at) "
+                "VALUES (?,?,?,?,?,?,?)",
+                (url, body, url, "run-1", codec, dict_id, "2026-10-03T10:00:00Z"))
+            conn.commit()
+            return int(cursor.lastrowid)
+
+        en_url = "https://esnad.example/page?CTRL_STRDIRECTION=LTR&pageNo=369"
+        ar_url = "https://esnad.example/page?CTRL_STRDIRECTION=RTL&pageNo=369"
+        pair = {"en": (stored(en_url, english), english),
+                "ar": (stored(ar_url, arabic), arabic)}
+        monkeypatch.setattr(contractors, "_pairs",
+                            lambda c, d, run_ref, *, ids=(): {"page-369": pair})
+        monkeypatch.setattr(contractors, "coverage", lambda c, key: "")
+        # `say` also writes a log file; it goes to this test's directory, not a home.
+        monkeypatch.setattr(contractors, "LOG", tmp_path / "listing.log")
+
+        said = io.StringIO()
+        with redirect_stdout(said):
+            contractors.approve(conn, directories.get("oman_tenderboard"), "run-1")
+            if after is not None:
+                after(conn)
+        rows = {}
+        for (blob,) in conn.execute(
+                "SELECT r.data_json FROM generic_record AS r "
+                "  JOIN dataset_definition AS d "
+                "    ON d.dataset_definition_id = r.dataset_definition_id "
+                " WHERE d.dataset_key = ?", (DATASET_KEY,)):
+            row = json.loads(blob)
+            rows[row["short_name"]] = row
+        return said.getvalue(), rows
+    finally:
+        conn.close()
+
+
+def _only(html: str, key: str) -> str:
+    """The page with every firm row removed except `key`'s."""
+    def keep(match):
+        return match.group(0) if key in match.group(0) else ""
+    return re.sub(r"<tr[^>]*>(?:(?!</tr>).)*getProcActivities(?:(?!</tr>).)*</tr>",
+                  keep, html, flags=re.DOTALL)
+
+
+def test_the_real_approval_writes_the_disagreeing_row_with_its_warning(
+        tmp_path, monkeypatch):
+    """Through `contractors.approve` onto the real schema: the firm is a stored row whose
+    `key_warning` is filled, its neighbours' is empty, and the log he reads names it."""
+    log, rows = _approve_log(tmp_path, monkeypatch, _disagreeing(_pairable_en()), AR)
+
+    assert "approved 1 page(s)" in log, log
+    assert "approved page-369 with a warning: row 00169963: " in log, log
+    assert "refused page-369" not in log, log
+    assert set(rows) == {row["short_name"] for row in _candidate().rows}
+    assert "'nabil'" in rows["00169963"]["key_warning"], rows["00169963"]
+    assert all(row["key_warning"] is None
+               for key, row in rows.items() if key != "00169963"), rows
+
+
+def test_a_page_whose_only_firm_disagrees_is_approved_not_refused(tmp_path, monkeypatch):
+    """Under #1537 this page was refused -- nothing left once its one row was. Now the
+    row is the firm, so the page is approved and the firm is stored."""
+    log, rows = _approve_log(tmp_path, monkeypatch,
+                             _only(_disagreeing(_pairable_en()), "nabil"),
+                             _only(AR, "00169963"))
+
+    assert "approved 1 page(s)" in log, log
+    assert "refused page-369" not in log, log
+    assert list(rows) == ["00169963"] and rows["00169963"]["key_warning"], rows
+
+
+def test_a_page_whose_write_failed_is_not_called_approved_with_a_warning(
+        tmp_path, monkeypatch):
+    """The write rolled back, so nothing was approved; its row's warning must not be
+    reported beside an approval that never happened."""
+    from scrapex.extract import service
+
+    def fail(*args, **kwargs):
+        raise RuntimeError("disk full")
+    monkeypatch.setattr(service, "approve_candidate", fail)
+    log, rows = _approve_log(tmp_path, monkeypatch, _disagreeing(_pairable_en()), AR)
+
+    assert "refused page-369: RuntimeError: disk full" in log, log
+    assert "with a warning" not in log, log
+    assert rows == {}
+
+
+def test_a_firm_the_register_rekeyed_is_found_by_its_cr_number_end_to_end(
+        tmp_path, monkeypatch):
+    """THE REAL CHAIN, so the field names cannot drift apart: rows stored by the real
+    approval, evidence read by the real `OmanPartition`, and the real Oman directory's
+    `registration_field` joining the two. `00169963` comes back as `NEWKEY` with its CR
+    number unchanged -- it changed key, it did not leave."""
+    from scrapex import directories
+    from scrapex.contractors import mark_departures
+    from scrapex.partitioncrawl import (
+        WHOLE,
+        Attempt,
+        CellOutcome,
+        CellSize,
+        PartitionOutcome,
+    )
+    from scrapex.sightings import record_sightings
+    from scrapex.sites.oman_tenderboard import OmanPartition, read_ids
+
+    directory = directories.get("oman_tenderboard")
+    assert directory.registration_field == "cr_number"
+    assert directory.registration_field in FIELDS
+    rekeyed = _pairable_en().replace("<!-- <td>00169963</td> -->",
+                                     "<!-- <td>NEWKEY</td> -->").replace(
+        "getProcActivities('00169963')", "getProcActivities('newkey')")
+    ids = read_ids(rekeyed)
+    assert "NEWKEY" in ids and "00169963" not in ids, "the fixture must rekey the firm"
+
+    def crawl(conn):
+        stored = [row["short_name"] for row in _candidate().rows]
+        record_sightings(conn, DATASET_KEY, stored)
+        conn.execute("UPDATE dataset_sighting SET last_seen_at = '2026-08-20T09:00:00Z'")
+        conn.commit()
+        size = CellSize(cell=WHOLE, last_page=1, cards_per_page=len(ids),
+                        tail_cards=len(ids), requests=1)
+        outcome = PartitionOutcome(whole=size, cells=(CellOutcome(size=size, attempts=(
+            Attempt(ids=ids, pages_read=1, witnessed=True, note="", run_ref="r2",
+                    identity_evidence=OmanPartition().identity_evidence(rekeyed)),)),))
+        assert outcome.provably_complete
+        mark_departures(conn, directory, outcome, "r2")
+        absent = conn.execute(
+            "SELECT external_id FROM dataset_sighting "
+            " WHERE dataset_key = ? AND last_absent_at IS NOT NULL",
+            (DATASET_KEY,)).fetchall()
+        assert absent == [], absent
+
+    log, rows = _approve_log(tmp_path, monkeypatch, _pairable_en(), AR, after=crawl)
+
+    assert rows["00169963"]["cr_number"], "the stored firm must carry its CR number"
+    assert "changed key: 00169963 → NEWKEY (by cr_number)" in log, log
+
+
+def test_rows_stored_before_the_column_move_to_its_version_when_a_new_run_is_approved(
+        tmp_path, monkeypatch):
+    """THE UPGRADE HE WILL RUN. His warehouse holds Oman rows approved under the schema
+    without `key_warning` (v1). The first approval after this ships grows the schema:
+    v1 retires, v2 opens, every stored row moves to v2 with a revision of its own, and
+    the warning lands on the disagreeing row only. A regression in the retire-or-refuse
+    path would reach every Oman row; this is the guard on it."""
+    import dataclasses
+    import io
+    import json
+    from contextlib import redirect_stdout
+
+    from scrapex import contractors, directories
+    from scrapex.databases import DatabaseRegistry, EngineDatabase
+    from scrapex.extract import oman_tenderboard as extract
+    from scrapex.snapshotbody import encode
+
+    registry = DatabaseRegistry(EngineDatabase(tmp_path / "scrapex-engine.db"),
+                                pointer_file=tmp_path / "databases.json")
+    registry.initialize()
+    conn = registry.engine.connect()
+    monkeypatch.setattr(contractors, "coverage", lambda c, key: "")
+    monkeypatch.setattr(contractors, "LOG", tmp_path / "listing.log")
+    try:
+        def page_pair(run_ref: str, page: int, english: str, arabic: str) -> dict:
+            pair = {}
+            for locale, direction, html in (("en", "LTR", english), ("ar", "RTL", arabic)):
+                url = (f"https://esnad.example/page?CTRL_STRDIRECTION={direction}"
+                       f"&pageNo={page}")
+                body, codec, dict_id = encode(conn, html, label=None)
+                snapshot = conn.execute(
+                    "INSERT INTO generic_page_snapshot (source_url, html_content, "
+                    " content_hash, crawl_run_ref, html_codec, html_dict_id, "
+                    " captured_at) VALUES (?,?,?,?,?,?,?) RETURNING page_snapshot_id",
+                    (url, body, f"{run_ref}{url}", run_ref, codec, dict_id,
+                     f"2026-10-0{page}T10:00:00Z")).fetchone()[0]
+                pair[locale] = (snapshot, html)
+            conn.commit()
+            return {f"page-{page}": pair}
+
+        def approve(run_ref: str, pairs: dict, directory) -> str:
+            monkeypatch.setattr(contractors, "_pairs",
+                                lambda c, d, ref, *, ids=(): pairs)
+            said = io.StringIO()
+            with redirect_stdout(said):
+                contractors.approve(conn, directory, run_ref)
+            return said.getvalue()
+
+        # v1: the schema as it shipped before this change -- the same candidate with
+        # `key_warning` taken out of its fields and its rows, so its hash is v1's.
+        def without_the_column(english, arabic, **kwargs):
+            whole = extract.bilingual_listing_candidate(english, arabic, **kwargs)
+            return dataclasses.replace(
+                whole,
+                fields=tuple(f for f in whole.fields if f.field_key != "key_warning"),
+                rows=tuple({k: v for k, v in r.items() if k != "key_warning"}
+                           for r in whole.rows))
+        oman = directories.get("oman_tenderboard")
+        first = approve("run-old", page_pair("run-old", 1, _pairable_en(), AR),
+                        dataclasses.replace(oman, candidate=without_the_column))
+        assert "approved 1 page(s)" in first, first
+
+        second = approve("run-new", page_pair(
+            "run-new", 2, _disagreeing(_pairable_en()), AR), oman)
+        assert "approved 1 page(s)" in second, second
+
+        versions = conn.execute(
+            "SELECT v.version_number, v.status, v.schema_version_id "
+            "  FROM dataset_schema_version AS v JOIN dataset_definition AS d "
+            "    ON d.dataset_definition_id = v.dataset_definition_id "
+            " WHERE d.dataset_key = ? ORDER BY v.version_number",
+            (DATASET_KEY,)).fetchall()
+        assert [(n, s) for n, s, _ in versions] == [(1, "retired"), (2, "approved")]
+        current = versions[-1][2]
+        stored = conn.execute(
+            "SELECT r.schema_version_id, r.data_json, "
+            "       (SELECT COUNT(*) FROM generic_record_revision AS v "
+            "         WHERE v.generic_record_id = r.generic_record_id) "
+            "  FROM generic_record AS r JOIN dataset_definition AS d "
+            "    ON d.dataset_definition_id = r.dataset_definition_id "
+            " WHERE d.dataset_key = ?", (DATASET_KEY,)).fetchall()
+    finally:
+        conn.close()
+
+    assert len(stored) == len(_candidate().rows), "no firm may be lost or doubled"
+    assert {version for version, _, _ in stored} == {current}, "a row stayed on v1"
+    assert all(revisions == 2 for _, _, revisions in stored), stored
+    warnings = {json.loads(blob)["short_name"]: json.loads(blob).get("key_warning")
+                for _, blob, _ in stored}
+    assert warnings.pop("00169963"), "the disagreeing row lost its warning"
+    assert not any(warnings.values()), warnings

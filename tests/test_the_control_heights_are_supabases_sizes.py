@@ -21,6 +21,15 @@ issue that moves it. DEFAULT is what each component's default reads here: a READ
 and a HELD row does not, so a row cannot cite a component whose default it is not. Where a
 row's selector matches extension/app.html, the element it matches is the element its component
 is: a Button is a <button>, an Input an <input>, and one inside an InputGroup is the group's.
+
+STEPS names the controls whose Supabase component defaults to a Tailwind h-N, a step of their
+--spacing rather than a SIZE height, so they read the --sp-* token that step is and no
+--control-height (#1430). KEPT also holds the literal heights #1430 found where no Supabase
+component gives the element a control size.
+
+AN ICON-ONLY BUTTON IS 36x26, NOT A SQUARE (#1430; his ruling on #1457): its width is tiny's
+padding around its 14px icon, so no --control-height sizes a width any more. ICON_RULES holds
+the icon's size and ICON_ONLY_BOXES each such Button's own rule, which declares no width.
 """
 from __future__ import annotations
 
@@ -51,6 +60,8 @@ SMALL_INSIDE = "calc(var(--control-height-small) - 2px)"
 
 # The Supabase component each read is, at the pin.
 BUTTON = "Button.tsx@86c813ec:192 size = 'tiny'"
+# "Test site" beside its field is a Button at size small, h-[34px], by his ruling on #1457.
+BUTTON_SMALL = "Button size = 'small', constants.ts@86c813ec:62 h-[34px] (his ruling on #1457)"
 INPUT = "input.tsx@86c813ec:31 size = 'small'; select.tsx@86c813ec:37-38 SIZE_VARIANTS_DEFAULT"
 SPLIT = "button-split-dropdown.tsx@86c813ec:14-29: two Buttons at the Button's default size"
 GROUP = "input-group.tsx@86c813ec:43-48 sets no height; its InputGroupInput is an Input (:164-170)"
@@ -66,13 +77,13 @@ SELECT_TRIGGER = ("select.tsx@86c813ec:31-38 SelectTrigger, whose cva default is
 
 #: The element each component is drawn as, for the rows whose selector matches the panel's
 #: markup. A Supabase InputGroup is a <div> (input-group.tsx@86c813ec:43).
-ELEMENT = {BUTTON: {"button"}, INPUT: {"input", "select"}, GROUP: {"div"},
+ELEMENT = {BUTTON: {"button"}, BUTTON_SMALL: {"button"}, INPUT: {"input", "select"}, GROUP: {"div"},
            GROUP_INSIDE: {"input"}, GROUP_BUTTON: {"button"}, SELECT_TRIGGER: {"button"}}
 
 #: The value each component's default size reads here. GROUP_BUTTON has none: its default, h-6,
-#: 24px, is no SIZE height, so no token holds it and a row that cites it is HELD.
-DEFAULT = {BUTTON: TINY, SPLIT: TINY, INPUT: SMALL, GROUP: SMALL, GROUP_INSIDE: SMALL_INSIDE,
-           SELECT_TRIGGER: SMALL}
+#: 24px, is no SIZE height but a step of their --spacing, so a row that cites it is in STEPS.
+DEFAULT = {BUTTON: TINY, BUTTON_SMALL: SMALL, SPLIT: TINY, INPUT: SMALL, GROUP: SMALL,
+           GROUP_INSIDE: SMALL_INSIDE, SELECT_TRIGGER: SMALL}
 
 C = "design/components.css"
 APP = "extension/app.css"
@@ -80,56 +91,73 @@ APP = "extension/app.css"
 #: (authored sheet, selector, property) -> (the value it declares, the component that says so).
 READS = {
     (C, "button, .button", "min-height"): (TINY, BUTTON),
-    (C, "button.icon-button, .button.icon-button", "width"): (TINY, BUTTON),
-    (C, "button.icon-button, .button.icon-button", "min-width"): (TINY, BUTTON),
-    # Supabase's Button has no size below tiny, so the two smaller notches are tiny too.
-    (C, "button.icon-button.compact, .button.icon-button.compact", "width"): (TINY, BUTTON),
-    (C, "button.icon-button.compact, .button.icon-button.compact", "min-width"): (TINY, BUTTON),
-    (C, "button.icon-button.xs, .button.icon-button.xs", "width"): (TINY, BUTTON),
-    (C, "button.icon-button.xs, .button.icon-button.xs", "min-width"): (TINY, BUTTON),
+    # Supabase's Button has no size below tiny, so `xs` is tiny too. An icon-only Button's
+    # width is its padding's, no --control-height (ICON_ONLY below).
     (C, "button.icon-button.xs, .button.icon-button.xs", "min-height"): (TINY, BUTTON),
     (C, "button.compact, .button.compact", "min-height"): (TINY, BUTTON),
     (C, "input, select, textarea", "min-height"): (SMALL, INPUT),
+    # A native <select> is laid out at `line-height: normal` whatever the sheet says, so it
+    # takes the Select's h-[34px] as a height, not only a floor (#1430).
+    (C, "select", "height"): (SMALL, INPUT),
+    # So does a one-line <input>: on the floor alone Chromium drew its value only inside
+    # leading-4's 16px line, which cut the marks over Arabic letters (#1430, #1457's tests pass).
+    (C, "input", "height"): (SMALL, INPUT),
     (C, "button.chip", "min-height"): (TINY, BUTTON),
     (C, ".split-button-primary, .split-button-trigger", "min-height"): (TINY, SPLIT),
     (C, ".split-button-trigger", "width"): (TINY, SPLIT),
     (C, ".split-button-trigger", "min-width"): (TINY, SPLIT),
     ("design/grid-theme.css", "#offer-panel .record-action", "min-height"): (TINY, BUTTON),
-    (APP, ".dataset-card .split-button-trigger", "width"): (TINY, SPLIT),
-    (APP, ".dataset-card .split-button-trigger", "min-width"): (TINY, SPLIT),
     (APP, ".dataset-card .split-button-trigger", "min-height"): (TINY, SPLIT),
     (APP, ".engine-smart-action", "height"): (TINY, BUTTON),
     (APP, ".engine-maintenance-actions .engine-action", "min-height"): (TINY, BUTTON),
+    # Test site, beside the Site URL field (extension/app.html `#check`): its own size, not its
+    # row's stretch.
+    (APP, "#check", "min-height"): (SMALL, BUTTON_SMALL),
     (APP, ".engine-url-field", "min-height"): (SMALL, GROUP),
+    (APP, ".engine-url-field input", "height"): (SMALL_INSIDE, GROUP_INSIDE),
     (APP, ".engine-url-field input", "min-height"): (SMALL_INSIDE, GROUP_INSIDE),
-    # The third column is the row's menu, an icon Button; the first is the face (KEPT).
-    (APP, ".account-row", "grid-template-columns"): (f"2rem minmax(0, 1fr) {TINY}", BUTTON),
-    (APP, ".manage-account-heading", "grid-template-columns"): (f"{TINY} minmax(0, 1fr)", BUTTON),
-    (APP, "button.manage-account-back", "width"): (TINY, BUTTON),
-    (APP, "button.manage-account-back", "min-width"): (TINY, BUTTON),
-    (APP, ".engine-detail-heading", "grid-template-columns"): (f"{TINY} minmax(0, 1fr)", BUTTON),
-    (APP, "button.engine-detail-back", "width"): (TINY, BUTTON),
-    (APP, "button.engine-detail-back", "min-width"): (TINY, BUTTON),
-    # The third copy of the same ghost icon Button (extension/app.html `#source-edit-back`).
-    (APP, ".source-edit-back", "width"): (TINY, BUTTON),
-    (APP, ".source-edit-back", "min-width"): (TINY, BUTTON),
     (APP, ".finance-number-field input", "min-height"): (SMALL, INPUT),
     (APP, ".sx-select-trigger", "height"): (SMALL, SELECT_TRIGGER),
     (APP, ".finance-converter-row", "height"): (SMALL, GROUP),
     (APP, ".finance-converter-row input", "line-height"): (SMALL_INSIDE, GROUP_INSIDE),
     ("extension/console.css", ".map-cells", "min-height"): (TINY, BUTTON),
+    # #1430: the dataset picker's trigger (their combobox's Button) and the source list's
+    # icon link (an icon-only Button, 36x26: its width is its padding's).
+    ("design/data-workspace.css", ".dataset-menu-trigger", "min-height"): (TINY, BUTTON),
+    ("design/data-workspace.css", ".dataset-icon-button", "height"): (TINY, BUTTON),
 }
 
 #: The reads that are a Supabase component held off its default, each until the issue that
 #: moves it: (authored sheet, selector, property) -> (the value it declares, the component, the
 #: issue).
-HELD = {
-    # `#save`, the <button> in the engine address group (extension/app.html), is Supabase's
-    # InputGroupButton, not the group's Input. It stays a full-height segment of the group,
-    # 32px, until #1430 brings it to the 24px default; 32px is InputGroupButton's `small`,
-    # h-8 (input-group.tsx@86c813ec:126), which is not its default.
-    (APP, ".engine-url-save", "min-height"): (SMALL_INSIDE, GROUP_BUTTON, "#1430"),
+HELD: dict[tuple[str, str, str], tuple[str, str, str]] = {
+    # Empty since #1430 brought the engine address Save, the one row here, to its
+    # InputGroupButton default: it is in STEPS.
 }
+
+AVATAR = "avatar.tsx@86c813ec:14 h-10 w-10"
+TOGGLE = "toggle.tsx@86c813ec:20 size default, h-10; ToggleGroup's default at toggle-group.tsx@86c813ec:11"
+
+#: What each STEPS component's default reads here: Tailwind's h-N is N steps of their 0.25rem
+#: --spacing, so h-6 is 1.5rem, --sp-5, and h-10 2.5rem, --sp-7.
+STEP = {GROUP_BUTTON: "var(--sp-5)", AVATAR: "var(--sp-7)", TOGGLE: "var(--sp-7)"}
+
+#: (authored sheet, selector, property) -> (the value it declares, the component that says so).
+STEPS = {
+    # `#save`, the <button> in the engine address group (extension/app.html), is Supabase's
+    # InputGroupButton, h-6, 24px (input-group.tsx@86c813ec:125, :130). It was a 32px segment
+    # of the group, InputGroupButton's `small` (:126), until #1430.
+    (APP, ".engine-url-save", "min-height"): ("var(--sp-5)", GROUP_BUTTON),
+    # The account row's face; the row's first column is the face (the test below).
+    (APP, ".account-face", "width"): ("var(--sp-7)", AVATAR),
+    (APP, ".account-face", "height"): ("var(--sp-7)", AVATAR),
+    # Light, Dark and Device: one ToggleGroup. In the panel the touch target holds it (#1051).
+    (C, ".appearance-scheme-picker button", "min-height"): ("var(--sp-7)", TOGGLE),
+}
+
+#: The record inspector's rail, kept by his ruling on #1457 (#1040 rule 2).
+INSPECTOR = ("the record inspector's icon rail, kept until the grid rebuild (#1367) rewrites it, "
+             "so it is not decided twice: #1040 rule 2, his ruling on #1457")
 
 #: The reads that left the control scale, each at the size it rendered before #1050, and why.
 KEPT = {
@@ -139,19 +167,68 @@ KEPT = {
         "minmax(0, 1fr) auto 2rem", "the column of the pill's chevron, a <span>"),
     (APP, ".accounts-pill-chevron", "width"): ("2rem", "a chevron in a <span>, not a control"),
     (APP, ".accounts-pill-chevron", "height"): ("2rem", "a chevron in a <span>, not a control"),
-    (APP, ".account-face", "width"): (
-        "2rem", "an Avatar, which is h-10 w-10 at avatar.tsx@86c813ec:14, not a control"),
-    (APP, ".account-face", "height"): (
-        "2rem", "an Avatar, which is h-10 w-10 at avatar.tsx@86c813ec:14, not a control"),
     ("scrapex/webui/static/pages/sync.css", ".sync-section-nav a", "min-height"): (
         "2rem", "an in-page section link, which Supabase gives no control size"),
     ("scrapex/webui/static/pages/overview.css", ".overview-source-more", "min-height"): (
         "2rem", "a text link, which Supabase gives no control size"),
+    # The literal heights #1430 found and kept (#1040 rule 2).
+    (APP, ".accounts-action", "min-height"): (
+        "3.5rem", "a card's destination row (a <button>), which Supabase gives no control size"),
+    ("design/data-workspace.css", ".data-source-overview-trigger", "min-height"): (
+        "3.35rem", "a card's disclosure header (a <summary>); their AccordionTrigger declares "
+                   "no height, only py-4 (accordion.tsx@86c813ec:32)"),
+    ("scrapex/webui/static/webui.css", ".source-filter-trigger", "min-height"): (
+        "3.4rem", "a source picker whose label is two lines, the name over its domain: no "
+                  "Supabase trigger shows two, and dropping the domain would lose what tells "
+                  "similar sources apart, so it keeps both: #1040 rule 2, his ruling on #1457"),
+    ("design/grid-theme.css", ".record-inspector-nav button", "width"): ("2.75rem", INSPECTOR),
+    ("design/grid-theme.css", ".record-inspector-nav button", "min-height"): ("2.75rem", INSPECTOR),
 }
 
 #: Supabase's menu and select items declare no height, only padding and text
 #: (dropdown-menu.tsx@86c813ec:104, select.tsx@86c813ec:159), so these two declare none either.
 NO_HEIGHT = {(C, ".split-button-option"), (APP, ".finance-converter-option")}
+
+#: A screen's rule for a Button or an Input that declares none of these, so the shared rule's
+#: size is the control's (#1430): the enrichment page's fields were 40px on their own floor, the
+#: Console's selects 34px with their own padding and its text fields 38.14px,
+#: and the data model's zoom buttons a 40px square of their own, then a 26px one with no
+#: padding. They take tiny's padding around their glyph now, as an icon-only Button does.
+SHARED_SIZE = {
+    ("extension/enrichment.css", "input, select"): {
+        "height", "min-height", "padding", "padding-block", "font", "font-size", "line-height"},
+    # The Console's editor fields: their own padding inside the <select>'s 34px cut its
+    # descenders, and `font: inherit` stood every text field on the Console's 1.55 line.
+    ("extension/console.css", ".field input, .field select"): {
+        "height", "min-height", "padding", "padding-block", "font", "font-size", "line-height"},
+    ("scrapex/webui/static/pages/data-model.css", ".model-zoom .icon-button"): {
+        "height", "min-height", "width", "min-width", "padding", "padding-inline"},
+}
+
+#: AN ICON-ONLY BUTTON IS SUPABASE'S, 36x26 (#1430; his ruling on #1457): their "Only an icon"
+#: Button (button-icon.tsx@86c813ec:5) at its tiny default, tiny's px-2.5 py-1
+#: (constants.ts@86c813ec:54) around its 14px icon (Button.tsx@86c813ec:127) in the Button's
+#: 1px border (:25). Its width is that padding's, so its rule declares no width but `auto`
+#: and no padding of 0, which together drew the 26px square; its icon reads tiny's 14px,
+#: 3.5 steps of their --spacing. The split chevron beside a primary half is #1059's.
+ICON_ONLY = "Button.tsx@86c813ec:127 tiny: [&_svg]:h-[14px] [&_svg]:w-[14px]"
+TINY_ICON = "calc(var(--sp-1) * 3.5)"
+ICON_RULES = {
+    (C, "button.icon-button .sx-icon, .button.icon-button .sx-icon"),
+    (APP, ".dataset-card .split-button-trigger .sx-icon"),
+    ("design/data-workspace.css", ".dataset-icon-button svg"),
+}
+#: The icon-only Buttons' own rules: the shared `xs` notch, the three back buttons (their
+#: icon is `icon-button`'s, extension/app.html), the Data card's menu trigger and the source
+#: list's icon link.
+ICON_ONLY_BOXES = {
+    (C, "button.icon-button.xs, .button.icon-button.xs"),
+    (APP, "button.manage-account-back"),
+    (APP, "button.engine-detail-back"),
+    (APP, ".source-edit-back"),
+    (APP, ".dataset-card .split-button-trigger"),
+    ("design/data-workspace.css", ".dataset-icon-button"),
+}
 
 TOKEN_READ = re.compile(r"--control-height")
 
@@ -254,6 +331,31 @@ def test_a_control_held_off_its_default_names_the_issue_that_moves_it(where):
         f"held at {value} until {issue}. If {issue} moved it, its row belongs in READS.")
 
 
+@pytest.mark.parametrize("where", sorted(STEPS), ids=lambda key: f"{key[0]} {key[1]} {key[2]}")
+def test_a_control_whose_default_is_a_spacing_step_reads_that_step(where):
+    """An InputGroupButton is h-6, an Avatar h-10 w-10 and a Toggle h-10: steps of Tailwind's
+    --spacing, not SIZE heights, so each reads the --sp-* token its step is (#1430). A row
+    cannot cite a component whose step it does not read, and none is a --control-height read,
+    which READS or HELD would name."""
+    value, component = STEPS[where]
+    assert where not in READS and where not in HELD, where
+    assert STEP.get(component) == value, (
+        f"{where[0]} `{where[1]}` {where[2]}: its row reads {value}, but it names {component}, "
+        f"whose default reads {STEP.get(component, 'no step')} here.")
+    found = _authored_declarations().get(where, [])
+    assert found == [value], (
+        f"{where[0]} `{where[1]}` declares {where[2]}: {found or 'nothing'}; it is {component}, "
+        f"which is {value} here.")
+
+
+def test_the_account_rows_first_column_is_the_face():
+    """The face and the column it sits in were two separate 2rem literals, so one could move
+    without the other (#1437, finding 1). The column is the face's width."""
+    columns = _authored_declarations()[(APP, ".account-row", "grid-template-columns")]
+    face = _authored_declarations()[(APP, ".account-face", "width")]
+    assert [_split(value, " \t\n")[0][1] for value in columns] == face, (columns, face)
+
+
 def test_each_panel_read_names_the_element_its_selector_matches():
     """A row names the Supabase component its element is, so the element its selector matches
     in extension/app.html must be that component's: the engine address Save, a <button>, was
@@ -268,7 +370,8 @@ def test_each_panel_read_names_the_element_its_selector_matches():
     markup = BeautifulSoup(PANEL.read_text(encoding="utf-8"), "html.parser")
     checked, grouped, wrong = set(), set(), []
     rows = {**{where: component for where, (_value, component) in READS.items()},
-            **{where: component for where, (_value, component, _issue) in HELD.items()}}
+            **{where: component for where, (_value, component, _issue) in HELD.items()},
+            **{where: component for where, (_value, component) in STEPS.items()}}
     # By identity: a bs4 Tag compares equal to any tag with the same name, attributes and
     # contents.
     groups = {id(element) for (sheet, selector, _prop), component in rows.items()
@@ -293,8 +396,10 @@ def test_each_panel_read_names_the_element_its_selector_matches():
             wrong.append(f"`{selector}` {prop} names {component}, but matches an element "
                          f"outside every GROUP row's element")
     assert not wrong, "\n  ".join(["a row names a component its element is not:", *wrong])
-    # Eleven selectors match the panel's markup today; fewer means one or the parser moved.
-    assert len(checked) >= 11 and ".engine-url-save" in checked, sorted(checked)
+    # Nine selectors match the panel's markup today; fewer means one or the parser moved. The
+    # three back buttons' width rows left when their width became their padding's, and Test
+    # site's row arrived as a Button at size small (#1430).
+    assert len(checked) >= 9 and {".engine-url-save", "#check"} <= checked, sorted(checked)
     # Three sit inside a group: the two groups' inputs and the Save. Fewer means a group's
     # selector stopped matching, and the check above stopped reading it.
     assert len(grouped) >= 3 and ".engine-url-save" in grouped, sorted(grouped)
@@ -320,8 +425,46 @@ def test_a_menu_or_select_item_declares_no_height(where):
         f"padding and text (dropdown-menu.tsx@86c813ec:104, select.tsx@86c813ec:159).")
 
 
+@pytest.mark.parametrize("where", sorted(SHARED_SIZE), ids=lambda key: f"{key[0]} {key[1]}")
+def test_a_screens_button_or_field_takes_the_shared_size(where):
+    sheet, selector = where
+    declared = {prop for (name, sel, prop) in _authored_declarations()
+                if name == sheet and sel == selector}
+    assert declared, f"{sheet} has no `{selector}` rule any more; update SHARED_SIZE"
+    assert not declared & SHARED_SIZE[where], (
+        f"{sheet} `{selector}` declares {sorted(declared & SHARED_SIZE[where])}; the shared "
+        f"Button or Input rule in design/components.css sizes it (#1430).")
+
+
+@pytest.mark.parametrize("where", sorted(ICON_RULES), ids=lambda key: f"{key[0]} {key[1]}")
+def test_an_icon_only_buttons_icon_is_tinys_14px(where):
+    found = _authored_declarations()
+    sizes = {prop: found.get((*where, prop), []) for prop in ("width", "height")}
+    assert sizes == {"width": [TINY_ICON], "height": [TINY_ICON]}, (
+        f"{where[0]} `{where[1]}` declares {sizes}; an icon-only Button's icon is "
+        f"{ICON_ONLY}, which is {TINY_ICON} here (his ruling on #1457).")
+
+
+@pytest.mark.parametrize("where", sorted(ICON_ONLY_BOXES), ids=lambda key: f"{key[0]} {key[1]}")
+def test_an_icon_only_buttons_width_is_its_padding(where):
+    found = _authored_declarations()
+    declared = {prop: found[(*where, prop)] for prop in
+                ("width", "min-width", "padding", "padding-inline", "padding-inline-start",
+                 "padding-inline-end", "padding-left", "padding-right") if (*where, prop) in found}
+    assert any(sheet == where[0] and selector == where[1] for sheet, selector, _ in found), (
+        f"{where[0]} has no `{where[1]}` rule any more; update ICON_ONLY_BOXES")
+    square = {prop: values for prop, values in declared.items()
+              if (prop in {"width", "min-width"} and values != ["auto"])
+              or (prop.startswith("padding") and any(re.fullmatch(r"0(px)?( 0(px)?)*", value)
+                                                      or value.startswith("0 ") for value in values))}
+    assert not square, (
+        f"{where[0]} `{where[1]}` declares {square}: an icon-only Button takes its 36px width "
+        f"from tiny's px-2.5 around its 14px icon ({ICON_ONLY}), not from a width of its own.")
+
+
 def test_the_parsers_see_the_three_surfaces():
     """A sheet that moved out of authored() would empty its rows from every test above."""
-    sheets = {where[0] for where in [*READS, *HELD, *KEPT]}
+    sheets = {where[0] for where in [*READS, *HELD, *KEPT, *STEPS, *SHARED_SIZE, *ICON_RULES,
+                                     *ICON_ONLY_BOXES]}
     found = {sheet.relative_to(ROOT).as_posix() for sheet in authored()}
     assert sheets <= found, sorted(sheets - found)

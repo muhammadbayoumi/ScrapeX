@@ -10,6 +10,11 @@
   line-height:var(--lh-relaxed)}
 .exports-hero-actions{display:flex;align-items:center;gap:var(--sp-2);flex-wrap:wrap;
   margin-top:var(--sp-5)}
+/* On a touch screen the two stand --touch-stack-gap apart when they wrap, so their 44px
+   reaches, 9px past each edge of their 26px boxes, meet between them: the lower one takes
+   none of the upper one's taps, and neither is cut short (his ruling on #1457;
+   design/tokens.css says why it is 18px). */
+@media(hover:none),(pointer:coarse){.exports-hero-actions{row-gap:var(--touch-stack-gap)}}
 .exports-action-output{display:block;min-height:1.2rem;margin-top:var(--sp-2)}
 .exports-hero-summary{display:flex;min-width:0;flex-direction:column;gap:var(--sp-2)}
 .exports-summary-card{display:grid;grid-template-columns:auto minmax(0,1fr) auto;
