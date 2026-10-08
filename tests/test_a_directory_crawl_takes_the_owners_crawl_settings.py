@@ -19,6 +19,9 @@ writes the log lines is the shipped code, not a stand-in for it.
 """
 from __future__ import annotations
 
+import argparse
+from types import SimpleNamespace
+
 import httpx
 import pytest
 
@@ -375,6 +378,70 @@ def test_a_disallow_obeyed_by_the_owners_switch_refuses_each_profile_and_says_wh
     assert any("RobotsDisallowed" in m for m in messages), messages
     disallow = [m for m in messages if m.startswith(f"{HOST}: robots.txt disallows")]
     assert len(disallow) == 1, messages
+
+
+@RUNNERS
+def test_a_stopped_run_still_says_how_it_behaved(conn, monkeypatch, run):
+    """THE STOP EXIT. A pause or cancel unwinds as `CrawlStopped` after a page was read:
+    the robots line and the pace line are still written, on that exit as on the others."""
+    _spy(monkeypatch, robots=SLOW_SITE)
+
+    def crawl_then_stop(*args, **kwargs):
+        args[2](f"https://{HOST}/en/a")
+        raise contractors.CrawlStopped
+
+    monkeypatch.setattr(contractors, "crawl", crawl_then_stop)
+    monkeypatch.setattr(contractors, "details", crawl_then_stop)
+
+    ref = run(conn)
+
+    messages = [line["message"] for line in _lines(conn, ref)]
+    assert f"{HOST}: robots.txt asks for a 10s crawl delay — honoured" in messages, \
+        messages
+    assert any(m.startswith("paced at one request per 10s") for m in messages), messages
+
+
+def test_a_degradation_said_twice_is_written_once_at_warning(conn):
+    ref = jobs.create_job(conn, [SITE], job_kind=directoryjob.JOB_KIND)
+    job_id = jobs.get_job(conn, ref)["job_id"]
+
+    directoryjob.log_politeness(
+        conn, job_id, SITE,
+        SimpleNamespace(degradations=["x refused it", "x refused it"],
+                        robots_warnings=[]))
+
+    lines = [line for line in _lines(conn, ref) if line["message"] == "warning: x refused it"]
+    assert len(lines) == 1, _lines(conn, ref)
+    assert lines[0]["level"] == "warning"
+
+
+@pytest.mark.parametrize("flag", ["--plan", "--crawl", "--details"])
+def test_every_command_line_door_passes_its_pace_and_nothing_else(monkeypatch, flag):
+    """`contractors.run` builds its fetcher in three places; each passes `--pace` alone,
+    so the command line behaves exactly as it did before the owner's settings existed."""
+    asked: list[dict] = []
+    real = contractors.make_fetch
+
+    def spying(crawl_settings):
+        asked.append(crawl_settings)
+        return real(crawl_settings)
+
+    class _Conn:
+        def close(self):
+            pass
+
+    monkeypatch.setattr(contractors, "make_fetch", spying)
+    monkeypatch.setattr(contractors, "validate", lambda args: None)
+    monkeypatch.setattr(contractors, "get_directory", lambda key: object())
+    monkeypatch.setattr(contractors, "open_engine", _Conn)
+    for name in ("plan", "crawl", "details"):
+        monkeypatch.setattr(contractors, name, lambda *a, **k: None)
+    parser = argparse.ArgumentParser()
+    contractors.add_arguments(parser)
+
+    assert contractors.run(parser.parse_args([flag, "--pace", "2.5"])) == 0
+
+    assert asked == [{"min_interval_s": 2.5}]
 
 
 def test_log_politeness_tolerates_a_stand_in_with_nothing_to_say(conn):
