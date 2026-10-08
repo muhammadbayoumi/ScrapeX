@@ -414,3 +414,96 @@ def test_a_firm_the_register_rekeyed_is_found_by_its_cr_number_end_to_end(
 
     assert rows["00169963"]["cr_number"], "the stored firm must carry its CR number"
     assert "changed key: 00169963 → NEWKEY (by cr_number)" in log, log
+
+
+def test_rows_stored_before_the_column_move_to_its_version_when_a_new_run_is_approved(
+        tmp_path, monkeypatch):
+    """THE UPGRADE HE WILL RUN. His warehouse holds Oman rows approved under the schema
+    without `key_warning` (v1). The first approval after this ships grows the schema:
+    v1 retires, v2 opens, every stored row moves to v2 with a revision of its own, and
+    the warning lands on the disagreeing row only. A regression in the retire-or-refuse
+    path would reach every Oman row; this is the guard on it."""
+    import dataclasses
+    import io
+    import json
+    from contextlib import redirect_stdout
+
+    from scrapex import contractors, directories
+    from scrapex.databases import DatabaseRegistry, EngineDatabase
+    from scrapex.extract import oman_tenderboard as extract
+    from scrapex.snapshotbody import encode
+
+    registry = DatabaseRegistry(EngineDatabase(tmp_path / "scrapex-engine.db"),
+                                pointer_file=tmp_path / "databases.json")
+    registry.initialize()
+    conn = registry.engine.connect()
+    monkeypatch.setattr(contractors, "coverage", lambda c, key: "")
+    monkeypatch.setattr(contractors, "LOG", tmp_path / "listing.log")
+    try:
+        def page_pair(run_ref: str, page: int, english: str, arabic: str) -> dict:
+            pair = {}
+            for locale, direction, html in (("en", "LTR", english), ("ar", "RTL", arabic)):
+                url = (f"https://esnad.example/page?CTRL_STRDIRECTION={direction}"
+                       f"&pageNo={page}")
+                body, codec, dict_id = encode(conn, html, label=None)
+                snapshot = conn.execute(
+                    "INSERT INTO generic_page_snapshot (source_url, html_content, "
+                    " content_hash, crawl_run_ref, html_codec, html_dict_id, "
+                    " captured_at) VALUES (?,?,?,?,?,?,?) RETURNING page_snapshot_id",
+                    (url, body, f"{run_ref}{url}", run_ref, codec, dict_id,
+                     f"2026-10-0{page}T10:00:00Z")).fetchone()[0]
+                pair[locale] = (snapshot, html)
+            conn.commit()
+            return {f"page-{page}": pair}
+
+        def approve(run_ref: str, pairs: dict, directory) -> str:
+            monkeypatch.setattr(contractors, "_pairs",
+                                lambda c, d, ref, *, ids=(): pairs)
+            said = io.StringIO()
+            with redirect_stdout(said):
+                contractors.approve(conn, directory, run_ref)
+            return said.getvalue()
+
+        # v1: the schema as it shipped before this change -- the same candidate with
+        # `key_warning` taken out of its fields and its rows, so its hash is v1's.
+        def without_the_column(english, arabic, **kwargs):
+            whole = extract.bilingual_listing_candidate(english, arabic, **kwargs)
+            return dataclasses.replace(
+                whole,
+                fields=tuple(f for f in whole.fields if f.field_key != "key_warning"),
+                rows=tuple({k: v for k, v in r.items() if k != "key_warning"}
+                           for r in whole.rows))
+        oman = directories.get("oman_tenderboard")
+        first = approve("run-old", page_pair("run-old", 1, _pairable_en(), AR),
+                        dataclasses.replace(oman, candidate=without_the_column))
+        assert "approved 1 page(s)" in first, first
+
+        second = approve("run-new", page_pair(
+            "run-new", 2, _disagreeing(_pairable_en()), AR), oman)
+        assert "approved 1 page(s)" in second, second
+
+        versions = conn.execute(
+            "SELECT v.version_number, v.status, v.schema_version_id "
+            "  FROM dataset_schema_version AS v JOIN dataset_definition AS d "
+            "    ON d.dataset_definition_id = v.dataset_definition_id "
+            " WHERE d.dataset_key = ? ORDER BY v.version_number",
+            (DATASET_KEY,)).fetchall()
+        assert [(n, s) for n, s, _ in versions] == [(1, "retired"), (2, "approved")]
+        current = versions[-1][2]
+        stored = conn.execute(
+            "SELECT r.schema_version_id, r.data_json, "
+            "       (SELECT COUNT(*) FROM generic_record_revision AS v "
+            "         WHERE v.generic_record_id = r.generic_record_id) "
+            "  FROM generic_record AS r JOIN dataset_definition AS d "
+            "    ON d.dataset_definition_id = r.dataset_definition_id "
+            " WHERE d.dataset_key = ?", (DATASET_KEY,)).fetchall()
+    finally:
+        conn.close()
+
+    assert len(stored) == len(_candidate().rows), "no firm may be lost or doubled"
+    assert {version for version, _, _ in stored} == {current}, "a row stayed on v1"
+    assert all(revisions == 2 for _, _, revisions in stored), stored
+    warnings = {json.loads(blob)["short_name"]: json.loads(blob).get("key_warning")
+                for _, blob, _ in stored}
+    assert warnings.pop("00169963"), "the disagreeing row lost its warning"
+    assert not any(warnings.values()), warnings

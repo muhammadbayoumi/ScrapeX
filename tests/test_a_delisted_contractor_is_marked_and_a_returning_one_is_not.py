@@ -670,6 +670,108 @@ def test_one_cr_number_under_two_new_keys_keeps_the_firm_and_names_both(conn, ca
             in capsys.readouterr().out)
 
 
+def test_an_established_firm_sharing_the_cr_number_does_not_keep_a_departed_one(
+        conn, capsys):
+    """HIS RULING ON #1540's REVIEW: the key a firm is found under must be NEW. GONE left
+    and STAYS, stored and sighted long before, carries the same CR number. Matching
+    STAYS would spare GONE on this crawl and every one after it."""
+    _stored(conn, ("GONE", "active", "CR-1"), ("STAYS", "active", "CR-1"))
+    _ledger(conn, "GONE", "STAYS")
+
+    _crawl(conn, _registered(), ["STAYS"], [("STAYS", "CR-1", "stays")])
+
+    assert _absent_at(conn, "GONE") is not None
+    assert "changed key" not in capsys.readouterr().out
+
+
+def test_an_established_firm_echoing_the_key_does_not_keep_a_departed_one(conn, capsys):
+    """The same rule on the second-key evidence."""
+    _stored(conn, ("GONE", "active"), ("ECHO", "active"))
+    _ledger(conn, "GONE", "ECHO")
+
+    _crawl(conn, _registered(), ["ECHO"], [("ECHO", None, "gone")])
+
+    assert _absent_at(conn, "GONE") is not None
+    assert "changed key" not in capsys.readouterr().out
+
+
+def test_a_key_stored_in_any_status_is_not_new(conn, capsys):
+    """A key the warehouse holds as unavailable or retired is a firm it already knows,
+    not the new key of another."""
+    _stored(conn, ("OLD", "active", "CR-7"), ("BACK", "unavailable", "CR-7"),
+            ("HELD", "retired", "CR-8"), ("OLD2", "active", "CR-8"))
+    _ledger(conn, "OLD", "BACK", "HELD", "OLD2")
+
+    _crawl(conn, _registered(), ["BACK", "HELD"],
+           [("BACK", "CR-7", "back"), ("HELD", "CR-8", "held")])
+
+    assert _absent_at(conn, "OLD") is not None
+    assert _absent_at(conn, "OLD2") is not None
+    assert "changed key" not in capsys.readouterr().out
+
+
+def _add_record(conn, contractor_id: str, cr: str) -> None:
+    """A record approved into the dataset `_stored` already made -- what the approval
+    of the crawl that showed a new key leaves behind."""
+    definition, version = conn.execute(
+        "SELECT dataset_definition_id, schema_version_id FROM generic_record "
+        " LIMIT 1").fetchone()
+    conn.execute(
+        "INSERT INTO generic_record "
+        "(dataset_definition_id, record_key, schema_version_id, data_json, "
+        " source_snapshot_id, source_locator, content_hash, status) "
+        "VALUES (?, ?, ?, ?, 1, 'x', ?, 'active')",
+        (definition, _record_key(contractor_id), version,
+         json.dumps({"contractor_id": contractor_id, "cr_number": cr}),
+         f"h{contractor_id}"))
+    conn.commit()
+
+
+def test_the_guard_spares_once_and_the_next_crawl_retires_the_old_key(conn, capsys):
+    """Spared on the crawl that first shows the new key; once that key is approved it
+    is stored, it is no longer new, and the old record is proved absent and marked --
+    which is what retires the duplicate the change of key left behind."""
+    _stored(conn, ("OLD", "active", "CR-7"))
+    _ledger(conn, "OLD")
+
+    _crawl(conn, _registered(), ["NEW"], [("NEW", "CR-7", "new")])
+    assert _absent_at(conn, "OLD") is None
+    assert "changed key: OLD → NEW" in capsys.readouterr().out
+
+    _add_record(conn, "NEW", "CR-7")
+    _ledger(conn, "OLD", "NEW")
+    _crawl(conn, _registered(), ["NEW"], [("NEW", "CR-7", "new")])
+
+    assert _absent_at(conn, "OLD") is not None
+    assert _status(conn, "OLD") == "unavailable"
+    assert _status(conn, "NEW") == "active"
+    assert "changed key" not in capsys.readouterr().out
+
+
+def test_evidence_from_an_earlier_attempt_still_finds_the_firm(conn, capsys):
+    """Rows move between pages while a heavy cell is read more than once, so the row
+    that shows a firm's new key can be read by attempt 1 and missed by attempt 2. The
+    evidence of EVERY attempt is the crawl's evidence; the last one's alone would mark
+    the firm gone."""
+    import dataclasses
+
+    _stored(conn, ("OLD", "active", "CR-7"), ("KEPT", "active", "CR-1"))
+    _ledger(conn, "OLD", "KEPT")
+    outcome = _outcome(declared_whole=2, declared_cell=2, ids=("KEPT", "NEW"),
+                       evidence=_seen(("NEW", "CR-7", "new")))
+    cell = outcome.cells[0]
+    later = dataclasses.replace(cell.attempts[0], run_ref="r-a2", ids=("KEPT", "NEW"),
+                                identity_evidence=_seen(("KEPT", "CR-1", "kept")))
+    outcome = dataclasses.replace(outcome, cells=(dataclasses.replace(
+        cell, attempts=(cell.attempts[0], later)),))
+
+    from scrapex.contractors import mark_departures
+    mark_departures(conn, _registered(), outcome, "r9")
+
+    assert _absent_at(conn, "OLD") is None
+    assert "changed key: OLD → NEW (by cr_number)" in capsys.readouterr().out
+
+
 def test_a_directory_with_no_registration_field_does_not_match_on_one(conn, capsys):
     """Generic, not Oman's: muqawil names no registration field, so a CR-shaped value in
     its evidence is not looked up and the departure stands on the key."""

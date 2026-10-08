@@ -543,10 +543,16 @@ def mark_departures(conn, directory: Directory, outcome, run_ref: str) -> None:
     activities argument). Found either way it CHANGED KEY: it is named, counted, and
     neither recorded absent nor marked. Found neither way, the proof stands as before.
     A firm with no stored number and no echoing row is therefore still marked on its
-    key alone -- the limit of the evidence, not a choice. A number one stored firm shares
-    with another still published keeps it too, and is named the same way, because which
-    of two rows carrying one CR number is the firm is his to read, not this to guess. If
-    the site ever rekeyed every firm, this says "23,600 changed key", not "departed".
+    key alone -- the limit of the evidence, not a choice. If the site ever rekeyed every
+    firm, this says "23,600 changed key", not "departed".
+
+    THE KEY IT IS FOUND UNDER MUST BE NEW: one the warehouse has never stored, in any
+    status. His ruling on #1540's review. A firm that left and an established firm that
+    stays can share a CR number, and matching the second would spare the first on every
+    crawl for good. So the guard spares a firm ONCE, on the crawl that first shows its
+    new key; after that key is approved it is stored, the old key no longer matches,
+    and the old record is proved absent and marked like any other -- which is also what
+    retires the duplicate the change of key left behind.
     """
     if outcome.nested:
         say(f"departures not marked: this crawl proves {outcome.scope} only, and a "
@@ -563,12 +569,17 @@ def mark_departures(conn, directory: Directory, outcome, run_ref: str) -> None:
     seen = {str(one) for one in outcome.ids}
     unseen = set(stored_ids(conn, directory.dataset_key,
                             id_field=directory.identity_field)) - seen
+    # EVERY STATUS, so a key stored and since marked unavailable or retired is not new.
+    known = set(stored_ids(conn, directory.dataset_key,
+                           id_field=directory.identity_field, active_only=False))
     # SET-BASED, BOTH SIDES READ ONCE -- `stored_ids` on why a `json_extract` per id
     # is the cost to avoid. Keys are folded to lower case on the second-key side only,
     # because that is where the site was measured to differ in case.
     by_registration: dict[str, set[str]] = {}
     by_second_key: dict[str, set[str]] = {}
     for row in outcome.identity_evidence:
+        if row.key in known:
+            continue
         # A BLANK IS NEVER LOOKED UP: `stored_values` returns no blank number to look
         # one up by, so a blank kept here is unreachable rather than a match.
         if row.registration:
