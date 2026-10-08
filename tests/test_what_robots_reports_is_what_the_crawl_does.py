@@ -26,6 +26,8 @@ did, not in what any function returned.
 """
 from __future__ import annotations
 
+import math
+
 import httpx
 import pytest
 
@@ -1156,19 +1158,108 @@ def test_the_route_waits_a_short_retry_after_and_retries(panel, monkeypatch):
     assert shown["found"] is True and shown["retry_after_s"] is None, shown
 
 
-def test_a_prompt_read_caps_every_wait_at_the_timeout(monkeypatch):
-    """The exponential backoff too: a 100s pace would back off 200s, 400s."""
-    slept = _sleeps(monkeypatch)
-    fetcher = HttpFetcher(min_interval_s=100.0, jitter=0.0, timeout_s=10.0)
-    fetcher._client = httpx.Client(transport=httpx.MockTransport(
-        lambda request: (_ for _ in ()).throw(httpx.ConnectError("refused"))),
-        timeout=10.0)
+def _clocked_sleeps(monkeypatch) -> tuple[list[float], list[float]]:
+    """A clock that moves only by what is slept, or by `now[0] += n` in a handler."""
+    now = [FROZEN_CLOCK]
+    slept: list[float] = []
+
+    def sleep(seconds):
+        slept.append(seconds)
+        now[0] += seconds
+    monkeypatch.setattr("scrapex.connectors.base.time.monotonic", lambda: now[0])
+    monkeypatch.setattr("scrapex.connectors.base.time.sleep", sleep)
+    return now, slept
+
+
+def _prompt_fetcher(handler, *, timeout_s=10.0, pace=0.0, attempts=3) -> HttpFetcher:
+    fetcher = HttpFetcher(min_interval_s=pace, jitter=0.0, timeout_s=timeout_s,
+                          max_attempts=attempts)
+    fetcher._client = httpx.Client(transport=httpx.MockTransport(handler),
+                                   timeout=timeout_s)
+    return fetcher
+
+
+def test_a_prompt_read_never_starts_a_wait_it_has_no_time_for(monkeypatch):
+    """A 100s pace backs off 200s: past a 10s budget, so the route does not wait it.
+    It answers on what it has and says the crawl would have kept going."""
+    _, slept = _clocked_sleeps(monkeypatch)
+    asked: list[int] = []
+
+    def refused(request):
+        asked.append(1)
+        raise httpx.ConnectError("refused")
+
+    read = _prompt_fetcher(refused, pace=100.0).read_robots(PAGE, answer_promptly=True)
+
+    assert read.unreachable is True and read.cut_short is True, read
+    assert asked == [1] and slept == [], (asked, slept)
+
+
+def test_the_prompt_reads_whole_time_is_bounded(monkeypatch):
+    """THE TOTAL, NOT ONLY EACH WAIT. A host that times out every attempt: each takes
+    the whole timeout it is given, so a retry gets only what is left of the budget and
+    none starts once it is spent. Without the deadline it was ~96-150s against the
+    panel's open request."""
+    now, _ = _clocked_sleeps(monkeypatch)
+
+    def times_out(request):
+        # Each attempt spends the whole timeout it was GIVEN, as a dead host does.
+        now[0] += request.extensions["timeout"]["read"]
+        raise httpx.ReadTimeout("no answer")
+
+    fetcher = _prompt_fetcher(times_out, timeout_s=10.0, pace=1.0, attempts=5)
+    started = now[0]
 
     read = fetcher.read_robots(PAGE, answer_promptly=True)
 
-    assert read.unreachable is True and read.retry_after_s is None
-    backoffs = [wait for wait in slept if wait != 100.0]   # the pace is not a backoff
-    assert backoffs and all(wait <= 10.0 for wait in backoffs), slept
+    # One attempt (10s) plus at most the budget (10s) for the retries.
+    assert now[0] - started <= 20.0, now[0] - started
+    assert read.unreachable is True and read.cut_short is True, read
+
+
+def test_a_prompt_read_with_time_to_spare_retries_like_the_crawl(monkeypatch):
+    _, slept = _clocked_sleeps(monkeypatch)
+    calls: list[int] = []
+
+    def once_down(request):
+        calls.append(1)
+        if len(calls) == 1:
+            raise httpx.ConnectError("dropped")
+        return httpx.Response(404)
+
+    read = _prompt_fetcher(once_down, pace=1.0).read_robots(PAGE, answer_promptly=True)
+
+    assert len(calls) == 2 and read.cut_short is False and read.unreachable is False
+    assert slept[0] == 2.0, slept                        # the crawl's own backoff
+
+
+def test_the_crawls_read_has_no_deadline(monkeypatch):
+    """The same timing-out host under the CRAWL: every attempt is made."""
+    now, _ = _clocked_sleeps(monkeypatch)
+    asked: list[int] = []
+
+    def times_out(request):
+        asked.append(1)
+        now[0] += 10.0
+        raise httpx.ReadTimeout("no answer")
+
+    read = _prompt_fetcher(times_out, pace=1.0, attempts=5).read_robots(PAGE)
+
+    assert len(asked) == 5 and read.cut_short is False
+
+
+def test_the_route_says_when_its_time_ran_out(panel, monkeypatch):
+    now, _ = _clocked_sleeps(monkeypatch)
+
+    def times_out(request):
+        now[0] += request.extensions["timeout"]["read"]
+        raise httpx.ReadTimeout("no answer")
+
+    shown = _route_only(panel, monkeypatch, times_out)
+
+    assert shown["cut_short"] is True, shown
+    assert shown["unreachable"] is True, shown
+    assert "stopped retrying at its time limit" in shown["summary"], shown["summary"]
 
 
 def test_the_crawl_still_waits_the_full_retry_after(monkeypatch):
@@ -1190,3 +1281,231 @@ def test_the_crawls_read_never_reports_a_retry_after(monkeypatch):
     read = fetcher.read_robots(PAGE)
 
     assert read.retry_after_s is None and read.unreachable is True
+
+
+# ---- a Retry-After that is not a wait (#1588 re-review) -------------------------
+
+NOT_A_WAIT = [pytest.param(v, id=v) for v in ("inf", "nan", "1e999", "-5", "-inf")]
+
+
+@pytest.mark.parametrize("named", NOT_A_WAIT)
+def test_the_route_survives_a_retry_after_that_is_not_a_number_of_seconds(
+        panel, monkeypatch, named):
+    """`inf` reached the JSON and crashed the route with a 500: a scraped header must
+    never take the panel down. Read as no Retry-After at all."""
+    _sleeps(monkeypatch)
+    shown = _route_only(panel, monkeypatch, lambda request: httpx.Response(
+        503, headers={"Retry-After": named}))
+
+    assert shown["retry_after_s"] is None, shown
+    assert shown["unreachable"] is True, shown
+
+
+@pytest.mark.parametrize("named", NOT_A_WAIT)
+def test_a_page_backs_off_by_default_on_a_retry_after_that_is_not_a_wait(
+        monkeypatch, named):
+    """On a page, `nan` slipped through `min` and `max` into `sleep(0)`: a retry with
+    no wait at all. The default backoff -- twice the pace -- stands instead."""
+    slept = _sleeps(monkeypatch)
+    calls: list[int] = []
+
+    def handler(request):
+        if request.url.path == "/robots.txt":
+            return httpx.Response(404)
+        calls.append(1)
+        if len(calls) == 1:
+            return httpx.Response(503, headers={"Retry-After": named})
+        return httpx.Response(200, text="ok")
+
+    fetcher = HttpFetcher(min_interval_s=3.0, jitter=0.0)
+    fetcher._client = httpx.Client(transport=httpx.MockTransport(handler))
+
+    assert fetcher.get(PAGE).status_code == 200
+
+    assert 6.0 in slept, slept
+    assert all(math.isfinite(wait) and wait >= 0 for wait in slept), slept
+    assert not any("ceiling" in w for w in fetcher.robots_warnings)
+
+
+@pytest.mark.parametrize("named,expected", [("0", 0.0), ("12.5", 12.5), ("", None),
+                                            ("Wed, 21 Oct 2026 07:28:00 GMT", None)])
+def test_a_retry_after_that_is_a_wait_is_still_read(named, expected):
+    assert HttpFetcher._retry_after_s(
+        httpx.Response(503, headers={"Retry-After": named})) == expected
+
+
+def test_a_robots_retry_still_waits_the_pace_when_the_backoff_is_shorter(monkeypatch):
+    """Retry-After: 0 is a backoff of nothing; the 5s pace is still owed before the
+    retry, as `_request` owes it."""
+    now, slept = _clocked_sleeps(monkeypatch)
+    seen_at: list[float] = []
+
+    def handler(request):
+        seen_at.append(now[0])
+        if len(seen_at) == 1:
+            return httpx.Response(503, headers={"Retry-After": "0"})
+        return httpx.Response(404)
+
+    fetcher = HttpFetcher(min_interval_s=5.0, jitter=0.0)
+    fetcher._client = httpx.Client(transport=httpx.MockTransport(handler))
+
+    fetcher.read_robots(PAGE)
+
+    assert seen_at[1] - seen_at[0] >= 5.0, (seen_at, slept)
+
+
+# ---- the route and a browser source (#1588 re-review) --------------------------
+
+@pytest.fixture(scope="module")
+def browser_panel(tmp_path_factory):
+    import os
+    import subprocess
+    import sys
+
+    import yaml
+    from fastapi.testclient import TestClient
+
+    root = tmp_path_factory.mktemp("route-browser")
+    manifest = root / "sources.yaml"
+    manifest.write_text(yaml.safe_dump({"sources": [{
+        "source_key": "BROWSED", "source_name": "BROWSED",
+        "base_url": f"https://{HOST}", "family": "custom-json-api",
+        "cadence": "daily", "authority": "shop", "active": False, "currency": "SAR",
+        "default_region": "SA", "vat_mode": "incl", "robots": "obey",
+        "fetcher": "browser",
+        "extract": [{"kind": "product_prices", "scope": "census"}]}]}),
+        encoding="utf-8")
+    database = root / "engine.db"
+    made = subprocess.run([sys.executable, "-m", "scrapex.cli", "init-db",
+                           "--db", str(database)],
+                          env=dict(os.environ, SCRAPEX_SOURCES=str(manifest)),
+                          capture_output=True, text=True, timeout=300)
+    assert made.returncode == 0, made.stderr
+
+    from scrapex.webui.app import create_app
+
+    return TestClient(create_app(db_path=str(database), manifest_path=str(manifest)))
+
+
+def test_a_browser_source_is_told_its_crawl_reads_no_robots_txt(browser_panel,
+                                                                monkeypatch):
+    """The browser transport reads no robots.txt, so "the crawl pauses" would be a
+    claim about a crawl that never asks. The file is shown; no pause is claimed."""
+    _sleeps(monkeypatch)
+    real_client = httpx.Client
+
+    def stubbed_client(*args, **kwargs):
+        kwargs["transport"] = httpx.MockTransport(lambda request: httpx.Response(503))
+        return real_client(*args, **kwargs)
+    monkeypatch.setattr(httpx, "Client", stubbed_client)
+    try:
+        shown = browser_panel.get("/api/sources/BROWSED/robots").json()
+    finally:
+        monkeypatch.setattr(httpx, "Client", real_client)
+
+    assert shown["crawl_reads_robots"] is False, shown
+    assert shown["unreachable"] is False, shown
+    assert shown["unreadable"] == "HTTP 503", shown
+    assert shown["on_a_disallowed_path"]["may_fetch"] is True, shown
+    assert "reads no robots.txt" in shown["on_a_disallowed_path"]["reason"]
+    assert "pauses" not in shown["summary"], shown["summary"]
+    assert "reads no robots.txt" in shown["summary"], shown["summary"]
+
+
+def test_a_browser_source_does_not_start_a_browser_to_read_robots(browser_panel,
+                                                                 monkeypatch):
+    """`resolve_fetcher` would build a BrowserFetcher -- Playwright -- for it."""
+    import scrapex.connectors.base as base
+
+    def no_browser(*args, **kwargs):
+        raise AssertionError("the route started a browser to read robots.txt")
+    monkeypatch.setattr(base.BrowserFetcher, "__init__", no_browser)
+    real_client = httpx.Client
+
+    def stubbed_client(*args, **kwargs):
+        kwargs["transport"] = httpx.MockTransport(lambda request: httpx.Response(404))
+        return real_client(*args, **kwargs)
+    monkeypatch.setattr(httpx, "Client", stubbed_client)
+    try:
+        response = browser_panel.get("/api/sources/BROWSED/robots")
+    finally:
+        monkeypatch.setattr(httpx, "Client", real_client)
+
+    assert response.status_code == 200, response.text
+
+
+def test_the_route_closes_the_fetcher_it_read_with(panel, monkeypatch):
+    closed: list[int] = []
+    real_close = HttpFetcher.close
+
+    def spy(self):
+        closed.append(1)
+        real_close(self)
+    monkeypatch.setattr(HttpFetcher, "close", spy)
+
+    _route_only(panel, monkeypatch, lambda request: httpx.Response(404))
+
+    assert closed == [1], closed
+
+
+# ---- a cached host never waits behind another host's read (#1588 re-review) ----
+
+def test_a_cached_host_does_not_wait_behind_another_hosts_robots_read():
+    """One lock serves every host, and a read can back off for minutes: a page of a
+    host whose answer is cached must not queue behind it."""
+    import threading
+
+    reading_b = threading.Event()
+    release_b = threading.Event()
+
+    def handler(request):
+        if request.url.host == "b.test" and request.url.path == "/robots.txt":
+            reading_b.set()
+            release_b.wait(10)
+            return httpx.Response(404)
+        if request.url.path == "/robots.txt":
+            return httpx.Response(404)
+        return httpx.Response(200, text="ok")
+
+    fetcher = HttpFetcher(min_interval_s=0.0, jitter=0.0)
+    fetcher._client = httpx.Client(transport=httpx.MockTransport(handler))
+    fetcher.get(f"https://{HOST}/first")                 # HOST's answer is cached
+    other = threading.Thread(target=fetcher.get, args=("https://b.test/x",))
+    other.start()
+    assert reading_b.wait(5), "the second host's read never started"
+
+    done = threading.Event()
+    threading.Thread(target=lambda: (fetcher.get(f"https://{HOST}/second"),
+                                     done.set())).start()
+    finished = done.wait(2)
+    release_b.set()
+    other.join(5)
+
+    assert finished, "a cached host's page waited behind another host's robots read"
+
+
+def test_a_host_not_yet_read_still_reads_once_under_the_lock():
+    """The other half: the fast path is for answered hosts only."""
+    import threading
+
+    asked: list[str] = []
+    guard = threading.Lock()
+
+    def handler(request):
+        with guard:
+            asked.append(request.url.path)
+        if request.url.path == "/robots.txt":
+            threading.Event().wait(0.1)
+            return httpx.Response(404)
+        return httpx.Response(200, text="ok")
+
+    fetcher = HttpFetcher(min_interval_s=0.0, jitter=0.0)
+    fetcher._client = httpx.Client(transport=httpx.MockTransport(handler))
+    threads = [threading.Thread(target=fetcher.get, args=(f"{PAGE}?n={n}",))
+               for n in range(4)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert asked.count("/robots.txt") == 1, asked

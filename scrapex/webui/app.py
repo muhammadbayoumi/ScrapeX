@@ -2363,23 +2363,28 @@ def create_app(
         # the same timeout, agent, headers, retries and classification.
         #
         # A BROWSER SOURCE GETS THE GENERAL FETCHER: `resolve_fetcher` would start
-        # Playwright for it, and the browser transport reads no robots.txt at all.
+        # Playwright for it. And the browser transport reads no robots.txt at all, so
+        # for that source the file is SHOWN and nothing is claimed about its crawl:
+        # no pause, no Disallow, no delay -- saying "the crawl pauses" there would be
+        # the disagreement this route exists to remove.
         #
         # ONE HOST: `base_url`'s. A source that reads another host too (heidelberg's
         # API and corporate hosts) has each read by the crawl on first contact, and
         # `robots_url` below says which one this answer is about.
+        browser = entry.fetcher == Fetcher.BROWSER
         fetcher = (general_fetcher(crawl, source_user_agent=entry.user_agent)
-                   if entry.fetcher == Fetcher.BROWSER
-                   else resolve_fetcher(entry, crawl))
+                   if browser else resolve_fetcher(entry, crawl))
         try:
-            # PROMPTLY: the panel is waiting, so no backoff outlasts the timeout and
-            # a long Retry-After is reported instead of waited (`retry_after_s`).
+            # PROMPTLY: the panel is waiting, with no timeout of its own. A long
+            # Retry-After is reported instead of waited (`retry_after_s`), and the
+            # retries stop at one timeout's budget (`cut_short`).
             read = fetcher.read_robots(entry.base_url, answer_promptly=True)
         finally:
             fetcher.close()
 
         report = inspect(entry.base_url, read.text, user_agent=agent,
-                         unreadable=read.unreadable, unreachable=read.unreachable)
+                         unreadable=read.unreadable,
+                         unreachable=read.unreachable and not browser)
         choice = RobotsChoice(entry.robots or "default")
         custom = None
         if choice is RobotsChoice.CUSTOM and entry.robots_custom:
@@ -2388,14 +2393,30 @@ def create_app(
                 crawl_delay_s=entry.robots_custom.get("crawl_delay_s"))
         # Shown as "what would happen on a disallowed path", because that is the
         # only case where the three choices differ at all.
-        try:
-            verdict = decide(report, choice, custom=custom,
-                             tool_default_obeys=obeys_by_default,
-                             honour_site_delay=honours_delay, url_disallowed=True)
-            outcome = {"may_fetch": verdict.may_fetch, "delay_s": verdict.delay_s,
-                       "reason": verdict.reason}
-        except ValueError as exc:
-            outcome = {"may_fetch": None, "delay_s": None, "error": str(exc)}
+        if browser:
+            outcome = {"may_fetch": True, "delay_s": None,
+                       "reason": f"{source_key} is crawled by a real browser, which "
+                                 "reads no robots.txt: no rule of this file, and no "
+                                 "pause, applies to its crawl"}
+        else:
+            try:
+                verdict = decide(report, choice, custom=custom,
+                                 tool_default_obeys=obeys_by_default,
+                                 honour_site_delay=honours_delay, url_disallowed=True)
+                outcome = {"may_fetch": verdict.may_fetch,
+                           "delay_s": verdict.delay_s, "reason": verdict.reason}
+            except ValueError as exc:
+                outcome = {"may_fetch": None, "delay_s": None, "error": str(exc)}
+        said = [report.summary()]
+        if read.retry_after_s is not None:
+            said.append(f"The site asked to be retried after {read.retry_after_s:g}s; "
+                        "the crawl waits that long and retries before this answer "
+                        "is final.")
+        if read.cut_short:
+            said.append("This check stopped retrying at its time limit; the crawl "
+                        "keeps retrying before this answer is final.")
+        if browser:
+            said.append(outcome["reason"] + ".")
 
         return {
             "source_key": source_key,
@@ -2411,14 +2432,17 @@ def create_app(
             # The site asked to be retried after this many seconds -- longer than
             # this route waits. The crawl waits it and retries before deciding.
             "retry_after_s": read.retry_after_s,
+            # The retries ran out of this route's time budget before their attempts;
+            # the crawl would have kept going.
+            "cut_short": read.cut_short,
+            # FALSE for a browser source: its crawl reads no robots.txt.
+            "crawl_reads_robots": not browser,
             "names_us": report.names_us,
             "user_agent": agent,
             "crawl_delay_s": report.crawl_delay_s,
-            "would_block_everything": report.obeying_would_block_everything,
-            "summary": report.summary() + (
-                f" The site asked to be retried after {read.retry_after_s:g}s; the "
-                "crawl waits that long and retries before this answer is final."
-                if read.retry_after_s is not None else ""),
+            "would_block_everything": (report.obeying_would_block_everything
+                                       and not browser),
+            "summary": " ".join(said),
             "rules": [{"kind": r.kind, "value": r.value, "agent": r.agent}
                       for r in report.rules],
             "choice": str(choice),

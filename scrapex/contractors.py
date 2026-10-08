@@ -981,6 +981,10 @@ def details(conn, directory: Directory, fetch, fetcher, run_ref: str,
             #: stored and their notes, so the run row closed `rows_seen=0` over
             #: snapshots that were on disk.
             blocked: CrawlBlocked | None = None
+            #: Any other failure a worker raised -- a connection that would not open.
+            #: Read on past it too, for the same account; raised after the loop, and
+            #: a block outranks it, so the site's stop is never lost behind it.
+            failure: Exception | None = None
             with ThreadPoolExecutor(max_workers=workers,
                                     thread_name_prefix="detail") as pool:
                 futures = [pool.submit(run, number, url)
@@ -995,6 +999,11 @@ def details(conn, directory: Directory, fetch, fetcher, run_ref: str,
                     except CrawlBlocked as stop:
                         blocked = blocked or stop
                         continue
+                    except Exception as other:
+                        failure = failure or other
+                        notes.append(f"  a worker failed: {type(other).__name__}: "
+                                     f"{other}")
+                        continue
                     if did is None:
                         continue
                     stored += did
@@ -1003,6 +1012,8 @@ def details(conn, directory: Directory, fetch, fetcher, run_ref: str,
                         notes.append(note)
             if blocked is not None:
                 raise blocked
+            if failure is not None:
+                raise failure
         else:
             for number, url in enumerate(todo, start=1):
                 # BEFORE THE FETCH, so a stop costs no request. Asked with the index of

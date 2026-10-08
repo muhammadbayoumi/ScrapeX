@@ -457,6 +457,50 @@ def test_the_pooled_sweep_counts_every_page_its_workers_stored(conn, monkeypatch
     assert len(refused) >= 4, "the refusals before the trip were not said"
 
 
+def test_a_later_workers_other_failure_does_not_lose_the_sites_stop(conn,
+                                                                   monkeypatch):
+    """The first future meets the site's stop; a later one fails for another reason
+    (its connection would not open). That second exception used to propagate in the
+    stop's place: the run row stayed `running` for ever and the pause became a
+    failure. Now the stop wins, the run closes, and the other failure is said."""
+    import sqlite3
+    import threading
+
+    db_file = conn.execute("PRAGMA database_list").fetchone()[2]
+    opened: list[int] = []
+    guard = threading.Lock()
+
+    def connect():
+        with guard:
+            opened.append(1)
+            first = len(opened) == 1
+        if first:
+            return dbmod.connect(db_file)
+        raise sqlite3.OperationalError("unable to open database file")
+
+    def slow_down(request: httpx.Request) -> httpx.Response:
+        # Holds the first worker inside the robots read, so the second one opens its
+        # connection -- and fails -- before the halt is set.
+        threading.Event().wait(0.3)
+        return httpx.Response(503)
+
+    site = _Site(slow_down)
+    fetcher, fetch = contractors.make_fetch({"min_interval_s": 0.0})
+    fetcher._client = httpx.Client(transport=httpx.MockTransport(site))
+    fetcher._max_attempts = 1
+    said: list[str] = []
+
+    with contractors.lines_go_to(said.append), pytest.raises(RobotsUnreachable):
+        contractors.details(conn, directoryjob.directories.get(SITE), fetch, fetcher,
+                            "mixed-run", ids=("7101", "7102", "7103"), workers=2,
+                            connect=connect)
+    fetcher.close()
+
+    assert len(opened) >= 2, "the second worker never tried its connection"
+    assert _runs(conn) == ["partial"], "the run row was left open"
+    assert any("a worker failed: OperationalError" in line for line in said), said
+
+
 def test_one_dead_profile_is_still_one_failed_page(conn, monkeypatch):
     """THE ISOLATION THAT STAYS. A 404 is not the site's stop: filed, said, and the
     sweep carries on to `completed`."""
