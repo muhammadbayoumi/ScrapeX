@@ -185,6 +185,7 @@ def test_the_robots_vocabulary_is_the_enums_and_nothing_else(conn):
     pytest.param("user_agent", ("\x85",), id="agent-c1-control"),
     pytest.param("user_agent", ("caf\u00e9/1",), id="agent-accented"),
     pytest.param("user_agent", ("A/1\tB",), id="agent-tab"),
+    pytest.param("user_agent", ("A\x7f/1",), id="agent-delete"),
     pytest.param("user_agent", (b"A/1",), id="agent-a-blob"),
     pytest.param("crawl_pace_s", (float("inf"),), id="infinite-pace"),
     pytest.param("robots_choice, robots_enforce_disallow, robots_crawl_delay_s",
@@ -768,3 +769,27 @@ def test_what_a_source_ships_with_is_found_in_the_manifest_then_the_directories(
 def test_another_directorys_registry_entry_is_refused(conn):
     with pytest.raises(ValueError, match="directory"):
         effective(conn, DIRECTORY, directories.get("oman_tenderboard"))
+
+
+#: Every real agent has spaces in it, and the printable range starts AT the space.
+REAL_AGENT = "Mozilla/5.0 (X11; Linux x86_64) Chrome/120.0 Safari/537.36"
+
+
+def test_a_real_agent_with_spaces_is_taken_at_every_door(conn, manifest):
+    """The refusals above are all about what is outside 0x20-0x7E; this is the edge on
+    the inside. A range that began one past the space would refuse every browser's
+    agent -- from the panel, in the table and in the manifest alike."""
+    from scrapex.config import SourceEntry, checked_user_agent
+
+    assert save(conn, SHOP, shipped_with(manifest, SHOP),
+                {"user_agent": REAL_AGENT})["user_agent"] == REAL_AGENT
+    conn.execute("INSERT INTO source_setting (source_id, user_agent) VALUES (?, ?)",
+                 (_source_id(conn, PLAIN), REAL_AGENT))
+    assert checked_user_agent(REAL_AGENT) == REAL_AGENT
+    assert SourceEntry.model_validate(_entry(SHOP, user_agent=REAL_AGENT)).user_agent \
+        == REAL_AGENT
+
+
+def test_a_shipped_custom_choice_with_no_rule_is_refused_when_the_manifest_loads():
+    with pytest.raises(ValueError, match="needs its rule"):
+        Manifest.model_validate({"sources": [_entry(SHOP, robots="custom")]})

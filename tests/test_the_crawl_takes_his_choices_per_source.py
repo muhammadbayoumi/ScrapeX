@@ -307,10 +307,16 @@ def test_a_manifest_with_a_rule_that_cannot_be_obeyed_never_loads(
     path.write_text(yaml.safe_dump(broken), encoding="utf-8")
     monkeypatch.setattr(config, "MANIFEST_FILE", path)
 
+    # 'paused' while the broken entry ships `active: false` and QUIET ships off too: a
+    # reconcile that guessed `on` for the broken one, or read the rest anyway, moves it.
+    conn.execute("UPDATE source_site SET lifecycle = 'paused' WHERE source_key = ?", (SHOP,))
+    conn.commit()
+
     with pytest.raises(ValueError, match="a custom robots rule is"):
         config.load_manifest(path)
     assert storage.reconcile_active(conn) == {}
-    assert _lifecycle(conn, SHOP) == "active"
+    assert _lifecycle(conn, SHOP) == "paused"
+    assert _lifecycle(conn, QUIET) == "active", "an unloadable manifest reconciled anyway"
 
 
 def test_the_run_menu_blocks_a_source_he_switched_off(conn):
@@ -334,9 +340,9 @@ def test_the_run_menu_opens_a_source_he_switched_on(conn):
 
 # ---- the robots screen says what the crawl will do -------------------------------------
 
-def test_the_robots_screen_shows_his_choice_not_the_manifests(tmp_path, monkeypatch):
-    """`GET /robots` is read before he chooses; showing the manifest's `obey` while the
-    crawl runs his custom rule is the #1413 defect over again."""
+def _robots_screen(tmp_path, monkeypatch, manifest: Manifest, choices: dict) -> dict:
+    """`GET /robots` for SHOP, his `choices` saved first, against a site whose robots.txt
+    asks for a 10s delay."""
     import yaml
     from fastapi.testclient import TestClient
 
@@ -346,14 +352,13 @@ def test_the_robots_screen_shows_his_choice_not_the_manifests(tmp_path, monkeypa
     EngineDatabase(database).initialize()
     manifest_path = tmp_path / "sources.yaml"
     manifest_path.write_text(
-        yaml.safe_dump(MANIFEST.model_dump(mode="json", exclude_none=True)),
+        yaml.safe_dump(manifest.model_dump(mode="json", exclude_none=True)),
         encoding="utf-8")
     with sqlite3.connect(database) as setup:
         setup.execute("INSERT INTO source_site (source_key, source_name) VALUES (?, ?)",
                       (SHOP, SHOP))
-        source_settings.save(setup, SHOP, source_settings.shipped_with(MANIFEST, SHOP), {
-            "user_agent": "His/2.0", "robots": "custom",
-            "robots_custom": {"enforce_disallow": True, "crawl_delay_s": 0.0}})
+        source_settings.save(setup, SHOP, source_settings.shipped_with(manifest, SHOP),
+                             choices)
     client = TestClient(create_app(db_path=str(database), manifest_path=str(manifest_path)))
 
     real_client = httpx.Client
@@ -365,14 +370,51 @@ def test_the_robots_screen_shows_his_choice_not_the_manifests(tmp_path, monkeypa
     monkeypatch.setattr(httpx, "Client", site)
     answer = client.get(f"/api/sources/{SHOP}/robots")
     monkeypatch.setattr(httpx, "Client", real_client)
-
     assert answer.status_code == 200, answer.text
-    body = answer.json()
+    return answer.json()
+
+
+def test_the_robots_screen_shows_his_choice_not_the_manifests(tmp_path, monkeypatch):
+    """`GET /robots` is read before he chooses; showing the manifest's `obey` while the
+    crawl runs his custom rule is the #1413 defect over again."""
+    body = _robots_screen(tmp_path, monkeypatch, MANIFEST, {
+        "user_agent": "His/2.0", "robots": "custom",
+        "robots_custom": {"enforce_disallow": True, "crawl_delay_s": 0.0}})
+
     assert body["choice"] == "custom"
     assert body["custom"] == {"enforce_disallow": True, "crawl_delay_s": 0.0}
     assert body["user_agent"] == "His/2.0"
     assert body["on_a_disallowed_path"]["may_fetch"] is False
     assert body["on_a_disallowed_path"]["delay_s"] == 0.0
+
+
+def test_his_rule_that_discloses_disallow_lets_the_path_be_fetched(tmp_path, monkeypatch):
+    """The rule's `enforce_disallow` is his, carried as he set it: False fetches a
+    disallowed path and says so."""
+    body = _robots_screen(tmp_path, monkeypatch, MANIFEST, {
+        "robots": "custom", "robots_custom": {"enforce_disallow": False,
+                                              "crawl_delay_s": 4.0}})
+
+    assert body["on_a_disallowed_path"]["may_fetch"] is True
+    assert body["on_a_disallowed_path"]["delay_s"] == 4.0
+
+
+SHIPS_CUSTOM = Manifest.model_validate({"sources": [_entry(
+    SHOP, robots="custom", robots_custom={"enforce_disallow": False, "crawl_delay_s": 30})]})
+
+
+def test_his_custom_rule_replaces_a_shipped_one_on_the_screen(tmp_path, monkeypatch):
+    body = _robots_screen(tmp_path, monkeypatch, SHIPS_CUSTOM, {
+        "robots": "custom", "robots_custom": {"enforce_disallow": True,
+                                              "crawl_delay_s": 2.0}})
+
+    assert body["custom"] == {"enforce_disallow": True, "crawl_delay_s": 2.0}
+
+
+def test_his_obey_shows_no_shipped_custom_rule(tmp_path, monkeypatch):
+    body = _robots_screen(tmp_path, monkeypatch, SHIPS_CUSTOM, {"robots": "obey"})
+
+    assert (body["choice"], body["custom"]) == ("obey", None)
 
 
 # ---- one broken source never stops the rest --------------------------------------------
@@ -476,3 +518,57 @@ def test_the_panels_edit_refuses_what_the_crawl_could_not_obey(panel, broken, sa
     assert answer.status_code == 400, answer.text
     assert says in answer.json()["detail"]
     assert panel.app.state.manifest.get(SHOP) == before
+
+
+@pytest.mark.parametrize("start", ["paused", "draft"])
+def test_a_directory_he_never_chose_for_is_recorded_as_it_ships(conn, reconciling, start):
+    """A built directory ships ON, so with no choice of his its record becomes 'active'
+    from whatever it held -- a start that a reconcile leaving it alone, or guessing off,
+    would leave where it was."""
+    conn.execute("UPDATE source_site SET lifecycle = ? WHERE source_key = ?",
+                 (start, DIRECTORY))
+    conn.commit()
+
+    assert storage.reconcile_active(conn)[DIRECTORY] is True
+    assert _lifecycle(conn, DIRECTORY) == "active"
+
+
+@pytest.mark.parametrize("start", ["paused", "draft"])
+def test_an_orphan_he_never_chose_for_keeps_whatever_it_held(conn, reconciling, start):
+    conn.execute("INSERT INTO source_site (source_key, source_name, lifecycle) "
+                 "VALUES ('GONE_SHOP', 'Gone', ?)", (start,))
+    conn.commit()
+
+    assert "GONE_SHOP" not in storage.reconcile_active(conn)
+    assert _lifecycle(conn, "GONE_SHOP") == start
+
+
+def test_a_source_whose_family_went_back_to_tbd_probe_does_not_fire(conn):
+    """His stored `active` predates a release that put the family back to TBD-probe:
+    there is no collector, so the schedule must not queue a run."""
+    source_settings.save(conn, SHOP, MANIFEST.get(SHOP), {"active": True})
+    reverted = Manifest(sources=[MANIFEST.get(SHOP).model_copy(
+        update={"family": "TBD-probe", "active": False})])
+    _due(conn, SHOP)
+
+    assert fire_due(conn, manifest=reverted) == []
+    assert list_jobs(conn) == []
+
+
+def test_the_run_menu_reads_his_switch_from_the_warehouse_it_lives_in(conn, tmp_path):
+    """`dry_payload` takes two connections; his switch is in the price-side one. Read
+    from the other -- here an empty engine database -- it would be missed."""
+    empty = EngineDatabase(tmp_path / "other.db")
+    empty.initialize()
+    source_settings.save(conn, SHOP, MANIFEST.get(SHOP), {"active": False})
+    conn.commit()
+    general = empty.connect()
+    try:
+        body = dryrun.dry_payload(SHOP, general=general, price=conn, manifest=MANIFEST)
+    finally:
+        general.close()
+
+    reasons = [one["blocked_by"] or "" for one in body["passes"]]
+    assert all("switched off" in reason for reason in reasons)
+    assert not any("sources.yaml" in reason for reason in reasons), (
+        "the switch he flipped is his own, in the warehouse, not the manifest's")

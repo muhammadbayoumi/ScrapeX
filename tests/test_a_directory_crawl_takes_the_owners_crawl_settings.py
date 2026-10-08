@@ -492,11 +492,16 @@ def test_every_command_line_door_passes_its_pace_and_nothing_else(monkeypatch, f
 
     monkeypatch.setattr(contractors, "make_fetch", spying)
     monkeypatch.setattr(contractors, "validate", lambda args: None)
-    monkeypatch.setattr(contractors, "get_directory", lambda key: SimpleNamespace(key=key))
+    directory = SimpleNamespace(key="muqawil_org")
+    monkeypatch.setattr(contractors, "get_directory", lambda key: directory)
     monkeypatch.setattr(contractors, "open_engine", _Conn)
     # The fake connection has no warehouse to ask, so his answer is handed in here.
-    monkeypatch.setattr(contractors.source_settings, "effective",
-                        lambda conn, key, shipped: his)
+    asked_for: list = []
+
+    def effective(conn, key, shipped):
+        asked_for.append((key, shipped))
+        return his
+    monkeypatch.setattr(contractors.source_settings, "effective", effective)
     for name in ("plan", "crawl", "details"):
         monkeypatch.setattr(contractors, name, lambda *a, **k: None)
     parser = argparse.ArgumentParser()
@@ -506,6 +511,8 @@ def test_every_command_line_door_passes_its_pace_and_nothing_else(monkeypatch, f
 
     assert asked == [{"min_interval_s": 2.5}]
     assert handed == [source_settings.NO_OPINION if flag == "--plan" else his]
+    # ASKED ABOUT THIS DIRECTORY, by its key and with itself as what it ships with.
+    assert asked_for == ([] if flag == "--plan" else [("muqawil_org", directory)])
 
 
 def test_log_politeness_tolerates_a_stand_in_with_nothing_to_say(conn):
