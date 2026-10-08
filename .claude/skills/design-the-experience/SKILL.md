@@ -41,6 +41,12 @@ it (contrast, width, count of steps). He chooses from the picture, not from a de
 A departure he approves becomes a row in `docs/DESIGN-SYSTEM-SOURCES.md`: a gap row or a
 mandate row, with its reason.
 
+The comparison is drawn the way the mock-up is: the whole panel, rail included, at the three
+widths side by side, one image per option. A cropped strip of rows hides what the option
+does to the page. Where an option shortens text, a second image shows where the full text
+appears: the tooltip open, the log expanded. He must be able to read every word before he
+picks.
+
 Nothing is final. When the pin moves, or Supabase changes a rule, every departure that rested
 on the old rule is re-opened and shown to him again.
 
