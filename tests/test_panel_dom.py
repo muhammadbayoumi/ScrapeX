@@ -565,7 +565,8 @@ def test_a_rendered_row_states_its_number_in_the_unit_the_job_counted(open_panel
     said = sweep.inner_text()
     # The source by its domain, as the panel names sources (#1542), and the kind beside
     # the status.
-    assert "muqawil.org" in sweep.locator('[data-part="identity"]').inner_text(), said
+    domain = sweep.locator('[data-part="identity"] .source-identity-domain').inner_text()
+    assert domain == "muqawil.org", f"the row is not named by its domain: {domain!r} in {said!r}"
     assert "Profile fetch" in sweep.locator('[data-part="statusline"]').inner_text(), (
         f"the row does not name the kind: {said!r}")
     assert "620 of 938 page(s)" in said, (
