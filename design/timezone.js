@@ -201,6 +201,20 @@
     return day || `${clock}${period}` || "";
   }
 
+  // ONE FORMATTER PER SHAPE AND ZONE, built once. Constructing an Intl.DateTimeFormat
+  // costs ~0.4 ms, and the Jobs page formats ~1,600 instants on every 1.5 s tick: built
+  // per call, that was a 0.5-1 s long task per tick (#1608's gate). The zone is part of
+  // the key, so a change of zone gets a formatter of its own.
+  const formatters = new Map();
+  function formatterFor(mode, shape, active) {
+    const key = `${mode}\u0000${active}`;
+    if (!formatters.has(key)) {
+      if (formatters.size >= 64) formatters.clear();   // zones change rarely; stay bounded
+      formatters.set(key, new Intl.DateTimeFormat(LOCALE, {...shape, timeZone: active}));
+    }
+    return formatters.get(key);
+  }
+
   /** A stored UTC instant, as the active zone shows it.
    *
    * Anything that is not an instant is returned exactly as it arrived. That is
@@ -215,7 +229,7 @@
     const shape = SHAPES[mode] || SHAPES.datetime;
     const active = zone();
     try {
-      const parts = new Intl.DateTimeFormat(LOCALE, {...shape, timeZone: active})
+      const parts = formatterFor(SHAPES[mode] ? mode : "datetime", shape, active)
         .formatToParts(new Date(ms));
       return assemble(parts, shape.hour !== undefined);
     } catch (error) {

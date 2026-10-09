@@ -777,16 +777,21 @@ def test_a_refusal_survives_the_reload_the_same_press_triggers(open_panel):
     page = open_panel(jobs=HIS_JOBS)
     page.click(JOBS_TAB)
     page.wait_for_timeout(300)
+    # THE JOB COMPLETED BETWEEN THE DRAW AND THE PRESS: the press is refused, and every
+    # read after it reports completed -- so the sentence must come from the reload, not
+    # from the row he pressed in, which still said running.
+    page.evaluate(_JOBS_STATUS_REWRITE)
     page.evaluate("""() => { const real = window.fetch;
-        window.fetch = (u, o) => String(u).includes("/api/jobs/job_034c51a29deb/control")
-          ? Promise.resolve(new Response(JSON.stringify({detail: "job 'job_034c51a29deb' is completed"}),
-              {status: 409, headers: {"Content-Type": "application/json"}}))
-          : real(u, o); }""")
+        window.fetch = (u, o) => {
+          if (!String(u).includes("/api/jobs/job_034c51a29deb/control")) return real(u, o);
+          window.__status.job_034c51a29deb = "completed";
+          return Promise.resolve(new Response(JSON.stringify({detail: "job 'job_034c51a29deb' is completed"}),
+            {status: 409, headers: {"Content-Type": "application/json"}})); }; }""")
     working = _job_row(page, "job_034c51a29deb")
     working.locator('[data-part="primary"] button').click()
     page.wait_for_timeout(600)
     said = working.locator('[data-part="refusal"]').inner_text()
-    assert said == "Pause was refused: Profile fetch · muqawil.org is already running", (
+    assert said == "Pause was refused: Profile fetch · muqawil.org is already completed", (
         f"the refusal was not said in the row, from the reloaded status: {said!r}")
     assert working.locator('[data-part="refusal"]').get_attribute("role") == "alert"
     # AND THE LIST WAS STILL RELOADED, because a 409 means the row on screen is the
@@ -801,7 +806,7 @@ def test_a_refusal_survives_the_reload_the_same_press_triggers(open_panel):
     row.locator('[data-part="primary"] button').click()
     other.wait_for_timeout(600)
     said = row.locator('[data-part="refusal"]').inner_text()
-    assert said.startswith("Pause failed:") and "refused" not in said, said
+    assert said == "Pause failed: the engine could not do that", said
 
 
 def test_a_press_does_not_shut_the_row_it_was_pressed_in(open_panel):
@@ -11658,7 +11663,11 @@ def test_at_his_three_widths_nothing_that_names_a_row_is_cut(browser, tmp_path, 
               '#jobs-list .source-identity-domain, #jobs-list .source-identity-key')]
             .filter((el) => el.scrollWidth > el.clientWidth + 1).map((el) => el.textContent)""")
         assert cut == [], f"at {width} px these are cut: {cut}"
-        assert page.evaluate("() => document.documentElement.scrollWidth") <= width
+        # THE VIEW SCROLLS, NOT THE DOCUMENT: a row wider than the panel widens
+        # #view-jobs's scroller and leaves documentElement at the viewport.
+        sideways = page.evaluate("""() => { const box = document.querySelector('#view-jobs .view-scroll');
+            return box.scrollWidth - box.clientWidth; }""")
+        assert sideways <= 0, f"at {width} px the Jobs page scrolls sideways by {sideways} px"
         corner = page.evaluate("""() => { const row = document.querySelector('#jobs-list .job-row');
             const kebab = row.querySelector('[data-part="kebab"]').getBoundingClientRect();
             const box = row.getBoundingClientRect();
@@ -11731,19 +11740,6 @@ def test_the_rows_menu_follows_the_menu_button_pattern(open_panel):
     page.keyboard.press("Escape")
     assert row.locator('[data-part="menu"]').is_hidden()
     assert page.evaluate("() => document.activeElement.dataset.part") == "kebab"
-
-
-def test_an_open_menu_survives_a_live_read(open_panel):
-    """THE PAGE IS LIVE, AND A READ MUST NOT TAKE WHAT HE HAS OPEN. A redraw waits while
-    a menu is open, and happens when it closes."""
-    page = open_panel(jobs=HIS_JOBS)
-    page.click(JOBS_TAB)
-    page.wait_for_timeout(300)
-    _menu_items(page, "job_0212decca681")
-    page.wait_for_timeout(3200)   # two ticks
-    row = _job_row(page, "job_0212decca681")
-    assert row.locator('[data-part="menu"]').is_visible(), "a live read closed the menu"
-    assert page.evaluate("() => document.activeElement.getAttribute('role')") == "menuitem"
 
 
 def test_the_count_line_says_live_or_when_it_was_read(open_panel):
@@ -11857,6 +11853,469 @@ def test_a_press_that_changes_the_verb_leaves_focus_on_the_rows_menu(open_panel)
     assert page.evaluate("() => document.activeElement.dataset.part") == "kebab"
     assert page.evaluate(
         "() => document.activeElement.closest('.job-row').dataset.job") == "job_034c51a29deb"
+
+#: The engine's log and tick, switchable from the test: a log that gained a line since it
+#: was first read, a log read that fails, and one tick that fails.
+_JOBS_ENGINE_MODES = """(mode) => {
+  const real = window.fetch;
+  window.__mode = mode;
+  window.fetch = async (url, options) => {
+    const path = String(url);
+    if (/\\/logs/.test(path) && window.__mode.log === 'fail') throw new TypeError('Failed to fetch');
+    if (/\\/logs/.test(path) && window.__mode.log === 'new') {
+      return new Response(JSON.stringify({entries: [{logged_at: '2026-07-30T11:00:00Z',
+        level: 'error', message: 'NEW LINE the job wrote later'}], total: 1}),
+        {status: 200, headers: {'Content-Type': 'application/json'}});
+    }
+    if (/active_only/.test(path) && window.__mode.tick === 'fail') {
+      window.__mode.tick = 'ok';
+      throw new TypeError('Failed to fetch');
+    }
+    return real(url, options);
+  };
+}"""
+
+
+def test_a_log_is_read_again_each_time_he_opens_it(open_panel):
+    """A LOG IS THE JOB'S RECORD SO FAR. Kept for the panel's session, a log opened while
+    the job ran stayed the pre-failure snapshot, without the line that explains the
+    failure. Hidden and opened again, it is read again."""
+    page = open_panel(jobs=HIS_JOBS, logs=_log_entries(2))
+    page.evaluate(_JOBS_ENGINE_MODES, {"log": "old"})
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(300)
+    assert "fetching" in _open_log(page, "job_034c51a29deb").inner_text()
+    page.evaluate("() => { window.__mode.log = 'new'; }")
+    _menu_item(page, "job_034c51a29deb", "Hide log").click()
+    page.click('nav.side-rail button[data-view="run"]')
+    page.wait_for_timeout(300)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(500)
+    again = _open_log(page, "job_034c51a29deb").inner_text()
+    assert "NEW LINE" in again, f"the log he reopened is the old read: {again!r}"
+
+
+def test_a_log_that_could_not_be_read_is_tried_again(open_panel):
+    """ONE FAILED READ IS NOT THE LOG. It was kept, so the row said "could not be read"
+    until the panel was reloaded; hidden and opened again, it is read again."""
+    page = open_panel(jobs=HIS_JOBS, logs=_log_entries(2))
+    page.evaluate(_JOBS_ENGINE_MODES, {"log": "fail"})
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(300)
+    assert "could not be read" in _open_log(page, "job_034c51a29deb").inner_text()
+    page.evaluate("() => { window.__mode.log = 'old'; }")
+    _menu_item(page, "job_034c51a29deb", "Hide log").click()
+    page.wait_for_timeout(200)
+    again = _open_log(page, "job_034c51a29deb").inner_text()
+    assert "fetching" in again, f"a failed log read is never retried: {again!r}"
+
+
+def test_try_again_that_gets_an_answer_takes_the_banner_down(open_panel):
+    """THE ENGINE ANSWERED. A failed tick put up "did not answer" and disabled every row;
+    Try again re-read the history and got an answer, and the banner stayed with the rows
+    disabled until the next tick -- up to 30 s with nothing running."""
+    page = open_panel(jobs=[job for job in HIS_JOBS
+                            if job["status"] in ("completed", "failed", "cancelled")])
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(400)
+    page.evaluate(_JOBS_ENGINE_MODES, {"tick": "fail"})
+    page.evaluate("() => pollJob()")
+    page.wait_for_timeout(300)
+    assert "did not answer" in page.locator("#jobs-state").inner_text()
+    page.locator("#jobs-state button", has_text="Try again").click()
+    page.wait_for_timeout(500)
+    assert page.locator("#jobs-state").inner_text().strip() == ""
+    assert page.locator('#jobs-list [data-part="kebab"][aria-disabled="true"]').count() == 0
+
+
+def test_a_selection_in_a_row_survives_the_live_reads(open_panel):
+    """WHAT HE SELECTS STAYS SELECTED. Every tick rewrote each row's text, the same words
+    included, so a selection -- in a failure he meant to copy, or a live job's line --
+    was cleared on the next read."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(400)
+    # A LIVE ROW: every tick refills it, as the engine's fresh JSON would (a failed row
+    # is not refilled at all, so selecting in one would test nothing).
+    page.evaluate(_JOBS_STATUS_REWRITE)
+    page.evaluate("""() => {
+      const node = document.querySelector('.job-row[data-job="job_034c51a29deb"] [data-part="time"]');
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      getSelection().removeAllRanges();
+      getSelection().addRange(range); }""")
+    before = page.evaluate("() => getSelection().toString()")
+    assert before, "nothing was selected"
+    page.wait_for_function(
+        "() => window.__calls.filter((c) => c.includes('active_only')).length >= 3", timeout=8000)
+    assert page.evaluate("() => getSelection().toString()") == before
+
+
+def test_a_press_that_gets_no_answer_says_so_in_its_row(open_panel):
+    """NO SILENT FAILURES. A press the engine never answered set a page failure, and the
+    next read that answered cleared it: the button read "Pause" again with nothing on
+    screen saying the press had failed."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(400)
+    page.evaluate("""() => { const real = window.fetch;
+        window.fetch = (u, o) => String(u).includes('/control')
+          ? Promise.reject(new TypeError('Failed to fetch')) : real(u, o); }""")
+    row = _job_row(page, "job_034c51a29deb")
+    row.locator('[data-part="primary"] button').click()
+    page.wait_for_timeout(1500)
+    said = row.locator('[data-part="refusal"]').inner_text()
+    assert said == "Pause got no answer from the engine. Try again once it answers.", said
+
+
+def test_the_banner_is_not_redrawn_by_the_reads_that_follow_it(open_panel):
+    """ONE ALERT, ONCE. The banner is role="alert"; drawn anew on every 1.5 s tick it was
+    announced again each time, and focus on its own Try again fell to <body>."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(400)
+    page.evaluate("""() => { const real = window.fetch;
+        window.fetch = (u, o) => String(u).includes('limit=201')
+          ? Promise.reject(new TypeError('Failed to fetch')) : real(u, o); }""")
+    page.click('nav.side-rail button[data-view="run"]')
+    page.wait_for_timeout(200)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(400)
+    assert "did not answer" in page.locator("#jobs-state").inner_text()
+    page.evaluate("""() => { window.__alert = document.querySelector('#jobs-state [role=alert]');
+        window.__added = 0;
+        new MutationObserver((records) => records.forEach((r) => r.addedNodes.forEach((n) => {
+          if (n.getAttribute && n.getAttribute('role') === 'alert') window.__added += 1; })))
+          .observe(document.getElementById('jobs-state'), {childList: true}); }""")
+    page.locator("#jobs-state button").focus()
+    page.wait_for_function(
+        "() => window.__calls.filter((c) => c.includes('active_only')).length >= 3", timeout=8000)
+    assert page.evaluate(
+        "() => window.__alert === document.querySelector('#jobs-state [role=alert]')")
+    assert page.evaluate("() => window.__added") == 0
+    assert page.evaluate("() => document.activeElement.textContent") == "Try again"
+
+
+def test_start_engine_on_the_jobs_page_says_it_is_starting_and_where_a_failure_is(open_panel):
+    """THE JOBS PAGE'S START ENGINE. In flight it said nothing and could be pressed again
+    for up to 60 s; failed, it kept saying "Start the engine" while the reason went only
+    to the Run page. It reads Starting… while it works, and a failed start sends him to
+    Run, where the reason is drawn."""
+    slow = open_panel(engine_up=False, native_mode="nonresponsive")
+    slow.click(JOBS_TAB)
+    slow.wait_for_timeout(300)
+    slow.locator("#jobs-state button", has_text="Start engine").click()
+    slow.wait_for_timeout(300)
+    button = slow.locator("#jobs-state button")
+    assert button.inner_text() == "Starting…"
+    assert button.get_attribute("aria-disabled") == "true"
+    button.dispatch_event("click")  # aria-disabled stays clickable; the handler must refuse
+    slow.wait_for_timeout(300)
+    assert slow.evaluate("() => window.__nativeCalls.length") == 1, "a second press started it again"
+
+    page = open_panel(engine_up=False)  # the helper is absent: the start fails at once
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(300)
+    page.locator("#jobs-state button", has_text="Start engine").click()
+    page.wait_for_function(
+        "() => document.getElementById('jobs-state').textContent.includes('did not start')",
+        timeout=5000)
+    assert "The engine did not start. Open Run to see why." in page.locator("#jobs-state").inner_text()
+    page.locator("#jobs-state button", has_text="Open Run").click()
+    assert page.locator("#view-run").is_visible()
+
+
+#: Rewrites what the engine's job reads report: `window.__status` maps a job_ref to the
+#: status they give it, and `window.__tickOnly` keeps the history read as it was.
+_JOBS_STATUS_REWRITE = """() => { const real = window.fetch;
+  window.__status = {}; window.__tickOnly = false;
+  window.fetch = (u, o) => { const url = String(u);
+    if (!url.includes('/api/jobs?') || (window.__tickOnly && !url.includes('active_only=true'))) {
+      return real(u, o);
+    }
+    return real(u, o).then((r) => r.json()).then((body) => new Response(JSON.stringify({...body,
+      jobs: body.jobs.map((job) => window.__status[job.job_ref]
+        ? {...job, status: window.__status[job.job_ref]} : job)}),
+      {status: 200, headers: {'Content-Type': 'application/json'}})); }; }"""
+
+#: Every text the job's status line has shown, in order, from now on.
+_WATCH_STATUS = """(ref) => { window.__seen = [];
+  const line = document.querySelector(`#jobs-list .job-row[data-job="${ref}"] [data-part="statusline"]`);
+  window.__seen.push(line.textContent);
+  new MutationObserver(() => window.__seen.push(line.textContent))
+    .observe(line, {childList: true, subtree: true, characterData: true}); }"""
+
+
+def _status_line(page, ref):
+    return _job_row(page, ref).locator('[data-part="statusline"]').inner_text()
+
+
+def _ticks(page):
+    return page.evaluate("() => window.__calls.filter((c) => c.includes('active_only=true')).length")
+
+
+def _after_a_tick(page):
+    """Wait for the next tick to be issued and answered."""
+    seen = _ticks(page)
+    page.wait_for_function(
+        f"() => window.__calls.filter((c) => c.includes('active_only=true')).length > {seen}",
+        timeout=5000)
+    page.wait_for_timeout(250)
+
+
+def test_the_tick_alone_keeps_a_row_live(open_panel):
+    """THE PAGE IS LIVE. A job's new status reaches its row from the panel's tick, with no
+    history read: the count line says "Refreshes every 1.5s", and that has to be true."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(400)
+    page.evaluate(_JOBS_STATUS_REWRITE)
+    page.evaluate("() => { window.__tickOnly = true; window.__calls.length = 0;"
+                  " window.__status.job_034c51a29deb = 'paused'; }")
+    page.wait_for_function("""() => document.querySelector(
+        '#jobs-list .job-row[data-job="job_034c51a29deb"] [data-part="statusline"]')
+        .textContent.includes('Paused')""", timeout=5000)
+    assert not [c for c in page.evaluate("() => window.__calls") if c.startswith("/api/jobs?limit=")]
+
+
+def test_an_older_history_answer_never_takes_a_row_back_from_a_newer_tick(open_panel):
+    """LATER-ISSUED WINS, PER ROW. A history read issued before a tick and answered after
+    it would draw the job as it was before the tick saw it pause."""
+    page = open_panel(jobs=HIS_JOBS, route_delays={"/api/jobs?limit=": 2500})
+    page.click(JOBS_TAB)
+    page.wait_for_selector('#jobs-list .job-row[data-job="job_034c51a29deb"]', timeout=6000)
+    page.evaluate(_JOBS_STATUS_REWRITE)
+    page.evaluate("() => { window.__tickOnly = true; window.__status.job_034c51a29deb = 'paused'; }")
+    page.evaluate(_WATCH_STATUS, "job_034c51a29deb")
+    page.click('nav.side-rail button[data-view="run"]')
+    page.click(JOBS_TAB)   # a history read, held 2.5 s, that still says running
+    page.wait_for_timeout(4000)
+    seen = page.evaluate("() => window.__seen")
+    first = next((i for i, text in enumerate(seen) if "Paused" in text), None)
+    assert first is not None, f"the tick never drew the pause: {seen}"
+    assert not [text for text in seen[first:] if "Running" in text], (
+        f"an older answer took the row back: {seen}")
+
+
+def test_nothing_is_redrawn_while_his_menu_is_open_and_it_is_when_it_closes(open_panel):
+    """A READ MUST NOT MOVE WHAT HE IS USING. While a row's menu is open the page holds
+    its redraw; the moment the menu closes, what the reads said is drawn."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(400)
+    page.evaluate(_JOBS_STATUS_REWRITE)
+    _menu_items(page, "job_034c51a29deb")
+    page.evaluate("() => { window.__tickOnly = true; window.__status.job_034c51a29deb = 'paused'; }")
+    _after_a_tick(page)
+    _after_a_tick(page)
+    assert "Running" in _status_line(page, "job_034c51a29deb"), "a read redrew under his menu"
+    assert _job_row(page, "job_034c51a29deb").locator('[data-part="menu"]').is_visible()
+    page.keyboard.press("Escape")
+    page.wait_for_timeout(100)   # well before the next tick
+    assert "Paused" in _status_line(page, "job_034c51a29deb"), "the held redraw never came"
+
+
+def test_nothing_is_redrawn_while_the_cancel_question_is_open_and_it_is_when_answered(open_panel):
+    """THE SAME HOLD FOR THE QUESTION. Cancel asks first; while it asks, nothing moves
+    behind it, and answering it draws what the reads said."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(400)
+    page.evaluate(_JOBS_STATUS_REWRITE)
+    _menu_item(page, "job_034c51a29deb", "Cancel job").click()
+    page.wait_for_selector("#confirm-veil:not(.hidden)", timeout=2000)
+    page.evaluate("() => { window.__tickOnly = true; window.__status.job_034c51a29deb = 'paused'; }")
+    _after_a_tick(page)
+    _after_a_tick(page)
+    assert "Running" in _status_line(page, "job_034c51a29deb"), "a read redrew behind the question"
+    page.click("#confirm-keep")
+    page.wait_for_timeout(100)
+    assert "Paused" in _status_line(page, "job_034c51a29deb"), "the held redraw never came"
+
+
+def test_a_press_in_flight_says_so_keeps_focus_and_cannot_be_sent_twice(open_panel):
+    """IN FLIGHT: "Pausing…", aria-disabled rather than disabled so focus stays on it,
+    and a second press while the first is out sends nothing."""
+    page = open_panel(jobs=HIS_JOBS, route_delays={"/api/jobs/job_034c51a29deb/control": 1500})
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(400)
+    button = _job_row(page, "job_034c51a29deb").locator('[data-part="primary"] button')
+    button.focus()
+    page.keyboard.press("Enter")
+    page.wait_for_timeout(200)
+    assert button.inner_text() == "Pausing…"
+    assert button.get_attribute("aria-disabled") == "true"
+    assert page.evaluate("() => document.activeElement.textContent") == "Pausing…"
+    button.dispatch_event("click")
+    page.wait_for_timeout(1800)
+    sent = [c for c in page.evaluate("() => window.__calls") if c.endswith("/control")]
+    assert len(sent) == 1, f"the press was sent {len(sent)} times"
+
+
+def test_a_rows_controls_do_nothing_while_the_engine_is_down(open_panel):
+    """ARIA-DISABLED IS A PROMISE. With the engine down, ⋮, the action and View log are
+    aria-disabled -- focusable, and inert: pressing them opens nothing and sends nothing."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(300)
+    page.evaluate("""() => { state.engineUp = false; const real = window.fetch;
+        window.fetch = (u, o) => String(u).includes("/api/jobs")
+          ? Promise.reject(new TypeError("Failed to fetch")) : real(u, o); }""")
+    page.wait_for_function(
+        "() => document.getElementById('jobs-state').textContent.includes('Engine stopped answering')",
+        timeout=4000)
+    page.evaluate("() => { window.__calls.length = 0; }")
+    running = _job_row(page, "job_034c51a29deb")
+    running.locator('[data-part="kebab"]').dispatch_event("click")
+    assert running.locator('[data-part="menu"]').is_hidden(), "⋮ opened its menu with the engine down"
+    running.locator('[data-part="primary"] button').dispatch_event("click")
+    failed = _job_row(page, "job_5155b86ba455")
+    toggle = failed.locator('[data-part="logtoggle"]')
+    assert toggle.get_attribute("aria-disabled") == "true"
+    toggle.dispatch_event("click")
+    page.wait_for_timeout(300)
+    assert failed.locator('[data-part="log"]').is_hidden(), "View log opened with the engine down"
+    sent = [c for c in page.evaluate("() => window.__calls") if "/control" in c or "/logs" in c]
+    assert sent == [], f"an inert control sent {sent}"
+
+
+def test_a_jobs_new_status_is_announced_once(open_panel):
+    """THE PAGE IS NOT A LIVE REGION; ONE SENTENCE IS. A job's change of status is said
+    once, in #jobs-announce, by name."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(400)
+    page.evaluate(_JOBS_STATUS_REWRITE)
+    page.evaluate("() => { window.__tickOnly = true; window.__status.job_034c51a29deb = 'paused'; }")
+    page.wait_for_function(
+        "() => document.getElementById('jobs-announce').textContent !== ''", timeout=5000)
+    assert page.locator("#jobs-announce").inner_text() == "Profile fetch · muqawil.org: paused"
+    assert page.locator("#jobs-announce").get_attribute("aria-live") == "polite"
+
+
+def test_the_rows_menu_keys_home_tab_arrow_up_and_a_press_outside(open_panel):
+    """THE REST OF THE APG MENU BUTTON: ArrowUp opens it on the last item, Home goes to
+    the first, Tab leaves and closes it, and a press anywhere outside closes it."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(300)
+    row = _job_row(page, "job_0212decca681")
+    kebab = row.locator('[data-part="kebab"]')
+    active = "() => document.activeElement.textContent.trim()"
+    kebab.focus()
+    page.keyboard.press("ArrowUp")
+    page.wait_for_timeout(100)
+    assert page.evaluate(active) == "Cancel job…"
+    page.keyboard.press("Home")
+    assert page.evaluate(active) == "View log"
+    page.keyboard.press("Tab")
+    page.wait_for_timeout(100)
+    assert row.locator('[data-part="menu"]').is_hidden(), "Tab left the menu open"
+    kebab.click()
+    page.wait_for_timeout(100)
+    assert row.locator('[data-part="menu"]').is_visible()
+    page.mouse.click(5, 5)
+    page.wait_for_timeout(100)
+    assert row.locator('[data-part="menu"]').is_hidden(), "a press outside left the menu open"
+
+
+def test_each_first_read_failure_says_what_failed_and_offers_its_own_action(open_panel):
+    """THE BANNERS ON FIRST LOAD, each an alert: an engine that answered with an error
+    says "Unable to read jobs" and Try again; one that did not answer, while it runs,
+    says so and offers Try again -- never Start engine for an engine that is up."""
+    page = open_panel(jobs=HIS_JOBS, fail_routes=("/api/jobs?limit=",))
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(400)
+    banner = page.locator("#jobs-state [role=alert]")
+    assert "Unable to read jobs" in banner.inner_text()
+    assert "the engine could not do that" in banner.inner_text()
+    before = len([c for c in page.evaluate("() => window.__calls") if c.startswith("/api/jobs?limit=")])
+    page.locator("#jobs-state button", has_text="Try again").click()
+    page.wait_for_timeout(300)
+    after = len([c for c in page.evaluate("() => window.__calls") if c.startswith("/api/jobs?limit=")])
+    assert after == before + 1, "Try again did not read the jobs again"
+
+    quiet = open_panel(jobs=HIS_JOBS)
+    quiet.evaluate("""() => { const real = window.fetch;
+        window.fetch = (u, o) => String(u).includes('limit=201')
+          ? Promise.reject(new TypeError('Failed to fetch')) : real(u, o); }""")
+    quiet.click(JOBS_TAB)
+    quiet.wait_for_timeout(400)
+    banner = quiet.locator("#jobs-state [role=alert]")
+    assert "The engine did not answer" in banner.inner_text()
+    assert quiet.locator("#jobs-state button").all_inner_texts() == ["Try again"]
+
+
+def test_a_log_line_names_its_level_and_its_source(open_panel):
+    """A JOB OF SEVERAL SOURCES otherwise reads "failed" with no hint of which; each line
+    carries its stamp, its level and the source that wrote it."""
+    entries = [{"logged_at": "2026-07-30T10:00:00Z", "level": "warning",
+                "source_key": "muqawil_org", "message": "the site slowed down"}]
+    page = open_panel(jobs=HIS_JOBS, logs=entries)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(300)
+    text = _open_log(page, "job_034c51a29deb").inner_text()
+    assert "warning" in text and "muqawil_org" in text and "the site slowed down" in text, text
+
+
+def test_a_tick_that_answers_after_one_that_did_not_takes_the_banner_down(open_panel):
+    """THE NEXT ANSWER CLEARS IT, with no press from him: one failed tick puts up "did not
+    answer"; the tick after it answers, and the banner goes and the rows come back."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(400)
+    page.evaluate(_JOBS_ENGINE_MODES, {"tick": "fail"})   # fails once, then answers
+    page.wait_for_function(
+        "() => document.getElementById('jobs-state').textContent.includes('did not answer')",
+        timeout=5000)
+    page.wait_for_function(
+        "() => document.getElementById('jobs-state').textContent.trim() === ''", timeout=8000)
+    assert page.locator('#jobs-list [data-part="kebab"][aria-disabled="true"]').count() == 0
+
+
+def test_a_tick_refills_only_the_rows_it_changed(open_panel):
+    """EVERY ROW ON EVERY TICK WAS A 0.5-1 S LONG TASK at 200 jobs (#1608's gate). A tick
+    hands over new job objects only for the jobs it carries, and only their rows are
+    filled again. The reads are passed through JSON, as the engine's are, so each tick's
+    jobs are new objects; the harness's own stub would hand back the same ones."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(400)
+    page.evaluate(_JOBS_STATUS_REWRITE)
+    page.evaluate("""() => { window.__filled = []; const real = fillJobRow;
+        fillJobRow = (row, job, options) => { window.__filled.push(job.job_ref);
+          return real(row, job, options); }; }""")
+    _after_a_tick(page)
+    page.evaluate("() => { window.__filled.length = 0; }")
+    _after_a_tick(page)
+    _after_a_tick(page)
+    filled = set(page.evaluate("() => window.__filled"))
+    carried = {job["job_ref"] for job in HIS_JOBS
+               if job["status"] not in ("completed", "failed", "cancelled")}
+    assert filled, "no row was refilled: a live job's row must take each tick's answer"
+    assert filled <= carried, f"a tick refilled rows it does not carry: {sorted(filled - carried)}"
+
+def test_a_skipped_job_reads_as_a_skip_and_its_reason_muted(open_panel):
+    """A SCHEDULED FIRING THAT FOUND ITS SOURCE BUSY (#1596) is finished and nothing went
+    wrong: it reads "Skipped" with its own glyph, offers no action, and its reason is
+    drawn muted where a failure's is red."""
+    skipped = dict(HIS_JOBS[1], job_ref="job_skipped", status="skipped", started_at=None,
+                   created_at="2026-10-09T06:00:00Z", finished_at="2026-10-09T06:00:00Z",
+                   current_source_key=None,
+                   error_summary="skipped: a run is in progress (job_034c51a29deb)")
+    page = open_panel(jobs=[skipped] + HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(400)
+    row = _job_row(page, "job_skipped")
+    assert "Skipped" in _status_line(page, "job_skipped")
+    assert row.locator('[data-part="statusline"] use').get_attribute("href") == "#material-next-plan"
+    assert row.locator('[data-part="primary"]').is_hidden(), "a skip offered an action"
+    error = row.locator('[data-part="error"]')
+    assert error.inner_text() == "skipped: a run is in progress (job_034c51a29deb)"
+    assert error.get_attribute("class").split()[0] == "muted"
+    failed = _job_row(page, "job_5155b86ba455").locator('[data-part="error"]')
+    assert failed.get_attribute("class").split()[0] == "err"
+
 
 def test_a_redraw_the_tick_starts_keeps_his_place_on_the_keyboard(open_panel):
     """A JOB STARTING ELSEWHERE IS NOT HIS PRESS. The tick's change of active set re-reads

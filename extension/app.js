@@ -13,9 +13,10 @@ import { capabilityProblem, deployedFrom, installedVersion, CAPABILITY_REPORTING
 import { PROTOCOL_VERSION } from "./transport.js";
 import { ENGINE_CANDIDATES, latestEngineRelease } from "./releases.js";
 import {
-  jobsCountLine, domainOf, isSettled, jobLabel, jobWaitingLine, liveJob,
-  menuControls, observeRate, primaryControl, progressFraction, progressLine,
-  recentRate, refusalLine, sourceTitle, statusLook, statusWords, timeLine,
+  jobsCountLine, domainOf, isSettled, jobLabel, jobLead, jobWaitingLine, liveJob,
+  menuControls, observeRate, othersLine, primaryControl, progressFraction, progressLine,
+  recentRate, refusalLine, sourceOf, sourceTitle, statusLook, statusWords, summaryClass,
+  timeLine,
 } from "./jobsview.js";
 import { getToken, accountFor, authorize, forgetToken, revokeToken } from "./identity.js";
 import {
@@ -1562,7 +1563,8 @@ async function confirmTimeZoneShared() {
 // The one rule, in jobsview.js, so a job and a source are named by the same domain.
 function sourceDomain(url) { return domainOf(url); }
 
-function sourceIdentity(source, compact = false, metricValue = null, metricLabel = "Row") {
+function sourceIdentity(source, compact = false, metricValue = null, metricLabel = "Row",
+  { wrap = false } = {}) {
   const key = source.source_key || "";
   // The unmarked name is English and is required; _ar is the site's own
   // Arabic name and may be absent. English leads, as it always did.
@@ -1571,7 +1573,9 @@ function sourceIdentity(source, compact = false, metricValue = null, metricLabel
   const arabic = source.source_name_ar && source.source_name_ar !== name
     ? `<span class="source-identity-name" dir="auto">${esc(source.source_name_ar)}</span>` : "";
   return `<span class="source-identity${compact ? " source-identity-compact" : ""}">
-    <strong class="source-identity-domain" dir="${domain ? "ltr" : "auto"}">${esc(domain || name)}</strong>
+    <strong class="source-identity-domain" dir="${domain ? "ltr" : "auto"}">${
+      // WRAP (Jobs only, his choice D): a break after each dot, never inside a label.
+      wrap ? (domain || name).split(".").map(esc).join(".<wbr>") : esc(domain || name)}</strong>
     ${domain || arabic ? `<span class="source-identity-names"><span class="source-identity-name-en" dir="ltr">${esc(name)}</span>${
       arabic ? '<span class="source-identity-separator" aria-hidden="true">·</span>' : ""
     }${arabic}</span>` : ""}
@@ -7747,8 +7751,10 @@ const jobsPage = {
   logs: new Map(),         // job_ref -> log text, so a redraw never re-reads it
   menuFor: null,           // job_ref whose ⋮ menu is open
   held: false,             // a redraw waits until the menu or question closes
+  starting: false,         // Start engine pressed from this page, still in flight
 };
 
+const jobsRowInputs = new WeakMap();  // row -> what it was last filled from (renderJobs)
 let jobsReadOrder = 0;     // one counter for both reads: later-issued wins, per row
 let jobsReadSeq = 0;       // the latest history read issued; only it may draw
 
@@ -7812,7 +7818,10 @@ async function loadJobs() {
   jobsTake(jobs.slice(0, JOBS_LIMIT), order, { history: true });
   jobsPage.loaded = true;
   jobsPage.readAt = new Date().toISOString();
-  if (jobsPage.failure && jobsPage.failure.from === "history") jobsPage.failure = null;
+  // AN ANSWER IS AN ANSWER: the engine replied, so whichever read last failed -- the
+  // history's own or the tick's -- no longer describes it. "Try again" reads the history,
+  // and it would otherwise leave a tick's "did not answer" up for up to 30 s.
+  jobsPage.failure = null;
   renderJobs();
 }
 
@@ -7828,8 +7837,9 @@ function jobsTick(jobs, order) {
 /** A read failed. An HTTP answer is the engine speaking (`kind: "http"`, backend.js);
  *  anything else is no answer, and "not running" is said only once the probe agrees. */
 function jobsFailed(from, error) {
-  jobsPage.failure = { from, http: error && error.kind === "http",
-    message: (error && error.message) || "no answer" };
+  jobsPage.failure = { from, http: Boolean(error && error.kind === "http"),
+    message: (error && error.message) || "no answer",
+    startFailed: Boolean(error && error.startFailed) };
   if (currentViewName() === "jobs") renderJobs();
 }
 
@@ -7844,17 +7854,17 @@ function renderJobs() {
   const list = $("jobs-list");
   const stateBox = $("jobs-state");
   const fmt = (value, mode) => window.ScrapeXTime.format(value, mode);
-  stateBox.replaceChildren();
   const failure = jobsPage.failure;
   const down = failure && !failure.http;
 
   if (!jobsPage.loaded) {
     if (failure) {
-      stateBox.append(jobsBanner(failure, false));
+      jobsState(stateBox, failure, false);
       $("jobs-count").textContent = "";
       list.classList.add("hidden");
       return;
     }
+    jobsState(stateBox, null);
     $("jobs-count").textContent = "Loading jobs…";
     list.classList.remove("hidden");
     list.replaceChildren(...Array.from({ length: 4 }, () => {
@@ -7871,7 +7881,7 @@ function renderJobs() {
   const live = !failure && jobsLive();
   $("jobs-count").textContent = jobsCountLine({ shown: all.length, total: all.length, live,
     seconds: POLL_MS / 1000, readAt: jobsPage.readAt, bounded: jobsPage.bounded }, fmt);
-  if (failure) stateBox.append(jobsBanner(failure, true));
+  jobsState(stateBox, failure, true, !all.length);
   // A row no longer in the history leaves the DOM before any empty state returns, or a
   // hidden list would still hold it.
   const wanted = all.map((job) => job.job_ref);
@@ -7881,17 +7891,28 @@ function renderJobs() {
 
   if (!all.length) {
     list.classList.add("hidden");
-    stateBox.append(jobsEmpty("No jobs yet", "Start one from the Run screen.", "Open Run",
-      () => showView("run")));
     return;
   }
   list.classList.remove("hidden");
   list.querySelectorAll(".job-skeleton").forEach((one) => one.remove());
   let before = null;
+  // Read once per render: resolving the zone builds an Intl.DateTimeFormat of its own.
+  const zoneNow = window.ScrapeXTime.zone();
   for (const job of all) {
     let row = jobsPage.rows.get(job.job_ref);
     if (!row) { row = buildJobRow(job.job_ref); jobsPage.rows.set(job.job_ref, row); }
-    fillJobRow(row, job, { down });
+    // FILLED ONLY WHEN SOMETHING IT DRAWS CHANGED. A tick carries the few live jobs; refilling
+    // all 200 rows on each one was a 0.5-1 s long task every 1.5 s (#1608's gate). These
+    // are every input fillJobRow reads, compared by identity: a read hands over new job
+    // objects only for the jobs it carries.
+    const ref = job.job_ref;
+    const inputs = [job, down, jobsPage.pressing.get(ref), jobsPage.notes.get(ref),
+      jobsPage.openLogs.has(ref), jobsPage.logs.get(ref), state.sources, zoneNow];
+    const drawn = jobsRowInputs.get(row);
+    if (!drawn || inputs.some((value, i) => value !== drawn[i])) {
+      fillJobRow(row, job, { down });
+      jobsRowInputs.set(row, inputs);
+    }
     // MOVED ONLY WHEN OUT OF PLACE: moving a node blurs whatever inside it had focus.
     const expected = before ? before.nextElementSibling : list.firstElementChild;
     if (expected !== row) list.insertBefore(row, expected);
@@ -7917,15 +7938,26 @@ function jobsBanner(failure, listShown) {
   } else if (!state.engineUp) {
     box.className = "banner";
     title.textContent = listShown ? "Engine stopped answering" : "Engine not running";
-    copy.textContent = listShown
-      ? `Showing the jobs as read at ${read}. Their controls return when the engine `
-        + "answers. Start the engine to read them again."
-      : "Start the engine to read jobs.";
-    action = ["Start engine", async () => {
-      await startEngineFromPanel();
-      if (!state.engineUp) jobsFailed(failure.from, { message: $("engine-note").textContent });
-      else { jobsPage.failure = null; loadJobs(); pollJob({ fresh: true }); }
-    }];
+    const shown = listShown ? `Showing the jobs as read at ${read}. ` : "";
+    if (failure.startFailed) {
+      // The reason is drawn where the engine is started from, the Run page: send him
+      // there rather than copying another page's sentence into this one.
+      copy.textContent = `${shown}The engine did not start. Open Run to see why.`;
+      action = ["Open Run", () => showView("run")];
+    } else {
+      copy.textContent = listShown
+        ? `${shown}Their controls return when the engine answers. Start the engine to `
+          + "read them again."
+        : "Start the engine to read jobs.";
+      action = [jobsPage.starting ? "Starting…" : "Start engine", async () => {
+        if (jobsPage.starting) return;
+        jobsPage.starting = true;
+        renderJobs();
+        try { await startEngineFromPanel(); } finally { jobsPage.starting = false; }
+        if (!state.engineUp) jobsFailed(failure.from, { startFailed: true });
+        else { jobsPage.failure = null; loadJobs(); pollJob({ fresh: true }); }
+      }, jobsPage.starting];
+    }
   } else {
     // NO ANSWER, BUT THE ENGINE IS UP: a timeout or a dropped connection, not a stopped
     // engine -- so no Start button for an engine that is running.
@@ -7943,28 +7975,42 @@ function jobsBanner(failure, listShown) {
     button.type = "button";
     button.className = "ghost";
     button.textContent = action[0];
+    if (action[2]) button.setAttribute("aria-disabled", "true");
     button.addEventListener("click", action[1]);
     box.append(button);
   }
   return box;
 }
 
-function jobsEmpty(title, line, label, act) {
-  const box = document.createElement("div");
-  box.className = "card empty";
-  const head = document.createElement("p");
-  head.className = "text-sm";
-  head.textContent = title;
-  const copy = document.createElement("p");
-  copy.className = "text-xs";
-  copy.textContent = line;
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = "ghost";
-  button.textContent = label;
-  button.addEventListener("click", act);
-  box.append(head, copy, button);
-  return box;
+/**
+ * What #jobs-state shows: a failure's banner, and "No jobs yet" for a warehouse with
+ * none. REDRAWN ONLY WHEN THAT CHANGES: the banner is role="alert", so a fresh node on
+ * every 1.5 s tick was announced again each time and took the focus off its own button.
+ */
+function jobsState(box, failure, listShown = false, empty = false) {
+  const drawn = JSON.stringify([failure, listShown, empty, state.engineUp, jobsPage.readAt,
+    jobsPage.starting]);
+  if (box.dataset.drawn === drawn) return;
+  box.dataset.drawn = drawn;
+  const parts = failure ? [jobsBanner(failure, listShown)] : [];
+  if (empty) {
+    const card = document.createElement("div");
+    card.className = "card empty";
+    const head = document.createElement("p");
+    head.className = "text-sm";
+    head.textContent = "No jobs yet";
+    const copy = document.createElement("p");
+    copy.className = "text-xs";
+    copy.textContent = "Start one from the Run screen.";
+    const open = document.createElement("button");
+    open.type = "button";
+    open.className = "ghost";
+    open.textContent = "Open Run";
+    open.addEventListener("click", () => showView("run"));
+    card.append(head, copy, open);
+    parts.push(card);
+  }
+  box.replaceChildren(...parts);
 }
 
 // ---- one row ---------------------------------------------------------------------
@@ -7991,7 +8037,7 @@ function buildJobRow(ref) {
   row.className = "job-row";
   row.dataset.job = ref;
   row.innerHTML = `
-    <span class="source-identity job-identity" data-part="identity"></span>
+    <span class="job-identity" data-part="identity"></span>
     <div class="job-line job-status-line text-xs" data-part="statusline"></div>
     <span class="job-primary" data-part="primary"><button type="button" class="ghost"></button></span>
     <span class="job-kebab">
@@ -8033,84 +8079,70 @@ function buildJobRow(ref) {
     }
   });
   jobsPart(row, "menu").addEventListener("keydown", (event) => jobsMenuKeys(event, ref));
-  jobsPart(row, "logtoggle").addEventListener("click", () => jobsToggleLog(ref));
+  const toggle = jobsPart(row, "logtoggle");
+  toggle.addEventListener("click", () => {
+    // aria-disabled while the engine is down: it can take focus, and must not act.
+    if (toggle.getAttribute("aria-disabled") === "true") return;
+    jobsToggleLog(ref);
+  });
   jobsPart(row, "logclose").firstElementChild.addEventListener("click", () => jobsToggleLog(ref));
   return row;
+}
+
+/** A row's text is written only when it changed: a read rewriting the same words would
+ *  clear a selection he made in them, and copying a failure is what he opens it for. */
+function jobsText(node, text) {
+  if (node.textContent !== text) node.textContent = text;
 }
 
 function fillJobRow(row, job, { down = false } = {}) {
   const ref = job.job_ref;
   const sources = state.sources;
-  // IDENTITY: the panel's one source identity (sourceIdentity, components.css:779-860),
-  // built as text. Several sources name the first and count the rest.
+  // IDENTITY: the panel's one source identity (sourceIdentity, components.css:779-860).
+  // Several sources name the one it leads with and count the rest.
   const identity = jobsPart(row, "identity");
-  const keys = job.source_keys || [];
-  const lead = job.current_source_key || keys[0] || "";
-  const source = (sources || []).find((one) => one && (one.source_key === lead
-    || one.site_key === lead));
-  const domain = source ? domainOf(source.base_url) : "";
-  const strong = document.createElement("strong");
-  strong.className = "source-identity-domain";
-  strong.dir = domain ? "ltr" : "auto";
-  // THE DOMAIN WRAPS, AND ONLY AFTER A DOT (his choice D, Jobs only): it is what tells
-  // one row from another, and the shared identity ellipsizes it at 320 px.
-  (domain || sourceTitle(lead, sources)).split(".").forEach((piece, i, all) => {
-    strong.append(document.createTextNode(piece + (i < all.length - 1 ? "." : "")));
-    if (i < all.length - 1) strong.append(document.createElement("wbr"));
-  });
-  const parts = [strong];
-  if (source && domain) {
-    const names = document.createElement("span");
-    names.className = "source-identity-names";
-    const en = document.createElement("span");
-    en.className = "source-identity-name-en";
-    en.dir = "ltr";
-    en.textContent = source.source_name || lead;
-    names.append(en);
-    if (source.source_name_ar && source.source_name_ar !== source.source_name) {
-      const dot = document.createElement("span");
-      dot.className = "source-identity-separator";
-      dot.setAttribute("aria-hidden", "true");
-      dot.textContent = "·";
-      const ar = document.createElement("span");
-      ar.className = "source-identity-name";
-      ar.dir = "auto";
-      ar.textContent = source.source_name_ar;
-      names.append(dot, ar);
+  const lead = jobLead(job);
+  const source = sourceOf(lead, sources);
+  const more = othersLine(job);
+  const drawnAs = JSON.stringify([lead, more, source?.base_url, source?.source_name,
+    source?.source_name_ar]);
+  if (identity.dataset.drawn !== drawnAs) {
+    identity.dataset.drawn = drawnAs;
+    // THE PANEL'S ONE SOURCE IDENTITY, the same builder every page uses; a key Sources
+    // does not list stands as its own name. Several sources: the lead, and the count.
+    identity.innerHTML = sourceIdentity(source || { source_key: lead }, false, null, "Row",
+      { wrap: true });
+    if (more) {
+      const others = document.createElement("span");
+      others.className = "job-more text-xs muted";
+      others.textContent = more;
+      identity.append(others);
     }
-    parts.push(names);
   }
-  if (keys.length > 1) {
-    const more = document.createElement("span");
-    more.className = "job-more text-xs muted";
-    more.textContent = `and ${keys.length - 1} other${keys.length === 2 ? "" : "s"}`;
-    parts.push(more);
-  }
-  const footer = document.createElement("code");
-  footer.className = "source-identity-key";
-  footer.textContent = keys.join(", ");
-  parts.push(footer);
-  identity.replaceChildren(...parts);
 
   // STATUS: the engine's word, its glyph and tone; then the kind.
   const look = statusLook(job.status);
   const line = jobsPart(row, "statusline");
-  const status = document.createElement("span");
-  status.className = `job-status job-tone-${look.tone}`;
-  status.append(jobsSvg(look.glyph), document.createTextNode(look.word));
-  const sep = document.createElement("span");
-  sep.className = "muted";
-  sep.textContent = " ·";
-  const lead2 = document.createElement("span");
-  lead2.append(status, sep);
-  const kind = document.createElement("span");
-  kind.className = "muted";
-  kind.textContent = jobLabel({ job_kind: job.job_kind });
-  line.replaceChildren(lead2, kind);
+  if (line.dataset.drawn !== `${job.status} ${job.job_kind}`) {
+    line.dataset.drawn = `${job.status} ${job.job_kind}`;
+    const status = document.createElement("span");
+    status.className = `job-status job-tone-${look.tone}`;
+    status.append(jobsSvg(look.glyph), document.createTextNode(look.word));
+    const sep = document.createElement("span");
+    sep.className = "muted";
+    sep.textContent = " ·";
+    const lead2 = document.createElement("span");
+    lead2.append(status, sep);
+    const kind = document.createElement("span");
+    kind.className = "muted";
+    kind.textContent = jobLabel({ job_kind: job.job_kind });
+    line.replaceChildren(lead2, kind);
+  }
 
   // THE ONE ACTION, AND ITS STATE IN FLIGHT: aria-disabled, so focus stays on it.
   const label = jobLabel(job, sources);
-  const named = `${label}, ${timeLine(job, (v, m) => window.ScrapeXTime.format(v, m))}`;
+  const when = timeLine(job, (v, m) => window.ScrapeXTime.format(v, m));
+  const named = `${label}, ${when}`;
   const control = primaryControl(job);
   const pressing = jobsPage.pressing.get(ref);
   const primary = jobsPart(row, "primary");
@@ -8137,7 +8169,7 @@ function fillJobRow(row, job, { down = false } = {}) {
   if (down) kebab.setAttribute("aria-disabled", "true"); else kebab.removeAttribute("aria-disabled");
   jobsPart(row, "menu").setAttribute("aria-label", `Actions for ${named}`);
 
-  jobsPart(row, "time").textContent = timeLine(job, (v, m) => window.ScrapeXTime.format(v, m));
+  jobsText(jobsPart(row, "time"), when);
 
   const fraction = progressFraction(job);
   const barline = jobsPart(row, "barline");
@@ -8146,17 +8178,20 @@ function fillJobRow(row, job, { down = false } = {}) {
     const bar = barline.querySelector(".job-bar");
     bar.setAttribute("aria-valuenow", String(Math.round(fraction * 100)));
     bar.firstElementChild.style.width = `${Math.round(fraction * 100)}%`;
-    jobsPart(row, "progress").textContent = progressLine(job);
+    jobsText(jobsPart(row, "progress"), progressLine(job));
   }
   const note = jobsPart(row, "note");
   const waiting = jobWaitingLine(job);
-  note.textContent = waiting;
+  jobsText(note, waiting);
   note.classList.toggle("hidden", !waiting);
 
   // THE FAILURE: two lines, then View log (his choice B). Its toggle opens the log here.
   const failure = jobsPart(row, "failure");
   failure.classList.toggle("hidden", !job.error_summary);
-  jobsPart(row, "error").textContent = job.error_summary || "";
+  const error = jobsPart(row, "error");
+  jobsText(error, job.error_summary || "");
+  // A SKIP'S REASON IS NOT AN ERROR (#1596): drawn muted, where a failure's is red.
+  error.className = `${summaryClass(job.status)} job-clamp`;
   const open = jobsPage.openLogs.has(ref);
   const toggle = jobsPart(row, "logtoggle");
   toggle.textContent = open ? "Hide log" : "View log";
@@ -8164,14 +8199,12 @@ function fillJobRow(row, job, { down = false } = {}) {
   if (down) toggle.setAttribute("aria-disabled", "true"); else toggle.removeAttribute("aria-disabled");
   const log = jobsPart(row, "log");
   log.classList.toggle("hidden", !open);
-  if (open && log.textContent !== (jobsPage.logs.get(ref) || LOG_PLACEHOLDER)) {
-    log.textContent = jobsPage.logs.get(ref) || LOG_PLACEHOLDER;
-  }
+  if (open) jobsText(log, jobsPage.logs.get(ref) || LOG_PLACEHOLDER);
   // A LOG OPENED FROM ⋮ ON A ROW WITH NO FAILURE HAS ITS OWN WAY BACK.
   jobsPart(row, "logclose").classList.toggle("hidden", !(open && !job.error_summary));
   const said = jobsPage.notes.get(ref) || "";
   const refusal = jobsPart(row, "refusal");
-  if (refusal.textContent !== said) refusal.textContent = said;
+  jobsText(refusal, said);
   refusal.classList.toggle("hidden", !said);
 }
 
@@ -8245,10 +8278,14 @@ function wireJobsPage() {
 
 function jobsToggleLog(ref) {
   const row = jobsPage.rows.get(ref);
+  // READ EACH TIME IT OPENS, and forgotten when it closes: a log is the job's record
+  // so far, and the line that explains a later failure is written after the first look.
+  // A redraw while it is open never reads it again (fillJobRow keeps the text).
+  jobsPage.logs.delete(ref);
   if (jobsPage.openLogs.has(ref)) jobsPage.openLogs.delete(ref);
   else {
     jobsPage.openLogs.add(ref);
-    if (!jobsPage.logs.has(ref)) openJobLog(ref);
+    openJobLog(ref);
   }
   renderJobs();
   // Focus stays on the control he used, or comes to the row's toggle.
@@ -8261,7 +8298,7 @@ function jobsToggleLog(ref) {
 }
 
 /**
- * One job's log, kept for the page so a redraw never reads it twice.
+ * One job's log, read when its row opens it and kept while it stays open.
  *
  * DRAWN AS TEXT, and that is not a shortcut: every line was written by a crawl of
  * somebody else's website. Each stamp goes through ScrapeXTime, and a line one source
@@ -8271,6 +8308,7 @@ function jobsToggleLog(ref) {
 async function openJobLog(ref) {
   try {
     const log = await api(`/api/jobs/${encodeURIComponent(ref)}/logs`);
+    if (!jobsPage.openLogs.has(ref)) return;  // closed while it was being read
     const entries = log.entries || [];
     jobsPage.logs.set(ref, entries.length
       ? entries.map((entry) => [window.ScrapeXTime.format(entry.logged_at, "short"),
@@ -8278,6 +8316,7 @@ async function openJobLog(ref) {
         .filter(Boolean).join("  ")).join("\n")
       : "This job wrote no log.");
   } catch (error) {
+    if (!jobsPage.openLogs.has(ref)) return;
     jobsPage.logs.set(ref, `The log could not be read: ${error.message}`);
   }
   renderJobs();
@@ -8304,11 +8343,15 @@ async function pressJobControl(job, control, button) {
   try {
     await post(`/api/jobs/${encodeURIComponent(ref)}/control`, { control });
   } catch (error) {
+    const verb = control[0].toUpperCase() + control.slice(1);
     if (error && error.status === 409) refused = true;
     else if (error && error.kind === "http") {
-      const verb = control[0].toUpperCase() + control.slice(1);
       jobsPage.notes.set(ref, `${verb} failed: ${error.message}`);
-    } else jobsFailed("history", error);
+    } else {
+      // NO ANSWER IS SAID WHERE HE PRESSED. A page failure was cleared by the very next
+      // read that answered, so the press failed with nothing on screen saying so.
+      jobsPage.notes.set(ref, `${verb} got no answer from the engine. Try again once it answers.`);
+    }
   } finally {
     jobsPage.pressing.delete(ref);
   }
