@@ -299,7 +299,7 @@ test("a skip's reason is drawn muted, and a failure's still in red", () => {
                         "cancelled", "something_new", "", null, undefined]) {
     assert.equal(summaryClass(status), "err", String(status));
   }
-  // The row drawn from it is test_a_skipped_job_reads_as_a_skip_and_its_reason_muted.
+  // The row drawn from it is test_a_skipped_job_is_drawn_finished_and_says_why_without_alarm.
 });
 
 // THE COLLISION GUARD LIVES IN `tests/test_panel_wiring.py`, NOT HERE.

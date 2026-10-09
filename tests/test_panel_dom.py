@@ -659,10 +659,11 @@ SKIPPED_JOB = {
 
 
 def test_a_skipped_job_is_drawn_finished_and_says_why_without_alarm(open_panel):
-    """A skip is something the schedule did, not something that went wrong. Its row says
-    why, in the muted line and not the red one a failure uses; it offers no control,
-    because the engine refuses every one on a finished job; and the mini-player does not
-    adopt it as the job doing the work."""
+    """A skip is something the schedule did, not something that went wrong. Its row reads
+    "Skipped" with its own glyph and says why, in the muted line and not the red one a
+    failure uses; it offers no action, because the engine refuses every one on a
+    finished job; and the mini-player does not adopt it as the job doing the work.
+    (The old page's per-status summary line is gone with the page, #1542.)"""
     failed = next(job for job in HIS_JOBS if job["status"] == "failed")
     page = open_panel(jobs=[SKIPPED_JOB, failed])
     page.wait_for_timeout(400)
@@ -671,24 +672,25 @@ def test_a_skipped_job_is_drawn_finished_and_says_why_without_alarm(open_panel):
     page.click(JOBS_TAB)
     page.wait_for_timeout(300)
 
-    row = page.locator(f'#jobs-list .job-row[data-job="{SKIPPED_JOB["job_ref"]}"]')
+    ref = SKIPPED_JOB["job_ref"]
+    row = _job_row(page, ref)
     assert row.count() == 1, "the skipped job was not drawn"
-    assert row.locator(".badge").inner_text().strip() == "skipped"
-    assert row.locator(".job-actions button").count() == 0, (
+    assert "Skipped" in _status_line(page, ref)
+    assert row.locator('[data-part="statusline"] use').get_attribute("href") == "#material-next-plan"
+    assert row.locator('[data-part="primary"]').is_hidden(), (
         "a skipped job offered a control the engine answers 409")
-    assert row.locator(".job-live").count() == 0
-    row.locator("summary").click()
-    reason = row.locator(".hint", has_text="a run is in progress")
-    assert reason.count() == 1, "the reason the schedule skipped it is not on the row"
+    assert _menu_items(page, ref) == ["View log"], "a skipped job's menu offers Cancel"
+    page.keyboard.press("Escape")
+    reason = row.locator('[data-part="error"]')
+    assert "a run is in progress" in reason.inner_text(), (
+        "the reason the schedule skipped it is not on the row")
     classes = reason.get_attribute("class").split()
     assert "muted" in classes and "err" not in classes, (
         f"a skip's reason is drawn as an error: {classes}")
-    failure = page.locator(f'#jobs-list .job-row[data-job="{failed["job_ref"]}"] .hint')
+    failure = _job_row(page, failed["job_ref"]).locator('[data-part="error"]')
     assert "err" in failure.get_attribute("class").split(), (
         "a failure's reason stopped being drawn as one")
-    assert "1 skipped" in page.locator("#jobs-summary").inner_text()
     assert not page.js_errors
-
 
 def test_a_still_job_says_what_it_waits_for_and_names_no_job_it_cannot(open_panel):
     """ISSUE 778's SECOND HALF. `queued_behind` is `null` for a job blocked on the
@@ -12295,28 +12297,6 @@ def test_a_tick_refills_only_the_rows_it_changed(open_panel):
                if job["status"] not in ("completed", "failed", "cancelled")}
     assert filled, "no row was refilled: a live job's row must take each tick's answer"
     assert filled <= carried, f"a tick refilled rows it does not carry: {sorted(filled - carried)}"
-
-def test_a_skipped_job_reads_as_a_skip_and_its_reason_muted(open_panel):
-    """A SCHEDULED FIRING THAT FOUND ITS SOURCE BUSY (#1596) is finished and nothing went
-    wrong: it reads "Skipped" with its own glyph, offers no action, and its reason is
-    drawn muted where a failure's is red."""
-    skipped = dict(HIS_JOBS[1], job_ref="job_skipped", status="skipped", started_at=None,
-                   created_at="2026-10-09T06:00:00Z", finished_at="2026-10-09T06:00:00Z",
-                   current_source_key=None,
-                   error_summary="skipped: a run is in progress (job_034c51a29deb)")
-    page = open_panel(jobs=[skipped] + HIS_JOBS)
-    page.click(JOBS_TAB)
-    page.wait_for_timeout(400)
-    row = _job_row(page, "job_skipped")
-    assert "Skipped" in _status_line(page, "job_skipped")
-    assert row.locator('[data-part="statusline"] use').get_attribute("href") == "#material-next-plan"
-    assert row.locator('[data-part="primary"]').is_hidden(), "a skip offered an action"
-    error = row.locator('[data-part="error"]')
-    assert error.inner_text() == "skipped: a run is in progress (job_034c51a29deb)"
-    assert error.get_attribute("class").split()[0] == "muted"
-    failed = _job_row(page, "job_5155b86ba455").locator('[data-part="error"]')
-    assert failed.get_attribute("class").split()[0] == "err"
-
 
 def test_start_engine_keeps_his_focus_on_the_banners_button(open_panel):
     """THE BANNER'S OWN REDRAW, which he caused: Start engine becomes Starting…, and the
