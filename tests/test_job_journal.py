@@ -100,7 +100,7 @@ class _Fetcher:
 def _with_connector(monkeypatch, connector):
     import scrapex.capture as capmod
     monkeypatch.setattr(capmod, "build_connector",
-                        lambda entry, crawl_settings=None: (connector, _Fetcher()))
+                        lambda entry, rules, crawl_settings=None: (connector, _Fetcher()))
 
 
 def _job(conn) -> tuple[str, int]:
@@ -328,7 +328,7 @@ def test_politeness_notes_land_in_the_job_log_as_info_not_warning(conn, journal,
 
     import scrapex.capture as capmod
     monkeypatch.setattr(capmod, "build_connector",
-                        lambda entry, crawl_settings=None: (_PagedConnector(),
+                        lambda entry, rules, crawl_settings=None: (_PagedConnector(),
                                                             _NotingFetcher()))
     ref = create_job(conn, ["GPP_ENERGY"])
 
@@ -626,7 +626,7 @@ def test_a_block_does_not_stop_the_other_sources_and_the_job_says_partial(
     connectors = {"GPP_ENERGY": _BlockedConnector(), "GPP_OTHER": _Other()}
     import scrapex.capture as capmod
     monkeypatch.setattr(capmod, "build_connector",
-                        lambda entry, crawl_settings=None:
+                        lambda entry, rules, crawl_settings=None:
                         (connectors[entry.source_key], _Fetcher()))
     ref = create_job(conn, ["GPP_ENERGY", "GPP_OTHER"])
 

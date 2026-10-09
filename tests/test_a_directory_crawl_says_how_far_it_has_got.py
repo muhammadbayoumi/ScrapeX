@@ -158,7 +158,7 @@ def _drive(conn: sqlite3.Connection, monkeypatch, *, pages: int,
         return "<html></html>"
 
     monkeypatch.setattr(directoryjob.contractors, "make_fetch",
-                        lambda pace_s: (fetcher, fetch))
+                        lambda pace_s, rules: (fetcher, fetch))
     # The real interval is 20s, so a short test would write one beat or none. Zero makes
     # every page a beat, which is the same code path at a different cadence.
     monkeypatch.setattr(directoryjob, "BEAT_EVERY_S", beat_every_s)
@@ -315,7 +315,7 @@ def test_the_finished_card_still_says_what_the_crawl_spent(conn, monkeypatch):
         return "<html></html>"
 
     monkeypatch.setattr(directoryjob.contractors, "make_fetch",
-                        lambda pace_s: (fetcher, fetch))
+                        lambda pace_s, rules: (fetcher, fetch))
     monkeypatch.setattr(directoryjob, "BEAT_EVERY_S", 0.0)
 
     def crawl_and_finish(*args, **kwargs):
@@ -375,7 +375,7 @@ def test_the_card_carries_the_politeness_rows_the_panel_draws(conn, monkeypatch)
     fetcher._honour_crawl_delay = False        # he overrode a delay: it must SHOW
 
     monkeypatch.setattr(directoryjob.contractors, "make_fetch",
-                        lambda pace_s: (fetcher, _counting(fetcher)))
+                        lambda pace_s, rules: (fetcher, _counting(fetcher)))
     monkeypatch.setattr(directoryjob, "BEAT_EVERY_S", 0.0)
 
     def crawl_some_pages(*args, **kwargs):

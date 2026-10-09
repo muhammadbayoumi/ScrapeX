@@ -178,7 +178,7 @@ from ..config import SourceEntry, TaxonomyConfig
 from ..normalize import option_axes_json, strip_markup
 from ..rowspec import ENRICHMENT, PRODUCT_PRICES, RowBuilder
 from ..vocab import Availability, DetailGroup, ExtractKind, group_for_code
-from .base import HttpFetcher, ScrapedTable
+from .base import CrawlBlocked, HttpFetcher, ScrapedTable
 
 # The segment an anonymous visitor is quoted, verbatim from the bundle.
 PUBLIC_SEGMENT = "Y6"
@@ -349,6 +349,13 @@ def read_families(fetcher: HttpFetcher, taxonomy: TaxonomyConfig,
         url = f"{root}{path}"
         try:
             pages[lang] = _listing_labels(fetcher.get(url).text, url)
+        except CrawlBlocked:
+            # THE SITE'S STOP IS NOT A MISSING CATEGORY. This host is the third
+            # one the source reads, so its robots.txt is first read here: an
+            # unreachable one (`RobotsUnreachable`, ES-2) or the breaker must pause
+            # the source, as every other connector's page guard lets it, rather
+            # than finish the run with the category column empty.
+            raise
         except Exception as exc:
             pages[lang] = {}
             defects.append(

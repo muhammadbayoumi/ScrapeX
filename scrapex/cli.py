@@ -19,7 +19,7 @@ import os
 import sys
 from pathlib import Path
 
-from . import contractors, localinbox, version, vocab
+from . import contractors, localinbox, source_settings, version, vocab
 from . import db as dbmod
 from .config import MANIFEST_FILE, load_manifest
 from .connectors.factory import build_connector
@@ -606,7 +606,11 @@ def _cmd_contractors(args: argparse.Namespace) -> int:
 
 def _cmd_crawl(args: argparse.Namespace) -> int:
     entry = load_manifest().get(args.source)
-    connector, fetcher = build_connector(entry)
+    # NO WAREHOUSE IS OPENED HERE -- this writes to the local inbox -- so the crawl runs
+    # as the source shipped. The command line is not his surface; `capture_source`,
+    # which the panel's jobs run, reads his choices.
+    rules = source_settings.layered({}, entry.source_key, entry)
+    connector, fetcher = build_connector(entry, rules)
     if getattr(args, "history", False):
         # The backfill is a MODE of the connector, not a different connector:
         # same frontier, same politeness, plus the published series per country.

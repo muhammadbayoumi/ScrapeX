@@ -585,15 +585,20 @@ def undeclared_sources(conn) -> list[str]:
 
 
 def reconcile_active(conn) -> dict[str, bool]:
-    """Write the manifest's `active` into the warehouse that describes it.
+    """Write each source's EFFECTIVE `active` into the warehouse that describes it.
+
+    EFFECTIVE, NOT THE MANIFEST'S (#1584): his choice for a source, from
+    `source_setting`, else what `sources.yaml` ships -- the same answer the scheduler
+    fires on (`source_settings.effective`), so `lifecycle` cannot say a source is on
+    while the schedule treats it as off.
 
     THE WAREHOUSE WAS LYING, and measured on the owner's own database on
     2026-08-10 it claimed all twelve sources were active while sources.yaml had
     five of them switched off: ELBUROJ, HEIDELBERG_EG, MADAR, SIKAEGSHOP and
     SPARK_ESHOP.
 
-    Nothing was broken by it — the scheduler reads `entry.active` from the
-    manifest, so the right sources were crawled. The damage is to anyone who
+    Nothing was broken by it — the scheduler decided from the manifest, not from
+    this column, so the right sources were crawled. The damage is to anyone who
     reads the DATABASE: the owner with a query, an export, a future page, or the
     Console when it arrives. A column called `active` that is always 1 is worse
     than no column, because it answers a question it does not know.
@@ -604,11 +609,13 @@ def reconcile_active(conn) -> dict[str, bool]:
     Returns only what CHANGED, so a caller can say so rather than reporting a
     reconciliation nobody needed.
     """
+    from . import source_settings
     from .config import MANIFEST_FILE, load_manifest
 
+    # A manifest that fails to load -- including one whose robots rules `SourceEntry`
+    # refuses -- is not read as "every source is off".
     try:
-        wanted = {entry.source_key: bool(entry.active)
-                  for entry in load_manifest(MANIFEST_FILE).sources}
+        manifest = load_manifest(MANIFEST_FILE)
     except Exception:
         return {}                                # no manifest to obey
 
@@ -620,12 +627,25 @@ def reconcile_active(conn) -> dict[str, bool]:
         # of this also refused to move a `draft` row, which is a new policy nobody asked
         # for and which this function is not the place to invent.
         stored = dict(conn.execute("SELECT source_key, lifecycle FROM source_site"))
+        wanted: dict[str, bool] = {}
+        for key in stored:
+            # WHAT IT SHIPS WITH: its manifest entry, or its directory.
+            shipped = source_settings.shipped_with(manifest, key)
+            if shipped is not None:
+                # No refusal can come out of this, BECAUSE THE MANIFEST REFUSES AT LOAD:
+                # every entry passed `SourceEntry`, whose checks are the ones
+                # `effective` applies, and a directory ships `active` alone.
+                wanted[key] = source_settings.effective(conn, key, shipped).active
+            elif "active" in (chosen := source_settings.read(conn, key)):
+                # A source neither the manifest nor the directory registry names
+                # follows his choice when he has made one.
+                wanted[key] = chosen["active"]
+            # Otherwise a source the release no longer names is left ALONE,
+            # deliberately. Its rows are `undeclared_sources`' business, and silently
+            # marking them inactive would hide the very thing that function exists to
+            # surface.
         for key, lifecycle in stored.items():
             is_active = lifecycle == "active"
-            # A source the manifest no longer names is left ALONE, deliberately.
-            # Its rows are `undeclared_sources`' business, and silently marking
-            # them inactive would hide the very thing that function exists to
-            # surface.
             if key in wanted and bool(is_active) != wanted[key]:
                 conn.execute(
                     "UPDATE source_site SET lifecycle = ?, "

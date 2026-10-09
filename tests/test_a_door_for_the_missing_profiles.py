@@ -312,7 +312,7 @@ def test_a_named_id_still_reaches_a_marked_contractor(warehouse, monkeypatch):
     conn.commit()
     fetched: list[str] = []
     monkeypatch.setattr(contractors, "make_fetch",
-                        lambda pace: (None, lambda url: fetched.append(url) or ""))
+                        lambda pace, rules: (None, lambda url: fetched.append(url) or ""))
 
     profilejob.run_profile_crawl_job_once(conn, job_ref)
 
@@ -499,7 +499,7 @@ def test_a_job_stopped_while_waiting_never_fetches(warehouse, monkeypatch):
     conn.commit()
     fetched: list[str] = []
     monkeypatch.setattr(contractors, "make_fetch",
-                        lambda pace: (None, lambda url: fetched.append(url) or ""))
+                        lambda pace, rules: (None, lambda url: fetched.append(url) or ""))
 
     class CancelWhileWaiting:
         """An admission whose lane cancels the job before it lets go -- which is exactly
@@ -566,7 +566,7 @@ def test_a_settled_row_stops_a_running_sweep_even_with_no_control_left(warehouse
         return "<html></html>"
 
     monkeypatch.setattr(contractors, "make_fetch",
-                        lambda pace: (None, settle_after_two))
+                        lambda pace, rules: (None, settle_after_two))
 
     profilejob.run_profile_crawl_job_once(conn, job_ref)
 
@@ -602,7 +602,7 @@ def test_the_beat_does_not_write_running_over_a_pending_stop(warehouse, monkeypa
         return "<html></html>"
 
     monkeypatch.setattr(contractors, "make_fetch",
-                        lambda pace: (None, cancel_after_one))
+                        lambda pace, rules: (None, cancel_after_one))
 
     profilejob.run_profile_crawl_job_once(conn, job_ref)
 
@@ -644,7 +644,7 @@ def test_a_paused_sweep_still_counts_the_pages_it_fetched(warehouse, monkeypatch
         return "<html></html>"
 
     monkeypatch.setattr(contractors, "make_fetch",
-                        lambda pace: (None, pause_after_one))
+                        lambda pace, rules: (None, pause_after_one))
 
     profilejob.run_profile_crawl_job_once(conn, job_ref)
 
@@ -684,7 +684,7 @@ def test_a_pause_before_the_first_page_still_corrects_the_total(warehouse, monke
     monkeypatch.setattr(profilejob, "BEAT_EVERY_PAGES", 1)
     seen: list[str] = []
     monkeypatch.setattr(contractors, "make_fetch",
-                        lambda pace: (None, lambda url: seen.append(url) or "<html/>"))
+                        lambda pace, rules: (None, lambda url: seen.append(url) or "<html/>"))
 
     profilejob.run_profile_crawl_job_once(conn, job_ref)
 
@@ -922,7 +922,7 @@ def test_a_re_entered_sweep_says_so_and_says_what_it_costs(warehouse, monkeypatc
         ("2026-09-07T10:33:25Z", 620, job_ref))
     conn.commit()
     monkeypatch.setattr(contractors, "make_fetch",
-                        lambda pace: (None, lambda url: "<html></html>"))
+                        lambda pace, rules: (None, lambda url: "<html></html>"))
 
     profilejob.run_profile_crawl_job_once(conn, job_ref)
 
@@ -944,7 +944,7 @@ def test_a_first_sweep_says_nothing_about_a_restart(warehouse, monkeypatch):
     job_ref = jobs.create_job(conn, [SITE], job_kind=profilejob.JOB_KIND)
     conn.commit()
     monkeypatch.setattr(contractors, "make_fetch",
-                        lambda pace: (None, lambda url: "<html></html>"))
+                        lambda pace, rules: (None, lambda url: "<html></html>"))
 
     profilejob.run_profile_crawl_job_once(conn, job_ref)
 
