@@ -11072,55 +11072,97 @@ def test_a_live_warehouse_that_could_not_be_counted_is_not_read_as_a_pass(
     assert "nothing here to compare it against" in said, said
 
 
-def test_cancel_asks_first_and_a_refused_question_sends_nothing(open_panel):
-    """CANCEL IS THE ONE IRREVERSIBLE CONTROL AND ITS ONLY QUESTION WAS UNTESTED.
+CANCEL_SENTENCE = "Cancelling stops it for good. What it already stored stays in the warehouse."
 
-    `confirmedControl` guards both surfaces -- the row's Cancel and the mini-player's --
-    and replacing its whole body with `return true;` left the entire suite green. The
-    string it asks with appears exactly once in the repository: the production line.
-    Both existing control guards press `button.first`, which is Pause or Resume, so
-    nothing ever drove Cancel.
 
-    That matters most exactly where this page puts it: Cancel sits next to Resume in a
-    paused row, in a list of 163, and a mis-click terminally cancels a running crawl.
-    """
-    page = open_panel(jobs=HIS_JOBS)
+def _control_writes(page):
+    return [w for w in page.evaluate("() => window.__writes") if "/control" in w["path"]]
+
+
+def _the_cancel_question_is_open(page):
+    """The panel's own alertdialog, open, asking the one shared question, with focus on
+    the choice that changes nothing (WAI-ARIA APG alertdialog)."""
+    page.wait_for_selector("#confirm-veil:not(.hidden)", timeout=2000)
+    dialog = page.locator("#confirm-dialog")
+    assert dialog.get_attribute("role") == "alertdialog"
+    assert dialog.get_attribute("aria-modal") == "true"
+    assert page.text_content("#confirm-title").strip() == "Cancel this job?"
+    assert CANCEL_SENTENCE in page.text_content("#confirm-copy")
+    assert page.text_content("#confirm-keep").strip() == "Keep job"
+    assert page.text_content("#confirm-go").strip() == "Cancel job"
+    assert page.evaluate("() => document.activeElement && document.activeElement.id") == "confirm-keep"
+
+
+def _open_paused_rows_cancel(page):
     page.click(JOBS_TAB)
     page.wait_for_timeout(300)
-
     paused = page.locator('#jobs-list .job-row[data-job="job_0212decca681"]')
-    # The controls live inside the row's <details>, so it has to be open to press one --
-    # which is the state a mis-click happens in anyway.
     paused.locator("summary").click()
     page.wait_for_timeout(300)
     labels = paused.locator("button").all_text_contents()
     assert labels == ["Resume", "Cancel"], (
         f"this guard needs the paused row's Cancel button; it draws {labels}")
-    cancel = paused.locator("button").nth(1)
+    return paused.locator("button").nth(1)
 
-    # DISMISSED: the question was asked, and nothing was sent.
-    asked = []
-    page.once("dialog", lambda dialog: (asked.append(dialog.message), dialog.dismiss()))
+
+def test_cancel_asks_first_and_a_refused_question_sends_nothing(open_panel):
+    """CANCEL IS THE ONE IRREVERSIBLE CONTROL, and it asks in the panel's own dialog.
+
+    `confirmedControl` guards both surfaces -- the row's Cancel and the mini-player's.
+    It asked through the browser's `confirm()` until #1542: a window whose "Cancel"
+    button meant KEEP, which Supabase's ConfirmationModal (`variant="destructive"`,
+    `cancelLabel`/`confirmLabel`, ConfirmationModal.tsx@86c813ec:27-62) exists to avoid.
+    The sentence is the one true for every kind and status: a held job settles at its
+    boundary, a queued or paused one at once, and what was stored is never rolled back.
+    """
+    page = open_panel(jobs=HIS_JOBS)
+    native = []
+    page.on("dialog", lambda dialog: (native.append(dialog.message), dialog.dismiss()))
+    cancel = _open_paused_rows_cancel(page)
+
+    # KEEP: asked, nothing sent, focus back where he pressed.
     cancel.click()
-    page.wait_for_timeout(300)
+    _the_cancel_question_is_open(page)
+    page.click("#confirm-keep")
+    page.wait_for_timeout(200)
+    assert page.locator("#confirm-veil").is_hidden()
+    assert _control_writes(page) == [], "Keep job was chosen and the cancel was sent anyway"
+    assert page.evaluate("() => document.activeElement && document.activeElement.textContent.trim()") == "Cancel"
 
-    assert asked, "Cancel was pressed and no question was asked before it was sent"
-    assert "Cancel this job?" in asked[0], (
-        f"the question does not name what it is about to do: {asked[0]!r}")
-    sent = [w for w in page.evaluate("() => window.__writes")
-            if "/control" in w["path"]]
-    assert sent == [], (
-        f"the question was refused and the cancel was sent anyway: {sent}")
-
-    # ACCEPTED: the same press goes through, so the guard has not broken the button.
-    page.once("dialog", lambda dialog: dialog.accept())
+    # ESCAPE: the same as Keep.
     cancel.click()
+    _the_cancel_question_is_open(page)
+    page.keyboard.press("Escape")
+    page.wait_for_timeout(200)
+    assert page.locator("#confirm-veil").is_hidden()
+    assert _control_writes(page) == [], "Escape closed the question and the cancel was sent"
+
+    # CANCEL JOB: the same press goes through, so the guard has not broken the button.
+    cancel.click()
+    _the_cancel_question_is_open(page)
+    page.click("#confirm-go")
     page.wait_for_timeout(400)
-
-    sent = [w for w in page.evaluate("() => window.__writes")
-            if "/control" in w["path"]]
+    sent = _control_writes(page)
     assert len(sent) == 1 and sent[0]["body"] == {"control": "cancel"}, (
-        f"an accepted Cancel did not reach the engine: {sent}")
+        f"a confirmed Cancel did not reach the engine: {sent}")
+    assert native == [], f"the browser's own confirm() was still used: {native}"
+
+
+def test_the_cancel_question_keeps_tab_inside_it(open_panel):
+    """aria-modal is a promise the page has to keep: Tab cycles the two choices and never
+    reaches the panel behind the veil (WAI-ARIA APG dialog, keyboard interaction)."""
+    page = open_panel(jobs=HIS_JOBS)
+    cancel = _open_paused_rows_cancel(page)
+    cancel.click()
+    _the_cancel_question_is_open(page)
+    seen = []
+    for _ in range(4):
+        page.keyboard.press("Tab")
+        seen.append(page.evaluate("() => document.activeElement && document.activeElement.id"))
+    assert seen == ["confirm-go", "confirm-keep", "confirm-go", "confirm-keep"], seen
+    page.keyboard.press("Shift+Tab")
+    assert page.evaluate("() => document.activeElement.id") == "confirm-go"
+    page.keyboard.press("Escape")
 
 
 def test_the_miniplayers_cancel_asks_the_same_question(open_panel):
@@ -11131,6 +11173,8 @@ def test_the_miniplayers_cancel_asks_the_same_question(open_panel):
     above the Jobs list on every tab, which is where a stray click lands.
     """
     page = open_panel(jobs=HIS_JOBS)
+    native = []
+    page.on("dialog", lambda dialog: (native.append(dialog.message), dialog.dismiss()))
     page.wait_for_function(
         "() => !document.getElementById('miniplayer').classList.contains('hidden')")
     # The player rests minimised, so its controls are hidden until he opens it -- which
@@ -11139,17 +11183,13 @@ def test_the_miniplayers_cancel_asks_the_same_question(open_panel):
     page.wait_for_timeout(300)
     assert page.is_visible("#mini-cancel"), "the player's Cancel is not reachable"
 
-    asked = []
-    page.once("dialog", lambda dialog: (asked.append(dialog.message), dialog.dismiss()))
     page.click("#mini-cancel")
+    _the_cancel_question_is_open(page)
+    page.click("#confirm-keep")
     page.wait_for_timeout(300)
-
-    assert asked and "Cancel this job?" in asked[0], (
-        f"the mini-player cancelled without asking: {asked}")
-    sent = [w for w in page.evaluate("() => window.__writes")
-            if "/control" in w["path"]]
-    assert sent == [], (
-        f"the question was refused and the cancel was sent anyway: {sent}")
+    assert _control_writes(page) == [], (
+        "the question was refused and the cancel was sent anyway")
+    assert native == [], f"the browser's own confirm() was still used: {native}"
 
 
 def test_the_miniplayer_states_a_percentage_and_stops_claiming_one_it_lacks(open_panel):

@@ -1192,7 +1192,7 @@ def test_neither_line_names_a_control_that_does_not_exist(conn, monkeypatch):
     list with a Stop anywhere in the panel.
 
     The only control that ends a running job is the player's Cancel (`app.html`,
-    `#mini-cancel`, confirmed by "Cancel this job? Work already saved is kept."), so that
+    `#mini-cancel`, confirmed by the panel's "Cancel this job?" question), so that
     is the control both lines name, by its label.
     """
     _finish_one_crawl(conn, monkeypatch)
