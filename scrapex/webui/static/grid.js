@@ -104,6 +104,8 @@
   // Declaring ar first gives Arabic its collation; Latin ordering comes out
   // byte-for-byte identical to the en collator (checked against the real
   // names), so English readers lose nothing.
+  // The renderer's default compare collates the same way (datagrid.js
+  // DEFAULT_COLLATOR), for a caller that passes no sorter of its own.
   const COLLATOR = new Intl.Collator(["ar", "en"], {numeric: true});
 
   /** The value with its whitespace normalised — for COMPARING, never for showing.
@@ -743,7 +745,7 @@
     const saved = JSON.parse(localStorage.getItem(WIDTHS_KEY) || "null");
     if (saved && typeof saved === "object") {
       Object.entries(saved).forEach(([field, width]) => {
-        if (typeof width === "number" && width > 0) widths.set(field, width);
+        if (Number.isFinite(width) && width > 0) widths.set(field, width);
       });
     }
   } catch (err) { /* a corrupt preference must not stop the table loading */ }

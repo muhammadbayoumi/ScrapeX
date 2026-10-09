@@ -83,6 +83,15 @@ const SELECT_FORMATTER = "rowSelection";
 const ROWNUM_FORMATTER = "rownum";
 const text = (v) => (v === null || v === undefined) ? "" : String(v);
 
+/* A COLUMN WITH NO SORTER OF ITS OWN SORTS AS A READER EXPECTS: numbers by
+ * value, and text by the same numeric Arabic-and-English collation grid.js
+ * sorts with (grid.js COLLATOR). Comparing raw values with `<` put "10" before
+ * "9" and every capital before every lower-case word: UTF-16 order (#1466). */
+const DEFAULT_COLLATOR = new Intl.Collator(["ar", "en"], {numeric: true});
+const defaultCompare = (a, b) => (typeof a === "number" && typeof b === "number"
+  ? a - b
+  : DEFAULT_COLLATOR.compare(String(a), String(b)));
+
 /** Whether a row's field holds `needle`, ignoring case and the needle's own
  * outer spaces. The one "like" rule: setFilter and the header's box both use it. */
 const likeTest = (field, needle) => {
@@ -502,9 +511,7 @@ export class DataGrid {
           const raw = data[id];
           return raw === "" || raw === null || raw === undefined ? undefined : raw;
         };
-      const compare = typeof sorter.compare === "function"
-        ? sorter.compare
-        : (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+      const compare = typeof sorter.compare === "function" ? sorter.compare : defaultCompare;
       return {
         id,
         accessorFn: (data) => value(data),

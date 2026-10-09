@@ -13,6 +13,7 @@ alphanumeric measurements, and a product name made of markup.
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -873,5 +874,139 @@ def test_the_toggle_is_absent_rather_than_present_and_lying(page_factory):
         assert page.locator("#grid-lang-toggle").count() == 0, (
             "there are no bilingual pairs and the toggle rendered anyway, which "
             "offers the reader a control that cannot do anything")
+    finally:
+        context.close()
+
+
+# ---- a width he dragged is his, across a reload ------------------------------
+#
+# grid.js keeps the widths he chose under `scrapex-grid-widths-v1-<source>`: it
+# reads them once when the page loads and writes them when a column edge is
+# dropped (the renderer's `columnResized`). Each test opens a fresh browser
+# context, so a reload in the SAME context is the only way to see the stored
+# value come back.
+
+WIDTHS_KEY = "scrapex-grid-widths-v1-TESTSRC"
+
+
+def _wait_for_rows(page):
+    page.wait_for_function(
+        "() => !!window.ScrapeXDataGrid"
+        "  && !!ScrapeXDataGrid.find('#grid')"
+        "  && document.querySelectorAll('#grid .dg-body .dg-row').length > 0")
+
+
+def _header_widths(page):
+    """Every data column's header as drawn, in CSS pixels."""
+    return page.evaluate("""() => Object.fromEntries(
+        [...document.querySelectorAll('#grid .dg-col[data-field]')]
+          .map(c => [c.dataset.field, c.getBoundingClientRect().width]))""")
+
+
+def _collect_errors(page):
+    errors = []
+    page.on("pageerror", lambda error: errors.append(str(error)))
+    return errors
+
+
+def _baseline_widths(page_factory):
+    page, context = page_factory()
+    try:
+        return _header_widths(page)
+    finally:
+        context.close()
+
+
+def test_a_dragged_column_comes_back_at_its_width_after_a_reload(page_factory):
+    page, context = page_factory()
+    try:
+        errors = _collect_errors(page)
+        natural = _header_widths(page)["brand"]
+        handle = page.locator('#grid .dg-col[data-field="brand"] .dg-resize-handle')
+        box = handle.bounding_box()
+        x, y = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+        page.mouse.move(x, y)
+        page.mouse.down()
+        page.mouse.move(x + 60, y, steps=4)
+        page.mouse.move(x + 160, y, steps=4)
+        page.mouse.up()
+        page.wait_for_timeout(100)
+        dragged = _header_widths(page)["brand"]
+        assert dragged >= natural + 140, f"the drag did not widen it: {natural} -> {dragged}"
+
+        stored = page.evaluate(f"() => localStorage.getItem({WIDTHS_KEY!r})")
+        assert stored is not None, "the dragged width was never saved"
+        assert abs(json.loads(stored)["brand"] - dragged) <= 1, stored
+
+        page.reload()
+        _wait_for_rows(page)
+        after = _header_widths(page)["brand"]
+        assert abs(after - dragged) <= 1, (
+            f"dragged to {dragged}, came back at {after} after a reload")
+        assert not errors, errors
+    finally:
+        context.close()
+
+
+@pytest.mark.parametrize("stored", [
+    "not json {",
+    '"a string"',
+    "42",
+    "[300, 400]",
+    "null",
+    '{"brand": -300, "price": "wide", "unit": null, "observations": 0,'
+    ' "product_name": {"width": 400}, "country_code_alpha2": true}',
+    # JSON has no NaN; an overflowing literal is how a non-finite number arrives.
+    '{"brand": 1e999}',
+], ids=["not-json", "string", "number", "array", "null", "bad-entries", "infinite"])
+def test_a_corrupt_saved_width_is_ignored_and_the_grid_draws(page_factory, stored):
+    baseline = _baseline_widths(page_factory)
+    page, context = page_factory(
+        host_js=f"localStorage.setItem({WIDTHS_KEY!r}, {json.dumps(stored)});")
+    try:
+        errors = _collect_errors(page)
+        assert page.locator("#grid .dg-body .dg-row").count() == 4
+        drawn = _header_widths(page)
+        assert drawn.keys() == baseline.keys()
+        for field, width in drawn.items():
+            assert abs(width - baseline[field]) <= 1, (
+                f"{stored!r} changed {field}: {baseline[field]} -> {width}")
+        assert not errors, errors
+    finally:
+        context.close()
+
+
+def test_a_good_width_beside_bad_ones_is_still_honoured(page_factory):
+    page, context = page_factory(host_js=(
+        f"localStorage.setItem({WIDTHS_KEY!r},"
+        " JSON.stringify({brand: 300, price: -5, unit: 'wide', observations: null}));"))
+    try:
+        drawn = _header_widths(page)
+        assert abs(drawn["brand"] - 300) <= 1, drawn
+        data = {field: width for field, width in drawn.items() if not field.startswith("__")}
+        assert all(width >= 128 for width in data.values()), drawn
+    finally:
+        context.close()
+
+
+@pytest.mark.parametrize("value", [
+    '[{"field": "brand", "width": 520, "visible": true}]',
+    '{"brand": 520}',
+], ids=["tabulator-shape", "widths-shape"])
+def test_tabulators_old_layout_keys_are_not_read_as_widths(page_factory, value):
+    """Tabulator kept its own column layout under `tabulator-scrapex-...`, which
+    resetColumns still clears. The renderer that replaced it must not take a width
+    from there, in Tabulator's own shape or in the shape the widths key holds."""
+    baseline = _baseline_widths(page_factory)
+    legacy = ("tabulator-scrapex-TESTSRC-columns", "tabulator-scrapex-TESTSRC-sort",
+              "tabulator-scrapex-grid-v2-TESTSRC-columns",
+              "tabulator-scrapex-grid-v3-TESTSRC-columns")
+    page, context = page_factory(host_js="".join(
+        f"localStorage.setItem({key!r}, {value!r});" for key in legacy))
+    try:
+        drawn = _header_widths(page)
+        assert abs(drawn["brand"] - baseline["brand"]) <= 1, (
+            f"an old Tabulator key set brand to {drawn['brand']}")
+        assert page.evaluate(f"() => localStorage.getItem({WIDTHS_KEY!r})") is None
     finally:
         context.close()

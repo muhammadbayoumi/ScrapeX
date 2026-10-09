@@ -475,6 +475,8 @@
       data: rows,
       columns: columnsFor(payload.fields),
       columnDefaults: {minWidth: 128},
+      // The sorted column shows its arrow, as on the Data page (grid.js SORT_ICON).
+      headerSortElement: () => window.ScrapeXUI.iconNode("material-arrow-upward", "material-sort-icon"),
       movableColumns: true,           // drag to reorder
       // Paging stays SERVER-side: the page is already bounded to 50 rows by the
       // API, and loading everything to sort it in the browser is the unbounded
