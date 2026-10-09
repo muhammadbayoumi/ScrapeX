@@ -12501,6 +12501,20 @@ def test_a_job_of_several_sources_lists_every_key(open_panel):
     assert order == ["job-more", "source-identity-footer"], order
 
 
+def test_a_job_of_one_source_names_its_own_key_not_the_matched_datasets(open_panel):
+    """#1624: `muqawil_org` reaches Sources only through the `contractors` dataset's
+    `site_key`, and the row named that dataset's key under the site's domain, as if the
+    job had run on the dataset. The key line is the job's own, one source or several."""
+    page = open_panel(jobs=[HIS_JOBS[1]])
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(400)
+    identity = _job_row(page, HIS_JOBS[1]["job_ref"]).locator('[data-part="identity"]')
+    # THE MATCH IS THROUGH `site_key`, or this guards nothing: the domain is the dataset's.
+    assert identity.locator(".source-identity-domain").inner_text() == "muqawil.org"
+    assert identity.locator(".source-identity-key").inner_text() == "muqawil_org"
+    assert identity.locator(".job-more").count() == 0
+
+
 def test_a_failed_start_stays_said_while_the_list_is_shown(open_panel):
     """THE READS AFTER A FAILED START FAIL TOO, and each put "Start the engine" back over
     "The engine did not start" within a tick. With the list on screen, the sentence and

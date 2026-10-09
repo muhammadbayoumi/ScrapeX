@@ -8175,15 +8175,16 @@ function fillJobRow(row, job, { down = false } = {}) {
     // does not list stands as its own name. Several sources: the lead, and the count.
     identity.innerHTML = sourceIdentity(source || { source_key: lead }, false, null, "Row",
       { wrap: true });
+    // THE JOB'S OWN KEYS, as his choice D drew them, for every job (#1624): the footer
+    // would name the matched Sources entry, a dataset key where `sourceOf` matched a
+    // `site_key`. Several sources also count the others above the footer.
+    identity.querySelector(".source-identity-key").textContent =
+      (job.source_keys || []).join(", ");
     if (more) {
-      // EVERY KEY, as his choice D drew them: the footer names the lead's key, and a job
-      // of several sources lists them all there, under the count of the others.
       const others = document.createElement("span");
       others.className = "job-more text-xs muted";
       others.textContent = more;
       identity.querySelector(".source-identity-footer").before(others);
-      identity.querySelector(".source-identity-key").textContent =
-        (job.source_keys || []).join(", ");
     }
   }
 
