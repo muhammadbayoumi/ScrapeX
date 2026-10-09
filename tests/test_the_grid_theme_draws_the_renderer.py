@@ -173,3 +173,87 @@ def test_the_totals_rows_pinned_cells_keep_its_tint(page):
       .map((c) => { const s = getComputedStyle(c); return [c.classList.contains('dg-pinned'), s.backgroundImage]; })""")
     pinned = [image for is_pinned, image in cells if is_pinned]
     assert pinned and all("gradient" in image for image in pinned), cells
+
+
+def computed(page, selector: str, props: list[str], pseudo: str | None = None) -> dict:
+    return page.evaluate("""([sel, props, pseudo]) => {
+      const el = document.querySelector(sel);
+      if (!el) return null;
+      const s = getComputedStyle(el, pseudo);
+      return Object.fromEntries(props.map((p) => [p, s.getPropertyValue(p)])); }""",
+                         [selector, props, pseudo])
+
+
+def test_the_header_and_the_pinned_columns_stay_put_while_the_rest_scroll(page):
+    build(page, PINNED)
+    assert computed(page, ".dg-header", ["position"])["position"] == "sticky"
+    assert computed(page, ".dg-body .dg-pinned", ["position"])["position"] == "sticky"
+    page.evaluate("document.querySelector('.dg-scroller').scrollLeft = 300")
+    page.wait_for_timeout(50)
+    left = page.evaluate("""() => [document.querySelector('.dg-body .dg-row .dg-pinned').getBoundingClientRect().left,
+      document.getElementById('grid').getBoundingClientRect().left]""")
+    assert left[0] - left[1] < 4, left
+
+
+def test_a_resize_handle_is_a_target_with_its_cursor(page):
+    build(page, PINNED)
+    handle = computed(page, ".dg-header .dg-resize-handle", ["width", "cursor"])
+    assert float(handle["width"].rstrip("px")) >= 8 and handle["cursor"] == "col-resize", handle
+
+
+def test_a_group_band_reads_as_a_band_and_its_toggle_turns_when_open(page):
+    build(page, """{columns: [{title: "Name", field: "name"}, {title: "Brand", field: "brand"}],
+                    data: [{name: "a", brand: "X"}, {name: "b", brand: "X"}], groupBy: ["brand"]}""")
+    band = computed(page, ".dg-body .dg-row.dg-group", ["background-color", "font-weight"])
+    assert alpha(band["background-color"]) > 0 and int(band["font-weight"]) >= 600, band
+    assert computed(page, ".dg-group-cell", ["display"])["display"] == "flex"
+    closed = computed(page, ".dg-group-toggle", ["transform"], "::before")["transform"]
+    page.locator(".dg-body .dg-row.dg-group").click()
+    page.wait_for_timeout(250)
+    assert computed(page, ".dg-group-toggle", ["transform"], "::before")["transform"] != closed
+
+
+def test_a_tree_leaf_is_indented_past_its_parents_toggle(page):
+    build(page, """{columns: [{title: "Name", field: "name"}],
+                    data: [{name: "a", kids: [{name: "b"}]}, {name: "c"}],
+                    dataTree: true, dataTreeChildField: "kids"}""")
+    page.click(".dg-tree-toggle")
+    spacer = computed(page, ".dg-tree-spacer", ["display", "width"])
+    assert spacer["display"] == "inline-block" and float(spacer["width"].rstrip("px")) > 0, spacer
+
+
+def test_the_header_button_the_toggle_and_a_menu_item_ring_when_reached_by_keyboard(page):
+    build(page, """{columns: [{title: "Name", field: "name", headerMenu: () => [{label: "One", action() {}}]}],
+                    data: [{name: "a", kids: [{name: "b"}]}], dataTree: true, dataTreeChildField: "kids"}""")
+    ring = ["outline-style", "outline-width"]
+    for selector in (".dg-header .dg-header-button", ".dg-tree-toggle"):
+        page.focus(selector)
+        page.evaluate("(sel) => document.querySelector(sel).focus({focusVisible: true})", selector)
+        style = page.evaluate("""(sel) => { const el = document.querySelector(sel);
+          return [el.matches(':focus-visible'), getComputedStyle(el).outlineStyle, getComputedStyle(el).outlineWidth]; }""", selector)
+        assert style[0] and style[1] == "solid" and float(style[2].rstrip("px")) >= 1, (selector, style)
+    page.evaluate("document.querySelector('.dg-header .dg-header-button').focus()")
+    page.keyboard.press("Enter")
+    page.wait_for_selector(".dg-menu .dg-menu-item")
+    page.keyboard.press("ArrowDown")
+    item = page.evaluate("""() => { const el = document.activeElement; const s = getComputedStyle(el);
+      return [el.classList.contains('dg-menu-item'), el.matches(':focus-visible'), s.outlineStyle, s.backgroundColor]; }""")
+    assert item[0] and item[1] and item[2] == "solid" and alpha(item[3]) > 0, item
+
+
+def test_a_menu_floats_over_the_page_on_its_own_surface(page):
+    build(page, """{columns: [{title: "Name", field: "name", headerMenu: () => [{label: "One", action() {}}]}],
+                    data: [{name: "a"}]}""")
+    page.click(".dg-header .dg-header-button")
+    menu = computed(page, ".dg-menu", ["position", "z-index", "background-color", "border-top-style"])
+    assert menu["position"] == "fixed" and int(menu["z-index"]) >= 1000, menu
+    assert alpha(menu["background-color"]) == 1.0 and menu["border-top-style"] != "none", menu
+    page.hover(".dg-menu .dg-menu-item")
+    page.wait_for_timeout(400)
+    assert alpha(computed(page, ".dg-menu .dg-menu-item", ["background-color"])["background-color"]) > 0
+
+
+def test_the_totals_row_is_a_band_of_its_own(page):
+    build(page, PINNED)
+    calcs = computed(page, ".dg-header .dg-calcs", ["background-color"])
+    assert alpha(calcs["background-color"]) > 0, calcs
