@@ -1,5 +1,5 @@
 {
-  "version": "0.4.53",
+  "version": "0.4.54",
   "schema": [
     "schema.sql v17",
     "0018_a_job_may_interpret_what_a_crawl_stored.sql",
@@ -43,6 +43,7 @@
     "GET /api/sources",
     "GET /api/sources/{source_key}",
     "GET /api/sources/{source_key}/robots",
+    "GET /api/sources/{source_key}/rules",
     "GET /api/storage",
     "GET /api/table/{source_key}",
     "GET /api/taxonomy/{dataset_key}",
@@ -95,6 +96,7 @@
     "POST /api/sources/{source_key}/active",
     "POST /api/sources/{source_key}/edit",
     "POST /api/sources/{source_key}/rename",
+    "POST /api/sources/{source_key}/rules",
     "POST /api/sources/{source_key}/wipe",
     "POST /api/storage/adopt-bundle",
     "POST /api/storage/backup",

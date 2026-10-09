@@ -819,3 +819,15 @@ def test_a_directorys_own_shipped_answer_is_the_one_read(conn):
 
     assert effective(conn, DIRECTORY, switched_off).active is False
     assert effective(conn, DIRECTORY, directories.get(DIRECTORY)).active is True
+
+
+def test_an_unprobed_sources_off_is_explained_as_the_sources_not_his(conn, manifest):
+    """`layered` forces a TBD-probe source off whatever he chose, so the off the panel
+    shows is the source's -- saying "your choice" beside a value he did not choose
+    would send him to clear a choice that changes nothing."""
+    save(conn, SHOP, shipped_with(manifest, SHOP), {"active": True})
+    reverted = Manifest.model_validate({"sources": [_entry(SHOP, family="TBD-probe")]})
+
+    active = source_settings.explained(conn, SHOP, reverted.get(SHOP))["active"]
+
+    assert (active["value"], active["origin"]) == (False, "source")

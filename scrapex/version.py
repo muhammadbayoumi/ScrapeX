@@ -73,7 +73,7 @@ from enum import StrEnum
 # The release stamp. Bump it for a functional, architectural or behavioural
 # change (issue 32 section 1.1), and regenerate the baseline + CHANGELOG in the
 # same commit: python -m scrapex.cli export-version
-VERSION = "0.4.53"
+VERSION = "0.4.54"
 
 #: Whether ScrapeX has been published to anybody but its owner.
 #:
@@ -257,6 +257,26 @@ CAPABILITIES: tuple[Capability, ...] = (
         panel_control="enrichment.html",
         settings=(),
         commit="c0cd695",
+    ),
+    Capability(
+        key="source_rules",
+        # #1584: his choices about one source -- active, robots, its custom rule, the
+        # agent and the pace -- read with where each comes from and saved to the
+        # warehouse, for every kind of source, through GET/POST
+        # /api/sources/{key}/rules. An engine older than this answers those routes
+        # 404, so the panel asks this key before it calls them. `since` is the
+        # EXTENSION version that carries the control (0.3.7), as the floor's comment
+        # above requires -- 0.4.54 would have declared every 0.3.x panel too old.
+        since="0.3.7",
+        summary="See where each of a source's crawl rules comes from -- the source, "
+                "your general rule or your choice -- change it for that source alone, "
+                "and clear your choice to return to the source's.",
+        surfaces=(Surface.PANEL, Surface.ENGINE),
+        panel_control="source-edit-agent",
+        settings=(),
+        # The commit that built the routes and the editor. A squash merge does not
+        # keep it: if this lands that way, cite the merge commit instead.
+        commit="9102a10a",
     ),
 )
 

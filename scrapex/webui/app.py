@@ -33,6 +33,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .. import (
     bundle,
+    catalog,
     compaction,
     datasetjob,
     directories,
@@ -53,6 +54,7 @@ from .. import (
 from .. import db as dbmod
 from .. import version as engine_version
 from ..capture import capture_source, crawl_settings
+from ..catalog_models import SiteCreate
 from ..changes import change_summary, recent_changes
 from ..config import SourceEntry, load_manifest, resolve_manifest_path
 from ..connectors.base import CrawlBlocked, HttpFetcher, resolve_user_agent
@@ -83,6 +85,7 @@ from ..fields import (
     set_visibility,
     visible_columns,
 )
+from ..ingest import get_source_id
 from ..jobs import (
     JobRunner,
     create_job,
@@ -94,7 +97,7 @@ from ..jobs import (
     worker_health,
 )
 from ..localsheets import workbook_bytes
-from ..manifest_io import DuplicateSourceError, add_source, remove_source, set_active, update_source
+from ..manifest_io import DuplicateSourceError, add_source, remove_source, update_source
 from ..matching import (
     ConflictError,
     Decision,
@@ -554,9 +557,9 @@ def create_app(
     app.state.db_path = str(price_path)
     app.state.databases = databases
     app.state.general_database = general_database
-    # RESOLVED TO A CONCRETE PATH, and not left as None: `set_active`,
-    # `add_source`, `update_source` and `remove_source` are all handed this value
-    # and all four default to MANIFEST_FILE, so a None reaching them becomes
+    # RESOLVED TO A CONCRETE PATH, and not left as None: `add_source`,
+    # `update_source` and `remove_source` are all handed this value
+    # and all three default to MANIFEST_FILE, so a None reaching them becomes
     # `Path(None)` — every source edit in the panel would raise. Resolving once,
     # here, also means every later reload reads the same file this one did.
     app.state.manifest_path = str(resolve_manifest_path(manifest_path))
@@ -589,7 +592,7 @@ def create_app(
         """
         conn = read_conn()
         try:
-            return sorted(reconcile_active(conn))
+            return sorted(reconcile_active(conn, app.state.manifest))
         except Exception:
             # A warehouse that cannot be reconciled is a warehouse health
             # already reports on. Refusing to start over it would be worse.
@@ -947,7 +950,10 @@ def create_app(
                 "source_key": row["dataset_key"],
                 "source_name": row["display_name"] or row["original_name"],
                 "source_name_ar": "", "base_url": row["base_url"],
-                "family": "generic", "active": True, "implemented": True,
+                # NO `active`: no schedule fires a dataset's site yet, and his ruling
+                # (2026-10-09) is that the panel draws no automation switch for it until
+                # directory scheduling is built. `True` here was drawn as "Automation on".
+                "family": "generic", "implemented": True,
                 "supports_history": False,
                 # `observations` is what the Data screen filters on, and for a
                 # directory the honest number is its rows. `products` has no
@@ -1053,10 +1059,10 @@ def create_app(
                 # price source. Same value a dataset card carries, for the same
                 # reason, rather than a second word meaning the same thing.
                 "family": "generic",
-                # NOT active: nothing is scheduled for it. `implemented` is True and
-                # that is the point of the row — a collector exists in this build, so
-                # the source is runnable by hand today.
-                "active": False,
+                # NO `active`: nothing schedules a directory yet, and his ruling
+                # (2026-10-09) is that the panel draws no automation switch for it until
+                # that is built. `implemented` is True and that is the point of the row
+                # — a collector exists in this build, so it is runnable by hand today.
                 "implemented": True,
                 "supports_history": False,
                 # Zero, and zero is the honest number. `_dataset_rows` carries the row
@@ -1183,9 +1189,19 @@ def create_app(
             } for child in children]))
         return listing
 
+    def _active_by_source(conn) -> dict[str, bool]:
+        """Every manifest source's EFFECTIVE `active` (#1584): his choice, else what it
+        ships with -- the answer `scheduler.fire_due` acts on, so every page that says
+        "on" or "off" says what the schedule will do."""
+        return {entry.source_key: source_settings.effective(
+                    conn, entry.source_key, entry).active
+                for entry in app.state.manifest.sources}
+
     def _source_catalog(conn):
         """Every configured source, split by whether it has warehouse data."""
         sources = _display_sources(conn)
+        # `active` is the effective one (#1584): his choice, else what it ships with.
+        active = _active_by_source(conn)
         source_sites = {entry.source_key: entry.base_url
                         for entry in app.state.manifest.sources}
         known = {source.source_key for source in sources}
@@ -1197,7 +1213,7 @@ def create_app(
             {"source_key": key, "source_name": entry.source_name,
              "source_name_ar": entry.source_name_ar,
              "base_url": entry.base_url,
-             "family": entry.family.value, "active": entry.active}
+             "family": entry.family.value, "active": active[key]}
             for entry in sorted(app.state.manifest.sources, key=lambda item: item.source_key)
             for key in [entry.source_key]
             if key not in known
@@ -1840,6 +1856,8 @@ def create_app(
         conn = read_conn()
         try:
             saved = {s["source_key"]: s for s in list_schedules(conn)}
+            # The schedule fires on the EFFECTIVE `active` (#1584), so the page says it.
+            active = _active_by_source(conn)
         finally:
             conn.close()
         rows = []
@@ -1851,7 +1869,7 @@ def create_app(
                 "source_name": entry.source_name,
                 "source_name_ar": entry.source_name_ar,
                 "base_url": entry.base_url,
-                "active": entry.active,
+                "active": active[entry.source_key],
                 "supports_history": supports_history(entry.family),
                 "sched": saved.get(entry.source_key) or {},
             })
@@ -2143,6 +2161,10 @@ def create_app(
         conn = read_conn()
         try:
             summaries = {s.source_key: s for s in list_sources(conn)}
+            # `active` IS THE EFFECTIVE ONE (#1584): his choice for the source, else
+            # what it ships with -- the answer the scheduler acts on. The dataset and
+            # directory cards below keep their own: no schedule fires a directory yet.
+            active = _active_by_source(conn)
         finally:
             conn.close()
         out = []
@@ -2158,7 +2180,8 @@ def create_app(
                 "source_key": entry.source_key, "source_name": entry.source_name,
                 "source_name_ar": entry.source_name_ar,
                 "base_url": entry.base_url, "family": entry.family.value,
-                "active": entry.active, "implemented": _is_implemented(entry),
+                "active": active[entry.source_key],
+                "implemented": _is_implemented(entry),
                 # A per-source CAPABILITY, not a universal mode: the panel
                 # offers History backfill only where this is true.
                 "supports_history": supports_history(entry.family),
@@ -2242,12 +2265,15 @@ def create_app(
         conn = read_conn()
         try:
             summaries = {s.source_key: s for s in list_sources(conn)}
+            # The status column says the EFFECTIVE `active` (#1584), not the manifest's.
+            active = _active_by_source(conn)
         finally:
             conn.close()
         rows = []
         for entry in app.state.manifest.sources:
             s = summaries.get(entry.source_key)
             rows.append({"entry": entry, "implemented": entry.family in _BUILDERS,
+                         "active": active[entry.source_key],
                          "observations": s.observations if s else 0})
         return TEMPLATES.TemplateResponse(request=request, name="manage.html", context={
             "rows": rows, "tab": "data", "source_key": None,
@@ -2270,26 +2296,34 @@ def create_app(
     def api_set_active(source_key: str, body: dict):
         """Flip one source's automation switch, from the panel.
 
-        Writes the manifest surgically (comments survive) and reloads it, so
-        the runner's next scheduler tick sees the new truth. Manual runs are
+        HIS CHOICE, IN THE WAREHOUSE (#1584), and no longer a write to `sources.yaml`:
+        the packaged engine deletes that file at exit, so a switch flipped here was gone
+        at the next restart (#1583). It is `POST /rules` with `active` alone, kept as
+        its own route because the source rows' Auto button calls it. Manual runs are
         never gated by this — active means "may run WITHOUT me".
         """
-        wanted = bool((body or {}).get("active"))
-        try:
-            set_active(source_key, wanted, app.state.manifest_path)
-        except KeyError:
-            raise HTTPException(status_code=404, detail=f"unknown source {source_key!r}")
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc))
-        except Exception as exc:  # pydantic refusals (e.g. a TBD-probe placeholder)
-            raise HTTPException(status_code=400, detail=str(exc))
-        app.state.manifest = load_manifest(app.state.manifest_path)
-        reconciled = _follow_the_manifest()
-        return {"source_key": source_key, "active": wanted,
-                "warehouse_updated": sorted(reconciled)}
+        wanted = (body or {}).get("active")
+        if type(wanted) is not bool:
+            raise HTTPException(status_code=400,
+                                detail=f"active must be true or false, not {wanted!r}")
+        answer = _save_rules(source_key, {"active": wanted})
+        return {"source_key": source_key, "active": answer["fields"]["active"]["value"],
+                "warehouse_updated": answer["warehouse_updated"]}
 
     @app.post("/api/sources")
     def api_add_source(body: dict):
+        # HIS PER-SOURCE CHOICES ARE NOT WRITTEN BY ADDING A SOURCE (#1584), for the
+        # reason /edit refuses them: they live in the warehouse, and a second writer
+        # for one field is how the copies drifted. Only `active: false` passes -- what
+        # the add form has always sent, and a new source's default anyway.
+        theirs = sorted(field for field in set(body or {}) & set(source_settings.FIELDS)
+                        if not (field == "active" and body[field] is False))
+        if theirs:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{', '.join(theirs)} are your per-source choices and are saved "
+                       "in the warehouse: add the source first, then choose them in "
+                       "its editor")
         try:
             entry = _entry_from_form(body or {})
         except (ValueError, KeyError) as exc:
@@ -2324,6 +2358,89 @@ def create_app(
         return {"source": json.loads(entry.model_dump_json()), "holds": holds,
                 "implemented": entry.family in _BUILDERS}
 
+    # ---- his choices for one source (#1584): read with their origin, write them ----
+
+    def _shipped_or_404(source_key: str):
+        """What a source ships with: its manifest entry or its directory. A key neither
+        names is not a source this build can crawl, so there is nothing to choose for."""
+        shipped = source_settings.shipped_with(app.state.manifest, source_key)
+        if shipped is None:
+            raise HTTPException(status_code=404, detail=f"unknown source {source_key!r}")
+        return shipped
+
+    def _rules_answer(conn, source_key: str, shipped) -> dict:
+        """Each field's value, its origin and what clearing returns to, beside the
+        general rules a field marked `general` follows."""
+        crawl = crawl_settings(conn)
+        fields = source_settings.explained(conn, source_key, shipped)
+        return {
+            "source_key": source_key,
+            "kind": "price" if isinstance(shipped, SourceEntry) else "directory",
+            "fields": fields,
+            "general": {"user_agent": resolve_user_agent(None, crawl),
+                        "crawl_pace_s": crawl["min_interval_s"],
+                        "obey_disallow": bool(crawl.get("obey_disallow"))},
+            # The agent the crawl presents: his, else the source's, else the general.
+            "agent_sent": resolve_user_agent(fields["user_agent"]["value"], crawl),
+        }
+
+    def _save_rules(source_key: str, changes: dict) -> dict:
+        """Store a partial set of his choices and answer as `GET /rules` does.
+
+        A SOURCE NEVER CRAWLED HAS NO `source_site` ROW, and his choice hangs off one,
+        so it is registered first, the way its first crawl would: a price source by
+        `ingest.get_source_id`, a directory by `catalog.register_site`. Then
+        `reconcile_active` keeps `lifecycle` saying what the schedule acts on.
+        """
+        shipped = _shipped_or_404(source_key)
+
+        def write(conn):
+            if conn.execute("SELECT 1 FROM source_site WHERE source_key = ?",
+                            (source_key,)).fetchone() is None:
+                if isinstance(shipped, SourceEntry):
+                    get_source_id(conn, shipped, shipped.currency)
+                else:
+                    catalog.register_site(conn, SiteCreate(
+                        site_key=shipped.key, display_name=shipped.display_name,
+                        base_url=shipped.base_url))
+            source_settings.save(conn, source_key, shipped, changes)
+            conn.commit()
+            moved = reconcile_active(conn, app.state.manifest)
+            return dict(_rules_answer(conn, source_key, shipped),
+                        warehouse_updated=sorted(moved))
+
+        try:
+            return _write(write)
+        except source_settings.SourceSettingError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+
+    @app.get("/api/sources/{source_key}/rules")
+    def api_source_rules(source_key: str):
+        """His per-source choices for any source, price or directory, each with its
+        origin: `choice` (his), `source` (what it ships with) or `general` (the
+        Settings page's rule, where the source ships no opinion)."""
+        shipped = _shipped_or_404(source_key)
+        conn = read_conn()
+        try:
+            return _rules_answer(conn, source_key, shipped)
+        except source_settings.SourceSettingError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        finally:
+            conn.close()
+
+    @app.post("/api/sources/{source_key}/rules")
+    def api_save_source_rules(source_key: str, body: dict):
+        """Store some of his choices for one source; a field sent as null clears his
+        choice and the field returns to what the source ships with.
+
+        THE WAREHOUSE AND NOT `sources.yaml` (#1583, #1584): these five fields are no
+        longer written to the manifest from anywhere. A refusal is a 400 with the
+        shared checker's sentence -- the one `SourceEntry` gives for the same value.
+        """
+        if not isinstance(body, dict):
+            raise HTTPException(status_code=400, detail="send the choices as an object")
+        return _save_rules(source_key, body)
+
     @app.get("/api/sources/{source_key}/robots")
     def api_source_robots(source_key: str):
         """LOOK BEFORE CHOOSING: what this site's robots.txt actually says.
@@ -2338,13 +2455,13 @@ def create_app(
         is true, choosing obey does not make this source polite, it makes it
         collect nothing while reporting success.
         """
-        from ..connectors.base import general_fetcher, resolve_fetcher
+        from ..connectors.base import general_fetcher, source_fetcher
         from ..robots import RobotsChoice, RobotsCustom, decide, inspect
 
-        try:
-            entry = app.state.manifest.get(source_key)
-        except KeyError:
-            raise HTTPException(status_code=404, detail=f"unknown source {source_key!r}")
+        # ANY SOURCE THIS BUILD CRAWLS, a directory as well as a price source (#1584):
+        # this answered 404 for muqawil_org and the Oman register, whose crawls read
+        # robots.txt like any other.
+        shipped = _shipped_or_404(source_key)
 
         conn = read_conn()
         try:
@@ -2354,7 +2471,7 @@ def create_app(
             # `capture_source` fetches with, not the manifest's alone. A rule that cannot
             # be acted on is said, as a 400 with its sentence, never a 500.
             try:
-                rules = source_settings.effective(conn, source_key, entry)
+                rules = source_settings.effective(conn, source_key, shipped)
             except source_settings.SourceSettingError as exc:
                 raise HTTPException(status_code=400, detail=str(exc))
             agent = resolve_user_agent(rules.user_agent, crawl)
@@ -2384,18 +2501,21 @@ def create_app(
         #
         # BUILT FROM `rules`, the crawl's own per-source answer (#1584): his agent,
         # pace and robots choice where he set them, else what the source shipped with.
-        browser = entry.fetcher == Fetcher.BROWSER
+        # A DIRECTORY IS FETCHED AS A PRICE SOURCE OVER HTTP IS: `source_fetcher(rules)`
+        # is what both `resolve_fetcher` and `contractors.make_fetch` build.
+        browser = (isinstance(shipped, SourceEntry)
+                   and shipped.fetcher == Fetcher.BROWSER)
         fetcher = (general_fetcher(crawl, source_user_agent=rules.user_agent)
-                   if browser else resolve_fetcher(entry, rules, crawl))
+                   if browser else source_fetcher(rules, crawl))
         try:
             # PROMPTLY: the panel is waiting, with no timeout of its own. A long
             # Retry-After is reported instead of waited (`retry_after_s`), and the
             # retries stop at one timeout's budget (`cut_short`).
-            read = fetcher.read_robots(entry.base_url, answer_promptly=True)
+            read = fetcher.read_robots(shipped.base_url, answer_promptly=True)
         finally:
             fetcher.close()
 
-        report = inspect(entry.base_url, read.text, user_agent=agent,
+        report = inspect(shipped.base_url, read.text, user_agent=agent,
                          unreadable=read.unreadable,
                          unreachable=read.unreachable and not browser)
         choice = rules.robots
@@ -2480,21 +2600,23 @@ def create_app(
         """
         if source_key not in {s.source_key for s in app.state.manifest.sources}:
             raise HTTPException(status_code=404, detail=f"unknown source {source_key!r}")
+        # HIS PER-SOURCE CHOICES ARE NOT MANIFEST FIELDS ANY MORE (#1584). Refused here,
+        # by name, rather than routed: a request that wrote some fields to the file and
+        # others to the warehouse would succeed halfway when either refused, and two
+        # writers for one field is how the copies drifted. They have one route.
+        theirs = sorted(set(body or {}) & set(source_settings.FIELDS))
+        if theirs:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{', '.join(theirs)} are your per-source choices and are saved "
+                       f"in the warehouse: send them to POST /api/sources/{source_key}"
+                       "/rules")
         current = json.loads(app.state.manifest.get(source_key).model_dump_json())
         # MERGE, never rebuild: an edit that named two fields would otherwise
         # drop every field it did not mention, which is a wipe wearing the word
         # "edit". Only what the form actually sends changes.
         form = {**current, **{k: v for k, v in (body or {}).items() if v is not None}}
         form.setdefault("source_key", source_key)
-        # ENFORCED HERE, not trusted from the form. The merge above drops nulls
-        # on purpose -- a partial edit must not wipe fields it did not mention --
-        # so a client switching a source AWAY from `custom` cannot clear its
-        # custom rule by sending null. Left behind, the rule sits under a choice
-        # that ignores it and reads as "this site is customised" on every later
-        # open, until someone switches back and is silently governed by a rule
-        # they last saw weeks ago.
-        if form.get("robots") != "custom":
-            form["robots_custom"] = None
         if str(form.get("source_key")) != source_key:
             raise HTTPException(
                 status_code=400,

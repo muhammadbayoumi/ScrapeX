@@ -3738,10 +3738,154 @@ def test_edit_source_saves_automation_without_leaving_the_extension(open_panel):
     page.click("#source-edit-save")
     page.wait_for_timeout(250)
 
-    calls = page.evaluate("() => window.__calls")
-    assert any(call.startswith("/api/sources/SHORT/active") for call in calls)
+    # HIS CHOICE, IN THE WAREHOUSE (#1584): the switch is saved by POST /rules with
+    # `active` alone -- exactly what changed -- and never rides an /edit, which
+    # refuses it by name.
+    writes = page.evaluate("() => window.__writes")
+    rules = [w for w in writes if w["path"] == "/api/sources/SHORT/rules"]
+    assert [w["body"] for w in rules] == [{"active": False}], writes
+    assert not any("active" in (w["body"] or {}) for w in writes
+                   if w["path"].endswith("/edit")), writes
     assert page.is_visible("#view-source-edit")
     assert "Changes saved" in text_of(page, "#source-edit-result")
+    assert not page.is_checked("#source-edit-active"), "the saved answer was not drawn"
+
+
+def test_an_engine_without_the_rules_routes_still_edits_a_source_as_before(open_panel):
+    """AN ENGINE OLDER THAN `source_rules` (#1584) edits a price source the way the
+    editor always did -- name and robots through /edit, the switch through /active --
+    and draws nothing it cannot serve: no agent or pace, no origin lines, no Clear,
+    and no "update the engine" sentence for a save it can do."""
+    page = open_panel(engine_version="0.4.53", omit_capabilities=("source_rules",))
+    page.click(SOURCES_TAB)
+    page.wait_for_timeout(250)
+    page.click('[data-edit-source="SHORT"]')
+    page.wait_for_timeout(250)
+    page.fill("#source-edit-name", "Renamed")
+    page.select_option("#source-edit-robots", "obey")
+    page.uncheck("#source-edit-active")
+    page.click("#source-edit-save")
+    page.wait_for_timeout(300)
+
+    writes = page.evaluate("() => window.__writes")
+    edits = [w["body"] for w in writes if w["path"] == "/api/sources/SHORT/edit"]
+    assert len(edits) == 1, writes
+    assert (edits[0]["source_name"], edits[0]["robots"]) == ("Renamed", "obey")
+    assert [w["body"] for w in writes if w["path"] == "/api/sources/SHORT/active"] == [
+        {"active": False}], writes
+    assert not [c for c in page.evaluate("() => window.__calls") if "/rules" in c]
+    assert "Changes saved" in text_of(page, "#source-edit-result")
+    assert not page.is_visible("#source-edit-agent")
+    assert not page.is_visible("#source-edit-pace")
+    assert page.evaluate("""() => [...document.querySelectorAll(
+        "#view-source-edit .source-edit-origin, [data-clear-rule]")]
+        .filter((node) => node.checkVisibility()).length""") == 0
+    words = page.inner_text("#view-source-edit")
+    assert "Reading where this comes from" not in words
+    assert "source_rules" not in words and "Update the engine" not in words
+
+
+def test_an_engine_whose_version_cannot_be_read_is_never_guessed_old(open_panel):
+    """/api/version failed: the engine may well have /rules, and on one that does an
+    /edit carrying robots is refused. So the refusal is said, the details save alone,
+    and his robots choice is held -- never sent to /edit."""
+    page = open_panel(fail_routes=("/api/version",))
+    page.click(SOURCES_TAB)
+    page.wait_for_timeout(250)
+    page.click('[data-edit-source="SHORT"]')
+    page.wait_for_timeout(250)
+
+    assert "cannot be confirmed" in text_of(page, "#source-edit-result")
+    assert page.is_disabled("#source-edit-robots")
+    page.fill("#source-edit-name", "Renamed")
+    page.click("#source-edit-save")
+    page.wait_for_timeout(300)
+
+    writes = page.evaluate("() => window.__writes")
+    edits = [w["body"] for w in writes if w["path"] == "/api/sources/SHORT/edit"]
+    assert [e["source_name"] for e in edits] == ["Renamed"], writes
+    assert not any(field in edits[0] for field in ("robots", "robots_custom")), edits
+    assert not [w for w in writes if w["path"].endswith(("/active", "/rules"))], writes
+    assert not [c for c in page.evaluate("() => window.__calls") if "/rules" in c]
+    assert "The name and details were saved" in text_of(page, "#source-edit-result")
+
+
+def test_an_engine_upgraded_while_the_editor_is_open_is_not_written_the_old_way(open_panel):
+    """Opened against 0.4.53, then the engine answers with /rules: Save redraws the
+    editor for it and writes nothing, rather than sending robots to an /edit that now
+    refuses them."""
+    page = open_panel(engine_version="0.4.53", omit_capabilities=("source_rules",))
+    page.click(SOURCES_TAB)
+    page.wait_for_timeout(250)
+    page.click('[data-edit-source="SHORT"]')
+    page.wait_for_timeout(250)
+    assert not page.is_visible("#source-edit-agent")
+    page.evaluate("""() => {
+        state.versionReport.capabilities.push(
+            {key: "source_rules", since: "0.3.7", summary: "His choices per source"});
+    }""")
+    page.fill("#source-edit-name", "Renamed")
+    page.click("#source-edit-save")
+    page.wait_for_timeout(300)
+
+    assert page.evaluate("() => window.__writes") == []
+    assert "nothing was saved" in text_of(page, "#source-edit-result")
+    assert page.is_visible("#source-edit-agent"), "the editor was not redrawn for /rules"
+
+
+def test_rules_that_cannot_be_read_say_so_and_the_name_still_saves(open_panel):
+    """What reading the rules says is not wiped by the editor drawing itself, the
+    controls it fills stay held, and Save still saves the name -- then reads again."""
+    page = open_panel()
+    page.evaluate("""() => {
+        const real = window.fetch;
+        window.__rulesReads = 0;
+        window.fetch = (url, options) => {
+            if (String(url).endsWith("/rules") && !(options && options.method === "POST")) {
+                window.__rulesReads += 1;
+                return Promise.reject(new Error("engine stopped answering"));
+            }
+            return real(url, options);
+        };
+    }""")
+    page.click(SOURCES_TAB)
+    page.wait_for_timeout(250)
+    page.click('[data-edit-source="SHORT"]')
+    page.wait_for_timeout(300)
+
+    assert "Could not read how this source is crawled" in text_of(page, "#source-edit-result")
+    assert page.is_disabled("#source-edit-pace") and page.is_disabled("#source-edit-agent")
+    assert "Reading where this comes from" not in page.inner_text("#view-source-edit")
+
+    page.fill("#source-edit-name", "Renamed")
+    page.click("#source-edit-save")
+    page.wait_for_timeout(300)
+
+    writes = page.evaluate("() => window.__writes")
+    assert [w["body"]["source_name"] for w in writes
+            if w["path"] == "/api/sources/SHORT/edit"] == ["Renamed"], writes
+    assert page.evaluate("() => window.__rulesReads") == 2
+    assert "The name and details were saved" in text_of(page, "#source-edit-result")
+
+
+def test_clearing_a_choice_keeps_focus_on_its_field(open_panel):
+    page = open_panel()
+    page.click(SOURCES_TAB)
+    page.wait_for_timeout(250)
+    page.click('[data-edit-source="SHORT"]')
+    page.wait_for_timeout(250)
+    page.fill("#source-edit-pace", "9")
+    page.click("#source-edit-save")
+    page.wait_for_timeout(250)
+    page.fill("#source-edit-agent", "typing, unsaved")
+
+    page.click('[data-clear-rule="crawl_pace_s"]')
+    page.wait_for_timeout(250)
+
+    assert page.evaluate("() => document.activeElement?.id") == "source-edit-pace"
+    assert page.input_value("#source-edit-pace") == ""
+    assert page.input_value("#source-edit-agent") == "typing, unsaved"
+    assert "Cleared" in text_of(page, "#source-edit-result")
 
 
 def test_sources_scroll_inside_the_library_card_not_the_page(open_panel):
@@ -7883,9 +8027,10 @@ _GROUP_BUTTON = ("#1456: Supabase's InputGroupButton, whose default is h-6, 24px
 #: fails, as a reach more than half a pixel below its least does.
 _TALLER_THAN_SUPABASE = {
     **dict.fromkeys([
-        "#site-search", "#source-edit-cadence", "#source-edit-currency", "#source-edit-key",
-        "#source-edit-name", "#source-edit-name-ar", "#source-edit-robots", "#source-edit-url",
-        "#source-edit-vat", "#source-manager-filter"], (44, _NO_BEFORE)),
+        "#site-search", "#source-edit-agent", "#source-edit-cadence", "#source-edit-currency",
+        "#source-edit-key", "#source-edit-name", "#source-edit-name-ar", "#source-edit-pace",
+        "#source-edit-robots", "#source-edit-url", "#source-edit-vat",
+        "#source-manager-filter"], (44, _NO_BEFORE)),
     **dict.fromkeys([
         "#tab-appearance", "#tab-console", "#tab-data", "#tab-database", "#tab-engines",
         "#tab-finance", "#tab-jobs", "#tab-profile", "#tab-run", "#tab-settings", "#tab-source",

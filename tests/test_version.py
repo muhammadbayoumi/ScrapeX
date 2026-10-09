@@ -564,9 +564,13 @@ def test_an_engine_release_does_not_raise_the_floor_under_the_published_extensio
     # NEEDS and not about which engine is reading it. Tagging engine-v0.4.0
     # changes VERSION and nothing here.
     assert all(s != "" for s in panel_sinces)
-    assert MINIMUM_EXTENSION_VERSION == "0.3.3", (
+    assert MINIMUM_EXTENSION_VERSION == "0.3.7", (
         "the floor moved without a capability being added; if that was "
         "deliberate, the published extension must be republished first")
+    # MOVED FROM 0.3.3 with `source_rules` (#1584): the source editor reads and saves
+    # his per-source choices through /rules, which a 0.3.6 panel does not call. The
+    # Chrome Web Store build must be republished at 0.3.7 before an engine carrying
+    # this floor reaches him.
     # MOVED FROM 0.2.2 with the extension workspace that supplies this
     # capability: organization enrichment is initiated and configured from a
     # new extension page, so an older panel cannot execute it.
