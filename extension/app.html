@@ -2622,6 +2622,24 @@
     </div>
   </div>
 
+  <!-- THE ONE QUESTION BEFORE AN IRREVERSIBLE PRESS, asked in the panel and not in the
+       browser's confirm(), whose "Cancel" meant KEEP on the one control named Cancel.
+       Supabase's ConfirmationModal (variant="destructive", cancelLabel/confirmLabel,
+       ConfirmationModal.tsx@86c813ec:27-62); an alertdialog with focus on the choice that
+       changes nothing (WAI-ARIA APG). `askToConfirm` in app.js fills and opens it. -->
+  <div id="confirm-veil" class="modal-veil hidden">
+    <div class="modal-card" role="alertdialog" aria-modal="true"
+         aria-labelledby="confirm-title" aria-describedby="confirm-copy"
+         id="confirm-dialog">
+      <h2 class="modal-title" id="confirm-title"></h2>
+      <div class="modal-copy" id="confirm-copy"></div>
+      <div class="modal-actions">
+        <button class="ghost" type="button" id="confirm-keep"></button>
+        <button class="danger" type="button" id="confirm-go"></button>
+      </div>
+    </div>
+  </div>
+
   <!-- THE PANEL CARRIES ITS OWN ICONS, and every <use> in this file points at
        one of these symbols instead of at icons/material-icons.svg. Since Chrome
        150 a <use> that points into another file holds `load` until its shadow
