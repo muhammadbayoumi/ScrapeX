@@ -593,13 +593,16 @@ def test_a_held_out_record_that_cannot_be_read_does_not_stop_his_jobs(
                        capture=capture)
     runner.start()
     deadline = time.monotonic() + 10
-    while time.monotonic() < deadline and jobs.get_job(conn, manual)["status"] == "queued":
+    # UNTIL THE CRAWL IS CALLED, not until the status moves: `running` is written
+    # (`jobs.py`, before `capture`) a moment before the stub records the call, so
+    # stopping on the status alone raced on a slow runner.
+    while time.monotonic() < deadline and "MANUAL" not in started:
         time.sleep(0.05)
     runner.stop()
 
-    assert jobs.get_job(conn, manual)["status"] != "queued", (
+    assert "MANUAL" in started, (
         "a broken held-out record stopped every dispatch, his manual job included")
-    assert "MANUAL" in started
+    assert jobs.get_job(conn, manual)["status"] != "queued"
     recorded = conn.execute("SELECT value FROM scrapex_meta WHERE key = ?",
                             (jobs.WORKER_ERROR_KEY,)).fetchone()
     assert recorded and "held-out.json" in recorded[0], (
