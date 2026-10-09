@@ -1394,7 +1394,9 @@ def test_minimum_column_width_always_keeps_filter_and_menu_visible():
     assert minimum >= 128
     assert "minWidth: GRID_MIN_COLUMN_WIDTH" in script
     assert "minWidth: 80" not in script, "a per-column override defeats the shared floor"
-    assert css.count("min-width: 1.5rem") >= 1
+    # The filter and the menu never shrink below their own box, however narrow the column.
+    button = re.search(r"\.dg \.dg-header-button \{([^}]*)\}", css).group(1)
+    assert "flex: none" in button and "padding: 3px" in button, button
 
 
 def test_data_grid_edges_are_rounded_without_changing_other_tables():

@@ -1291,19 +1291,19 @@
   flex: none;
   width: 1.125rem;
 }
+/* A COLUMN'S FILTER AND MENU ARE SUPABASE'S COLUMN MENU TRIGGER, 22x26 (his ruling on
+ * #1466): their grid header's Button, variant text, at padding 3px (ColumnMenu.tsx@86c813ec:
+ * 225-234), around tiny's 14px icon (Button.tsx@86c813ec:127) inside the Button's 1px
+ * border, transparent in `text` (:25, :78), at tiny's h-[26px] (constants.ts@86c813ec:61).
+ * So 1 + 3 + 14 + 3 + 1 is its width, from that padding, and 26px its height. */
 .dg .dg-header-button {
   flex: none;
   display: grid;
   place-items: center;
-  width: 1.5rem;
-  min-width: 1.5rem;
-  /* A HEIGHT, so the hover below has a square to fill. Without one the box was
-   * 24×18 and any background read as a stripe rather than a button. */
-  height: 1.5rem;
-  min-height: 1.5rem;
+  height: var(--control-height-tiny);
   margin: 0;
-  padding: 0;
-  border: 0;
+  padding: 3px;
+  border: 1px solid transparent;
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--grid-header-text);
@@ -1313,6 +1313,10 @@
     color var(--dur-200) var(--ease-out);
 }
 .dg .dg-header-button:first-of-type { margin-inline-start: auto; }
+.dg .dg-header-button .material-icon {
+  width: calc(var(--sp-1) * 3.5);
+  height: calc(var(--sp-1) * 3.5);
+}
 /* The resize divider answers the pointer, and so must these two, or the header
  * looks like it has one live control and two decorations — the owner's report.
  * A filled target is the same promise the divider's tick makes. */
