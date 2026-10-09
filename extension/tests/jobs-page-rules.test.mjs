@@ -1,11 +1,13 @@
 // The Jobs page's own rules (#1542), as designed and confirmed on 2026-10-09: how a
 // status looks, what the time line says, what the count line says, which control a row
-// exposes, and the sentence a refusal reads.
+// exposes, what search and the status filter keep, and the sentences a refusal and an
+// empty result read.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  jobsCountLine, menuControls, primaryControl, refusalLine, statusLook, timeLine,
+  jobsCountLine, filterOptions, jobMatches, menuControls, noResultsLine, primaryControl,
+  refusalLine, statusLook, timeLine,
 } from "../jobsview.js";
 
 // A formatter shaped like ScrapeXTime.format, over fixed stamps, so the rule is tested
@@ -141,6 +143,32 @@ test("the count line says what is shown, and whether it is live", () => {
   assert.equal(jobsCountLine({shown: 2, total: 2, live: true}, fmt),
     "2 jobs · Refreshes every 1.5s while a job is in progress or queued",
     "the panel's tick, 1.5 s, when no interval is passed");
+  assert.equal(jobsCountLine({...live, shown: 2, kept: 1}, fmt),
+    "2 of 8 jobs · 1 kept until you change the filter · Refreshes every 1.5s while a job is in progress or queued");
+});
+
+const SOURCES = [
+  {source_key: "ELBUROJ", source_name: "Elburoj", source_name_ar: "البروج",
+   base_url: "https://elburoj.com"},
+  {source_key: "contractors", site_key: "muqawil_org", source_name: "Saudi Contractors Authority",
+   base_url: "https://muqawil.org"},
+];
+
+test("search matches the fields the Sources search matches, on every source of the job", () => {
+  const job = {source_keys: ["GONE", "ELBUROJ"]};
+  for (const term of ["elburoj", "البروج", "ELBUROJ", "elburoj.com", "gone"]) {
+    assert.ok(jobMatches(job, term, SOURCES), term);
+  }
+  assert.ok(jobMatches({source_keys: ["muqawil_org"]}, "contractors authority", SOURCES));
+  assert.ok(!jobMatches(job, "tenders", SOURCES));
+  assert.ok(jobMatches(job, "  ", SOURCES), "an empty search keeps every job");
+});
+
+test("the filter offers the statuses present, and keeps a selected one that left", () => {
+  const jobs = [{status: "running"}, {status: "failed"}, {status: "failed"}, {status: "completed"}];
+  assert.deepEqual(filterOptions(jobs, new Set()), ["running", "failed", "completed"]);
+  assert.deepEqual(filterOptions([{status: "completed"}], new Set(["running"])),
+    ["running", "completed"], "a selected status whose last job settled can still be unticked");
 });
 
 test("one exposed action per row, and the menu holds the rest", () => {
@@ -162,4 +190,12 @@ test("a refusal names the job and the status it reached", () => {
   assert.equal(refusalLine("pause", "Crawl · elburoj.com", "completed_with_errors"),
     "Pause was refused: Crawl · elburoj.com is already completed with errors",
     "the status in words, as the row says it");
+});
+
+test("an empty result says which narrowing emptied it", () => {
+  assert.equal(noResultsLine({term: "tenders", statuses: 0}),
+    "Your search for “tenders” did not return any results");
+  assert.equal(noResultsLine({term: "", statuses: 2}), "No job has the selected statuses");
+  assert.equal(noResultsLine({term: "muqawil", statuses: 1}),
+    "No job matches the search and the selected statuses");
 });

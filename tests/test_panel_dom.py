@@ -8194,10 +8194,10 @@ _GROUP_BUTTON = ("#1456: Supabase's InputGroupButton, whose default is h-6, 24px
 #: fails, as a reach more than half a pixel below its least does.
 _TALLER_THAN_SUPABASE = {
     **dict.fromkeys([
-        "#site-search", "#source-edit-agent", "#source-edit-cadence", "#source-edit-currency",
-        "#source-edit-key", "#source-edit-name", "#source-edit-name-ar", "#source-edit-pace",
-        "#source-edit-robots", "#source-edit-url", "#source-edit-vat",
-        "#source-manager-filter"], (44, _NO_BEFORE)),
+        "#jobs-search", "#site-search", "#source-edit-agent", "#source-edit-cadence",
+        "#source-edit-currency", "#source-edit-key", "#source-edit-name",
+        "#source-edit-name-ar", "#source-edit-pace", "#source-edit-robots", "#source-edit-url",
+        "#source-edit-vat", "#source-manager-filter"], (44, _NO_BEFORE)),
     **dict.fromkeys([
         "#tab-appearance", "#tab-console", "#tab-data", "#tab-database", "#tab-engines",
         "#tab-finance", "#tab-jobs", "#tab-profile", "#tab-run", "#tab-settings", "#tab-source",
@@ -12587,6 +12587,103 @@ def test_the_banner_redraws_for_what_it_says_and_start_resets(open_panel):
         timeout=5000)
     down.evaluate("() => { jobsPage.failure = null; jobsFailed('history', new TypeError('x')); }")
     assert down.locator("#jobs-state button").all_inner_texts() == ["Start engine"]
+
+
+def test_the_status_filter_is_supabases_filter_popover(open_panel):
+    """FilterPopover (FilterPopover.tsx@86c813ec:180-295): a dashed Status button, a
+    dialog of the statuses present, Save applies and reads "Status: 1" on a solid
+    button, Escape closes without applying, Clear empties it. The result is announced."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(300)
+    button = page.locator("#jobs-status")
+    assert "dashed" in button.get_attribute("class")
+    button.click()
+    dialog = page.locator("#jobs-filter")
+    assert dialog.get_attribute("role") == "dialog"
+    assert page.evaluate("() => document.activeElement.type") == "checkbox"
+    words = [one.strip() for one in dialog.locator("label").all_text_contents()]
+    assert "Failed" in words and "Paused" in words and "Completed" in words, words
+    dialog.locator("label", has_text="Failed").locator("input").check()
+    page.keyboard.press("Escape")
+    assert dialog.is_hidden() and page.locator("#jobs-list .job-row").count() == 7, (
+        "Escape applied the filter")
+    assert page.evaluate("() => document.activeElement.id") == "jobs-status"
+    button.click()
+    dialog.locator("label", has_text="Failed").locator("input").check()
+    page.click("#jobs-filter-save")
+    page.wait_for_timeout(200)
+    assert page.locator("#jobs-list .job-row").count() == 1
+    assert button.inner_text().strip() == "Status: 1"
+    assert "dashed" not in button.get_attribute("class")
+    assert page.locator("#jobs-count").inner_text().startswith("1 of 7 jobs")
+    page.wait_for_timeout(100)
+    assert page.locator("#jobs-announce").inner_text() == "1 of 7 jobs"
+    button.click()
+    page.click("#jobs-filter-clear")
+    page.wait_for_timeout(200)
+    assert page.locator("#jobs-list .job-row").count() == 7
+    assert button.inner_text().strip() == "Status"
+
+
+def test_search_and_filter_say_which_one_emptied_the_list(open_panel):
+    """THREE CAUSES, THREE SENTENCES, ONE WAY BACK. Studio's wording for a search
+    (NoSearchResults.tsx@86c813ec:29-37), its `description` for the filter and for both,
+    and Reset filter clears the search and the filter together."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(300)
+    page.fill("#jobs-search", "tenders")
+    page.wait_for_timeout(200)
+    said = page.locator("#jobs-state").inner_text()
+    assert "No results found" in said
+    assert "Your search for “tenders” did not return any results" in said
+    page.click("#jobs-state button")
+    page.wait_for_timeout(200)
+    assert page.locator("#jobs-list .job-row").count() == 7
+    assert page.input_value("#jobs-search") == ""
+
+    page.fill("#jobs-search", "muqawil")
+    page.click("#jobs-status")
+    page.locator("#jobs-filter label", has_text="Cancelled").locator("input").check()
+    page.click("#jobs-filter-save")
+    page.wait_for_timeout(200)
+    if page.locator("#jobs-list .job-row:visible").count() == 0:
+        assert "No job matches the search and the selected statuses" in (
+            page.locator("#jobs-state").inner_text())
+
+
+def test_a_row_he_acted_on_stays_until_he_changes_the_filter(open_panel):
+    """PRESSED UNDER A FILTER, a row whose new status leaves the filter stays drawn, said
+    in the count, so focus has somewhere to stay; his next change of filter lets it go."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(300)
+    page.click("#jobs-status")
+    page.locator("#jobs-filter label", has_text="Running").locator("input").check()
+    page.click("#jobs-filter-save")
+    page.wait_for_timeout(200)
+    # BOTH READS SAY PAUSED: the history and the fresh tick the press issues, as one
+    # engine would; patching only the history lets the newer tick redraw it running.
+    page.evaluate("""() => { const real = window.fetch;
+        window.fetch = (u, o) => String(u).includes("/api/jobs?")
+          ? real(u, o).then((r) => r.json()).then((body) => new Response(JSON.stringify({
+              ...body, jobs: body.jobs.map((job) => job.job_ref === "job_034c51a29deb"
+                ? {...job, status: "paused"} : job)}),
+              {status: 200, headers: {"Content-Type": "application/json"}}))
+          : real(u, o); }""")
+    row = _job_row(page, "job_034c51a29deb")
+    row.locator('[data-part="primary"] button').focus()
+    page.keyboard.press("Enter")
+    page.wait_for_timeout(800)
+    assert row.count() == 1 and "Paused" in row.inner_text(), "the row left under his hand"
+    assert "1 kept until you change the filter" in page.locator("#jobs-count").inner_text()
+    # PAUSE BECAME RESUME, so the control he pressed is gone: focus is on the row's ⋮.
+    assert page.evaluate("() => document.activeElement.dataset.part") == "kebab"
+    page.click("#jobs-status")
+    page.click("#jobs-filter-save")
+    page.wait_for_timeout(200)
+    assert row.count() == 0
 
 
 def test_a_redraw_the_tick_starts_keeps_his_place_on_the_keyboard(open_panel):

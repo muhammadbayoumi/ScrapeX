@@ -329,15 +329,42 @@ export function timeLine(job, fmt) {
 
 /** The line above the list: what is shown, out of what, and whether it is live. It is
  *  not a live region; a change he made is announced on its own. */
-export function jobsCountLine({shown, total, live, seconds = 1.5, readAt, bounded}, fmt) {
+export function jobsCountLine({shown, total, live, seconds = 1.5, readAt, bounded, kept}, fmt) {
   const noun = (n) => `${n.toLocaleString()} job${n === 1 ? "" : "s"}`;
   const parts = [bounded
     ? (shown === total ? `Newest ${total} jobs shown; older jobs are not listed`
       : `${shown.toLocaleString()} of the newest ${total} jobs`)
     : shown === total ? noun(total) : `${shown.toLocaleString()} of ${noun(total)}`];
+  if (kept) parts.push(`${kept} kept until you change the filter`);
   if (live) parts.push(`Refreshes every ${seconds}s while a job is in progress or queued`);
   else if (readAt) parts.push(`Read at ${fmt(readAt, "time")}`);
   return parts.join(" · ");
+}
+
+/** Search matches the fields the Sources search matches (app.js visibleSources) on any
+ *  of the job's sources, and the bare key for a source Sources does not list. */
+export function jobMatches(job, term, sources = []) {
+  const wanted = String(term || "").trim().toLowerCase();
+  if (!wanted) return true;
+  return (job?.source_keys || []).some((key) => {
+    const source = (sources || []).find((one) => one && (one.source_key === key
+      || one.site_key === key));
+    const fields = source
+      ? [source.source_name, source.source_name_ar, source.source_key, source.site_key,
+        source.base_url, key]
+      : [key];
+    return fields.some((field) => String(field || "").toLowerCase().includes(wanted));
+  });
+}
+
+/** The statuses the filter offers: those in the list, plus any he selected whose last
+ *  job has since settled into another, so he can still untick it. */
+export function filterOptions(jobs, selected = new Set()) {
+  const seen = [];
+  for (const status of [...selected, ...(jobs || []).map((job) => job.status)]) {
+    if (status && !seen.includes(status)) seen.push(status);
+  }
+  return seen;
 }
 
 /** The one action a row shows (table.mdx@86c813ec:201): Pause or Resume. */
@@ -355,6 +382,15 @@ export function menuControls(job) {
 export function refusalLine(control, label, status) {
   const verb = control[0].toUpperCase() + control.slice(1);
   return `${verb} was refused: ${label} is already ${statusWords(status)}`;
+}
+
+/** Which narrowing emptied the list. Studio's NoSearchResults wording for a search
+ *  (NoSearchResults.tsx@86c813ec:29-32); its `description` for the other two. */
+export function noResultsLine({term, statuses}) {
+  const searched = String(term || "").trim();
+  if (searched && statuses) return "No job matches the search and the selected statuses";
+  if (searched) return `Your search for “${searched}” did not return any results`;
+  return "No job has the selected statuses";
 }
 
 

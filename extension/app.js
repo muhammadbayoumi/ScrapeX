@@ -13,10 +13,10 @@ import { capabilityProblem, deployedFrom, installedVersion, CAPABILITY_REPORTING
 import { PROTOCOL_VERSION } from "./transport.js";
 import { ENGINE_CANDIDATES, latestEngineRelease } from "./releases.js";
 import {
-  jobsCountLine, domainOf, isSettled, jobLabel, jobLead, jobWaitingLine, liveJob,
-  menuControls, observeRate, othersLine, primaryControl, progressFraction, progressLine,
-  recentRate, refusalLine, sourceOf, sourceTitle, statusLook, statusWords, summaryClass,
-  timeLine,
+  jobsCountLine, domainOf, filterOptions, isSettled, jobLabel, jobLead, jobMatches,
+  jobWaitingLine, liveJob, menuControls, noResultsLine, observeRate, othersLine,
+  primaryControl, progressFraction, progressLine, recentRate, refusalLine, sourceOf,
+  sourceTitle, statusLook, statusWords, summaryClass, timeLine,
 } from "./jobsview.js";
 import { getToken, accountFor, authorize, forgetToken, revokeToken } from "./identity.js";
 import {
@@ -7746,8 +7746,8 @@ const LOG_PLACEHOLDER = "Reading…";
  * panel's one tick -- and a row takes, field by field, the answer ISSUED later
  * (`seq`), so a slow history answer never draws a finished job as running and a tick
  * never overwrites a newer history. Rows are updated IN PLACE, keyed by `job_ref`: an
- * open menu, focus, scroll and a text selection survive every read, and while a menu
- * or a question is open nothing is redrawn at all (`held`).
+ * open menu, the filter, focus, scroll and a text selection survive every read, and
+ * while a menu, the filter or a question is open nothing is redrawn at all (`held`).
  */
 const jobsPage = {
   order: [],               // job_refs, newest first, as the history answered
@@ -7757,12 +7757,15 @@ const jobsPage = {
   bounded: false,
   readAt: null,            // when the last read that drew the list answered
   failure: null,           // {from: "history"|"tick", http: bool, message}
+  term: "",
+  statuses: new Set(),     // the filter he saved
+  kept: new Set(),         // rows he acted on, shown until his next search or filter
   pressing: new Map(),     // job_ref -> control in flight
   notes: new Map(),        // job_ref -> a refusal or failure sentence for that row
   openLogs: new Set(),
   logs: new Map(),         // job_ref -> log text, so a redraw never re-reads it
   menuFor: null,           // job_ref whose ⋮ menu is open
-  held: false,             // a redraw waits until the menu or question closes
+  held: false,             // a redraw waits until the menu, filter or question closes
   starting: false,         // Start engine pressed from this page, still in flight
 };
 
@@ -7778,7 +7781,8 @@ function jobsAnnounce(text) {
 }
 
 function jobsHolding() {
-  return Boolean(jobsPage.menuFor) || confirmIsOpen();
+  return Boolean(jobsPage.menuFor) || !$("jobs-filter").classList.contains("hidden")
+    || confirmIsOpen();
 }
 
 /** Take one read's jobs into the page, per row, where this read is the newer one. A
@@ -7870,6 +7874,19 @@ function jobsLive() {
     && ["queued", "preparing", "running", "resuming", "pausing", "cancelling"].includes(job.status));
 }
 
+/** The rows to draw: in the history's order, narrowed by his search and filter, and
+ *  every row he acted on since his last change of either. */
+function jobsShown() {
+  const all = jobsPage.order.map((ref) => jobsPage.jobs.get(ref)?.job).filter(Boolean);
+  const shown = all.filter((job) => jobsPage.kept.has(job.job_ref)
+    || ((!jobsPage.statuses.size || jobsPage.statuses.has(job.status))
+      && jobMatches(job, jobsPage.term, state.sources)));
+  const kept = shown.filter((job) => !((!jobsPage.statuses.size
+    || jobsPage.statuses.has(job.status)) && jobMatches(job, jobsPage.term, state.sources)))
+    .length;
+  return { all, shown, kept };
+}
+
 function renderJobs() {
   if (jobsHolding()) { jobsPage.held = true; return; }
   jobsPage.held = false;
@@ -7899,19 +7916,19 @@ function renderJobs() {
     return;
   }
 
-  const all = jobsPage.order.map((ref) => jobsPage.jobs.get(ref)?.job).filter(Boolean);
+  const { all, shown, kept } = jobsShown();
   const live = !failure && jobsLive();
-  $("jobs-count").textContent = jobsCountLine({ shown: all.length, total: all.length, live,
-    seconds: POLL_MS / 1000, readAt: jobsPage.readAt, bounded: jobsPage.bounded }, fmt);
-  jobsState(stateBox, failure, true, !all.length);
-  // A row no longer in the history leaves the DOM before any empty state returns, or a
-  // hidden list would still hold it.
-  const wanted = all.map((job) => job.job_ref);
+  $("jobs-count").textContent = jobsCountLine({ shown: shown.length, total: all.length, live,
+    seconds: POLL_MS / 1000, readAt: jobsPage.readAt, bounded: jobsPage.bounded, kept }, fmt);
+  jobsState(stateBox, failure, true, !all.length ? "jobs" : !shown.length ? "results" : "");
+  // A row no longer shown leaves the DOM before any empty state returns, or a hidden
+  // list would still hold it.
+  const wanted = shown.map((job) => job.job_ref);
   for (const [ref, row] of jobsPage.rows) {
     if (!wanted.includes(ref)) { row.remove(); jobsPage.rows.delete(ref); }
   }
 
-  if (!all.length) {
+  if (!shown.length) {
     list.classList.add("hidden");
     return;
   }
@@ -7920,7 +7937,7 @@ function renderJobs() {
   let before = null;
   // The zone a row's times were drawn in is one of its inputs: a change of zone redraws it.
   const zoneNow = window.ScrapeXTime.zone();
-  for (const job of all) {
+  for (const job of shown) {
     let row = jobsPage.rows.get(job.job_ref);
     if (!row) { row = buildJobRow(job.job_ref); jobsPage.rows.set(job.job_ref, row); }
     // FILLED ONLY WHEN SOMETHING IT DRAWS CHANGED. A tick carries the few live jobs; refilling
@@ -8005,14 +8022,19 @@ function jobsBanner(failure, listShown) {
 }
 
 /**
- * What #jobs-state shows: a failure's banner, and "No jobs yet" for a warehouse with
- * none. REDRAWN ONLY WHEN THAT CHANGES: the banner is role="alert", so a fresh node on
- * every 1.5 s tick was announced again each time and took the focus off its own button.
+ * What #jobs-state shows: a failure's banner, and an empty state -- "No jobs yet" for a
+ * warehouse with none (`empty` "jobs"), "No results found" when his search or filter
+ * emptied the list (`empty` "results"). REDRAWN ONLY WHEN THAT CHANGES: the banner is
+ * role="alert", so a fresh node on every 1.5 s tick was announced again each time and
+ * took the focus off its own button.
  */
-function jobsState(box, failure, listShown = false, empty = false) {
+function jobsState(box, failure, listShown = false, empty = "") {
   // The zone too: the banner says when the list was read, in the zone he reads it in.
-  const drawn = JSON.stringify([failure, listShown, empty, state.engineUp, jobsPage.readAt,
-    jobsPage.starting, window.ScrapeXTime.zone()]);
+  // And the narrowing, which "No results found" names.
+  const narrowed = empty === "results"
+    ? noResultsLine({ term: jobsPage.term, statuses: jobsPage.statuses.size }) : "";
+  const drawn = JSON.stringify([failure, listShown, empty, narrowed, state.engineUp,
+    jobsPage.readAt, jobsPage.starting, window.ScrapeXTime.zone()]);
   if (box.dataset.drawn === drawn) return;
   box.dataset.drawn = drawn;
   // A REDRAW HE CAUSED -- Start engine becoming Starting… -- replaces the button he
@@ -8020,24 +8042,44 @@ function jobsState(box, failure, listShown = false, empty = false) {
   const hadFocus = box.contains(document.activeElement);
   const parts = failure ? [jobsBanner(failure, listShown)] : [];
   if (empty) {
+    const [title, line, label, act] = empty === "results"
+      ? ["No results found", narrowed, "Reset filter",
+        () => jobsSetNarrowing({ term: "", statuses: new Set() })]
+      : ["No jobs yet", "Start one from the Run screen.", "Open Run", () => showView("run")];
     const card = document.createElement("div");
     card.className = "card empty";
     const head = document.createElement("p");
     head.className = "text-sm";
-    head.textContent = "No jobs yet";
+    head.textContent = title;
     const copy = document.createElement("p");
     copy.className = "text-xs";
-    copy.textContent = "Start one from the Run screen.";
-    const open = document.createElement("button");
-    open.type = "button";
-    open.className = "ghost";
-    open.textContent = "Open Run";
-    open.addEventListener("click", () => showView("run"));
-    card.append(head, copy, open);
+    copy.textContent = line;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "ghost";
+    button.textContent = label;
+    button.addEventListener("click", act);
+    card.append(head, copy, button);
     parts.push(card);
   }
   box.replaceChildren(...parts);
   if (hadFocus) box.querySelector("button")?.focus();
+}
+
+/** His search or filter changed: the rows he acted on stop being kept, and the result
+ *  is announced once. */
+function jobsSetNarrowing({ term = jobsPage.term, statuses = jobsPage.statuses } = {}) {
+  jobsPage.term = term;
+  jobsPage.statuses = statuses;
+  jobsPage.kept.clear();
+  if ($("jobs-search").value !== term) $("jobs-search").value = term;
+  const count = statuses.size;
+  $("jobs-status-label").textContent = count ? `Status: ${count}` : "Status";
+  $("jobs-status").classList.toggle("dashed", !count);
+  renderJobs();
+  const { all, shown } = jobsShown();
+  jobsAnnounce(shown.length === all.length ? `${all.length} jobs`
+    : `${shown.length} of ${all.length} jobs`);
 }
 
 // ---- one row ---------------------------------------------------------------------
@@ -8298,10 +8340,55 @@ function jobsMenuKeys(event, ref) {
   else if (event.key === "Tab") jobsCloseMenu(false);
 }
 
+// ---- the status filter, FilterPopover (FilterPopover.tsx@86c813ec:180-295) ---------
+
+function jobsOpenFilter() {
+  const options = filterOptions(jobsPage.order.map((ref) => jobsPage.jobs.get(ref)?.job)
+    .filter(Boolean), jobsPage.statuses);
+  const box = $("jobs-filter-options");
+  box.replaceChildren(...options.map((status) => {
+    const label = document.createElement("label");
+    label.className = "text-sm";
+    const check = document.createElement("input");
+    check.type = "checkbox";
+    check.value = status;
+    check.checked = jobsPage.statuses.has(status);
+    label.append(check, document.createTextNode(statusLook(status).word));
+    return label;
+  }));
+  $("jobs-filter").classList.remove("hidden");
+  $("jobs-status").setAttribute("aria-expanded", "true");
+  (box.querySelector("input") || $("jobs-filter-save")).focus();
+}
+
+function jobsCloseFilter(apply) {
+  if ($("jobs-filter").classList.contains("hidden")) return;
+  const picked = new Set([...$("jobs-filter-options").querySelectorAll("input:checked")]
+    .map((one) => one.value));
+  $("jobs-filter").classList.add("hidden");
+  $("jobs-status").setAttribute("aria-expanded", "false");
+  $("jobs-status").focus();
+  if (apply) jobsSetNarrowing({ statuses: apply === "clear" ? new Set() : picked });
+  else if (jobsPage.held) renderJobs();
+}
+
 function wireJobsPage() {
-  // A press outside the open menu closes it, without acting.
+  $("jobs-search").addEventListener("input", (event) => {
+    jobsSetNarrowing({ term: event.target.value });
+  });
+  $("jobs-status").addEventListener("click", () => {
+    if ($("jobs-filter").classList.contains("hidden")) jobsOpenFilter(); else jobsCloseFilter(false);
+  });
+  $("jobs-filter-save").addEventListener("click", () => jobsCloseFilter(true));
+  $("jobs-filter-clear").addEventListener("click", () => jobsCloseFilter("clear"));
+  $("jobs-filter").addEventListener("keydown", (event) => {
+    if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); jobsCloseFilter(false); }
+  });
+  // A press outside the open menu or filter closes it, without applying anything.
   document.addEventListener("pointerdown", (event) => {
     if (jobsPage.menuFor && !event.target.closest(".job-kebab")) jobsCloseMenu(false);
+    if (!$("jobs-filter").classList.contains("hidden")
+        && !event.target.closest(".jobs-filter-anchor")) jobsCloseFilter(false);
   });
 }
 
@@ -8357,7 +8444,8 @@ async function openJobLog(ref) {
  * Pause, resume or cancel, from the row of the job it belongs to.
  *
  * THE BUTTON STAYS FOCUSABLE IN FLIGHT (aria-disabled, "Pausing…"): `disabled` dropped
- * focus to <body>. A REFUSAL is said in
+ * focus to <body>. THE ROW STAYS DRAWN until his next search or filter change, even if
+ * its new status leaves the filter, so focus has somewhere to stay. A REFUSAL is said in
  * that row, from the status the reloaded row reached -- the 409 carries only a sentence
  * (webui/app.py:4779-4780); any other answer says its own detail; no answer is the
  * engine-lost path. Then the list is re-read, and the player is given a fresh read.
@@ -8367,6 +8455,7 @@ async function pressJobControl(job, control, button) {
   const ref = job.job_ref;
   const label = jobLabel(job, state.sources);
   if (!(await confirmedControl(control, label))) return;
+  jobsPage.kept.add(ref);
   jobsPage.notes.delete(ref);
   jobsPage.pressing.set(ref, control);
   renderJobs();
