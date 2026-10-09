@@ -209,6 +209,44 @@ test("the label names the kind in words and the source it is working", () => {
     "an unknown kind must still name itself rather than reading 'Job'");
 });
 
+/** The Sources payload as `/api/sources` serves it: a registered site, a dataset card
+ *  keyed by its dataset with the site behind it (`webui/app.py:942-947`), and a site
+ *  with no domain of its own. */
+const SOURCES = [
+  {source_key: "ELBUROJ", source_name: "Elburoj", source_name_ar: "البروج",
+   base_url: "https://www.elburoj.com"},
+  {source_key: "contractors", site_key: "muqawil_org", source_name: "Saudi Contractors Authority",
+   base_url: "https://muqawil.org"},
+  {source_key: "NO_URL", source_name: "Offline list", base_url: ""},
+];
+
+test("a job is named by its kind and the panel's one source identity (#1542)", () => {
+  // THE DOMAIN, AS EVERY OTHER SOURCE IN THE PANEL IS NAMED (`sourceIdentity`,
+  // components.css:781 "the domain is the primary identity"). The key was the job's
+  // own word for it only because the job payload carries keys alone.
+  assert.equal(jobLabel({job_kind: "crawl", source_keys: ["ELBUROJ"]}, SOURCES),
+    "Crawl · elburoj.com", "www. is not part of the identity, as sourceDomain drops it");
+  // A JOB KEYED BY ITS SITE, FOUND THROUGH THE DATASET CARD THAT CARRIES IT.
+  assert.equal(jobLabel({job_kind: "directory_crawl", source_keys: ["muqawil_org"]}, SOURCES),
+    "Listing crawl · muqawil.org");
+  // AND ONE KEYED BY ITS DATASET, as an enrichment job is.
+  assert.equal(jobLabel({job_kind: "organization_enrichment", source_keys: ["contractors"]},
+    SOURCES), "Enrichment · muqawil.org");
+  assert.equal(jobLabel({job_kind: "crawl", source_keys: ["NO_URL"]}, SOURCES),
+    "Crawl · Offline list", "no domain: the name leads, as sourceIdentity does");
+  assert.equal(jobLabel({job_kind: "crawl", source_keys: ["GONE"]}, SOURCES),
+    "Crawl · GONE", "a source Sources does not list keeps its key");
+});
+
+test("a job over several sources names the first and counts the rest", () => {
+  const three = {job_kind: "crawl", source_keys: ["ELBUROJ", "GONE", "NO_URL"]};
+  assert.equal(jobLabel(three, SOURCES), "Crawl · elburoj.com and 2 others");
+  assert.equal(jobLabel({job_kind: "crawl", source_keys: ["ELBUROJ", "GONE"]}, SOURCES),
+    "Crawl · elburoj.com and 1 other", "one other is singular");
+  assert.equal(jobLabel({...three, current_source_key: "NO_URL"}, SOURCES),
+    "Crawl · Offline list and 2 others", "the source it is on now leads");
+});
+
 test("every tone is a badge variant the kit actually defines", () => {
   // THE DEFECT CLASS, NOT THE ONE STATUS. `failed` returned `err`, which is a MESSAGE
   // tone in this panel and not a badge one -- `.badge.err` does not exist, so the
