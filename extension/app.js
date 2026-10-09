@@ -339,9 +339,6 @@ function showView(name, animate = true) {
   const navigationName = SUB_VIEW_RAIL[name] || name;
   runModeSelectUi?.close();
   closeWorkspaceMenu();
-  // The Jobs page's status filter too: reached by the keyboard, the rail takes no
-  // pointerdown, and the popover would wait open over the page for his return.
-  jobsCloseFilter(false, { refocus: false });
   // BUG FIXED HERE, introduced with the accounts card and merged in PR 168.
   // (Written without the number sign: the colour-literal guard reads a hash
   // followed by three hex digits as a colour, and 168 qualifies.)

@@ -12782,6 +12782,26 @@ def test_a_change_of_search_announces_its_count_in_words(open_panel):
     assert page.locator("#jobs-announce").inner_text() == "1 job"
 
 
+def test_a_status_is_ticked_by_its_word_and_the_popover_holds_its_own_presses(open_panel):
+    """THE WORD IS THE LABEL. A press on "Failed", on the header or in the footer's gap is
+    inside the filter; with the popover itself unable to take focus, focus fell to the
+    page, the focus-leaving rule closed it, and the tick was lost. It takes focus as
+    Radix's popover content does (tabindex -1), so only a press outside closes it."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(300)
+    page.click("#jobs-status")
+    page.locator("#jobs-filter-title").click()
+    assert page.locator("#jobs-filter").is_visible(), "a press on its header closed it"
+    page.locator("#jobs-filter").get_by_text("Failed", exact=True).click()
+    assert page.locator("#jobs-filter").is_visible(), "a press on a status word closed it"
+    assert page.locator("#jobs-filter label", has_text="Failed").locator("input").is_checked()
+    page.click("#jobs-filter-save")
+    page.wait_for_timeout(200)
+    assert page.locator("#jobs-list .job-row:visible").count() == 1
+    assert page.locator("#jobs-status-label").inner_text() == "Status: 1"
+
+
 def test_a_redraw_the_tick_starts_keeps_his_place_on_the_keyboard(open_panel):
     """A JOB STARTING ELSEWHERE IS NOT HIS PRESS. The tick's change of active set re-reads
     the history and redraws the page; the element he had focused stays focused -- the ⋮,

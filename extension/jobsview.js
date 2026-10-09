@@ -327,13 +327,13 @@ export function timeLine(job, fmt) {
   return `${from} → ${how}${when}`;
 }
 
-/** The line above the list: what is shown, out of what, and whether it is live. It is
- *  not a live region; a change he made is announced on its own. */
 /** "1 job", "1,234 jobs": the count of jobs, worded one way wherever it is said. */
 export function jobsNoun(n) {
   return `${n.toLocaleString()} job${n === 1 ? "" : "s"}`;
 }
 
+/** The line above the list: what is shown, out of what, and whether it is live. It is
+ *  not a live region; a change he made is announced on its own. */
 export function jobsCountLine({shown, total, live, seconds = 1.5, readAt, bounded, kept}, fmt) {
   const noun = jobsNoun;
   const parts = [bounded
