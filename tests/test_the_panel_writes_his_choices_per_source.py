@@ -359,3 +359,15 @@ def test_the_robots_screen_reads_a_directory_with_his_choice(engine, monkeypatch
     assert body["custom"] == {"enforce_disallow": True, "crawl_delay_s": 4.0}
     assert body["on_a_disallowed_path"]["may_fetch"] is False
     assert seen and seen[0].startswith("https://muqawil.org/robots.txt")
+
+
+def test_a_directory_card_carries_no_automation_switch(engine):
+    """Nothing schedules a directory yet; his ruling (2026-10-09) is that the panel draws
+    no automation switch for it until that is built, so the card carries no `active` --
+    while its rules still answer, `active` among them, for when it is."""
+    client, _, _ = engine
+    listed = {s["source_key"]: s for s in client.get("/api/sources").json()["sources"]}
+
+    assert listed[DIRECTORY]["kind"] == "directory"
+    assert "active" not in listed[DIRECTORY]
+    assert "active" in listed[SHOP], "a price source keeps its switch"

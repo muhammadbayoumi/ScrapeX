@@ -199,21 +199,23 @@ test("the answer is drawn with each sentence, and Clear only beside his choices"
 
 // ---- saving: the manifest's fields to /edit, his choices to /rules ------------------
 
-function saver(answerNow, source, form) {
+function saver(answerNow, source, form, refusal = null) {
   const posts = [];
+  const said = [];
   const dom = fakeDom();
   Object.assign(dom.node("source-edit-name"), {value: source.source_name ?? ""});
   for (const [id, value] of Object.entries(form)) Object.assign(dom.node(id), value);
   const context = {
     $: dom.node, document: dom.document, icon: () => "", esc: (v) => String(v),
-    out: () => {}, renderSites: () => {}, renderSourceManager: () => {},
+    out: (id, html) => said.push(html), renderSites: () => {}, renderSourceManager: () => {},
+    capabilityRefusal: (key) => (key === "source_rules" ? refusal : null),
     renderRobotsChoice: () => {},
     state: {sources: [source], editingSourceKey: source.source_key,
             editingRulesKey: source.site_key || source.source_key, sourceRules: answerNow},
     post: async (url, body) => { posts.push([url, body]); return answerNow; },
   };
   const {saveSourceEditor} = load(context, fn("saveSourceEditor"), "saveSourceEditor");
-  return {saveSourceEditor, posts};
+  return {saveSourceEditor, posts, said};
 }
 
 test("a price source's crawl rules go to /rules as numbers, never to /edit", async () => {
@@ -274,4 +276,71 @@ test("the price-only parts of the editor are marked, so a directory card hides t
   assert.match(HTML, /aria-labelledby="source-edit-danger-heading" data-price-only/);
   assert.match(HTML, /aria-labelledby="source-edit-key-heading" data-price-only/);
   assert.match(fn("renderSourceEditor"), /\[data-price-only\][\s\S]*node\.hidden = !price/);
+});
+
+
+// ---- an engine too old for /rules is said, before anything is sent (§1.6) -----------
+
+const TOO_OLD = "«source_rules» is not deployed by this ScrapeX engine (0.4.53)";
+
+test("an engine without the rules routes refuses the whole save, sending nothing", async () => {
+  const source = {source_key: "SHOP", source_name: "Shop"};
+  const {saveSourceEditor, posts, said} = saver(answer(), source, {
+    "source-edit-pace": {value: "9"}, "source-edit-name": {value: "Renamed"},
+  }, TOO_OLD);
+
+  await saveSourceEditor();
+
+  assert.deepEqual(posts, [], "a request reached an engine that cannot answer it");
+  assert.ok(said.some((line) => line.includes("not deployed")), said.join(" | "));
+});
+
+test("reading and clearing ask the same question first", async () => {
+  for (const name of ["loadSourceRules", "clearSourceRule"]) {
+    const asked = [];
+    const said = [];
+    const context = {
+      $: () => ({}), document: {querySelector: () => null}, icon: () => "",
+      esc: (v) => String(v), out: (id, html) => said.push(html),
+      state: {editingRulesKey: "SHOP", sources: []},
+      capabilityRefusal: (key) => { asked.push(key); return TOO_OLD; },
+      api: async () => { throw new Error("asked an engine that cannot answer"); },
+      post: async () => { throw new Error("posted to an engine that cannot answer"); },
+    };
+    const run = vm.runInNewContext(`${fn(name)}\n${name};`, context);
+    await run(name === "loadSourceRules" ? "SHOP" : "user_agent");
+    assert.deepEqual(asked, ["source_rules"], name);
+    assert.ok(said.some((line) => line.includes("not deployed")), name);
+  }
+});
+
+// ---- no automation switch for a dataset or directory card (his ruling, 2026-10-09) ---
+
+function managerCards(sources) {
+  const box = {innerHTML: "", querySelectorAll: () => []};
+  const nodes = {"source-manager-list": box, "source-manager-count": {textContent: ""}};
+  const context = {
+    $: (id) => nodes[id], esc: (v) => String(v ?? ""), icon: () => "",
+    state: {sources, sourceFilter: ""},
+    sourceIdentity: (s) => `<span>${s.source_key}</span>`,
+    sourceDomain: () => "", openSourceEditor: () => {},
+  };
+  vm.runInNewContext(`${fn("renderSourceManager")}\nrenderSourceManager();`, context);
+  return box.innerHTML.split("</article>");
+}
+
+test("a price card says its automation; a dataset or directory card says none", () => {
+  const [price, dataset, directory] = managerCards([
+    {source_key: "SHOP", implemented: true, active: true},
+    {source_key: "contractors", site_key: "muqawil_org", kind: "dataset", implemented: true},
+    {source_key: "oman_tenderboard", kind: "directory", implemented: true},
+  ]);
+
+  assert.match(price, /Automation on/);
+  assert.doesNotMatch(dataset, /Automation/);
+  assert.doesNotMatch(directory, /Automation/);
+});
+
+test("the run list draws the Auto switch for a price source only", () => {
+  assert.match(fn("renderSites"), /const auto = ready && !s\.kind \?/);
 });

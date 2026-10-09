@@ -1,6 +1,6 @@
 {
   "version": "0.4.54",
-  "minimum_extension_version": "0.3.3",
+  "minimum_extension_version": "0.3.7",
   "capability_reporting_since": "0.2.0",
   "note": "Both copies of capabilityProblem must reproduce every `problem` string exactly. Python: scrapex/version.py. JavaScript: extension/version.js.",
   "cases": [
@@ -45,6 +45,10 @@
         "organization_enrichment": {
           "since": "0.3.3",
           "summary": "Turn any approved company or contractor dataset into a linked, progressively verified organization dataset with field-level evidence and manual review for uncertain matches."
+        },
+        "source_rules": {
+          "since": "0.3.7",
+          "summary": "See where each of a source's crawl rules comes from -- the source, your general rule or your choice -- change it for that source alone, and clear your choice to return to the source's."
         }
       },
       "update_instructions": "Update the engine first (it carries the new extension with it), then open chrome://extensions, turn on Developer mode and press Reload on ScrapeX. Close and reopen the side panel afterwards.",
@@ -91,6 +95,10 @@
         "organization_enrichment": {
           "since": "0.3.3",
           "summary": "Turn any approved company or contractor dataset into a linked, progressively verified organization dataset with field-level evidence and manual review for uncertain matches."
+        },
+        "source_rules": {
+          "since": "0.3.7",
+          "summary": "See where each of a source's crawl rules comes from -- the source, your general rule or your choice -- change it for that source alone, and clear your choice to return to the source's."
         }
       },
       "update_instructions": "Update the engine first (it carries the new extension with it), then open chrome://extensions, turn on Developer mode and press Reload on ScrapeX. Close and reopen the side panel afterwards.",
@@ -133,6 +141,10 @@
         "organization_enrichment": {
           "since": "0.3.3",
           "summary": "Turn any approved company or contractor dataset into a linked, progressively verified organization dataset with field-level evidence and manual review for uncertain matches."
+        },
+        "source_rules": {
+          "since": "0.3.7",
+          "summary": "See where each of a source's crawl rules comes from -- the source, your general rule or your choice -- change it for that source alone, and clear your choice to return to the source's."
         }
       },
       "update_instructions": "Update the engine first (it carries the new extension with it), then open chrome://extensions, turn on Developer mode and press Reload on ScrapeX. Close and reopen the side panel afterwards.",
@@ -188,6 +200,10 @@
         "organization_enrichment": {
           "since": "0.3.3",
           "summary": "Turn any approved company or contractor dataset into a linked, progressively verified organization dataset with field-level evidence and manual review for uncertain matches."
+        },
+        "source_rules": {
+          "since": "0.3.7",
+          "summary": "See where each of a source's crawl rules comes from -- the source, your general rule or your choice -- change it for that source alone, and clear your choice to return to the source's."
         }
       },
       "update_instructions": "Update the engine first (it carries the new extension with it), then open chrome://extensions, turn on Developer mode and press Reload on ScrapeX. Close and reopen the side panel afterwards.",

@@ -238,6 +238,16 @@ def test_the_engine_really_is_serving_a_dataset(client):
     assert datasets[0]["observations"] > 0, "the dataset has no rows to serve"
 
 
+def test_a_dataset_card_carries_no_automation_switch(client):
+    """Nothing schedules a dataset's site yet, and his ruling (2026-10-09) is that the
+    panel draws no automation switch for it until directory scheduling is built. The
+    card said `active: True`, which the source manager drew as "Automation on"."""
+    rows = client.get("/api/sources").json()["sources"]
+    card = next(row for row in rows if row.get("kind") == "dataset")
+
+    assert "active" not in card
+
+
 # ---- the declarations are complete and legible ------------------------------
 
 def test_every_action_declares_a_route_and_a_proof():

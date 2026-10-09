@@ -1660,7 +1660,9 @@ function renderSites() {
         `<span class="chip off" title="No connector has shipped for this platform yet">Not supported yet</span>`;
       // The automation switch. Words carry the state, never colour alone; the
       // title says exactly what the switch gates — schedules, not your hand.
-      const auto = ready ? `<button type="button" class="chip ${s.active ? "accent" : ""}"
+      // A PRICE SOURCE ONLY: no schedule fires a dataset or directory card yet, and
+      // his ruling (2026-10-09) is that no switch is drawn for it until one does.
+      const auto = ready && !s.kind ? `<button type="button" class="chip ${s.active ? "accent" : ""}"
             data-auto="${esc(s.source_key)}" aria-pressed="${s.active ? "true" : "false"}"
             title="Scheduled runs fire only while this is on. Running manually from this panel always works.">Auto: ${
               s.active ? "on" : "off"}</button>` : "";
@@ -1761,8 +1763,8 @@ function renderSourceManager() {
         <span class="source-manager-card-meta muted text-xs">
           <span class="dot ${source.implemented ? "on" : "off"}" aria-hidden="true"></span>
           <span>${status}</span>
-          <span aria-hidden="true">·</span>
-          <span>Automation ${source.active ? "on" : "off"}</span>
+          ${source.kind ? "" : `<span aria-hidden="true">·</span>
+          <span>Automation ${source.active ? "on" : "off"}</span>`}
         </span>
       </div>
       <button type="button" class="ghost source-manager-edit"
@@ -2138,6 +2140,13 @@ function renderSourceRules(answer) {
 }
 
 async function loadSourceRules(key) {
+  // §1.6, BEFORE the request: an engine older than `source_rules` answers /rules
+  // 404, and that would reach him as "Not Found" instead of what to update.
+  const refusal = capabilityRefusal("source_rules");
+  if (refusal) {
+    out("source-edit-result", esc(refusal), "err");
+    return;
+  }
   try {
     const answer = await api("/api/sources/" + encodeURIComponent(key) + "/rules");
     if (state.editingRulesKey !== key) return;          // moved on
@@ -2154,6 +2163,11 @@ async function loadSourceRules(key) {
 async function clearSourceRule(field) {
   const key = state.editingRulesKey;
   if (!key) return;
+  const refusal = capabilityRefusal("source_rules");
+  if (refusal) {
+    out("source-edit-result", esc(refusal), "err");
+    return;
+  }
   out("source-edit-result", "Clearing your choice…", "muted");
   try {
     const answer = await post("/api/sources/" + encodeURIComponent(key) + "/rules",
@@ -2186,6 +2200,13 @@ async function saveSourceEditor() {
     (item) => item.source_key === state.editingSourceKey);
   if (!source) {
     out("source-edit-result", "This source is no longer available.", "err");
+    return;
+  }
+  // The whole save, not only its /rules half: it is one button, and a save that
+  // wrote the manifest's fields and then refused his choices would succeed halfway.
+  const refusal = capabilityRefusal("source_rules");
+  if (refusal) {
+    out("source-edit-result", esc(refusal), "err");
     return;
   }
   const answer = state.sourceRules;

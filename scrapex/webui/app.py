@@ -950,7 +950,10 @@ def create_app(
                 "source_key": row["dataset_key"],
                 "source_name": row["display_name"] or row["original_name"],
                 "source_name_ar": "", "base_url": row["base_url"],
-                "family": "generic", "active": True, "implemented": True,
+                # NO `active`: no schedule fires a dataset's site yet, and his ruling
+                # (2026-10-09) is that the panel draws no automation switch for it until
+                # directory scheduling is built. `True` here was drawn as "Automation on".
+                "family": "generic", "implemented": True,
                 "supports_history": False,
                 # `observations` is what the Data screen filters on, and for a
                 # directory the honest number is its rows. `products` has no
@@ -1056,10 +1059,10 @@ def create_app(
                 # price source. Same value a dataset card carries, for the same
                 # reason, rather than a second word meaning the same thing.
                 "family": "generic",
-                # NOT active: nothing is scheduled for it. `implemented` is True and
-                # that is the point of the row — a collector exists in this build, so
-                # the source is runnable by hand today.
-                "active": False,
+                # NO `active`: nothing schedules a directory yet, and his ruling
+                # (2026-10-09) is that the panel draws no automation switch for it until
+                # that is built. `implemented` is True and that is the point of the row
+                # — a collector exists in this build, so it is runnable by hand today.
                 "implemented": True,
                 "supports_history": False,
                 # Zero, and zero is the honest number. `_dataset_rows` carries the row
