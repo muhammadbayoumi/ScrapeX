@@ -50,22 +50,19 @@
              aria-labelledby="tab-jobs" tabindex="0">
       <header class="view-heading">
         <h1>Jobs</h1>
-        <p>Every job this warehouse has run — what finished, what stopped, and what
-           is waiting.</p>
+        <p>Jobs on this warehouse, newest first</p>
       </header>
 
+      <!-- THE JOBS PAGE (#1542), designed through design-the-experience and confirmed by
+           him on 2026-10-09. Live: the panel's one tick feeds it (pollJobOnce), so there
+           is no Refresh. -->
       <div class="view-scroll">
-        <div class="row jobs-head">
-          <p class="muted text-xs" id="jobs-summary" role="status"
-             aria-live="polite">&nbsp;</p>
-          <button id="jobs-reload" class="ghost" type="button">Reload</button>
-        </div>
-        <!-- SAID, NOT INFERRED: the list is bounded, and a bound presented as the
-             whole is the failure the bound exists to prevent. -->
-        <p class="muted text-xs hidden" id="jobs-bounded" role="status"></p>
-        <p class="card warn hidden" id="jobs-blocked" role="status"
-           aria-live="polite"></p>
-        <div id="jobs-list" class="jobs-list"></div>
+        <!-- NOT a live region: it changes on every read. A change he made is announced
+             once, in #jobs-announce; a job's own change of status, once, there too. -->
+        <p class="muted text-xs jobs-count" id="jobs-count">&nbsp;</p>
+        <p class="visually-hidden" id="jobs-announce" role="status" aria-live="polite"></p>
+        <div id="jobs-state"></div>
+        <div id="jobs-list" class="card jobs-list hidden"></div>
       </div>
     </section>
     <!-- ============================ RUN ============================ -->

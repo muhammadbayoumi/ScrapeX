@@ -439,9 +439,18 @@ button:active:not(:disabled),
 }
 
 button:disabled,
+button[aria-disabled="true"],
 .button[aria-disabled="true"] {
   opacity: 0.5;
   cursor: not-allowed;
+  transform: none;
+}
+
+/* A PRESS IN FLIGHT IS aria-disabled, NOT disabled (#1542): HTML's focus fix-up drops
+   focus to <body> from a focused button that becomes disabled, so a keyboard user lost
+   his place on every Pause. aria-disabled keeps it focusable; the handler ignores the
+   press, and this keeps it from moving under the pointer. */
+button[aria-disabled="true"]:active {
   transform: none;
 }
 
@@ -728,15 +737,6 @@ textarea[aria-invalid="true"] {
 .badge.danger {
   background: var(--red-weak);
   color: var(--red);
-}
-
-/* Studio's `default` badge: the word in the foreground, its glyph muted (#1596). */
-.badge.default {
-  color: var(--text);
-}
-
-.badge.default .sx-icon {
-  color: var(--muted);
 }
 
 button.chip {

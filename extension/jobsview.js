@@ -27,20 +27,6 @@ const SETTLED = new Set(["cancelled", "completed", "completed_with_errors",
  *  runtime; anything else non-terminal is waiting for one or for him. */
 const HELD = new Set(["preparing", "running", "resuming", "pausing", "cancelling"]);
 
-/** Where the job is actually ADVANCING, which is not the same as holding a worker.
- *
- *  THE DOT MUST NOT DISAGREE WITH `ADOPTION_ORDER`. `app.css` calls the dot "ONE DOT FOR
- *  'THIS IS THE ONE MOVING', which is the question the whole page exists to answer", and
- *  it was drawn from `HELD` -- so it lit on the `preparing` job that sat blocked on the
- *  politeness lane for 33 minutes, beside a badge reading `preparing` and a waiting line
- *  saying it may be blocked, while announcing "running" to a screen reader. That is the
- *  same wrong discriminator `ADOPTION_ORDER` below is built to reject. */
-const MOVING = new Set(["running", "resuming"]);
-
-/** Statuses that wait on HIM and never advance on their own — `BLOCKING_JOB_STATUSES`
- *  excludes them for the same reason. */
-const HIS_MOVE = new Set(["paused", "requires_review"]);
-
 const KIND_LABELS = {
   crawl: "Crawl",
   directory_crawl: "Listing crawl",
@@ -57,15 +43,9 @@ export function ownsAWorker(job) {
   return HELD.has(String(job?.status || ""));
 }
 
-/** Whether this is the one moving, which is what the row's dot claims. */
-export function isMoving(job) {
-  return MOVING.has(String(job?.status || ""));
-}
-
 /** `completed_with_errors` as `completed with errors`. The panel un-underscores a status
- *  everywhere it shows one -- `renderActivity`, `renderMiniplayer` and `summariseJobs`
- *  below -- and the row's badge was the one surface opting out, so the same screen spelt
- *  one status two ways. */
+ *  everywhere it shows one -- `renderActivity`, `renderMiniplayer` and the Jobs rows
+ *  (`statusLook`) -- so one screen never spells one status two ways. */
 export function statusWords(status) {
   return String(status || "").replace(/_/g, " ");
 }
@@ -115,13 +95,29 @@ export function domainOf(url) {
   return host.toLowerCase().startsWith("www.") ? host.slice(4) : host;
 }
 
+/** The Sources entry a key names, by its `source_key` or the `site_key` behind it. */
+export function sourceOf(key, sources) {
+  return (sources || []).find((one) => one && (one.source_key === key
+    || one.site_key === key)) || null;
+}
+
+/** The source a job is on now, else its first: the one its name leads with. */
+export function jobLead(job) {
+  return job?.current_source_key || (job?.source_keys || [])[0] || "";
+}
+
+/** "and 2 others" for a job of several sources; "" for one. */
+export function othersLine(job) {
+  const others = Math.max(0, (job?.source_keys || []).length - 1);
+  return others ? `and ${others} other${others === 1 ? "" : "s"}` : "";
+}
+
 /** How the panel names one source key: the Sources identity's domain, else its name,
  *  else the key. A job carries keys only; a site's key can also arrive as the
  *  `site_key` behind a dataset card (`webui/app.py:942-947`), and a dataset's as its
  *  `source_key`, so either finds it. */
 export function sourceTitle(key, sources) {
-  const source = (sources || []).find((one) => one && (one.source_key === key
-    || one.site_key === key));
+  const source = sourceOf(key, sources);
   if (!source) return key;
   return domainOf(source.base_url) || source.source_name || key;
 }
@@ -138,12 +134,10 @@ export function sourceTitle(key, sources) {
  */
 export function jobLabel(job, sources = []) {
   const kind = KIND_LABELS[job?.job_kind] || String(job?.job_kind || "Job");
-  const keys = job?.source_keys || [];
-  const lead = job?.current_source_key || keys[0] || "";
+  const lead = jobLead(job);
   if (!lead) return kind;
-  const others = Math.max(0, keys.length - 1);
-  const more = others ? ` and ${others} other${others === 1 ? "" : "s"}` : "";
-  return `${kind} · ${sourceTitle(lead, sources)}${more}`;
+  const more = othersLine(job);
+  return `${kind} · ${sourceTitle(lead, sources)}${more ? ` ${more}` : ""}`;
 }
 
 /**
@@ -265,89 +259,11 @@ export function controlsFor(job) {
   return ["pause", "cancel"];
 }
 
-/** The badge class this status wears. The kit defines exactly three variants --
- *  `.badge.ok`, `.badge.off` and `.badge.danger` (`design/components.css:644-661`) -- and
- *  a class outside that set renders as plain grey, which is the mistake
- *  `renderEngineDetail` already records about `warn`.
- *
- *  `failed` WORE `err` UNTIL REVIEW, AND `err` IS A MESSAGE TONE, NOT A BADGE ONE. `.err`
- *  does exist (`components.css:75`, `color: var(--red)`) but `.chip, .badge` sets
- *  `color: var(--muted)` at equal specificity 550 lines later, so the cascade won and
- *  every failed job drew grey -- indistinguishable from `cancelled` and from a status
- *  this file has never heard of. 28 of the 163 jobs measured on 2026-09-07 were failures,
- *  and they are the rows he is looking for. */
-export function statusTone(status) {
-  const value = String(status || "");
-  if (value === "completed") return "ok";
-  if (value === "failed") return "danger";
-  if (value === "completed_with_errors" || value === "partially_completed"
-      || value === "requires_review") return "off";
-  // A SKIP IS NEUTRAL LIKE A CANCEL: nothing went wrong, a scheduled firing found its
-  // source busy and did not run (#1596). It must not wear `off` beside real trouble.
-  if (value === "cancelled" || value === "skipped") return "";
-  if (HIS_MOVE.has(value)) return "off";
-  return "";
-}
-
-/** `163 jobs · 1 running · 23 cancelled`, so the page says what it is showing.
- *
- *  NAMED `summariseJobs` AND NOT `summarise`, WHICH IS A HARNESS CONSTRAINT ON THE
- *  PRODUCTION CODE AND WORTH STATING. `tools/panel_harness.py` inlines every panel
- *  module and strips the `import` lines, so a name that exists only as an ALIAS
- *  (`import { summarise as summariseJobs }`) is not defined in the harness at all --
- *  it threw inside `showView`, the page kept its placeholder, and the guard reported
- *  "0 of 4 jobs drawn". `datatable.js` exported a `summarise` of its own until #1198,
- *  and the specific name is the better one regardless. */
-export function summariseJobs(payload) {
-  const jobs = (payload?.jobs || []).filter(Boolean);
-  if (!jobs.length) return "No jobs yet. Start one from the Run screen.";
-  const counts = new Map();
-  for (const job of jobs) {
-    const key = String(job.status || "");
-    counts.set(key, (counts.get(key) || 0) + 1);
-  }
-  const parts = [`${jobs.length.toLocaleString()} job${jobs.length === 1 ? "" : "s"}`];
-  for (const [status, count] of [...counts.entries()].sort((a, b) => b[1] - a[1])) {
-    parts.push(`${count.toLocaleString()} ${statusWords(status)}`);
-  }
-  return parts.join(" · ");
-}
-
-/**
- * The rows to draw, newest first, exactly as the payload ordered them.
- *
- * NOT RE-SORTED HERE. `list_jobs` orders by `job_id DESC`, which is the order they were
- * entered; re-sorting by a timestamp in the page would disagree with it the moment two
- * jobs share a second, and `created_at` is stored at second resolution.
- */
 /** The class a job's `error_summary` is drawn in. A skipped job's summary is the reason
  *  the schedule passed it over (#1596), not an error, so it is muted rather than red. */
 export function summaryClass(status) {
   return String(status || "") === "skipped" ? "muted" : "err";
 }
-
-export function rowsFrom(payload, sources = []) {
-  return (payload?.jobs || []).filter((job) => job && job.job_ref).map((job) => ({
-    job_ref: job.job_ref,
-    label: jobLabel(job, sources),
-    status: job.status,
-    // LOOK C FOR A SKIP ALONE (#1596): its tone and glyph from `statusLook`, so it is
-    // not drawn as `running` is. #1608 draws every status from `statusLook`.
-    tone: job.status === "skipped" ? statusLook(job.status).tone : statusTone(job.status),
-    glyph: job.status === "skipped" ? statusLook(job.status).glyph : "",
-    progress: progressLine(job),
-    fraction: progressFraction(job),
-    waiting: jobWaitingLine(job),
-    controls: controlsFor(job),
-    settled: isSettled(job),
-    live: isMoving(job),
-    created_at: job.created_at,
-    finished_at: job.finished_at,
-    error_summary: job.error_summary || "",
-    summary_class: summaryClass(job.status),
-  }));
-}
-
 
 // ---- the Jobs page's own rules (#1542) ---------------------------------------------
 

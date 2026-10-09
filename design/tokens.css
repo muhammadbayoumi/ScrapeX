@@ -174,7 +174,8 @@
      --surface: enough for an icon (WCAG 2.2 SC 1.4.11, 3:1), not for 12 px words (SC
      1.4.3, 4.5:1). So a warning status draws its glyph in this and its words in --text,
      and every value stays theirs (docs/DESIGN-SYSTEM-SOURCES.md, Mandates). It measures
-     2.997:1 on --bg, so it is drawn only on --surface or --surface-raised. */
+     2.997:1 on --bg, so it is drawn only on --surface or --surface-raised;
+     test_every_status_colour_on_the_page_is_readable holds the Jobs rows to that. */
   --warning-600: #dc7b18;     /* warning-600 light     PUBLISHED */
   --red: #ab413e;             /* --destructive light   derived */
   --red-hover: #8e332f;

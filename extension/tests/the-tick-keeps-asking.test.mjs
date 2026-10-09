@@ -66,7 +66,10 @@ function runner({ engineUp = true, answers = [], probe = async () => ({ jobs: []
     "api", "state", "document", "setTimeout", "clearTimeout", "pollJob", "activeBefore",
     "currentViewName", "loadJobs", "loadSources",
     "let pollTimer = null, idleTimer = null, pollFailures = 0, sourcesForNames = null;\n"
-      + "let lastActiveRefs = activeBefore;\n"
+      + "let lastActiveRefs = activeBefore, jobsReadOrder = 0;\n"
+      // The Jobs page's own state and helpers, which the tick feeds: they have their
+      // own guards (jobs-page-rules.test.mjs and the browser tests).
+      + "const jobsPage = {loaded: false};\nfunction jobsTick() {}\nfunction jobsFailed() {}\n"
       + "const POLL_MS = 1500, JOBS_LIMIT = 200, IDLE_PROBE_MS = 30000;\n"
       + BACKOFF + "\n"
       + "const renderMiniplayer = () => {}, renderActivity = () => {}, renderLogs = () => {};\n"
