@@ -170,6 +170,13 @@
      departure look necessary. */
   --amber-ink: #080503;
   --amber-weak: #fff4d5;      /* warning-300 light     PUBLISHED */
+  /* A WARNING GLYPH'S COLOUR, NOT A TEXT COLOUR (#1542). Their warning-600 is 3.05:1 on
+     --surface: enough for an icon (WCAG 2.2 SC 1.4.11, 3:1), not for 12 px words (SC
+     1.4.3, 4.5:1). So a warning status draws its glyph in this and its words in --text,
+     and every value stays theirs (docs/DESIGN-SYSTEM-SOURCES.md, Mandates). It measures
+     2.997:1 on --bg, so it is drawn only on --surface or --surface-raised; a test holds
+     the Jobs rows to that. */
+  --warning-600: #dc7b18;     /* warning-600 light     PUBLISHED */
   --red: #ab413e;             /* --destructive light   derived */
   --red-hover: #8e332f;
   --red-weak: #fff0ee;        /* destructive-300 light PUBLISHED */
@@ -530,6 +537,7 @@
   --amber: #f2af48;           /* --warning dark        derived */
   --amber-ink: #080503;       /* --warning-foreground  derived   */
   --amber-weak: #341c00;      /* warning-300 dark      PUBLISHED */
+  --warning-600: #db8e00;     /* warning-600 dark      PUBLISHED */
   --red: #fa8880;             /* --destructive dark    derived */
   --red-hover: #fda49d;
   --red-weak: #3b1813;        /* destructive-300 dark  PUBLISHED */
@@ -585,6 +593,7 @@
     --amber: #f2af48;
     --amber-ink: #080503;
     --amber-weak: #341c00;
+    --warning-600: #db8e00;
     --red: #fa8880;
     --red-hover: #fda49d;
     --red-weak: #3b1813;
