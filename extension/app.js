@@ -5678,9 +5678,14 @@ function trapConfirmFocus(event) {
 }
 
 async function controlJob(control) {
-  if (!state.jobRef) return;
+  // THE JOB IS FIXED BEFORE THE QUESTION. The question is awaited and the poll keeps
+  // running under it, so `state.jobRef` can move to another job (a crawl handing off to
+  // its interpretation) or to null before he answers; the press goes to the job the
+  // question named, whatever the player shows by then.
+  const jobRef = state.jobRef;
+  if (!jobRef) return;
   if (!(await confirmedControl(control, state.job ? jobLabel(state.job) : ""))) return;
-  try { await post(`/api/jobs/${state.jobRef}/control`, { control }); }
+  try { await post(`/api/jobs/${jobRef}/control`, { control }); }
   catch (e) { $("run-blocked").textContent = e.message; }
   await pollJob();
 }

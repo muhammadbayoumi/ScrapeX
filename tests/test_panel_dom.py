@@ -11073,21 +11073,27 @@ def test_a_live_warehouse_that_could_not_be_counted_is_not_read_as_a_pass(
 
 
 CANCEL_SENTENCE = "Cancelling stops it for good. What it already stored stays in the warehouse."
+# The names the panel gives the two jobs these tests cancel (`jobLabel`).
+PAUSED_ROW = "Interpretation · muqawil_org"
+PLAYER_JOB = "Profile fetch · muqawil_org"
 
 
 def _control_writes(page):
     return [w for w in page.evaluate("() => window.__writes") if "/control" in w["path"]]
 
 
-def _the_cancel_question_is_open(page):
-    """The panel's own alertdialog, open, asking the one shared question, with focus on
-    the choice that changes nothing (WAI-ARIA APG alertdialog)."""
+def _the_cancel_question_is_open(page, named):
+    """The panel's own alertdialog, open, asking the one shared question about the job it
+    NAMES, with focus on the choice that changes nothing (WAI-ARIA APG alertdialog).
+
+    The copy is compared whole: the name is the only thing that says which job the
+    question is about, and an inclusion test passed a stale name left by the last open."""
     page.wait_for_selector("#confirm-veil:not(.hidden)", timeout=2000)
     dialog = page.locator("#confirm-dialog")
     assert dialog.get_attribute("role") == "alertdialog"
     assert dialog.get_attribute("aria-modal") == "true"
     assert page.text_content("#confirm-title").strip() == "Cancel this job?"
-    assert CANCEL_SENTENCE in page.text_content("#confirm-copy")
+    assert page.text_content("#confirm-copy") == named + CANCEL_SENTENCE
     assert page.text_content("#confirm-keep").strip() == "Keep job"
     assert page.text_content("#confirm-go").strip() == "Cancel job"
     assert page.evaluate("() => document.activeElement && document.activeElement.id") == "confirm-keep"
@@ -11122,7 +11128,7 @@ def test_cancel_asks_first_and_a_refused_question_sends_nothing(open_panel):
 
     # KEEP: asked, nothing sent, focus back where he pressed.
     cancel.click()
-    _the_cancel_question_is_open(page)
+    _the_cancel_question_is_open(page, PAUSED_ROW)
     page.click("#confirm-keep")
     page.wait_for_timeout(200)
     assert page.locator("#confirm-veil").is_hidden()
@@ -11131,7 +11137,7 @@ def test_cancel_asks_first_and_a_refused_question_sends_nothing(open_panel):
 
     # ESCAPE: the same as Keep.
     cancel.click()
-    _the_cancel_question_is_open(page)
+    _the_cancel_question_is_open(page, PAUSED_ROW)
     page.keyboard.press("Escape")
     page.wait_for_timeout(200)
     assert page.locator("#confirm-veil").is_hidden()
@@ -11139,7 +11145,7 @@ def test_cancel_asks_first_and_a_refused_question_sends_nothing(open_panel):
 
     # CANCEL JOB: the same press goes through, so the guard has not broken the button.
     cancel.click()
-    _the_cancel_question_is_open(page)
+    _the_cancel_question_is_open(page, PAUSED_ROW)
     page.click("#confirm-go")
     page.wait_for_timeout(400)
     sent = _control_writes(page)
@@ -11154,7 +11160,7 @@ def test_the_cancel_question_keeps_tab_inside_it(open_panel):
     page = open_panel(jobs=HIS_JOBS)
     cancel = _open_paused_rows_cancel(page)
     cancel.click()
-    _the_cancel_question_is_open(page)
+    _the_cancel_question_is_open(page, PAUSED_ROW)
     seen = []
     for _ in range(4):
         page.keyboard.press("Tab")
@@ -11184,12 +11190,55 @@ def test_the_miniplayers_cancel_asks_the_same_question(open_panel):
     assert page.is_visible("#mini-cancel"), "the player's Cancel is not reachable"
 
     page.click("#mini-cancel")
-    _the_cancel_question_is_open(page)
+    _the_cancel_question_is_open(page, PLAYER_JOB)
     page.click("#confirm-keep")
     page.wait_for_timeout(300)
     assert _control_writes(page) == [], (
         "the question was refused and the cancel was sent anyway")
     assert native == [], f"the browser's own confirm() was still used: {native}"
+
+
+def test_a_click_beside_the_question_answers_no(open_panel):
+    """THE VEIL ANSWERS NO. A stray click beside the card must never become the one
+    irreversible press; only "Cancel job" sends it."""
+    page = open_panel(jobs=HIS_JOBS)
+    cancel = _open_paused_rows_cancel(page)
+    cancel.click()
+    _the_cancel_question_is_open(page, PAUSED_ROW)
+    page.mouse.click(5, 5)   # the veil's corner, outside the card
+    page.wait_for_timeout(300)
+    assert page.locator("#confirm-veil").is_hidden()
+    assert _control_writes(page) == [], "a click beside the question cancelled the job"
+
+
+def test_the_players_cancel_goes_to_the_job_the_question_named(open_panel):
+    """THE QUESTION IS ASYNCHRONOUS NOW, AND THE POLL GOES ON UNDER IT. `controlJob` read
+    `state.jobRef` after the answer, so a crawl handing off to its interpretation while
+    the dialog was open sent the cancel to the interpretation -- a job he was never asked
+    about -- and a job ending sent it to `/api/jobs/null` (#1601's merge gate)."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.wait_for_function(
+        "() => !document.getElementById('miniplayer').classList.contains('hidden')")
+    page.locator("#miniplayer summary").click()
+    page.wait_for_timeout(200)
+    page.click("#mini-cancel")
+    _the_cancel_question_is_open(page, PLAYER_JOB)
+    # The handoff, while he reads the question: the crawl is gone, an interpretation runs.
+    page.evaluate("""() => { const real = window.fetch;
+        window.fetch = (u, o) => String(u).includes("active_only=true")
+          ? Promise.resolve(new Response(JSON.stringify({jobs: [{job_ref: "job_handoff",
+              status: "running", job_kind: "dataset_interpret",
+              source_keys: ["muqawil_org"]}]}),
+              {status: 200, headers: {"Content-Type": "application/json"}}))
+          : real(u, o); }""")
+    page.wait_for_function(
+        "() => (document.getElementById('mini-title').textContent || '').includes('Interpretation')",
+        timeout=4000)
+    page.click("#confirm-go")
+    page.wait_for_timeout(400)
+    sent = _control_writes(page)
+    assert [w["path"] for w in sent] == ["/api/jobs/job_034c51a29deb/control"], (
+        f"the cancel went to a job the question did not name: {sent}")
 
 
 def test_the_miniplayer_states_a_percentage_and_stops_claiming_one_it_lacks(open_panel):
