@@ -1882,8 +1882,9 @@ function renderSourceEditor(source) {
   // through /active. What it cannot serve is not drawn -- the agent and pace, where
   // each value comes from, Clear -- and a directory, which it saves nothing for, gets
   // neither its robots choice nor a Save.
-  const legacy = Boolean(capabilityRefusal("source_rules"));
-  state.sourceRulesLegacy = legacy;
+  const mode = sourceRulesMode();
+  state.sourceRulesMode = mode;
+  const legacy = mode === "legacy";
   document.querySelectorAll("#view-source-edit [data-rules-only]").forEach(
     (node) => { node.hidden = legacy; });
   $("source-edit-robots-card").hidden = legacy && !price;
@@ -1891,7 +1892,8 @@ function renderSourceEditor(source) {
   $("source-edit-identity").innerHTML = sourceIdentity(
     source, false, Number(source.observations || 0).toLocaleString());
   for (const id of ["active", "robots", "agent", "pace"]) {
-    $(`source-edit-${id}-origin`).textContent = legacy ? "" : "Reading where this comes from…";
+    $(`source-edit-${id}-origin`).textContent =
+      mode === "rules" ? "Reading where this comes from…" : "";
   }
   document.querySelectorAll("[data-clear-rule]").forEach((button) => { button.hidden = true; });
   // NOTHING LEFT FROM THE LAST SOURCE OPENED: the controls /rules fills start from
@@ -1950,8 +1952,28 @@ function renderSourceEditor(source) {
     ? "Manual runs remain available when automation is off."
     : "Automation cannot be enabled until this connector is available.";
   out("source-edit-result", "");
-  // AFTER the result line is emptied, so what reading the rules says stays said.
-  if (!legacy) loadSourceRules(state.editingRulesKey);
+  // AFTER the result line is emptied, so what reading the rules says -- or why they
+  // cannot be read -- stays said. Unread, his crawl choices stay held.
+  if (mode === "rules") loadSourceRules(state.editingRulesKey);
+  if (mode === "refused") {
+    out("source-edit-result", esc(capabilityRefusal("source_rules")), "err");
+  }
+}
+
+// WHICH EDITOR THIS ENGINE GETS (§1.6, #1584). `rules`: it deploys /rules. `legacy`:
+// it is KNOWN not to -- its version report lists no `source_rules`, or it is too old
+// to report at all (404) -- so the editor saves as it did before /rules. `refused`:
+// nothing can be known -- the report failed or timed out, this extension is older than
+// the capability, or Chrome did not say its version -- so the refusal is said and his
+// crawl choices are held. Guessing `legacy` there sends robots to an /edit that, on a
+// new engine, refuses them.
+function sourceRulesMode() {
+  if (!capabilityRefusal("source_rules")) return "rules";
+  const deployed = deployedFrom(state.versionReport);
+  if ((deployed && !deployed.source_rules) || state.versionStatus === "unsupported") {
+    return "legacy";
+  }
+  return "refused";
 }
 
 // The controls /rules fills, held while its answer is not in: anything typed into
@@ -2236,6 +2258,16 @@ async function saveSourceEditor() {
     out("source-edit-result", "This source is no longer available.", "err");
     return;
   }
+  // ASKED AGAIN, not trusted from when the editor opened: an engine upgraded or
+  // restarted since answers the other route's request with a 400 or a 404. Redrawn
+  // for the engine now answering, and nothing written.
+  if (sourceRulesMode() !== state.sourceRulesMode) {
+    renderSourceEditor(source);
+    out("source-edit-result", `${icon("material-close", "sm")} The engine changed `
+        + "while this was open, so nothing was saved. The editor now shows what it "
+        + "supports; check your changes and save again.", "err icon-label");
+    return;
+  }
   const button = $("source-edit-save");
   button.disabled = true;
   out("source-edit-result", "Saving changes…", "muted");
@@ -2251,7 +2283,7 @@ async function saveSourceEditor() {
     fold_variants: $("source-edit-fold").checked,
   };
 
-  if (state.sourceRulesLegacy) {
+  if (state.sourceRulesMode === "legacy") {
     // AN ENGINE WITHOUT /rules, exactly as the editor saved before it (#1584): the
     // robots choice is a manifest field there, and the switch has its own route.
     // Only a price source reaches here -- a directory's Save is not drawn.
@@ -2308,6 +2340,18 @@ async function saveSourceEditor() {
       await post("/api/sources/" + encodeURIComponent(source.source_key) + "/edit", edits);
       Object.assign(source, edits);
       detailsSaved = true;
+    }
+    // AN ENGINE THAT CANNOT SAY whether it has /rules: the details are saved, his
+    // crawl choices were held, and the refusal says what to do.
+    if (state.sourceRulesMode === "refused") {
+      if (detailsSaved) {
+        renderSites();
+        renderSourceManager();
+      }
+      button.disabled = false;
+      out("source-edit-result", (detailsSaved ? "The name and details were saved. " : "")
+          + esc(capabilityRefusal("source_rules")), "err");
+      return;
     }
     // NOT YET READ: the rule controls were held, so nothing in them is his to save.
     // Read again, so the next Save can carry them.

@@ -280,8 +280,10 @@ test("clearing the switch puts the source's value on its card, and the lists are
 
 // ---- saving: the manifest's fields to /edit, his choices to /rules ------------------
 
-function saver(answerNow, source, form, {legacy = false, refuse = null,
-                                          reread = null, reply = answerNow} = {}) {
+function saver(answerNow, source, form, {legacy = false, refuse = null, reread = null,
+                                          reply = answerNow, mode = null,
+                                          modeNow = null} = {}) {
+  const opened = mode || (legacy ? "legacy" : "rules");
   const posts = [];
   const said = [];
   const drawn = {sites: 0, editor: 0, reread: 0};
@@ -293,10 +295,12 @@ function saver(answerNow, source, form, {legacy = false, refuse = null,
     out: (id, html) => said.push(html), renderSites: () => { drawn.sites += 1; },
     renderSourceManager: () => {}, renderRobotsChoice: () => {},
     renderSourceEditor: () => { drawn.editor += 1; },
+    sourceRulesMode: () => modeNow || opened,
+    capabilityRefusal: () => (opened === "rules" ? "" : "REFUSAL SENTENCE"),
     loadSourceRules: async () => { drawn.reread += 1; return reread; },
     state: {sources: [source], editingSourceKey: source.source_key,
             editingRulesKey: source.site_key || source.source_key, sourceRules: answerNow,
-            sourceRulesLegacy: legacy},
+            sourceRulesMode: opened},
     post: async (url, body) => {
       posts.push([url, body]);
       if (refuse && url.endsWith(refuse)) throw new Error("a crawl is currently writing");
@@ -493,13 +497,75 @@ test("an engine without the rules routes is sent nothing when nothing changed", 
 test("the editor asks once whether /rules exists, and reads it after emptying the result line",
      () => {
   const body = fn("renderSourceEditor");
-  assert.match(body, /const legacy = Boolean\(capabilityRefusal\("source_rules"\)\)/);
+  assert.match(body, /const mode = sourceRulesMode\(\);/);
   const emptied = body.lastIndexOf('out("source-edit-result", "")');
-  const read = body.indexOf("if (!legacy) loadSourceRules(state.editingRulesKey)");
+  const read = body.indexOf('if (mode === "rules") loadSourceRules(state.editingRulesKey)');
   assert.ok(emptied > 0 && read > emptied,
             "the rules are read before the result line is emptied, which wipes what they say");
   assert.match(body, /\[data-rules-only\][\s\S]*node\.hidden = legacy/);
 });
+
+// ---- old engine, or cannot tell: only a report that lacks the key is "old" ----------
+
+function modeOf({refusal, report, status}) {
+  const context = {capabilityRefusal: () => refusal, state: {versionReport: report,
+                                                               versionStatus: status},
+                   deployedFrom: (r) => (r && Array.isArray(r.capabilities)
+                     ? Object.fromEntries(r.capabilities.map((c) => [c.key, c])) : null)};
+  return vm.runInNewContext(`${fn("sourceRulesMode")}\nsourceRulesMode();`, context);
+}
+const WITH = {capabilities: [{key: "source_rules", since: "0.3.7"}]};
+const WITHOUT = {capabilities: [{key: "crawl_parallel_sources", since: "0.3.0"}]};
+
+test("an engine that deploys /rules gets the rules editor", () => {
+  assert.equal(modeOf({refusal: "", report: WITH, status: "ready"}), "rules");
+});
+
+test("only an engine known to lack /rules gets the old editor", () => {
+  assert.equal(modeOf({refusal: "not deployed", report: WITHOUT, status: "ready"}), "legacy");
+  assert.equal(modeOf({refusal: "too old to say", report: null, status: "unsupported"}),
+               "legacy", "an engine too old to report versions has no /rules either");
+});
+
+test("an engine that cannot be asked is refused, never guessed old", () => {
+  for (const status of ["timeout", "unavailable", "pending"]) {
+    assert.equal(modeOf({refusal: "cannot be confirmed", report: null, status}), "refused",
+                 status);
+  }
+  // A new engine, and an extension older than the capability or of unknown version.
+  assert.equal(modeOf({refusal: "needs extension 0.3.7", report: WITH, status: "ready"}),
+               "refused");
+});
+
+test("an engine that cannot be asked saves the details only, and says why", async () => {
+  const source = {source_key: "SHOP", source_name: "Shop", robots: "default"};
+  const {saveSourceEditor, posts, said, drawn} = saver(null, source, {
+    "source-edit-name": {value: "Renamed"}, "source-edit-robots": {value: "obey"},
+  }, {mode: "refused"});
+
+  await saveSourceEditor();
+
+  assert.deepEqual(posts.map(([url]) => url), ["/api/sources/SHOP/edit"]);
+  assert.ok(!("robots" in posts[0][1]), "robots went to an /edit that refuses it");
+  assert.equal(drawn.reread, 0, "/rules was asked of an engine that cannot say it has it");
+  assert.match(said.at(-1), /^The name and details were saved\. REFUSAL SENTENCE/);
+});
+
+for (const [opened, now] of [["rules", "legacy"], ["legacy", "rules"], ["rules", "refused"]]) {
+  test(`an engine that went from ${opened} to ${now} while the editor was open is not written`,
+       async () => {
+    const source = {source_key: "SHOP", source_name: "Shop", active: false};
+    const {saveSourceEditor, posts, said, drawn} = saver(answer(), source, {
+      "source-edit-name": {value: "Renamed"}, "source-edit-pace": {value: "9"},
+    }, {mode: opened, modeNow: now});
+
+    await saveSourceEditor();
+
+    assert.deepEqual(posts, []);
+    assert.equal(drawn.editor, 1, "the editor was not redrawn for the engine now answering");
+    assert.match(said.at(-1), /engine changed while this was open, so nothing was saved/);
+  });
+}
 
 // ---- no automation switch for a dataset or directory card (his ruling, 2026-10-09) ---
 

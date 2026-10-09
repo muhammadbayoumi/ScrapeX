@@ -3785,6 +3785,54 @@ def test_an_engine_without_the_rules_routes_still_edits_a_source_as_before(open_
     assert "source_rules" not in words and "Update the engine" not in words
 
 
+def test_an_engine_whose_version_cannot_be_read_is_never_guessed_old(open_panel):
+    """/api/version failed: the engine may well have /rules, and on one that does an
+    /edit carrying robots is refused. So the refusal is said, the details save alone,
+    and his robots choice is held -- never sent to /edit."""
+    page = open_panel(fail_routes=("/api/version",))
+    page.click(SOURCES_TAB)
+    page.wait_for_timeout(250)
+    page.click('[data-edit-source="SHORT"]')
+    page.wait_for_timeout(250)
+
+    assert "cannot be confirmed" in text_of(page, "#source-edit-result")
+    assert page.is_disabled("#source-edit-robots")
+    page.fill("#source-edit-name", "Renamed")
+    page.click("#source-edit-save")
+    page.wait_for_timeout(300)
+
+    writes = page.evaluate("() => window.__writes")
+    edits = [w["body"] for w in writes if w["path"] == "/api/sources/SHORT/edit"]
+    assert [e["source_name"] for e in edits] == ["Renamed"], writes
+    assert not any(field in edits[0] for field in ("robots", "robots_custom")), edits
+    assert not [w for w in writes if w["path"].endswith(("/active", "/rules"))], writes
+    assert not [c for c in page.evaluate("() => window.__calls") if "/rules" in c]
+    assert "The name and details were saved" in text_of(page, "#source-edit-result")
+
+
+def test_an_engine_upgraded_while_the_editor_is_open_is_not_written_the_old_way(open_panel):
+    """Opened against 0.4.53, then the engine answers with /rules: Save redraws the
+    editor for it and writes nothing, rather than sending robots to an /edit that now
+    refuses them."""
+    page = open_panel(engine_version="0.4.53", omit_capabilities=("source_rules",))
+    page.click(SOURCES_TAB)
+    page.wait_for_timeout(250)
+    page.click('[data-edit-source="SHORT"]')
+    page.wait_for_timeout(250)
+    assert not page.is_visible("#source-edit-agent")
+    page.evaluate("""() => {
+        state.versionReport.capabilities.push(
+            {key: "source_rules", since: "0.3.7", summary: "His choices per source"});
+    }""")
+    page.fill("#source-edit-name", "Renamed")
+    page.click("#source-edit-save")
+    page.wait_for_timeout(300)
+
+    assert page.evaluate("() => window.__writes") == []
+    assert "nothing was saved" in text_of(page, "#source-edit-result")
+    assert page.is_visible("#source-edit-agent"), "the editor was not redrawn for /rules"
+
+
 def test_rules_that_cannot_be_read_say_so_and_the_name_still_saves(open_panel):
     """What reading the rules says is not wiped by the editor drawing itself, the
     controls it fills stay held, and Save still saves the name -- then reads again."""
