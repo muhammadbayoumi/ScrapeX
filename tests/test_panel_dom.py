@@ -3737,10 +3737,17 @@ def test_edit_source_saves_automation_without_leaving_the_extension(open_panel):
     page.click("#source-edit-save")
     page.wait_for_timeout(250)
 
-    calls = page.evaluate("() => window.__calls")
-    assert any(call.startswith("/api/sources/SHORT/active") for call in calls)
+    # HIS CHOICE, IN THE WAREHOUSE (#1584): the switch is saved by POST /rules with
+    # `active` alone -- exactly what changed -- and never rides an /edit, which
+    # refuses it by name.
+    writes = page.evaluate("() => window.__writes")
+    rules = [w for w in writes if w["path"] == "/api/sources/SHORT/rules"]
+    assert [w["body"] for w in rules] == [{"active": False}], writes
+    assert not any("active" in (w["body"] or {}) for w in writes
+                   if w["path"].endswith("/edit")), writes
     assert page.is_visible("#view-source-edit")
     assert "Changes saved" in text_of(page, "#source-edit-result")
+    assert not page.is_checked("#source-edit-active"), "the saved answer was not drawn"
 
 
 def test_sources_scroll_inside_the_library_card_not_the_page(open_panel):
@@ -7882,9 +7889,10 @@ _GROUP_BUTTON = ("#1456: Supabase's InputGroupButton, whose default is h-6, 24px
 #: fails, as a reach more than half a pixel below its least does.
 _TALLER_THAN_SUPABASE = {
     **dict.fromkeys([
-        "#site-search", "#source-edit-cadence", "#source-edit-currency", "#source-edit-key",
-        "#source-edit-name", "#source-edit-name-ar", "#source-edit-robots", "#source-edit-url",
-        "#source-edit-vat", "#source-manager-filter"], (44, _NO_BEFORE)),
+        "#site-search", "#source-edit-agent", "#source-edit-cadence", "#source-edit-currency",
+        "#source-edit-key", "#source-edit-name", "#source-edit-name-ar", "#source-edit-pace",
+        "#source-edit-robots", "#source-edit-url", "#source-edit-vat",
+        "#source-manager-filter"], (44, _NO_BEFORE)),
     **dict.fromkeys([
         "#tab-appearance", "#tab-console", "#tab-data", "#tab-database", "#tab-engines",
         "#tab-finance", "#tab-jobs", "#tab-profile", "#tab-run", "#tab-settings", "#tab-source",

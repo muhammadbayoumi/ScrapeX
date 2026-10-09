@@ -817,6 +817,52 @@ window.fetch = async (url, options = {{}}) => {{
     }}
   }}
 
+  // HIS PER-SOURCE CHOICES (#1584): GET and POST /api/sources/{{key}}/rules, answered in
+  // the engine's shape and HELD, so a save is read back as the engine would read it.
+  // Built from the stub's own source row -- `active` is what it lists -- and nothing
+  // else ships an opinion, so every other field follows the general rule. The generic
+  // table below would have answered this path with `/api/sources`' list, a shape the
+  // editor cannot read.
+  const rulesPath = path.match(/^\\/api\\/sources\\/([^/?]+)\\/rules$/);
+  if (rulesPath) {{
+    const key = decodeURIComponent(rulesPath[1]);
+    const listed = (ROUTES["/api/sources"].sources || []).find(
+      (s) => s.source_key === key || s.site_key === key) || {{}};
+    window.__rules = window.__rules || {{}};
+    const held = window.__rules[key] || (window.__rules[key] = {{
+      active: {{value: Boolean(listed.active), shipped: Boolean(listed.active),
+                origin: "source"}},
+      robots: {{value: "default", custom: null, shipped: "default", shipped_custom: null,
+                origin: "general"}},
+      user_agent: {{value: null, shipped: null, origin: "general"}},
+      crawl_pace_s: {{value: null, shipped: null, origin: "general"}},
+    }});
+    if (method === "POST") {{
+      let body = {{}};
+      try {{ body = JSON.parse((options && options.body) || "{{}}"); }} catch (_) {{}}
+      for (const [field, value] of Object.entries(body)) {{
+        if (field === "robots_custom") {{ held.robots.custom = value; continue; }}
+        const item = held[field];
+        if (!item) continue;
+        if (value === null) {{
+          item.value = item.shipped;
+          item.origin = field === "active" ? "source" : "general";
+          if (field === "robots") item.custom = item.shipped_custom;
+        }} else {{
+          item.value = value;
+          item.origin = "choice";
+          if (field === "robots" && value !== "custom") item.custom = null;
+        }}
+      }}
+    }}
+    const general = {{user_agent: "Mozilla/5.0 (Stub) Chrome/141", crawl_pace_s: 1.0,
+                      obey_disallow: false}};
+    return {{ok: true, status: 200, json: async () => ({{
+      source_key: key, kind: listed.kind ? "directory" : "price", fields: held, general,
+      agent_sent: held.user_agent.value || general.user_agent,
+    }})}};
+  }}
+
   // The log endpoint lives under /api/jobs too, so it must be answered BEFORE
   // the generic /api/jobs list route swallows it.
   if (/^\\/api\\/jobs\\/[^/]+\\/logs/.test(path)) {{
