@@ -112,7 +112,7 @@ def _drive(conn, monkeypatch, *, pages: int, at_page, press,
         return "<html></html>"
 
     monkeypatch.setattr(directoryjob.contractors, "make_fetch",
-                        lambda pace_s: (fetcher, fetch))
+                        lambda pace_s, rules: (fetcher, fetch))
     # Zero makes every page a checkpoint -- the same code path at a different cadence.
     # `test_the_shipped_interval_is_what_bounds_a_cancel` runs the same scenario at the
     # real 20s, because the checkpoint being free here is exactly what hides how coarse
@@ -315,7 +315,7 @@ def test_a_database_it_cannot_read_does_not_cancel_a_crawl_nobody_cancelled(
             monkeypatch.setattr(directoryjob.sqlite3, "connect", real_connect)
 
     monkeypatch.setattr(directoryjob.contractors, "make_fetch",
-                        lambda pace_s: (fetcher, fetch))
+                        lambda pace_s, rules: (fetcher, fetch))
     monkeypatch.setattr(directoryjob, "BEAT_EVERY_S", 0.0)
     monkeypatch.setattr(directoryjob.contractors, "crawl", crawl_some_pages)
 
@@ -489,7 +489,7 @@ def test_a_resumed_crawl_adds_to_what_the_first_leg_spent(conn, monkeypatch):
     conn.commit()
     fetcher = _Fetcher()
     monkeypatch.setattr(directoryjob.contractors, "make_fetch",
-                        lambda pace_s: (fetcher, _count_pages(fetcher)))
+                        lambda pace_s, rules: (fetcher, _count_pages(fetcher)))
 
     def second_leg(*args, **kwargs):
         beating = kwargs.get("beating") or args[2]
@@ -533,7 +533,7 @@ def test_a_finished_crawl_queues_its_own_interpretation(conn, monkeypatch):
         return "<html></html>"
 
     monkeypatch.setattr(directoryjob.contractors, "make_fetch",
-                        lambda pace_s: (fetcher, fetch))
+                        lambda pace_s, rules: (fetcher, fetch))
     monkeypatch.setattr(directoryjob, "BEAT_EVERY_S", 0.0)
 
     def crawl_and_finish(*args, **kwargs):
@@ -621,7 +621,7 @@ def test_a_failed_crawl_queues_nothing(conn, monkeypatch, pages):
         return "<html></html>"
 
     monkeypatch.setattr(directoryjob.contractors, "make_fetch",
-                        lambda pace_s: (fetcher, fetch))
+                        lambda pace_s, rules: (fetcher, fetch))
     monkeypatch.setattr(directoryjob, "BEAT_EVERY_S", 0.0)
 
     def crawl_then_raise(*args, **kwargs):
@@ -680,7 +680,7 @@ def test_a_crawl_that_cannot_queue_its_interpretation_still_finished(conn, monke
     same runner both state. The crawl is the work; what follows it is not."""
     fetcher = _Fetcher()
     monkeypatch.setattr(directoryjob.contractors, "make_fetch",
-                        lambda pace_s: (fetcher, lambda url: "<html></html>"))
+                        lambda pace_s, rules: (fetcher, lambda url: "<html></html>"))
     monkeypatch.setattr(directoryjob, "BEAT_EVERY_S", 0.0)
     monkeypatch.setattr(directoryjob.contractors, "crawl", lambda *a, **k: None)
 
@@ -723,7 +723,7 @@ def test_two_crawls_of_one_source_queue_one_interpretation(conn, monkeypatch):
     for _ in range(2):
         fetcher = _Fetcher()
         monkeypatch.setattr(directoryjob.contractors, "make_fetch",
-                            lambda pace_s, f=fetcher: (f, lambda url: "<html></html>"))
+                            lambda pace_s, rules, f=fetcher: (f, lambda url: "<html></html>"))
         monkeypatch.setattr(directoryjob.contractors, "crawl", lambda *a, **k: None)
         ref = jobs.create_job(conn, [SITE], job_kind=directoryjob.JOB_KIND)
         conn.commit()
@@ -766,7 +766,7 @@ def _finish_one_crawl(conn, monkeypatch, site=SITE):
     monkeypatch.setattr(directoryjob, "BEAT_EVERY_S", 0.0)
     fetcher = _Fetcher()
     monkeypatch.setattr(directoryjob.contractors, "make_fetch",
-                        lambda pace_s, f=fetcher: (f, lambda url: "<html></html>"))
+                        lambda pace_s, rules, f=fetcher: (f, lambda url: "<html></html>"))
     monkeypatch.setattr(directoryjob.contractors, "crawl", lambda *a, **k: None)
     ref = jobs.create_job(conn, [site], job_kind=directoryjob.JOB_KIND)
     conn.commit()
@@ -936,7 +936,7 @@ def test_a_stop_at_a_cell_boundary_queues_nothing(conn, monkeypatch):
     fetcher = _Fetcher()
     monkeypatch.setattr(directoryjob, "BEAT_EVERY_S", 0.0)
     monkeypatch.setattr(directoryjob.contractors, "make_fetch",
-                        lambda pace_s: (fetcher, lambda url: "<html></html>"))
+                        lambda pace_s, rules: (fetcher, lambda url: "<html></html>"))
     monkeypatch.setattr(directoryjob.contractors, "crawl", stop_at_the_boundary)
     ref = jobs.create_job(conn, [SITE], job_kind=directoryjob.JOB_KIND)
     conn.commit()
@@ -1086,7 +1086,7 @@ def test_the_failure_line_survives_the_connection(conn, monkeypatch):
     """
     fetcher = _Fetcher()
     monkeypatch.setattr(directoryjob.contractors, "make_fetch",
-                        lambda pace_s: (fetcher, lambda url: "<html></html>"))
+                        lambda pace_s, rules: (fetcher, lambda url: "<html></html>"))
     monkeypatch.setattr(directoryjob, "BEAT_EVERY_S", 0.0)
     monkeypatch.setattr(directoryjob.contractors, "crawl", lambda *a, **k: None)
 
@@ -1192,7 +1192,7 @@ def test_neither_line_names_a_control_that_does_not_exist(conn, monkeypatch):
     list with a Stop anywhere in the panel.
 
     The only control that ends a running job is the player's Cancel (`app.html`,
-    `#mini-cancel`, confirmed by "Cancel this job? Work already saved is kept."), so that
+    `#mini-cancel`, confirmed by the panel's "Cancel this job?" question), so that
     is the control both lines name, by its label.
     """
     _finish_one_crawl(conn, monkeypatch)
@@ -1283,7 +1283,7 @@ def _one_finished_crawl(conn, monkeypatch) -> dict:
     monkeypatch.setattr(directoryjob, "BEAT_EVERY_S", 0.0)
     fetcher = _Fetcher()
     monkeypatch.setattr(directoryjob.contractors, "make_fetch",
-                        lambda pace_s, f=fetcher: (f, lambda url: "<html></html>"))
+                        lambda pace_s, rules, f=fetcher: (f, lambda url: "<html></html>"))
     monkeypatch.setattr(directoryjob.contractors, "crawl", lambda *a, **k: None)
     ref = jobs.create_job(conn, [SITE], job_kind=directoryjob.JOB_KIND)
     conn.commit()

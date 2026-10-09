@@ -232,7 +232,7 @@ def test_the_network_guard_would_catch_the_pass_it_advertises(client, monkeypatc
     _cut_the_wire(monkeypatch)
 
     with pytest.raises(AssertionError, match="reached the network"):
-        contractors.make_fetch(1.0)
+        contractors.make_fetch({"min_interval_s": 1.0}, contractors.source_settings.NO_OPINION)
 
 
 # ---- zero writes, guarded ---------------------------------------------------
@@ -414,7 +414,7 @@ def test_the_route_serves_the_declared_hover_verbatim(client):
     expected = {
         DATASET: {one.key: one for one in passes.directory_passes(
             contractors.get_directory(SITE), scope=CrawlScope.LISTING_ONLY)},
-        PRICE: {one.key: one for one in passes.price_passes(entry,
+        PRICE: {one.key: one for one in passes.price_passes(entry, active=entry.active,
                                                            last_requests=812)},
     }
     for key, declared in expected.items():

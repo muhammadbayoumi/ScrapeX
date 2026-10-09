@@ -52,7 +52,8 @@ import sqlite3
 import time
 from contextlib import nullcontext
 
-from . import contractors, directories, sightings
+from . import capture, contractors, directories, directoryjob, sightings, source_settings
+from .connectors.base import CrawlBlocked
 from .payload import utc_now_iso
 from .sites.muqawil import MuqawilPageSource
 from .vocab import JobControl, JobStage, JobStatus, LogLevel
@@ -196,7 +197,7 @@ def run_profile_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
 
     `admission` IS THE CROSS-JOB POLITENESS GATE AND IT IS HELD AROUND THE FETCHING. This
     job asks muqawil for pages, so two of them -- or this and a listing crawl -- would run
-    with their own fetcher at `DEFAULT_PACE_S` each and double the rate on that host.
+    with their own fetcher at the owner's pace each and double the rate on that host.
     Held here rather than at the dispatch, for `directoryjob`'s stated reason: only this
     function knows when the first request goes out and when the last one returns.
     """
@@ -404,7 +405,11 @@ def run_profile_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
         return bool(current is None)
 
     started = time.monotonic()
-    fetcher, fetch = contractors.make_fetch(contractors.DEFAULT_PACE_S)
+    # THE OWNER'S SETTINGS, THROUGH THE CHAIN A PRICE SOURCE'S FETCHER TAKES (#1414).
+    # AND HIS CHOICES FOR THIS DIRECTORY, as the listing crawl takes them (#1584).
+    fetcher, fetch = contractors.make_fetch(
+        capture.crawl_settings(conn),
+        source_settings.effective(conn, source_key, directory))
     # ONE DEFINITION OF A HOST, taken from `jobs` rather than written again here, for the
     # reason `directoryjob` states: a source filed under one host name for grouping and
     # another for reservation is two jobs crawling a site together. The fallback is the
@@ -440,11 +445,24 @@ def run_profile_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
         # NOT AN ERROR, AND NOT SILENT EITHER. `page_closed` has already written the
         # status and said where it stopped.
         return jobs.get_job(conn, job_ref)
+    except CrawlBlocked as blocked:
+        # THE SITE'S STOP: `details` lets it through its per-page guard and closes its
+        # run PARTIAL on the way. A pause, as the listing crawl settles it.
+        directoryjob.pause_for_the_site(
+            conn, job, job_ref, source_key, blocked,
+            f"Resuming re-reads {run_ref} and skips what is already stored")
+        return jobs.get_job(conn, job_ref) or job
     except Exception as exc:
         jobs.append_log(conn, job["job_id"], f"failed: {exc}",
                         level=LogLevel.ERROR, source_key=source_key)
         jobs._finish(conn, job["job_id"], JobStatus.FAILED, str(exc))
         raise
+    finally:
+        # ON EVERY EXIT, as the listing crawl does it. Under `obey` a Disallow does
+        # not stop the sweep: `contractors.details` refuses that page alone, and
+        # this robots line is what says why the pages were not read.
+        directoryjob.log_politeness(conn, job["job_id"], source_key, fetcher)
+        conn.commit()
 
     if stopped:
         return jobs.get_job(conn, job_ref)

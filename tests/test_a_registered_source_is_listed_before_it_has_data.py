@@ -58,7 +58,9 @@ def test_a_directory_registered_in_the_code_is_listed_with_no_data_at_all(empty_
     assert muqawil["implemented"] is True, (
         "a collector exists for it in this build; `implemented` false would draw it "
         "as 'Not supported yet'")
-    assert muqawil["active"] is False, "nothing is scheduled for it"
+    assert "active" not in muqawil, (
+        "nothing schedules a directory yet, so the panel is given no switch to draw "
+        "(his ruling, 2026-10-09)")
     assert muqawil["observations"] == 0 and muqawil["products"] == 0
     assert muqawil["last_success"] is None
     assert muqawil["base_url"] and muqawil["source_name"]

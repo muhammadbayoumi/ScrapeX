@@ -31,7 +31,7 @@ import threading
 import time
 from contextlib import closing, nullcontext
 
-from . import contractors, datasetjob, directories, snapshotcrawl
+from . import capture, contractors, datasetjob, directories, snapshotcrawl, source_settings
 from . import db as dbmod
 from .connectors import base as connectors_base
 from .payload import utc_now_iso
@@ -47,17 +47,10 @@ from .vocab import (
 #: string cannot be spelled two ways in two files.
 JOB_KIND = "directory_crawl"
 
-#: Seconds between requests. The panel offers no pace control, so this is the pace a
-#: crawl he starts from the extension runs at, and it is the CLI's own default rather
-#: than a number chosen here -- `R-21` and `SR-8` are about the rate, and a second
-#: opinion about it living in a second file is how two front doors start being polite
-#: to different degrees.
-DEFAULT_PACE_S = contractors.DEFAULT_PACE_S
-
 #: Seconds between heartbeats while a cell is being fetched. A request takes about a
-#: second at `DEFAULT_PACE_S`, so this is roughly one small write every twenty pages --
-#: often enough that the job card is never more than twenty seconds behind, rare enough
-#: that it is not a write per request.
+#: second at the shipped `crawl_min_interval_s`, so this is roughly one small write every
+#: twenty pages -- often enough that the job card is never more than twenty seconds
+#: behind, rare enough that it is not a write per request.
 #:
 #: AT MODULE SCOPE BECAUSE IT WAS A LOCAL AND THAT HID IT. A tuning number inside the
 #: function cannot be varied by a test or seen by anyone reading the module, and the guard
@@ -240,6 +233,85 @@ def _run_ref_for(job: dict, job_ref: str) -> tuple[str, str]:
     return asked, asked
 
 
+def log_politeness(conn: sqlite3.Connection, job_id: int, source_key: str,
+                   fetcher) -> None:
+    """How this run behaved toward the site, into its job log, once (#1414).
+
+    THE PRICE PATH'S DISCLOSURE, ON THE DIRECTORY PATH. `fetcher.robots_warnings`
+    filled here as it does there -- a Crawl-delay honoured or ignored, a Disallow
+    crawled past -- and nothing read it, so a directory run's log carried no robots
+    line at all. INFO, as `jobs.py` and `capture.py` write them: how we behaved
+    toward a site is worth a line, never a warning that suggests the run needs
+    review.
+
+    `fetcher.degradations` AT WARNING, as `capture.py` writes them: a robots.txt
+    that could not be read (#1413) -- the run went on without the site's rules --
+    and a request the site made costlier. Neither reached a directory run's log.
+
+    AND THE PACE IN FORCE AT THE END, which is the pace actually used: the owner's
+    setting, or slower where the site's Crawl-delay raised it. Said only when a
+    request was made -- a run that asked nothing paced nothing -- and only when the
+    fetcher can say it; a test's stand-in cannot, and a guessed number is the
+    defect this replaces.
+
+    ONE CALLER PER COLLECTOR: the listing crawl below and `profilejob`'s sweep.
+    """
+    from . import jobs
+
+    for note in list(getattr(fetcher, "robots_warnings", []) or []):
+        jobs.append_log(conn, job_id, note, source_key=source_key)
+    for warning in list(dict.fromkeys(getattr(fetcher, "degradations", []) or [])):
+        jobs.append_log(conn, job_id, f"warning: {warning}",
+                        level=jobs.LogLevel.WARNING, source_key=source_key)
+    pace = getattr(fetcher, "_min_interval_s", None)
+    if pace is not None and getattr(fetcher, "requests_count", 0):
+        jobs.append_log(
+            conn, job_id,
+            f"paced at one request per {float(pace):g}s at most -- the crawl "
+            "settings' pace, or slower where the site's robots.txt asked for it",
+            source_key=source_key)
+
+
+def pause_for_the_site(conn: sqlite3.Connection, job: dict, job_ref: str,
+                       source_key: str, blocked: connectors_base.CrawlBlocked,
+                       resume: str) -> None:
+    """Settle a directory job the SITE stopped as PAUSED, at WARNING, saying why.
+
+    THE PRICE PATH'S RULING ON THE DIRECTORY PATH. A `CrawlBlocked` -- the request
+    breaker (#1448) or an unreachable robots.txt (`RobotsUnreachable`, ES-2) -- is the
+    site saying "not now", and the owner ruled that a pause, never a failure. Both
+    directory runners fell through to `except Exception` and settled it FAILED, and the
+    profile sweep never saw it at all. `resume` is the runner's own sentence for what
+    its Resume skips: each knows its own unit.
+
+    THE ROW OUTRANKS THE EXCEPTION, as it does at every other stop here: a job something
+    else already settled is not re-settled, and a Cancel already pending is honoured as
+    a cancel rather than turned into a pause he would have to cancel again.
+
+    ONE CALLER PER COLLECTOR: the listing crawl below and `profilejob`'s sweep.
+    """
+    from . import jobs
+
+    said = connectors_base.stopped_because(blocked)
+    if not jobs.still_wanted(conn, job_ref):
+        jobs.append_log(conn, job["job_id"],
+                        f"{said} — this job is already settled, so it is left as it is",
+                        level=LogLevel.WARNING, source_key=source_key)
+    elif jobs._control_of(conn, job["job_id"]) == JobControl.CANCEL.value:
+        jobs.append_log(conn, job["job_id"],
+                        f"{said} — a cancel was already pending, so the job is "
+                        "cancelled rather than paused",
+                        level=LogLevel.WARNING, source_key=source_key)
+        jobs._finish(conn, job["job_id"], JobStatus.CANCELLED, None)
+    else:
+        jobs._update(conn, job["job_id"], status=JobStatus.PAUSED.value,
+                     control=JobControl.NONE.value, stage=None,
+                     last_heartbeat_at=utc_now_iso())
+        jobs.append_log(conn, job["job_id"], f"paused: {said}. {resume}",
+                        level=LogLevel.WARNING, source_key=source_key)
+    conn.commit()
+
+
 def run_directory_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
                                  admission=None) -> dict:
     """Execute one directory listing crawl to completion, or to a control boundary.
@@ -250,7 +322,7 @@ def run_directory_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
     `admission` IS THE CROSS-JOB POLITENESS GATE AND IT IS HELD AROUND THE CRAWL. Without
     it this runner crawled outside the per-host reservation, so two jobs for one directory
     -- a scheduled one and a hand-started one, or two presses of the panel's button -- ran
-    concurrently with their own fetcher at `DEFAULT_PACE_S` each and doubled the request
+    concurrently with their own fetcher at the owner's pace each and doubled the request
     rate on that site. His `job_capacity` is 3, so it was live rather than theoretical.
     `OP-128`, and `_CrawlAdmission`'s own docstring calls this "the safety property the
     task calls the whole risk".
@@ -350,10 +422,16 @@ def run_directory_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
         # six times faster with nothing saying why is a crawl he cannot audit. The
         # sentence names the RATE as well as the width, because the rate is the part
         # `R-21` is about and the part that has not changed.
+        #
+        # NO NUMBER HERE (#1414). It printed the 1s constant, and the pace is the
+        # owner's setting, raised by any Crawl-delay the site asks for once its
+        # robots.txt is read -- which is after this line. `log_politeness` states the
+        # pace the crawl actually ran at, when it has run.
         jobs.append_log(
             conn, job["job_id"],
-            f"  {workers} cell(s) at once. The request RATE is unchanged at one per "
-            f"{DEFAULT_PACE_S:g}s -- what overlaps is the waiting, not the asking",
+            f"  {workers} cell(s) at once. The request RATE is unchanged by them -- one "
+            "fetcher paces every request, and what overlaps is the waiting, not the "
+            "asking",
             source_key=source_key)
     conn.commit()
 
@@ -364,7 +442,12 @@ def run_directory_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
     # further down worked, and worked BY ORDERING. Moving `make_fetch` below the crawl
     # would then be a `NameError` on the first cell, hours into a run that had already
     # fetched real pages. Structural beats incidental.
-    fetcher, fetch = contractors.make_fetch(DEFAULT_PACE_S)
+    # THE OWNER'S SETTINGS, THROUGH THE CHAIN A PRICE SOURCE'S FETCHER TAKES (#1414).
+    # AND HIS CHOICES FOR THIS DIRECTORY, from the warehouse (#1584), over what the
+    # directory ships with -- which is no robots, agent or pace of its own.
+    fetcher, fetch = contractors.make_fetch(
+        capture.crawl_settings(conn),
+        source_settings.effective(conn, source_key, directory))
 
     def _measured() -> dict:
         """What the fetcher has counted, in the shape `_fetch_progress` reads.
@@ -382,7 +465,7 @@ def run_directory_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
         register -- and every cell has published its own page count by then.
 
         THAT IS NOT THE DENOMINATOR, AND THE DIFFERENCE IS MEASURED. `expect_requests`
-        counts FROM THE REQUESTS ALREADY MADE (`connectors/base.py:500`): sizing spends
+        counts FROM THE REQUESTS ALREADY MADE (`connectors/base.py:507`): sizing spends
         two per cell -- page 1 and page L -- before the frontier is known, so Oman's
         panel reads about 947, not 943. An expectation that ignored them would be short
         by exactly those pages and the bar would arrive at 100% early.
@@ -748,6 +831,16 @@ def run_directory_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
         stopped.append(JobStatus.CANCELLED.value)
         conn.commit()
         return jobs.get_job(conn, job_ref) or job
+    except connectors_base.CrawlBlocked as blocked:
+        # THE SITE'S STOP, AND IT REACHES HERE FROM THE FIRST REQUEST. That request is
+        # `crawl_partition`'s unguarded sizing of the whole partition, so robots.txt --
+        # read before it -- raises its `RobotsUnreachable` straight through. A breaker
+        # tripping INSIDE a cell does not: `pagewalk._get` files it as one failed page.
+        stopped.append(JobStatus.PAUSED.value)
+        pause_for_the_site(
+            conn, job, job_ref, source_key, blocked,
+            f"Resuming under {run_ref} skips the pages already stored")
+        return jobs.get_job(conn, job_ref) or job
     except Exception as exc:
         jobs.append_log(conn, job["job_id"], f"failed: {exc}",
                         level=LogLevel.ERROR, source_key=source_key)
@@ -755,6 +848,7 @@ def run_directory_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
         raise
     finally:
         fetcher.close()
+        log_politeness(conn, job["job_id"], source_key, fetcher)
         spent = int(getattr(fetcher, "requests_count", 0) or 0)
         # THE MERGED TOTAL, AND WITHOUT IT THE CARD READS 0 THE MOMENT THE CRAWL ENDS.
         # `_fetch_progress` sums a slot into the numerator only while its `state` is

@@ -537,7 +537,8 @@ def test_a_rendered_row_states_its_number_in_the_unit_the_job_counted(open_panel
 
     sweep = page.locator('#jobs-list .job-row[data-job="job_034c51a29deb"]')
     said = sweep.inner_text()
-    assert "Profile fetch" in said and "muqawil_org" in said, (
+    # The source by its domain, as the panel names sources (#1542), not by its key.
+    assert "Profile fetch · muqawil.org" in said, (
         f"the row does not name the kind and the source: {said!r}")
     assert "620 of 938 page(s)" in said, (
         f"the row states its progress in the wrong unit, or not at all: {said!r}")
@@ -3737,10 +3738,154 @@ def test_edit_source_saves_automation_without_leaving_the_extension(open_panel):
     page.click("#source-edit-save")
     page.wait_for_timeout(250)
 
-    calls = page.evaluate("() => window.__calls")
-    assert any(call.startswith("/api/sources/SHORT/active") for call in calls)
+    # HIS CHOICE, IN THE WAREHOUSE (#1584): the switch is saved by POST /rules with
+    # `active` alone -- exactly what changed -- and never rides an /edit, which
+    # refuses it by name.
+    writes = page.evaluate("() => window.__writes")
+    rules = [w for w in writes if w["path"] == "/api/sources/SHORT/rules"]
+    assert [w["body"] for w in rules] == [{"active": False}], writes
+    assert not any("active" in (w["body"] or {}) for w in writes
+                   if w["path"].endswith("/edit")), writes
     assert page.is_visible("#view-source-edit")
     assert "Changes saved" in text_of(page, "#source-edit-result")
+    assert not page.is_checked("#source-edit-active"), "the saved answer was not drawn"
+
+
+def test_an_engine_without_the_rules_routes_still_edits_a_source_as_before(open_panel):
+    """AN ENGINE OLDER THAN `source_rules` (#1584) edits a price source the way the
+    editor always did -- name and robots through /edit, the switch through /active --
+    and draws nothing it cannot serve: no agent or pace, no origin lines, no Clear,
+    and no "update the engine" sentence for a save it can do."""
+    page = open_panel(engine_version="0.4.53", omit_capabilities=("source_rules",))
+    page.click(SOURCES_TAB)
+    page.wait_for_timeout(250)
+    page.click('[data-edit-source="SHORT"]')
+    page.wait_for_timeout(250)
+    page.fill("#source-edit-name", "Renamed")
+    page.select_option("#source-edit-robots", "obey")
+    page.uncheck("#source-edit-active")
+    page.click("#source-edit-save")
+    page.wait_for_timeout(300)
+
+    writes = page.evaluate("() => window.__writes")
+    edits = [w["body"] for w in writes if w["path"] == "/api/sources/SHORT/edit"]
+    assert len(edits) == 1, writes
+    assert (edits[0]["source_name"], edits[0]["robots"]) == ("Renamed", "obey")
+    assert [w["body"] for w in writes if w["path"] == "/api/sources/SHORT/active"] == [
+        {"active": False}], writes
+    assert not [c for c in page.evaluate("() => window.__calls") if "/rules" in c]
+    assert "Changes saved" in text_of(page, "#source-edit-result")
+    assert not page.is_visible("#source-edit-agent")
+    assert not page.is_visible("#source-edit-pace")
+    assert page.evaluate("""() => [...document.querySelectorAll(
+        "#view-source-edit .source-edit-origin, [data-clear-rule]")]
+        .filter((node) => node.checkVisibility()).length""") == 0
+    words = page.inner_text("#view-source-edit")
+    assert "Reading where this comes from" not in words
+    assert "source_rules" not in words and "Update the engine" not in words
+
+
+def test_an_engine_whose_version_cannot_be_read_is_never_guessed_old(open_panel):
+    """/api/version failed: the engine may well have /rules, and on one that does an
+    /edit carrying robots is refused. So the refusal is said, the details save alone,
+    and his robots choice is held -- never sent to /edit."""
+    page = open_panel(fail_routes=("/api/version",))
+    page.click(SOURCES_TAB)
+    page.wait_for_timeout(250)
+    page.click('[data-edit-source="SHORT"]')
+    page.wait_for_timeout(250)
+
+    assert "cannot be confirmed" in text_of(page, "#source-edit-result")
+    assert page.is_disabled("#source-edit-robots")
+    page.fill("#source-edit-name", "Renamed")
+    page.click("#source-edit-save")
+    page.wait_for_timeout(300)
+
+    writes = page.evaluate("() => window.__writes")
+    edits = [w["body"] for w in writes if w["path"] == "/api/sources/SHORT/edit"]
+    assert [e["source_name"] for e in edits] == ["Renamed"], writes
+    assert not any(field in edits[0] for field in ("robots", "robots_custom")), edits
+    assert not [w for w in writes if w["path"].endswith(("/active", "/rules"))], writes
+    assert not [c for c in page.evaluate("() => window.__calls") if "/rules" in c]
+    assert "The name and details were saved" in text_of(page, "#source-edit-result")
+
+
+def test_an_engine_upgraded_while_the_editor_is_open_is_not_written_the_old_way(open_panel):
+    """Opened against 0.4.53, then the engine answers with /rules: Save redraws the
+    editor for it and writes nothing, rather than sending robots to an /edit that now
+    refuses them."""
+    page = open_panel(engine_version="0.4.53", omit_capabilities=("source_rules",))
+    page.click(SOURCES_TAB)
+    page.wait_for_timeout(250)
+    page.click('[data-edit-source="SHORT"]')
+    page.wait_for_timeout(250)
+    assert not page.is_visible("#source-edit-agent")
+    page.evaluate("""() => {
+        state.versionReport.capabilities.push(
+            {key: "source_rules", since: "0.3.7", summary: "His choices per source"});
+    }""")
+    page.fill("#source-edit-name", "Renamed")
+    page.click("#source-edit-save")
+    page.wait_for_timeout(300)
+
+    assert page.evaluate("() => window.__writes") == []
+    assert "nothing was saved" in text_of(page, "#source-edit-result")
+    assert page.is_visible("#source-edit-agent"), "the editor was not redrawn for /rules"
+
+
+def test_rules_that_cannot_be_read_say_so_and_the_name_still_saves(open_panel):
+    """What reading the rules says is not wiped by the editor drawing itself, the
+    controls it fills stay held, and Save still saves the name -- then reads again."""
+    page = open_panel()
+    page.evaluate("""() => {
+        const real = window.fetch;
+        window.__rulesReads = 0;
+        window.fetch = (url, options) => {
+            if (String(url).endsWith("/rules") && !(options && options.method === "POST")) {
+                window.__rulesReads += 1;
+                return Promise.reject(new Error("engine stopped answering"));
+            }
+            return real(url, options);
+        };
+    }""")
+    page.click(SOURCES_TAB)
+    page.wait_for_timeout(250)
+    page.click('[data-edit-source="SHORT"]')
+    page.wait_for_timeout(300)
+
+    assert "Could not read how this source is crawled" in text_of(page, "#source-edit-result")
+    assert page.is_disabled("#source-edit-pace") and page.is_disabled("#source-edit-agent")
+    assert "Reading where this comes from" not in page.inner_text("#view-source-edit")
+
+    page.fill("#source-edit-name", "Renamed")
+    page.click("#source-edit-save")
+    page.wait_for_timeout(300)
+
+    writes = page.evaluate("() => window.__writes")
+    assert [w["body"]["source_name"] for w in writes
+            if w["path"] == "/api/sources/SHORT/edit"] == ["Renamed"], writes
+    assert page.evaluate("() => window.__rulesReads") == 2
+    assert "The name and details were saved" in text_of(page, "#source-edit-result")
+
+
+def test_clearing_a_choice_keeps_focus_on_its_field(open_panel):
+    page = open_panel()
+    page.click(SOURCES_TAB)
+    page.wait_for_timeout(250)
+    page.click('[data-edit-source="SHORT"]')
+    page.wait_for_timeout(250)
+    page.fill("#source-edit-pace", "9")
+    page.click("#source-edit-save")
+    page.wait_for_timeout(250)
+    page.fill("#source-edit-agent", "typing, unsaved")
+
+    page.click('[data-clear-rule="crawl_pace_s"]')
+    page.wait_for_timeout(250)
+
+    assert page.evaluate("() => document.activeElement?.id") == "source-edit-pace"
+    assert page.input_value("#source-edit-pace") == ""
+    assert page.input_value("#source-edit-agent") == "typing, unsaved"
+    assert "Cleared" in text_of(page, "#source-edit-result")
 
 
 def test_sources_scroll_inside_the_library_card_not_the_page(open_panel):
@@ -7882,9 +8027,10 @@ _GROUP_BUTTON = ("#1456: Supabase's InputGroupButton, whose default is h-6, 24px
 #: fails, as a reach more than half a pixel below its least does.
 _TALLER_THAN_SUPABASE = {
     **dict.fromkeys([
-        "#site-search", "#source-edit-cadence", "#source-edit-currency", "#source-edit-key",
-        "#source-edit-name", "#source-edit-name-ar", "#source-edit-robots", "#source-edit-url",
-        "#source-edit-vat", "#source-manager-filter"], (44, _NO_BEFORE)),
+        "#site-search", "#source-edit-agent", "#source-edit-cadence", "#source-edit-currency",
+        "#source-edit-key", "#source-edit-name", "#source-edit-name-ar", "#source-edit-pace",
+        "#source-edit-robots", "#source-edit-url", "#source-edit-vat",
+        "#source-manager-filter"], (44, _NO_BEFORE)),
     **dict.fromkeys([
         "#tab-appearance", "#tab-console", "#tab-data", "#tab-database", "#tab-engines",
         "#tab-finance", "#tab-jobs", "#tab-profile", "#tab-run", "#tab-settings", "#tab-source",
@@ -11072,55 +11218,104 @@ def test_a_live_warehouse_that_could_not_be_counted_is_not_read_as_a_pass(
     assert "nothing here to compare it against" in said, said
 
 
-def test_cancel_asks_first_and_a_refused_question_sends_nothing(open_panel):
-    """CANCEL IS THE ONE IRREVERSIBLE CONTROL AND ITS ONLY QUESTION WAS UNTESTED.
+CANCEL_SENTENCE = "Cancelling stops it for good. What it already stored stays in the warehouse."
+# The names the panel gives the two jobs these tests cancel (`jobLabel`): kind · domain,
+# the domain from the stub's muqawil_org dataset card (`site_key`).
+PAUSED_ROW = "Interpretation · muqawil.org"
+PLAYER_JOB = "Profile fetch · muqawil.org"
 
-    `confirmedControl` guards both surfaces -- the row's Cancel and the mini-player's --
-    and replacing its whole body with `return true;` left the entire suite green. The
-    string it asks with appears exactly once in the repository: the production line.
-    Both existing control guards press `button.first`, which is Pause or Resume, so
-    nothing ever drove Cancel.
 
-    That matters most exactly where this page puts it: Cancel sits next to Resume in a
-    paused row, in a list of 163, and a mis-click terminally cancels a running crawl.
-    """
-    page = open_panel(jobs=HIS_JOBS)
+def _control_writes(page):
+    return [w for w in page.evaluate("() => window.__writes") if "/control" in w["path"]]
+
+
+def _the_cancel_question_is_open(page, named):
+    """The panel's own alertdialog, open, asking the one shared question about the job it
+    NAMES, with focus on the choice that changes nothing (WAI-ARIA APG alertdialog).
+
+    The copy is compared whole: the name is the only thing that says which job the
+    question is about, and an inclusion test passed a stale name left by the last open."""
+    page.wait_for_selector("#confirm-veil:not(.hidden)", timeout=2000)
+    dialog = page.locator("#confirm-dialog")
+    assert dialog.get_attribute("role") == "alertdialog"
+    assert dialog.get_attribute("aria-modal") == "true"
+    assert page.text_content("#confirm-title").strip() == "Cancel this job?"
+    assert page.text_content("#confirm-copy") == named + CANCEL_SENTENCE
+    assert page.text_content("#confirm-keep").strip() == "Keep job"
+    assert page.text_content("#confirm-go").strip() == "Cancel job"
+    assert page.evaluate("() => document.activeElement && document.activeElement.id") == "confirm-keep"
+
+
+def _open_paused_rows_cancel(page):
     page.click(JOBS_TAB)
     page.wait_for_timeout(300)
-
     paused = page.locator('#jobs-list .job-row[data-job="job_0212decca681"]')
-    # The controls live inside the row's <details>, so it has to be open to press one --
-    # which is the state a mis-click happens in anyway.
     paused.locator("summary").click()
     page.wait_for_timeout(300)
     labels = paused.locator("button").all_text_contents()
     assert labels == ["Resume", "Cancel"], (
         f"this guard needs the paused row's Cancel button; it draws {labels}")
-    cancel = paused.locator("button").nth(1)
+    return paused.locator("button").nth(1)
 
-    # DISMISSED: the question was asked, and nothing was sent.
-    asked = []
-    page.once("dialog", lambda dialog: (asked.append(dialog.message), dialog.dismiss()))
+
+def test_cancel_asks_first_and_a_refused_question_sends_nothing(open_panel):
+    """CANCEL IS THE ONE IRREVERSIBLE CONTROL, and it asks in the panel's own dialog.
+
+    `confirmedControl` guards both surfaces -- the row's Cancel and the mini-player's.
+    It asked through the browser's `confirm()` until #1542: a window whose "Cancel"
+    button meant KEEP, which Supabase's ConfirmationModal (`variant="destructive"`,
+    `cancelLabel`/`confirmLabel`, ConfirmationModal.tsx@86c813ec:27-62) exists to avoid.
+    The sentence is the one true for every kind and status: a held job settles at its
+    boundary, a queued or paused one at once, and what was stored is never rolled back.
+    """
+    page = open_panel(jobs=HIS_JOBS)
+    native = []
+    page.on("dialog", lambda dialog: (native.append(dialog.message), dialog.dismiss()))
+    cancel = _open_paused_rows_cancel(page)
+
+    # KEEP: asked, nothing sent, focus back where he pressed.
     cancel.click()
-    page.wait_for_timeout(300)
+    _the_cancel_question_is_open(page, PAUSED_ROW)
+    page.click("#confirm-keep")
+    page.wait_for_timeout(200)
+    assert page.locator("#confirm-veil").is_hidden()
+    assert _control_writes(page) == [], "Keep job was chosen and the cancel was sent anyway"
+    assert page.evaluate("() => document.activeElement && document.activeElement.textContent.trim()") == "Cancel"
 
-    assert asked, "Cancel was pressed and no question was asked before it was sent"
-    assert "Cancel this job?" in asked[0], (
-        f"the question does not name what it is about to do: {asked[0]!r}")
-    sent = [w for w in page.evaluate("() => window.__writes")
-            if "/control" in w["path"]]
-    assert sent == [], (
-        f"the question was refused and the cancel was sent anyway: {sent}")
-
-    # ACCEPTED: the same press goes through, so the guard has not broken the button.
-    page.once("dialog", lambda dialog: dialog.accept())
+    # ESCAPE: the same as Keep.
     cancel.click()
+    _the_cancel_question_is_open(page, PAUSED_ROW)
+    page.keyboard.press("Escape")
+    page.wait_for_timeout(200)
+    assert page.locator("#confirm-veil").is_hidden()
+    assert _control_writes(page) == [], "Escape closed the question and the cancel was sent"
+
+    # CANCEL JOB: the same press goes through, so the guard has not broken the button.
+    cancel.click()
+    _the_cancel_question_is_open(page, PAUSED_ROW)
+    page.click("#confirm-go")
     page.wait_for_timeout(400)
-
-    sent = [w for w in page.evaluate("() => window.__writes")
-            if "/control" in w["path"]]
+    sent = _control_writes(page)
     assert len(sent) == 1 and sent[0]["body"] == {"control": "cancel"}, (
-        f"an accepted Cancel did not reach the engine: {sent}")
+        f"a confirmed Cancel did not reach the engine: {sent}")
+    assert native == [], f"the browser's own confirm() was still used: {native}"
+
+
+def test_the_cancel_question_keeps_tab_inside_it(open_panel):
+    """aria-modal is a promise the page has to keep: Tab cycles the two choices and never
+    reaches the panel behind the veil (WAI-ARIA APG dialog, keyboard interaction)."""
+    page = open_panel(jobs=HIS_JOBS)
+    cancel = _open_paused_rows_cancel(page)
+    cancel.click()
+    _the_cancel_question_is_open(page, PAUSED_ROW)
+    seen = []
+    for _ in range(4):
+        page.keyboard.press("Tab")
+        seen.append(page.evaluate("() => document.activeElement && document.activeElement.id"))
+    assert seen == ["confirm-go", "confirm-keep", "confirm-go", "confirm-keep"], seen
+    page.keyboard.press("Shift+Tab")
+    assert page.evaluate("() => document.activeElement.id") == "confirm-go"
+    page.keyboard.press("Escape")
 
 
 def test_the_miniplayers_cancel_asks_the_same_question(open_panel):
@@ -11131,6 +11326,8 @@ def test_the_miniplayers_cancel_asks_the_same_question(open_panel):
     above the Jobs list on every tab, which is where a stray click lands.
     """
     page = open_panel(jobs=HIS_JOBS)
+    native = []
+    page.on("dialog", lambda dialog: (native.append(dialog.message), dialog.dismiss()))
     page.wait_for_function(
         "() => !document.getElementById('miniplayer').classList.contains('hidden')")
     # The player rests minimised, so its controls are hidden until he opens it -- which
@@ -11139,17 +11336,301 @@ def test_the_miniplayers_cancel_asks_the_same_question(open_panel):
     page.wait_for_timeout(300)
     assert page.is_visible("#mini-cancel"), "the player's Cancel is not reachable"
 
-    asked = []
-    page.once("dialog", lambda dialog: (asked.append(dialog.message), dialog.dismiss()))
     page.click("#mini-cancel")
+    _the_cancel_question_is_open(page, PLAYER_JOB)
+    page.click("#confirm-keep")
     page.wait_for_timeout(300)
+    assert _control_writes(page) == [], (
+        "the question was refused and the cancel was sent anyway")
+    assert native == [], f"the browser's own confirm() was still used: {native}"
 
-    assert asked and "Cancel this job?" in asked[0], (
-        f"the mini-player cancelled without asking: {asked}")
-    sent = [w for w in page.evaluate("() => window.__writes")
-            if "/control" in w["path"]]
-    assert sent == [], (
-        f"the question was refused and the cancel was sent anyway: {sent}")
+
+def test_a_click_beside_the_question_answers_no(open_panel):
+    """THE VEIL ANSWERS NO. A stray click beside the card must never become the one
+    irreversible press; only "Cancel job" sends it."""
+    page = open_panel(jobs=HIS_JOBS)
+    cancel = _open_paused_rows_cancel(page)
+    cancel.click()
+    _the_cancel_question_is_open(page, PAUSED_ROW)
+    page.mouse.click(5, 5)   # the veil's corner, outside the card
+    page.wait_for_timeout(300)
+    assert page.locator("#confirm-veil").is_hidden()
+    assert _control_writes(page) == [], "a click beside the question cancelled the job"
+
+
+def test_the_players_cancel_goes_to_the_job_the_question_named(open_panel):
+    """THE QUESTION IS ASYNCHRONOUS NOW, AND THE POLL GOES ON UNDER IT. `controlJob` read
+    `state.jobRef` after the answer, so a crawl handing off to its interpretation while
+    the dialog was open sent the cancel to the interpretation -- a job he was never asked
+    about -- and a job ending sent it to `/api/jobs/null` (#1601's merge gate)."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.wait_for_function(
+        "() => !document.getElementById('miniplayer').classList.contains('hidden')")
+    page.locator("#miniplayer summary").click()
+    page.wait_for_timeout(200)
+    page.click("#mini-cancel")
+    _the_cancel_question_is_open(page, PLAYER_JOB)
+    # The handoff, while he reads the question: the crawl is gone, an interpretation runs.
+    page.evaluate("""() => { const real = window.fetch;
+        window.fetch = (u, o) => String(u).includes("active_only=true")
+          ? Promise.resolve(new Response(JSON.stringify({jobs: [{job_ref: "job_handoff",
+              status: "running", job_kind: "dataset_interpret",
+              source_keys: ["muqawil_org"]}]}),
+              {status: 200, headers: {"Content-Type": "application/json"}}))
+          : real(u, o); }""")
+    page.wait_for_function(
+        "() => (document.getElementById('mini-title').textContent || '').includes('Interpretation')",
+        timeout=4000)
+    page.click("#confirm-go")
+    page.wait_for_timeout(400)
+    sent = _control_writes(page)
+    assert [w["path"] for w in sent] == ["/api/jobs/job_034c51a29deb/control"], (
+        f"the cancel went to a job the question did not name: {sent}")
+
+TICK = "/api/jobs?active_only=true&limit=200"
+FAIL_TICKS = """(n) => {
+  window.__failTicks = n;
+  const real = window.fetch;
+  window.fetch = async (url, options) => {
+    if (String(url).includes("active_only=true&limit=200") && window.__failTicks > 0) {
+      window.__failTicks -= 1;
+      throw new TypeError("Failed to fetch");
+    }
+    return real(url, options);
+  };
+}"""
+
+
+def test_every_page_reads_what_is_running_the_same_way(open_panel):
+    """THE READ MODEL'S TICK (#1542): `active_only` up to the Jobs page's bound, on every
+    page. It read the newest five, so "N queued" stopped at 4 on Run and not on Jobs,
+    and a paused job older than the window vanished from the player on one page only."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.wait_for_function(
+        "() => !document.getElementById('miniplayer').classList.contains('hidden')")
+    calls = page.evaluate("() => window.__calls")
+    assert TICK in calls, f"the tick did not read active_only up to 200: {calls}"
+    assert not [c for c in calls if "active_only=true&limit=5" in c], (
+        "the newest-five read is still issued")
+
+
+def test_the_player_counts_only_the_jobs_still_to_settle(open_panel):
+    """THE TICK IS FILTERED ONCE, before the adoption and before the count. The harness
+    answers every `/api/jobs` with all seven of his jobs, settled ones included, as a
+    read the engine did not filter would: of the six beside the running one, three are
+    preparing, paused or queued and three have finished. "N queued" is the three."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.wait_for_function(
+        "() => !document.getElementById('miniplayer').classList.contains('hidden')")
+    sub = page.text_content("#mini-sub")
+    assert "3 queued" in sub, f"the player counted settled jobs as waiting: {sub!r}"
+
+
+def test_an_older_history_answer_never_draws_over_a_newer_one(open_panel):
+    """TWO HISTORY READS CAN NOW BE IN FLIGHT (entry and a change in the active set, or a
+    press and one). The one issued first is held back here and answers last, with the
+    paused job still paused; the page must keep the newer answer, where it is gone."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.evaluate("""() => { let n = 0; const real = window.fetch;
+        window.fetch = (u, o) => {
+          if (String(u).endsWith("/api/jobs?limit=200")) {
+            n += 1;
+            if (n === 1) return new Promise((done) =>
+              setTimeout(() => done(real(u, o)), 1200));
+            return real(u, o).then((r) => r.json()).then((body) => new Response(
+              JSON.stringify({...body, jobs: body.jobs.filter(
+                (job) => job.job_ref !== "job_0212decca681")}),
+              {status: 200, headers: {"Content-Type": "application/json"}}));
+          }
+          return real(u, o); }; }""")
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(100)
+    page.click("#jobs-reload")
+    page.wait_for_timeout(1800)
+    assert page.locator('#jobs-list .job-row[data-job="job_0212decca681"]').count() == 0, (
+        "the older answer, issued first and landing last, drew over the newer one")
+
+
+MUQAWIL_SOURCE = [{"source_key": "muqawil_org", "source_name": "Saudi Contractors Authority",
+                   "base_url": "https://muqawil.org", "active": True, "implemented": True}]
+
+
+def test_the_player_names_the_source_by_its_domain_on_any_page(open_panel):
+    """ONE NAME FOR ONE JOB, wherever he is. The Sources payload was read only when Run
+    or Sources opened, so on Welcome or Jobs the player fell back to the key; a live job
+    now reads it once if the panel holds none."""
+    page = open_panel(jobs=HIS_JOBS, sources=MUQAWIL_SOURCE)
+    page.wait_for_function(
+        "() => (document.getElementById('mini-title').textContent || '')"
+        ".includes('muqawil.org')", timeout=5000)
+    assert page.text_content("#mini-title").startswith("Profile fetch · muqawil.org")
+    # AND THE LINE UNDER IT: the source the job is on now, by the same name.
+    page.wait_for_function(
+        "() => (document.getElementById('mini-sub').textContent || '')"
+        ".includes('now: muqawil.org')", timeout=5000)
+    assert "muqawil_org" not in page.text_content("#mini-sub")
+
+
+def test_a_failed_tick_tries_again_and_the_player_comes_back(open_panel):
+    """A FAILED TICK USED TO END POLLING FOR GOOD: the catch hid the player and returned
+    with no timer, so one timeout left it hidden until he navigated. It now backs off
+    (1.5 s, then 3 s) while there was a job to follow, and the first success redraws it.
+    The schedule itself is pinned in extension/tests/the-tick-keeps-asking.test.mjs."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.wait_for_function(
+        "() => !document.getElementById('miniplayer').classList.contains('hidden')")
+    page.evaluate(FAIL_TICKS, 2)
+    page.wait_for_function(
+        "() => document.getElementById('miniplayer').classList.contains('hidden')",
+        timeout=5000)
+    # Two failures, then a success: back within 1.5 s + 3 s plus a tick, never stuck.
+    page.wait_for_function(
+        "() => window.__failTicks === 0 && "
+        "!document.getElementById('miniplayer').classList.contains('hidden')",
+        timeout=10000)
+
+
+def test_a_press_is_followed_by_a_read_issued_after_it(open_panel):
+    """A PRESS GETS A FRESH READ, never one already in flight. `pollJob` handed back any
+    read in progress, so a press resolving during a tick was answered by a read taken
+    BEFORE it, and the player kept the job's old status (#1542, read model rule 3).
+
+    Each tick is held 2 s here and Pause is pressed while one is in flight. A fresh read
+    starts the moment that one lands, about 2 s after the press; reusing it leaves the
+    next read to the 1.5 s timer after it, about 3.5 s."""
+    page = open_panel(jobs=HIS_JOBS, route_delays={"/api/jobs?active_only": 2000})
+    page.wait_for_function(
+        "() => !document.getElementById('miniplayer').classList.contains('hidden')",
+        timeout=6000)
+    page.locator("#miniplayer summary").click()
+    page.evaluate("() => { window.__calls.length = 0; }")
+    page.wait_for_function(
+        "() => window.__calls.some((c) => c.includes('active_only=true&limit=200'))",
+        timeout=6000)
+    page.click("#mini-pause")
+    page.wait_for_function(
+        "() => window.__calls.some((c) => c.includes('/control'))", timeout=2000)
+    page.wait_for_function(
+        """() => { const at = window.__calls.findIndex((c) => c.includes('/control'));
+                   return at >= 0 && window.__calls.slice(at + 1)
+                     .some((c) => c.includes('active_only=true&limit=200')); }""",
+        timeout=2700)
+
+
+def test_with_nothing_running_one_small_read_every_thirty_seconds(browser, tmp_path):
+    """HIS CHOICE, 2026-10-09: while nothing is held or queued, `active_only&limit=1`
+    every 30 s, so a job the scheduler starts appears by itself; and when it finds one,
+    the full tick resumes. Driven on Playwright's clock, not by waiting 30 s."""
+    page_file = harness.build_page(tmp_path, harness.stub(jobs=[]), name="idle.html")
+    page = browser.new_page(viewport={"width": 360, "height": 800})
+    try:
+        page.goto(page_file.as_uri())
+        harness.wait_until_settled(page)
+        # The clock goes in AFTER boot (boot waits on timers of its own); a visibility
+        # change then runs a tick, which finds nothing and arms the probe on this clock.
+        page.clock.install()
+        page.evaluate("() => document.dispatchEvent(new Event('visibilitychange'))")
+        page.wait_for_function(
+            "() => window.__calls.filter((c) => c.includes('active_only=true&limit=200'))"
+            ".length >= 2", timeout=3000)
+        page.evaluate("() => { window.__calls.length = 0; }")
+        page.clock.run_for(29_000)
+        assert not [c for c in page.evaluate("() => window.__calls")
+                    if "active_only=true&limit=1" in c], "probed before 30 s"
+        page.clock.run_for(2_000)
+        page.wait_for_function(
+            "() => window.__calls.some((c) => c.includes('active_only=true&limit=1'))",
+            timeout=3000)
+        # The probe finds a job: the full tick follows at once.
+        page.evaluate("""() => { const real = window.fetch; window.fetch = (u, o) =>
+            String(u).includes("active_only=true&limit=1")
+              ? Promise.resolve(new Response(JSON.stringify({jobs: [{job_ref: "job_new",
+                  status: "queued", job_kind: "crawl", source_keys: ["x"]}]}),
+                  {status: 200, headers: {"Content-Type": "application/json"}}))
+              : real(u, o); }""")
+        page.evaluate("() => { window.__calls.length = 0; }")
+        page.clock.run_for(31_000)
+        page.wait_for_function(
+            "() => window.__calls.some((c) => c.includes('active_only=true&limit=200'))",
+            timeout=3000)
+    finally:
+        page.close()
+
+
+def test_the_jobs_page_rereads_its_history_when_a_job_starts_or_ends(open_panel):
+    """THE TICK TELLS THE PAGE. The Jobs page had no read of its own after entry, so a
+    job the scheduler started while he watched never got a row. A change in the tick's
+    active set, either way, re-reads the history while the page is on screen."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_selector("#jobs-list .job-row")
+    page.evaluate("""() => { window.__calls.length = 0; const real = window.fetch;
+        window.fetch = (u, o) => String(u).includes("active_only=true")
+          ? real(u, o).then((r) => r.json()).then((body) => new Response(JSON.stringify(
+              {...body, jobs: [...body.jobs, {job_ref: "job_new", status: "queued",
+                job_kind: "crawl", source_keys: ["x"]}]}),
+              {status: 200, headers: {"Content-Type": "application/json"}}))
+          : real(u, o); }""")
+    page.wait_for_function(
+        "() => window.__calls.some((c) => c === '/api/jobs?limit=200')", timeout=4000)
+
+
+def test_a_redraw_the_tick_starts_keeps_his_place_on_the_keyboard(open_panel):
+    """A JOB STARTING ELSEWHERE IS NOT HIS PRESS. The tick's change of active set re-reads
+    the history and redraws every row; the element he had focused was replaced and focus
+    fell to <body>. It returns to the same control in the same row -- Cancel, the second,
+    so a restore to the row's first control fails here -- to the row's summary when that
+    is what he had focused, and to the summary when the control he was on is gone."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_selector("#jobs-list .job-row")
+    ref = "job_034c51a29deb"
+    row = f'#jobs-list .job-row[data-job="{ref}"]'
+    page.click(f"{row} summary")
+
+    def a_job_starts(new_ref, settled=None):
+        """The tick gains `new_ref`; with `settled`, the history then reads that job as
+        completed, as the engine would once it ended."""
+        page.evaluate("""([newRef, settled]) => { window.__calls.length = 0;
+            const real = window.fetch;
+            const json = (body) => new Response(JSON.stringify(body),
+              {status: 200, headers: {"Content-Type": "application/json"}});
+            window.fetch = (u, o) => {
+              const url = String(u);
+              if (url.includes("active_only=true")) {
+                return real(u, o).then((r) => r.json()).then((body) => json({...body,
+                  jobs: [...body.jobs, {job_ref: newRef, status: "queued",
+                    job_kind: "crawl", source_keys: ["x"]}]}));
+              }
+              if (settled && url.endsWith("/api/jobs?limit=200")) {
+                return real(u, o).then((r) => r.json()).then((body) => json({...body,
+                  jobs: body.jobs.map((job) => job.job_ref === settled
+                    ? {...job, status: "completed", finished_at: "2026-09-07T14:00:00Z"}
+                    : job)}));
+              }
+              return real(u, o); }; }""", [new_ref, settled])
+        page.wait_for_function(
+            "() => window.__calls.some((c) => c === '/api/jobs?limit=200')", timeout=4000)
+        page.wait_for_timeout(300)
+
+    def focused():
+        return page.evaluate("""() => { const el = document.activeElement;
+            return [el.tagName, el.tagName === 'BUTTON' ? el.textContent : '',
+              el.closest('.job-row')?.dataset.job || null]; }""")
+
+    page.locator(f"{row} button", has_text="Cancel").focus()
+    a_job_starts("job_new")
+    assert focused() == ["BUTTON", "Cancel", ref], f"the redraw moved his focus: {focused()}"
+
+    page.focus(f"{row} summary")
+    a_job_starts("job_newer")
+    assert focused() == ["SUMMARY", "", ref], f"the redraw moved his focus: {focused()}"
+
+    # THE CONTROL IS GONE: the job he was on ended, and a completed row offers no Pause.
+    page.locator(f"{row} button", has_text="Pause").focus()
+    a_job_starts("job_newest", settled=ref)
+    assert page.locator(f"{row} button", has_text="Pause").count() == 0, "the job did not end"
+    assert focused() == ["SUMMARY", "", ref], f"the redraw moved his focus: {focused()}"
 
 
 def test_the_miniplayer_states_a_percentage_and_stops_claiming_one_it_lacks(open_panel):

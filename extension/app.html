@@ -656,7 +656,7 @@
              rather than delete and re-add it. Everything here is a manifest
              field; the source_key has its own section below because changing
              it moves data, not just a label. -->
-        <div class="stack mt-2">
+        <div class="stack mt-2" data-price-only>
           <div class="fieldset">
             <label for="source-edit-name">Display name (English)</label>
             <input id="source-edit-name" dir="ltr">
@@ -697,7 +697,7 @@
            it, so changing it moves data rather than renaming a label. Its own
            section, with its own button, so it cannot be changed by accident
            while editing a display name. -->
-      <section class="card" aria-labelledby="source-edit-key-heading">
+      <section class="card" aria-labelledby="source-edit-key-heading" data-price-only>
         <div class="section-head">
           <div>
             <h2 id="source-edit-key-heading">Source key</h2>
@@ -716,22 +716,34 @@
         </div>
       </section>
 
-      <form id="source-edit-form" class="card source-edit-form">
+      <!-- PRICE SOURCES ONLY: no schedule fires a directory yet, and a switch that
+           changes nothing is worse than no switch -- nor a heading over nothing. -->
+      <section class="card source-edit-form" aria-labelledby="source-edit-automation-heading"
+               data-price-only>
         <div class="section-head">
           <div>
-            <h2>Automation</h2>
+            <h2 id="source-edit-automation-heading">Automation</h2>
             <p>Allow scheduled runs for this source.</p>
           </div>
         </div>
-        <label class="source-edit-switch" for="source-edit-active">
-          <span>
-            <strong>Automatic runs</strong>
-            <small id="source-edit-active-help">
-              Manual runs remain available when automation is off.
-            </small>
-          </span>
-          <input id="source-edit-active" type="checkbox">
-        </label>
+        <div>
+          <label class="source-edit-switch" for="source-edit-active">
+            <span>
+              <strong>Automatic runs</strong>
+              <small id="source-edit-active-help">
+                Manual runs remain available when automation is off.
+              </small>
+            </span>
+            <input id="source-edit-active" type="checkbox">
+          </label>
+          <!-- WHERE THE VALUE COMES FROM (#1584): his choice, or what the source
+               ships with. Clearing his choice returns it to the source's. -->
+          <p class="hint source-edit-origin" data-rules-only>
+            <span id="source-edit-active-origin" role="status" aria-live="polite"></span>
+            <button type="button" class="link compact" data-clear-rule="active"
+                    aria-label="Clear your automatic runs choice" hidden>Clear your choice</button>
+          </p>
+        </div>
         <!-- A DISPLAY rule, and it says so: nothing about the crawl or the
              stored rows changes. The owner asked for it per source because it
              is right for a shop that sells one product in six colours at one
@@ -746,11 +758,7 @@
           </span>
           <input id="source-edit-fold" type="checkbox">
         </label>
-        <div class="source-edit-actions">
-          <button id="source-edit-save" type="submit">Save changes</button>
-          <span id="source-edit-result" class="hint" role="status" aria-live="polite"></span>
-        </div>
-      </form>
+      </section>
 
       <!-- WHICH COLUMNS THIS SOURCE SHOWS, AND IN WHAT ORDER.
            Owner ruling: no capability may exist on the web page that is absent
@@ -765,7 +773,8 @@
            look at what the site says, then choose, and the consequence of the
            choice is spelled out beside it rather than left to be discovered by
            watching a run come back empty. -->
-      <section class="card" aria-labelledby="source-edit-robots-heading">
+      <section id="source-edit-robots-card" class="card"
+               aria-labelledby="source-edit-robots-heading">
         <div class="section-head">
           <div>
             <h2 id="source-edit-robots-heading">robots.txt</h2>
@@ -789,6 +798,11 @@
             <option value="custom">A custom rule for this site</option>
           </select>
           <p id="source-edit-robots-consequence" class="muted text-xs"></p>
+          <p class="hint source-edit-origin" data-rules-only>
+            <span id="source-edit-robots-origin" role="status" aria-live="polite"></span>
+            <button type="button" class="link compact" data-clear-rule="robots"
+                    aria-label="Clear your robots.txt choice" hidden>Clear your choice</button>
+          </p>
         </div>
         <!-- Shown only for `custom`: the two things robots.txt itself controls,
              and nothing else. -->
@@ -798,14 +812,54 @@
             <span>Do not fetch paths this site disallows</span>
           </label>
           <div class="fieldset">
-            <label for="source-edit-robots-delay">Seconds between requests</label>
+            <label for="source-edit-robots-delay">Crawl delay under this rule (seconds)</label>
             <input id="source-edit-robots-delay" type="number" min="0" step="0.5"
                    placeholder="whatever the site asks for">
           </div>
         </div>
       </section>
 
-      <section class="card" aria-labelledby="source-edit-columns-heading">
+      <!-- HOW THIS SOURCE IS FETCHED: the agent it presents and its pace, his choice
+           over what the source ships with over his general rule on the Settings
+           page (#1584). Each says where its value comes from, and a field left
+           empty follows the one named under it. Saved with Save changes. -->
+      <section class="card" aria-labelledby="source-edit-fetch-heading" data-rules-only>
+        <div class="section-head">
+          <div>
+            <h2 id="source-edit-fetch-heading">How this source is fetched</h2>
+            <p class="muted text-xs">Leave a field empty to follow the source, or
+              your general rule where the source sets none.</p>
+          </div>
+        </div>
+        <div class="fieldset">
+          <label for="source-edit-agent">User agent</label>
+          <input id="source-edit-agent" class="tech" dir="ltr" autocomplete="off">
+          <p class="hint source-edit-origin">
+            <span id="source-edit-agent-origin" role="status" aria-live="polite"></span>
+            <button type="button" class="link compact" data-clear-rule="user_agent"
+                    aria-label="Clear your user agent choice" hidden>Clear your choice</button>
+          </p>
+        </div>
+        <div class="fieldset">
+          <label for="source-edit-pace">Minimum seconds between requests to this source</label>
+          <input id="source-edit-pace" type="number" min="0.1" step="0.1" dir="ltr">
+          <p class="hint muted">The slower of this and your general pace applies.</p>
+          <p class="hint source-edit-origin">
+            <span id="source-edit-pace-origin" role="status" aria-live="polite"></span>
+            <button type="button" class="link compact" data-clear-rule="crawl_pace_s"
+                    aria-label="Clear your pace choice" hidden>Clear your choice</button>
+          </p>
+        </div>
+      </section>
+
+      <!-- ONE SAVE, BELOW EVERY CARD IT SAVES: the name and details above, automatic
+           runs, robots.txt and how the source is fetched. -->
+      <form id="source-edit-form" class="card source-edit-actions">
+        <button id="source-edit-save" type="submit">Save changes</button>
+        <span id="source-edit-result" class="hint" role="status" aria-live="polite"></span>
+      </form>
+
+      <section class="card" aria-labelledby="source-edit-columns-heading" data-price-only>
         <div class="section-head">
           <div>
             <h2 id="source-edit-columns-heading">Columns</h2>
@@ -824,7 +878,7 @@
       <!-- TWO actions, never one. The owner's ruling: stopping a source and
            erasing its data are different things with different outcomes, so
            neither can be mistaken for the other. Each says what it keeps. -->
-      <section class="card" aria-labelledby="source-edit-danger-heading">
+      <section class="card" aria-labelledby="source-edit-danger-heading" data-price-only>
         <div class="section-head">
           <div>
             <h2 id="source-edit-danger-heading">Remove or erase</h2>
@@ -2573,6 +2627,24 @@
     </div>
   </div>
 
+  <!-- THE ONE QUESTION BEFORE AN IRREVERSIBLE PRESS, asked in the panel and not in the
+       browser's confirm(), whose "Cancel" meant KEEP on the one control named Cancel.
+       Supabase's ConfirmationModal (variant="destructive", cancelLabel/confirmLabel,
+       ConfirmationModal.tsx@86c813ec:27-62); an alertdialog with focus on the choice that
+       changes nothing (WAI-ARIA APG). `askToConfirm` in app.js fills and opens it. -->
+  <div id="confirm-veil" class="modal-veil hidden">
+    <div class="modal-card" role="alertdialog" aria-modal="true"
+         aria-labelledby="confirm-title" aria-describedby="confirm-copy"
+         id="confirm-dialog">
+      <h2 class="modal-title" id="confirm-title"></h2>
+      <div class="modal-copy" id="confirm-copy"></div>
+      <div class="modal-actions">
+        <button class="ghost" type="button" id="confirm-keep"></button>
+        <button class="danger" type="button" id="confirm-go"></button>
+      </div>
+    </div>
+  </div>
+
   <!-- THE PANEL CARRIES ITS OWN ICONS, and every <use> in this file points at
        one of these symbols instead of at icons/material-icons.svg. Since Chrome
        150 a <use> that points into another file holds `load` until its shadow
@@ -2747,6 +2819,24 @@
   <symbol id="material-logout" viewBox="0 0 24 24">
     <path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z"/>
   </symbol>
+  <symbol id="material-check-circle" viewBox="0 0 24 24">
+    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+  </symbol>
+  <symbol id="material-cancel" viewBox="0 0 24 24">
+    <path d="M12 2C6.47 2 2 6.47 2 12s4.47 10 10 10 10-4.47 10-10S17.53 2 12 2zm5 13.59L15.59 17 12 13.41 8.41 17 7 15.59 10.59 12 7 8.41 8.41 7 12 10.59 15.59 7 17 8.41 13.41 12 17 15.59z"/>
+  </symbol>
+  <symbol id="material-pause-circle" viewBox="0 0 24 24">
+    <path d="M12,2C6.48,2,2,6.48,2,12s4.48,10,10,10s10-4.48,10-10S17.52,2,12,2z M11,16H9V8h2V16z M15,16h-2V8h2V16z"/>
+  </symbol>
+  <symbol id="material-block" viewBox="0 0 24 24">
+    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM4 12c0-4.42 3.58-8 8-8 1.85 0 3.55.63 4.9 1.69L5.69 16.9C4.63 15.55 4 13.85 4 12zm8 8c-1.85 0-3.55-.63-4.9-1.69L18.31 7.1C19.37 8.45 20 10.15 20 12c0 4.42-3.58 8-8 8z"/>
+  </symbol>
+  <symbol id="material-warning" viewBox="0 0 24 24">
+    <path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/>
+  </symbol>
+  <symbol id="material-pending" viewBox="0 0 24 24">
+    <path d="M12,2C6.48,2,2,6.48,2,12c0,5.52,4.48,10,10,10s10-4.48,10-10C22,6.48,17.52,2,12,2z M7,13.5c-0.83,0-1.5-0.67-1.5-1.5 c0-0.83,0.67-1.5,1.5-1.5s1.5,0.67,1.5,1.5C8.5,12.83,7.83,13.5,7,13.5z M12,13.5c-0.83,0-1.5-0.67-1.5-1.5 c0-0.83,0.67-1.5,1.5-1.5s1.5,0.67,1.5,1.5C13.5,12.83,12.83,13.5,12,13.5z M17,13.5c-0.83,0-1.5-0.67-1.5-1.5 c0-0.83,0.67-1.5,1.5-1.5s1.5,0.67,1.5,1.5C18.5,12.83,17.83,13.5,17,13.5z"/>
+  </symbol>
   </svg>
   <!-- SPRITE:END -->
 
@@ -2779,7 +2869,7 @@
         "fit_screen", "unfold_more", "unfold_less", "view_stream", "account_tree",
         "view_column", "restart_alt", "close", "search", "drag_indicator",
         "settings", "palette", "light_mode", "dark_mode", "add", "expand_more",
-        "logout"
+        "logout", "check_circle", "cancel", "pause_circle", "block", "warning", "pending"
       ]
     },
     "material-symbols": {

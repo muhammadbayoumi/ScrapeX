@@ -20,7 +20,7 @@ from scrapex import db as dbmod
 from scrapex import localinbox
 from scrapex.capture import capture_source
 from scrapex.config import ExtractSpec, SourceEntry
-from scrapex.connectors.base import CrawlInterrupted, ScrapedTable
+from scrapex.connectors.base import CrawlBlocked, CrawlInterrupted, ScrapedTable
 from scrapex.ingest import ingest_payloads
 from scrapex.jobs import create_job, get_job, job_logs, run_job_once
 from scrapex.payload import PAYLOAD_COMPAT_VERSION, PAYLOAD_VERSION
@@ -100,7 +100,7 @@ class _Fetcher:
 def _with_connector(monkeypatch, connector):
     import scrapex.capture as capmod
     monkeypatch.setattr(capmod, "build_connector",
-                        lambda entry, crawl_settings=None: (connector, _Fetcher()))
+                        lambda entry, rules, crawl_settings=None: (connector, _Fetcher()))
 
 
 def _job(conn) -> tuple[str, int]:
@@ -328,7 +328,7 @@ def test_politeness_notes_land_in_the_job_log_as_info_not_warning(conn, journal,
 
     import scrapex.capture as capmod
     monkeypatch.setattr(capmod, "build_connector",
-                        lambda entry, crawl_settings=None: (_PagedConnector(),
+                        lambda entry, rules, crawl_settings=None: (_PagedConnector(),
                                                             _NotingFetcher()))
     ref = create_job(conn, ["GPP_ENERGY"])
 
@@ -557,3 +557,101 @@ def test_a_resumed_capture_puts_the_dropped_pages_on_the_run(conn, journal, monk
 
     # Cleared, as it always was — the dropped page is gone, loudly.
     assert localinbox.read_payloads(journal, "GPP_ENERGY").payloads == []
+
+
+# ---- a block by the SITE keeps its place (#1448) ------------------------------
+
+class _BlockedConnector(_PagedConnector):
+    """Two pages served, then the site refuses: the breaker's `CrawlBlocked`."""
+
+    def fetch(self, entry):
+        for token, region, price in _PAGES:
+            if token in self.skip_tokens:
+                continue
+            if len(self.served) >= 2:
+                raise CrawlBlocked("5 consecutive refusals (403) from x")
+            self.served.append(token)
+            table = _page(token, region, price)
+            if token == "DIESEL--EG":
+                table.warnings.append("EG: published no price this week")
+            yield table
+
+
+def test_a_block_keeps_the_pages_and_says_the_site_stopped_it(conn, journal, monkeypatch):
+    """His ruling on #1448: a block is a pause, not a failure. The pages fetched
+    before it stay for Resume, and the log says the SITE stopped this source, how
+    many pages are kept, and that Resume continues from them."""
+    _with_connector(monkeypatch, _BlockedConnector())
+    ref = create_job(conn, ["GPP_ENERGY"])
+
+    run_job_once(conn, ref, {"GPP_ENERGY": make_entry()})
+
+    assert localinbox.list_tokens(journal, "GPP_ENERGY") == {"DIESEL--EG", "DIESEL--SA"}
+    logged = [e for e in job_logs(conn, ref) if e["source_key"] == "GPP_ENERGY"]
+    said = [e["message"] for e in logged]
+    blocked = [e for e in logged if "blocked" in e["message"]]
+    assert blocked, said
+    assert "2 fetched page(s) kept" in blocked[0]["message"], said
+    assert "Resume" in blocked[0]["message"], said
+    assert "5 consecutive refusals" in blocked[0]["message"], said
+    assert blocked[0]["level"] == "warning", "the site stopping us is not our error"
+    assert not any(m.startswith("failed:") for m in said), said
+
+
+def test_a_block_flushes_the_warnings_its_kept_pages_carried(conn, journal, monkeypatch):
+    """Journal payloads carry no warnings and the resume skips the pages that raised
+    them, so the block is the last moment they can be said -- as at a pause."""
+    _with_connector(monkeypatch, _BlockedConnector())
+    ref = create_job(conn, ["GPP_ENERGY"])
+
+    run_job_once(conn, ref, {"GPP_ENERGY": make_entry()})
+
+    said = [e["message"] for e in job_logs(conn, ref)]
+    assert any("EG: published no price this week" in m for m in said), said
+
+
+def test_a_block_does_not_stop_the_other_sources_and_the_job_says_partial(
+        conn, journal, monkeypatch):
+    """One site's block is that site's: the job runs the rest and ends partially
+    completed, never PAUSED for everyone -- the rule that one source failing never
+    kills a run."""
+    import dataclasses
+
+    class _Other(_PagedConnector):
+        def fetch(self, entry):
+            for table in super().fetch(entry):
+                yield dataclasses.replace(table, source_key="GPP_OTHER")
+
+    other = make_entry().model_copy(update={"source_key": "GPP_OTHER"})
+    connectors = {"GPP_ENERGY": _BlockedConnector(), "GPP_OTHER": _Other()}
+    import scrapex.capture as capmod
+    monkeypatch.setattr(capmod, "build_connector",
+                        lambda entry, rules, crawl_settings=None:
+                        (connectors[entry.source_key], _Fetcher()))
+    ref = create_job(conn, ["GPP_ENERGY", "GPP_OTHER"])
+
+    job = run_job_once(conn, ref, {"GPP_ENERGY": make_entry(), "GPP_OTHER": other})
+
+    assert job["status"] == JobStatus.PARTIALLY_COMPLETED.value, [
+        e["message"] for e in job_logs(conn, ref)]
+    assert connectors["GPP_OTHER"].served == [t for t, _, _ in _PAGES]
+
+
+def test_resume_after_a_block_fetches_only_what_the_site_refused(conn, journal, monkeypatch):
+    """The panel's Resume (a job seeded with `partial_source`) picks up after the
+    block: the two kept pages are skipped, only the refused one is fetched."""
+    _with_connector(monkeypatch, _BlockedConnector())
+    run_job_once(conn, create_job(conn, ["GPP_ENERGY"]), {"GPP_ENERGY": make_entry()})
+
+    second = _PagedConnector()
+    _with_connector(monkeypatch, second)
+    job = run_job_once(conn, create_job(
+        conn, ["GPP_ENERGY"], checkpoint={"completed_source_keys": [], "errors": [],
+                                          "succeeded": 0,
+                                          "partial_source": "GPP_ENERGY"}),
+        {"GPP_ENERGY": make_entry()})
+
+    assert job["status"] == JobStatus.COMPLETED.value
+    assert second.served == ["DIESEL--US"], "a page kept before the block was refetched"
+    observations = conn.execute("SELECT COUNT(*) FROM price_observation").fetchone()[0]
+    assert observations == 3

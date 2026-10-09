@@ -32,7 +32,7 @@ from urllib.parse import urlsplit
 from . import db as dbmod
 from .archive import backup_database
 from .capture import CaptureResult, capture_source
-from .connectors.base import CrawlInterrupted
+from .connectors.base import CrawlBlocked, CrawlInterrupted, stopped_because
 from .ingest import canary_breach, previous_rows_seen
 from .payload import utc_now_iso
 from .vocab import (
@@ -833,6 +833,28 @@ def _run_source(run: _SourceRun, conn: sqlite3.Connection, source_key: str) -> b
                     last_heartbeat_at=utc_now_iso())
         conn.commit()
         return False
+    except CrawlBlocked as blocked:
+        # THE SITE STOPPED THIS SOURCE, NOT THE OWNER -- and his ruling on #1448
+        # is that it pauses rather than fails. A pause for THIS source only: the
+        # job carries on with the others, because one site's block is that site's
+        # (CLAUDE.md: one source failing never kills a run). Its fetched pages are
+        # already in the journal and nothing clears them here, so the panel's
+        # Resume -- offered wherever `kept_pages` is non-zero -- continues from
+        # the last kept page instead of hammering the site from page 1, which is
+        # what the breaker exists to stop. Still an error on the job, so the job
+        # reads partially completed and the source is named.
+        from . import localinbox
+        kept = len(localinbox.list_tokens(localinbox.JOURNAL_DIR, source_key))
+        run.errors.append(f"{source_key}: {stopped_because(blocked)}")
+        append_log(conn, run.job_id,
+                   f"{stopped_because(blocked)} — "
+                   + (f"{kept} fetched page(s) kept; Resume on this source "
+                      "continues from them once the site lets us back in"
+                      if kept else
+                      "no page was kept, so this source restarts from the top")
+                   + ". Paused for this source only; the job carries on with "
+                     "the others",
+                   level=LogLevel.WARNING, source_key=source_key)
     except Exception as exc:
         run.errors.append(f"{source_key}: {exc}")
         append_log(conn, run.job_id, f"failed: {exc}", level=LogLevel.ERROR, source_key=source_key)

@@ -264,30 +264,20 @@ def test_the_offer_api_refuses_an_offer_belonging_to_another_source(client, db_p
 
 # ---- activation from the interface -------------------------------------------
 
-def test_flipping_active_changes_one_line_and_keeps_every_comment(client, tmp_path):
-    """The manifest is hand-commented and those comments are the owner's
-    records. The flip must be surgical: one line changes, every other byte
-    survives."""
+def test_flipping_active_is_his_choice_and_leaves_the_manifest_alone(client, tmp_path):
+    """The switch is his per-source choice, kept in the warehouse (#1584): the packaged
+    engine deletes `sources.yaml` at exit, so a flip written there was gone at the next
+    restart (#1583). The file's bytes do not move; the engine's answer does."""
     manifest = tmp_path / "sources.yaml"
+    before = manifest.read_bytes()
 
-    # Put it in a KNOWN state first. This used to read whatever the shipped
-    # manifest happened to say, so the day ELSEWEDYSHOP was activated for real
-    # the flip became a no-op and the test failed for a reason that had nothing
-    # to do with the behaviour it guards.
-    client.post(f"/api/sources/{SOURCE}/active", json={"active": False})
-    before = manifest.read_text(encoding="utf-8")
+    for wanted in (False, True):
+        r = client.post(f"/api/sources/{SOURCE}/active", json={"active": wanted})
+        assert r.status_code == 200 and r.json()["active"] is wanted
+        listed = {s["source_key"]: s for s in client.get("/api/sources").json()["sources"]}
+        assert listed[SOURCE]["active"] is wanted
 
-    r = client.post(f"/api/sources/{SOURCE}/active", json={"active": True})
-    assert r.status_code == 200 and r.json()["active"] is True
-
-    after = manifest.read_text(encoding="utf-8")
-    diff = [(a, b) for a, b in zip(before.splitlines(), after.splitlines()) if a != b]
-    assert len(diff) == 1, f"more than one line changed: {diff[:3]}"
-    assert diff[0][0].strip() == "active: false"
-    assert diff[0][1].strip() == "active: true"
-    # And the engine's own view reloaded: the API now reports it active.
-    listed = {s["source_key"]: s for s in client.get("/api/sources").json()["sources"]}
-    assert listed[SOURCE]["active"] is True
+    assert manifest.read_bytes() == before, "the switch was written to sources.yaml"
 
 
 def test_a_probe_placeholder_refuses_activation_with_the_reason(client, tmp_path):
@@ -316,6 +306,10 @@ def test_a_probe_placeholder_refuses_activation_with_the_reason(client, tmp_path
       - kind: product_prices
         scope: census
 """, encoding="utf-8")
+
+    # The engine runs on the manifest it loaded; reload it as every manifest edit does.
+    from scrapex.config import load_manifest
+    client.app.state.manifest = load_manifest(manifest)
 
     r = client.post("/api/sources/UNPROBED/active", json={"active": True})
     assert r.status_code == 400

@@ -64,9 +64,10 @@ class RobotsCustom:
 
     #: False is today's shipped behaviour: crawl the path and disclose it.
     enforce_disallow: bool = False
-    #: None means "whatever the site asked for". A number overrides it, and
-    #: overriding DOWNWARDS is the one that needs the owner's eyes -- which is
-    #: why `decide` reports it rather than doing it quietly.
+    #: None means "whatever the site asked for". A number is APPLIED AS SET:
+    #: the site's Crawl-delay never raises it (#1413 -- the owner keeps the
+    #: final say). Overriding DOWNWARDS is the one that needs his eyes, so the
+    #: fetcher records a warning naming both numbers when it happens.
     crawl_delay_s: float | None = None
 
 
@@ -109,6 +110,10 @@ class RobotsReport:
     #: Set when the file could not be read at all, so "no rules" is never
     #: mistaken for "nothing to obey".
     unreadable: str = ""
+    #: The failure to read it was the SERVER's or the NETWORK's (a 5xx, or no
+    #: answer at all) rather than a 4xx: `is_unreachable()` below. The crawl then
+    #: pauses instead of crawling under the tool's own rules (ES-2).
+    unreachable: bool = False
 
     @property
     def obeying_would_block_everything(self) -> bool:
@@ -117,6 +122,13 @@ class RobotsReport:
 
     def summary(self) -> str:
         """One sentence, for a log line or a panel subtitle."""
+        if self.unreachable:
+            # NOT "could not be read" ALONE: that is the 4xx sentence, whose crawl
+            # goes on. This one's crawl does not, and the subtitle is where he reads
+            # it before choosing anything.
+            return (f"{self.host}: robots.txt could not be reached "
+                    f"({self.unreadable}) — a crawl of this site pauses here; press "
+                    "Resume once robots.txt answers again (RFC 9309)")
         if self.unreadable:
             return f"{self.host}: robots.txt could not be read ({self.unreadable})"
         if not self.found:
@@ -130,6 +142,40 @@ class RobotsReport:
             parts.append(f"asks for {self.crawl_delay_s:g}s between requests")
         return f"{self.host}: " + (", ".join(parts) if parts
                                    else "allows this source, asks for no delay")
+
+
+def is_unreachable(outcome: int | BaseException) -> bool:
+    """Whether a robots.txt read that ended in `outcome` means the crawl PAUSES (ES-2).
+
+    `outcome` is the status of the LAST attempt -- the fetcher retries the read as
+    it retries a page -- or the exception the read raised. RFC 9309 §2.3.1.4:
+    unreachable "due to server or network errors" means the crawler "MUST assume
+    complete disallow". So a 5xx, and an `httpx.TransportError` (a refused
+    connection, a timeout, a TLS or proxy failure), pause.
+
+    EVERYTHING ELSE IS "UNAVAILABLE", §2.3.1.3, where the crawler MAY crawl: a 4xx
+    other than 404, and an exception that is not the network's -- too many
+    redirects (§2.3.1.2 lets more than five be treated as unavailable), an invalid
+    url, a body that would not decode. Those stay "treated as if the site had
+    none" (#1413). An exception is matched by TYPE, which is why this module
+    imports httpx here and nowhere else: it reads no network, it names one.
+
+    ONE ANSWER FOR THE FETCHER AND FOR `GET /robots`, so what the owner is shown
+    before choosing is what the crawl does -- the #1413 principle.
+    """
+    if isinstance(outcome, BaseException):
+        import httpx
+
+        return isinstance(outcome, httpx.TransportError)
+    return 500 <= outcome <= 599
+
+
+def unreachable_reason(host: str, why: str) -> str:
+    """The sentence the pause carries into the job log and onto the panel."""
+    return (f"{host}: robots.txt could not be reached ({why}). RFC 9309 §2.3.1.4 "
+            "says a crawler must then treat the whole site as disallowed, so this "
+            "site's run is paused and none of its pages is fetched; press Resume "
+            "once robots.txt answers again")
 
 
 def _parse(text: str) -> tuple[RobotFileParser, list[tuple[str, str, str]]]:
@@ -158,16 +204,18 @@ def _parse(text: str) -> tuple[RobotFileParser, list[tuple[str, str, str]]]:
 
 
 def inspect(base_url: str, robots_text: str | None, *,
-            user_agent: str = "*", unreadable: str = "") -> RobotsReport:
+            user_agent: str = "*", unreadable: str = "",
+            unreachable: bool = False) -> RobotsReport:
     """Turn a robots.txt into what it MEANS for one source.
 
     The text is passed in rather than fetched: this module has no opinion about
     HTTP, and a test that had to stand up a server to ask "what does this file
-    mean" would be testing the server.
+    mean" would be testing the server. `unreachable` is `is_unreachable(status)`
+    of the read the caller made, for the same reason.
     """
     host = urlsplit(base_url).netloc or base_url
     if unreadable:
-        return RobotsReport(host=host, unreadable=unreadable)
+        return RobotsReport(host=host, unreadable=unreadable, unreachable=unreachable)
     if robots_text is None:
         return RobotsReport(host=host, found=False)
 
@@ -209,12 +257,28 @@ class Decision:
 def decide(report: RobotsReport, choice: RobotsChoice, *,
            custom: RobotsCustom | None = None,
            tool_default_obeys: bool = False,
+           honour_site_delay: bool = True,
            url_disallowed: bool = False) -> Decision:
     """Resolve one source's choice against what the site said.
 
     `tool_default_obeys` is the settings value, passed in rather than read:
     this module must stay usable from a test that never touches a database.
+    `honour_site_delay` is the tool-wide `crawl_honour_delay` switch, passed in
+    for the same reason.
+
+    THE DELAY RETURNED IS THE DELAY THE FETCHER APPLIES (#1413). It was not:
+    the fetcher decided the pace on its own, from the tool-wide switch alone,
+    so `GET /robots` could report a delay the crawl never used. Now
+    `HttpFetcher` asks this function, and the two cannot drift apart.
     """
+    if report.unreachable:
+        # BEFORE EVERY CHOICE, the custom refusal below included, because the
+        # fetcher pauses before it reads any rule (ES-2): no choice of the owner's
+        # is consulted for a file nobody could read, and "obey", "default" and a
+        # custom rule all pause alike.
+        return Decision(may_fetch=False, delay_s=None,
+                        reason=unreachable_reason(report.host, report.unreadable))
+
     if choice is RobotsChoice.CUSTOM and custom is None:
         # Refused rather than defaulted, because the obvious default -- the
         # tool-wide setting -- is the very thing the owner chose CUSTOM to get
@@ -228,6 +292,10 @@ def decide(report: RobotsReport, choice: RobotsChoice, *,
         return Decision(may_fetch=True, delay_s=None,
                         reason=f"{report.host}: {why} — nothing to obey")
 
+    # THE TOOL-WIDE SWITCH GOVERNS ONLY A SOURCE THAT DEFERS TO THE SITE
+    # WITHOUT HAVING CHOSEN TO OBEY IT. Under `obey` the source's rule wins
+    # (#1413, the owner's ruling): obeying a site means its pace too.
+    site_delay = report.crawl_delay_s if honour_site_delay else None
     if choice is RobotsChoice.OBEY:
         enforce, delay = True, report.crawl_delay_s
         label = "set to obey this site's robots.txt"
@@ -239,10 +307,10 @@ def decide(report: RobotsReport, choice: RobotsChoice, *,
         # nothing to catch it. mypy found it; the tests could not, because the
         # impossible case is impossible until somebody makes it possible.
         enforce = custom.enforce_disallow
-        delay = report.crawl_delay_s if custom.crawl_delay_s is None else custom.crawl_delay_s
+        delay = site_delay if custom.crawl_delay_s is None else custom.crawl_delay_s
         label = "a custom rule for this site"
     else:
-        enforce, delay = tool_default_obeys, report.crawl_delay_s
+        enforce, delay = tool_default_obeys, site_delay
         label = ("the tool default, which obeys Disallow" if tool_default_obeys
                  else "the tool default, which discloses Disallow and crawls anyway")
 

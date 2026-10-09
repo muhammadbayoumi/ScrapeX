@@ -106,12 +106,44 @@ export function liveJob(jobs) {
   return live.reduce((best, job) => (rank(job) < rank(best) ? job : best), live[0]);
 }
 
-/** `Profile fetch · muqawil_org`, from the payload's own words. */
-export function jobLabel(job) {
+/** A source's domain, the panel's primary identity for it: the URL's host, lower-case,
+ *  without a leading `www.` or a trailing dot. `sourceDomain` in app.js is this. */
+export function domainOf(url) {
+  let host = "";
+  try { host = new URL(url).host; } catch (_) { host = String(url || ""); }
+  host = host.replace(/\.$/, "");
+  return host.toLowerCase().startsWith("www.") ? host.slice(4) : host;
+}
+
+/** How the panel names one source key: the Sources identity's domain, else its name,
+ *  else the key. A job carries keys only; a site's key can also arrive as the
+ *  `site_key` behind a dataset card (`webui/app.py:942-947`), and a dataset's as its
+ *  `source_key`, so either finds it. */
+export function sourceTitle(key, sources) {
+  const source = (sources || []).find((one) => one && (one.source_key === key
+    || one.site_key === key));
+  if (!source) return key;
+  return domainOf(source.base_url) || source.source_name || key;
+}
+
+/**
+ * `Listing crawl · muqawil.org` -- the kind, and the source as the panel names sources.
+ *
+ * THE KIND STAYS (see `renderMiniplayer`): a crawl's chained interpretation starts on
+ * the same source a few milliseconds after the crawl ends, and without the kind the line
+ * reads as the crawl starting over. THE SOURCE IS THE PANEL'S ONE IDENTITY, the domain
+ * (`sourceIdentity`, components.css:781), and no longer the key: this read the key "from
+ * the payload's own words" because a job carries nothing else, so the row, the player
+ * and the Sources page named one site three ways (#1542). Without `sources`, the key.
+ */
+export function jobLabel(job, sources = []) {
   const kind = KIND_LABELS[job?.job_kind] || String(job?.job_kind || "Job");
-  const source = job?.current_source_key
-    || (job?.source_keys || [])[0] || "";
-  return source ? `${kind} · ${source}` : kind;
+  const keys = job?.source_keys || [];
+  const lead = job?.current_source_key || keys[0] || "";
+  if (!lead) return kind;
+  const others = Math.max(0, keys.length - 1);
+  const more = others ? ` and ${others} other${others === 1 ? "" : "s"}` : "";
+  return `${kind} · ${sourceTitle(lead, sources)}${more}`;
 }
 
 /**
@@ -284,10 +316,10 @@ export function summariseJobs(payload) {
  * entered; re-sorting by a timestamp in the page would disagree with it the moment two
  * jobs share a second, and `created_at` is stored at second resolution.
  */
-export function rowsFrom(payload) {
+export function rowsFrom(payload, sources = []) {
   return (payload?.jobs || []).filter((job) => job && job.job_ref).map((job) => ({
     job_ref: job.job_ref,
-    label: jobLabel(job),
+    label: jobLabel(job, sources),
     status: job.status,
     tone: statusTone(job.status),
     progress: progressLine(job),
@@ -300,6 +332,88 @@ export function rowsFrom(payload) {
     finished_at: job.finished_at,
     error_summary: job.error_summary || "",
   }));
+}
+
+
+// ---- the Jobs page's own rules (#1542) ---------------------------------------------
+
+/** Each status's glyph and tone. The WORD is the engine's own, sentence-cased: no job
+ *  state is renamed here. Tones follow Studio (PreviousRunsTab.tsx@86c813ec:222-247:
+ *  running muted, success brand-600, failed destructive, words coloured too;
+ *  ProjectCardStatus.tsx@86c813ec:110-114, 171-187: paused in the foreground, the
+ *  in-between states in warning). Glyphs are the Material sprite's until #1057 moves the
+ *  panel to Lucide (docs/DESIGN-SYSTEM.md, Icons; his decision of 2026-10-09). */
+const STATUS_LOOK = {
+  running: ["material-pending", "secondary"],
+  resuming: ["material-sync", "warning"],
+  preparing: ["material-sync", "warning"],
+  queued: ["material-schedule", "default"],
+  scheduled: ["material-schedule", "default"],
+  paused: ["material-pause-circle", "foreground"],
+  pausing: ["material-pause-circle", "warning"],
+  cancelling: ["material-block", "warning"],
+  requires_review: ["material-warning", "warning"],
+  failed: ["material-cancel", "destructive"],
+  partially_completed: ["material-warning", "warning"],
+  completed_with_errors: ["material-warning", "warning"],
+  completed: ["material-check-circle", "brand"],
+  cancelled: ["material-block", "default"],
+};
+
+export function statusLook(status) {
+  const words = statusWords(status);
+  const [glyph, tone] = STATUS_LOOK[String(status || "")] || ["material-info", "default"];
+  return {word: words ? words[0].toUpperCase() + words.slice(1) : "", glyph, tone};
+}
+
+/**
+ * When the job ran, as the warehouse stored it: "Started 7 Oct, 8:00 AM → 9:12 AM".
+ *
+ * NO DURATION, AND THAT IS THE POINT (his choice C). `started_at` survives a resume
+ * (jobs.py:936) and no pause is stamped, so finish minus start counts pauses, waits for
+ * the site's turn and a sleeping laptop -- 3 h 35 m of one crawl, measured. A job that
+ * never started reads from `created_at`. A finish on another day carries its date, and
+ * a cancel says so whichever state it was cancelled from. `fmt` is ScrapeXTime.format.
+ */
+export function timeLine(job, fmt) {
+  const begun = job?.started_at;
+  const from = begun ? `Started ${fmt(begun, "short")}`
+    : job?.created_at ? `Added ${fmt(job.created_at, "short")}` : "";
+  const end = job?.finished_at;
+  if (!end || !from) return from;
+  const sameDay = fmt(end, "date") === fmt(begun || job.created_at, "date");
+  const when = sameDay ? fmt(end, "time") : fmt(end, "short");
+  return `${from} → ${job.status === "cancelled" ? "cancelled " : ""}${when}`;
+}
+
+/** The line above the list: what is shown, out of what, and whether it is live. It is
+ *  not a live region; a change he made is announced on its own. */
+export function jobsCountLine({shown, total, live, seconds = 1.5, readAt, bounded}, fmt) {
+  const noun = (n) => `${n.toLocaleString()} job${n === 1 ? "" : "s"}`;
+  const parts = [bounded
+    ? (shown === total ? `Newest ${total} jobs shown; older jobs are not listed`
+      : `${shown.toLocaleString()} of the newest ${total} jobs`)
+    : shown === total ? noun(total) : `${shown.toLocaleString()} of ${noun(total)}`];
+  if (live) parts.push(`Refreshes every ${seconds}s while a job is in progress or queued`);
+  else if (readAt) parts.push(`Read at ${fmt(readAt, "time")}`);
+  return parts.join(" · ");
+}
+
+/** The one action a row shows (table.mdx@86c813ec:201): Pause or Resume. */
+export function primaryControl(job) {
+  return controlsFor(job).find((control) => control !== "cancel") || null;
+}
+
+/** The rest, in the row's menu: its log, and Cancel where Cancel can still act. */
+export function menuControls(job) {
+  const status = String(job?.status || "");
+  const cancel = controlsFor(job).includes("cancel") && status !== "cancelling";
+  return cancel ? ["log", "cancel"] : ["log"];
+}
+
+export function refusalLine(control, label, status) {
+  const verb = control[0].toUpperCase() + control.slice(1);
+  return `${verb} was refused: ${label} is already ${statusWords(status)}`;
 }
 
 

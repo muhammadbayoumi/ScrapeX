@@ -13,8 +13,8 @@ import { capabilityProblem, deployedFrom, installedVersion, CAPABILITY_REPORTING
 import { PROTOCOL_VERSION } from "./transport.js";
 import { ENGINE_CANDIDATES, latestEngineRelease } from "./releases.js";
 import {
-  jobLabel, liveJob, observeRate, progressFraction, progressLine, recentRate, rowsFrom,
-  statusWords, summariseJobs,
+  domainOf, isSettled, jobLabel, liveJob, observeRate, progressFraction, progressLine, recentRate,
+  rowsFrom, sourceTitle, statusWords, summariseJobs,
 } from "./jobsview.js";
 import { getToken, accountFor, authorize, forgetToken, revokeToken } from "./identity.js";
 import {
@@ -102,6 +102,10 @@ async function probeEngine() {
 const state = {
   sources: [], selected: new Set(), filter: "", sourceFilter: "",
   editingSourceKey: null,
+  // THE KEY HIS CHOICES ARE FILED UNDER (#1584): a price source's own key, or a
+  // dataset or directory card's SITE key -- `contractors` is muqawil_org's dataset,
+  // and his choices are about the site. `sourceRules` is GET /rules' last answer.
+  editingRulesKey: null, sourceRules: null,
   job: null, jobRef: null, logs: [], logSignature: null, logAtBottom: true,
   financeRates: [], financeSavedSettings: null, financeStatus: null,
   engineUp: false, engineState: "checking",
@@ -1553,12 +1557,9 @@ async function confirmTimeZoneShared() {
 }
 
 // ---- sites -----------------------------------------------------------------
-function hostOf(url) { try { return new URL(url).host; } catch (_) { return url || ""; } }
 
-function sourceDomain(url) {
-  const host = hostOf(url).replace(/\.$/, "");
-  return host.toLowerCase().startsWith("www.") ? host.slice(4) : host;
-}
+// The one rule, in jobsview.js, so a job and a source are named by the same domain.
+function sourceDomain(url) { return domainOf(url); }
 
 function sourceIdentity(source, compact = false, metricValue = null, metricLabel = "Row") {
   const key = source.source_key || "";
@@ -1656,7 +1657,9 @@ function renderSites() {
         `<span class="chip off" title="No connector has shipped for this platform yet">Not supported yet</span>`;
       // The automation switch. Words carry the state, never colour alone; the
       // title says exactly what the switch gates — schedules, not your hand.
-      const auto = ready ? `<button type="button" class="chip ${s.active ? "accent" : ""}"
+      // A PRICE SOURCE ONLY: no schedule fires a dataset or directory card yet, and
+      // his ruling (2026-10-09) is that no switch is drawn for it until one does.
+      const auto = ready && !s.kind ? `<button type="button" class="chip ${s.active ? "accent" : ""}"
             data-auto="${esc(s.source_key)}" aria-pressed="${s.active ? "true" : "false"}"
             title="Scheduled runs fire only while this is on. Running manually from this panel always works.">Auto: ${
               s.active ? "on" : "off"}</button>` : "";
@@ -1757,8 +1760,8 @@ function renderSourceManager() {
         <span class="source-manager-card-meta muted text-xs">
           <span class="dot ${source.implemented ? "on" : "off"}" aria-hidden="true"></span>
           <span>${status}</span>
-          <span aria-hidden="true">·</span>
-          <span>Automation ${source.active ? "on" : "off"}</span>
+          ${source.kind ? "" : `<span aria-hidden="true">·</span>
+          <span>Automation ${source.active ? "on" : "off"}</span>`}
         </span>
       </div>
       <button type="button" class="ghost source-manager-edit"
@@ -1866,10 +1869,40 @@ function wireSourceColumns() {
 
 function renderSourceEditor(source) {
   state.editingSourceKey = source.source_key;
+  state.editingRulesKey = source.site_key || source.source_key;
+  state.sourceRules = null;
+  // A PRICE SOURCE IS A MANIFEST ENTRY; a dataset or directory card has a `kind`.
+  // Its name, URL, key, columns and the remove/erase actions are price-path routes
+  // that answer 404 for it, and a control that cannot work is not drawn.
+  const price = !source.kind;
+  document.querySelectorAll("#view-source-edit [data-price-only]").forEach(
+    (node) => { node.hidden = !price; });
+  // AN ENGINE WITHOUT /rules (older than `source_rules`) still edits a price source
+  // the way it always did: its name, URL and robots choice through /edit, the switch
+  // through /active. What it cannot serve is not drawn -- the agent and pace, where
+  // each value comes from, Clear -- and a directory, which it saves nothing for, gets
+  // neither its robots choice nor a Save.
+  const mode = sourceRulesMode();
+  state.sourceRulesMode = mode;
+  const legacy = mode === "legacy";
+  document.querySelectorAll("#view-source-edit [data-rules-only]").forEach(
+    (node) => { node.hidden = legacy; });
+  $("source-edit-robots-card").hidden = legacy && !price;
+  $("source-edit-form").hidden = legacy && !price;
   $("source-edit-identity").innerHTML = sourceIdentity(
     source, false, Number(source.observations || 0).toLocaleString());
-
+  for (const id of ["active", "robots", "agent", "pace"]) {
+    $(`source-edit-${id}-origin`).textContent =
+      mode === "rules" ? "Reading where this comes from…" : "";
+  }
+  document.querySelectorAll("[data-clear-rule]").forEach((button) => { button.hidden = true; });
+  // NOTHING LEFT FROM THE LAST SOURCE OPENED: the controls /rules fills start from
+  // this source's own card, and stay held until /rules answers.
   renderRobotsChoice(source);
+  $("source-edit-agent").value = "";
+  $("source-edit-agent").placeholder = "";
+  $("source-edit-pace").value = "";
+  $("source-edit-pace").placeholder = "";
 
   const ready = Boolean(source.implemented);
   $("source-edit-readiness").innerHTML =
@@ -1888,33 +1921,70 @@ function renderSourceEditor(source) {
   if ($("source-edit-vat")) $("source-edit-vat").value = source.vat_mode || "incl";
   out("source-edit-rename-result", "");
   out("source-edit-danger-result", "");
-  $("source-edit-holds").textContent = "…";
-  loadSourceColumns(source.source_key);
   $("source-edit-wipe-scope").textContent = "";
-  // What it HOLDS, fetched rather than guessed: a destructive button that says
-  // how much it is about to erase is the difference between a choice and a
-  // guess. Failure here must not block the editor, so it degrades to a dash.
-  api("/api/sources/" + encodeURIComponent(source.source_key)).then((detail) => {
-    if (state.editingSourceKey !== source.source_key) return;   // moved on
-    const holds = detail.holds || {};
-    const parts = [];
-    if (holds.products) parts.push(`${holds.products.toLocaleString()} products`);
-    if (holds.observations) parts.push(`${holds.observations.toLocaleString()} prices`);
-    if (holds.details) parts.push(`${holds.details.toLocaleString()} details`);
-    $("source-edit-holds").textContent = parts.length ? parts.join(" · ") : "nothing yet";
-    $("source-edit-wipe-scope").textContent = parts.length
-      ? `This would erase ${parts.join(", ")}.` : "";
-  }).catch(() => { $("source-edit-holds").textContent = "—"; });
+  if (!price) {
+    // What a card holds is on the card itself; this route is the manifest's.
+    $("source-edit-holds").textContent = "—";
+  } else {
+    $("source-edit-holds").textContent = "…";
+    loadSourceColumns(source.source_key);
+    // What it HOLDS, fetched rather than guessed: a destructive button that says
+    // how much it is about to erase is the difference between a choice and a
+    // guess. Failure here must not block the editor, so it degrades to a dash.
+    api("/api/sources/" + encodeURIComponent(source.source_key)).then((detail) => {
+      if (state.editingSourceKey !== source.source_key) return;   // moved on
+      const holds = detail.holds || {};
+      const parts = [];
+      if (holds.products) parts.push(`${holds.products.toLocaleString()} products`);
+      if (holds.observations) parts.push(`${holds.observations.toLocaleString()} prices`);
+      if (holds.details) parts.push(`${holds.details.toLocaleString()} details`);
+      $("source-edit-holds").textContent = parts.length ? parts.join(" · ") : "nothing yet";
+      $("source-edit-wipe-scope").textContent = parts.length
+        ? `This would erase ${parts.join(", ")}.` : "";
+    }).catch(() => { $("source-edit-holds").textContent = "—"; });
+  }
 
   $("source-edit-fold").checked = Boolean(source.fold_variants);
-  const active = $("source-edit-active");
-  active.checked = Boolean(source.active);
-  active.disabled = !ready;
+  $("source-edit-active").checked = Boolean(source.active);
+  holdRuleControls(!legacy);
   $("source-edit-save").disabled = !ready;
   $("source-edit-active-help").textContent = ready
     ? "Manual runs remain available when automation is off."
     : "Automation cannot be enabled until this connector is available.";
   out("source-edit-result", "");
+  // AFTER the result line is emptied, so what reading the rules says -- or why they
+  // cannot be read -- stays said. Unread, his crawl choices stay held.
+  if (mode === "rules") loadSourceRules(state.editingRulesKey);
+  if (mode === "refused") {
+    out("source-edit-result", esc(capabilityRefusal("source_rules")), "err");
+  }
+}
+
+// WHICH EDITOR THIS ENGINE GETS (§1.6, #1584). `rules`: it deploys /rules. `legacy`:
+// it is KNOWN not to -- its version report lists no `source_rules`, or it is too old
+// to report at all (404) -- so the editor saves as it did before /rules. `refused`:
+// nothing can be known -- the report failed or timed out, this extension is older than
+// the capability, or Chrome did not say its version -- so the refusal is said and his
+// crawl choices are held. Guessing `legacy` there sends robots to an /edit that, on a
+// new engine, refuses them.
+function sourceRulesMode() {
+  if (!capabilityRefusal("source_rules")) return "rules";
+  const deployed = deployedFrom(state.versionReport);
+  if ((deployed && !deployed.source_rules) || state.versionStatus === "unsupported") {
+    return "legacy";
+  }
+  return "refused";
+}
+
+// The controls /rules fills, held while its answer is not in: anything typed into
+// them would be drawn over by the answer, or saved against a value never read. The
+// switch also waits for a connector that works.
+function holdRuleControls(held) {
+  for (const id of ["robots", "robots-enforce", "robots-delay", "agent", "pace"]) {
+    $(`source-edit-${id}`).disabled = held;
+  }
+  const source = state.sources.find((item) => item.source_key === state.editingSourceKey);
+  $("source-edit-active").disabled = held || !(source && source.implemented);
 }
 
 // robots.txt, per site. Kept together so the three steps read in the order the
@@ -1930,9 +2000,12 @@ function renderRobotsChoice(source) {
   $("source-edit-robots-custom").classList.toggle("hidden", choice !== "custom");
   // The consequence, in the same breath as the choice. A dropdown that does not
   // say what it will do is asking the owner to guess.
+  const general = state.sourceRules && state.sourceRules.general;
   const says = {
-    default: "Whatever the Settings page says. Today that is: disallowed paths "
-           + "are crawled and the run says so.",
+    default: "Whatever the Settings page says. Today that is: "
+           + (general && general.obey_disallow
+             ? "disallowed paths are not fetched."
+             : "disallowed paths are crawled and the run says so."),
     obey: "Disallowed paths are NOT fetched, and the site's own delay is used. "
         + "On a site that disallows this source's pages, that means it collects "
         + "nothing — check the site first.",
@@ -1942,7 +2015,8 @@ function renderRobotsChoice(source) {
 }
 
 async function lookAtRobots() {
-  const key = state.editingSourceKey;
+  // The SITE's key: a directory card's robots.txt is its site's (#1584).
+  const key = state.editingRulesKey;
   if (!key) return;
   const box = $("source-edit-robots-report");
   const button = $("source-edit-robots-look");
@@ -1958,15 +2032,214 @@ async function lookAtRobots() {
       // THE ONE THAT CHANGES THE ANSWER, said plainly and not as a footnote.
       lines.push("Obeying would leave this source with nothing to collect.");
     }
-    if (report.on_a_disallowed_path && report.on_a_disallowed_path.reason) {
+    // AN UNREACHABLE robots.txt PAUSES EVERY CRAWL OF THE SITE (#1585, RFC 9309),
+    // not only a disallowed path, so the summary -- which already says so -- is the
+    // whole answer. The disallowed-path line would repeat it under a heading that
+    // suggests the other paths are fine.
+    // NOR FOR A BROWSER SOURCE (`crawl_reads_robots` false): its crawl reads no
+    // robots.txt, the summary already says so, and the line would say it again.
+    if (!report.unreachable && report.crawl_reads_robots !== false
+        && report.on_a_disallowed_path && report.on_a_disallowed_path.reason) {
       lines.push("On a disallowed path today: " + report.on_a_disallowed_path.reason);
     }
     box.textContent = lines.join(" ");
-    box.classList.toggle("warn", Boolean(report.would_block_everything));
+    box.classList.toggle("warn",
+      Boolean(report.would_block_everything || report.unreachable));
   } catch (error) {
     box.textContent = "Could not read it: " + (error && error.message ? error.message : error);
   } finally {
     button.disabled = false;
+  }
+}
+
+// ---- his choices for one source, and where each value comes from (#1584) -------
+//
+// His rulings: one system -- general rules on the Settings page, overridden per
+// source; clearing a choice returns the field to what the source ships with; and the
+// panel says where each value comes from. GET /api/sources/{key}/rules answers each
+// field's value, its `origin` -- `choice` (his), `source` (its sources.yaml entry or
+// its directory) or `general` (the Settings page) -- and the value it ships with.
+
+//: Where a value comes from, in the words he reads.
+const RULE_ORIGINS = {
+  choice: "Your choice",
+  source: "From the source",
+  general: "Your general rule (Settings)",
+};
+
+//: The element ids each field is drawn in, under `source-edit-…`.
+const RULE_IDS = {active: "active", robots: "robots", user_agent: "agent",
+                  crawl_pace_s: "pace"};
+
+const ROBOTS_WORDS = {
+  default: "the tool default",
+  obey: "obey this site's robots.txt",
+  custom: "a custom rule for this site",
+};
+
+// A number typed into the panel, sent AS a number (#1584: the robots box sent the
+// delay as text, which the engine refuses). What is not a finite number is sent as
+// typed, so the engine's sentence says what is wrong rather than JSON turning NaN
+// into null -- which would read as "clear my choice".
+function ruleNumber(text) {
+  const number = Number(text);
+  return Number.isFinite(number) ? number : text;
+}
+
+// One value, in words: what the field does with it.
+function ruleValueText(field, value) {
+  if (field === "active") return value ? "on" : "off";
+  if (field === "robots") return ROBOTS_WORDS[value] || String(value);
+  if (field === "crawl_pace_s") return `${value} s between requests`;
+  return String(value);
+}
+
+// What a field follows when nothing is chosen and the source ships nothing: the
+// general rule, said with its value.
+function ruleGeneralText(field, answer) {
+  const general = answer.general || {};
+  if (field === "user_agent") return general.user_agent || "the browser's own";
+  if (field === "crawl_pace_s") return ruleValueText(field, general.crawl_pace_s);
+  return general.obey_disallow ? "disallowed paths are not fetched"
+    : "disallowed paths are crawled and the run says so";
+}
+
+// Whether the source ships an opinion on the field, and so what clearing returns to.
+function ruleShipsOpinion(field, item) {
+  if (field === "active") return true;
+  if (field === "robots") return item.shipped !== "default";
+  return item.shipped !== null && item.shipped !== undefined;
+}
+
+// The sentence under a field: where its value comes from, and -- for his choice --
+// what clearing it returns to.
+function ruleOrigin(field, answer) {
+  const item = answer.fields[field];
+  if (item.origin === "choice") {
+    // Mid-sentence, so only its first letter drops: "Settings" names a page.
+    const back = ruleShipsOpinion(field, item)
+      ? `the source's: ${ruleValueText(field, item.shipped)}`
+      : `${RULE_ORIGINS.general[0].toLowerCase()}${RULE_ORIGINS.general.slice(1)}: `
+        + ruleGeneralText(field, answer);
+    return `${RULE_ORIGINS.choice}. Clearing it returns to ${back}.`;
+  }
+  if (item.origin === "source") {
+    return `${RULE_ORIGINS.source}: ${ruleValueText(field, item.value)}.`;
+  }
+  return `${RULE_ORIGINS.general}: ${ruleGeneralText(field, answer)}.`;
+}
+
+// What the editor's controls hold, read once. `active` is null where no switch is
+// drawn -- a directory's -- so it is never sent from there.
+function sourceRulesForm(answer) {
+  return {
+    active: answer.kind === "price" ? $("source-edit-active").checked : null,
+    robots: $("source-edit-robots").value,
+    enforce: $("source-edit-robots-enforce").checked,
+    delay: $("source-edit-robots-delay").value.trim(),
+    agent: $("source-edit-agent").value.trim(),
+    pace: $("source-edit-pace").value.trim(),
+  };
+}
+
+// ONLY WHAT CHANGED, so a save that touched the pace never records a choice for the
+// agent the field merely displayed. An emptied agent or pace is sent as null, which
+// clears his choice; a field following its source or general rule is drawn empty, so
+// leaving it empty sends nothing.
+function ruleChanges(answer, form) {
+  const fields = answer.fields;
+  const changes = {};
+  if (form.active !== null && form.active !== fields.active.value) {
+    changes.active = form.active;
+  }
+  const custom = form.robots === "custom"
+    ? {enforce_disallow: form.enforce,
+       crawl_delay_s: form.delay === "" ? null : ruleNumber(form.delay)}
+    : null;
+  if (form.robots !== fields.robots.value
+      || JSON.stringify(custom) !== JSON.stringify(fields.robots.custom)) {
+    changes.robots = form.robots;
+    if (custom) changes.robots_custom = custom;
+  }
+  const shown = (item) => (item.origin === "general" ? "" : String(item.value ?? ""));
+  if (form.agent !== shown(fields.user_agent)) {
+    changes.user_agent = form.agent === "" ? null : form.agent;
+  }
+  if (form.pace !== shown(fields.crawl_pace_s)) {
+    changes.crawl_pace_s = form.pace === "" ? null : ruleNumber(form.pace);
+  }
+  return changes;
+}
+
+// Draw one field of GET /rules' answer: its control and the sentence under it. One
+// field at a time, so clearing one choice leaves what he is typing into the others.
+function renderRuleField(field, answer) {
+  const item = answer.fields[field];
+  const shown = item.origin === "general" ? "" : String(item.value ?? "");
+  if (field === "active") {
+    $("source-edit-active").checked = Boolean(item.value);
+  } else if (field === "robots") {
+    renderRobotsChoice({robots: item.value, robots_custom: item.custom});
+  } else if (field === "user_agent") {
+    $("source-edit-agent").value = shown;
+    $("source-edit-agent").placeholder = (answer.general || {}).user_agent || "";
+  } else {
+    $("source-edit-pace").value = shown;
+    $("source-edit-pace").placeholder = String((answer.general || {}).crawl_pace_s ?? "");
+  }
+  $(`source-edit-${RULE_IDS[field]}-origin`).textContent = ruleOrigin(field, answer);
+  document.querySelector(`[data-clear-rule="${field}"]`).hidden = item.origin !== "choice";
+}
+
+// Draw the whole answer, and let go of the controls it fills.
+function renderSourceRules(answer) {
+  state.sourceRules = answer;
+  for (const field of Object.keys(RULE_IDS)) renderRuleField(field, answer);
+  holdRuleControls(false);
+}
+
+// Read his choices for a source and draw them. Answers what it drew, or null when the
+// engine could not say -- and then the controls stay held, and Save reads again.
+async function loadSourceRules(key) {
+  try {
+    const answer = await api("/api/sources/" + encodeURIComponent(key) + "/rules");
+    if (state.editingRulesKey !== key) return null;     // moved on
+    renderSourceRules(answer);
+    return answer;
+  } catch (error) {
+    if (state.editingRulesKey !== key) return null;
+    for (const id of Object.values(RULE_IDS)) $(`source-edit-${id}-origin`).textContent = "";
+    out("source-edit-result", `${icon("material-close", "sm")} Could not read how this `
+        + `source is crawled: ${esc(error.message)}. Its crawl choices stay locked until `
+        + "it is read; Save changes reads it again.", "err icon-label");
+    return null;
+  }
+}
+
+// Clear one choice: the field returns to what the source ships with, or to his
+// general rule where it ships nothing. `robots` clears its custom rule with it. Only
+// that field is drawn again, and focus goes to it -- the button it was on is gone.
+async function clearSourceRule(field) {
+  const key = state.editingRulesKey;
+  if (!key) return;
+  out("source-edit-result", "Clearing your choice…", "muted");
+  try {
+    const answer = await post("/api/sources/" + encodeURIComponent(key) + "/rules",
+                              {[field]: null});
+    state.sourceRules = answer;
+    renderRuleField(field, answer);
+    $(`source-edit-${RULE_IDS[field]}`).focus({preventScroll: true});
+    const source = state.sources.find((item) => item.source_key === state.editingSourceKey);
+    if (field === "active" && source) {
+      source.active = answer.fields.active.value;
+      renderSites();
+      renderSourceManager();
+    }
+    out("source-edit-result", `${icon("material-check", "sm")} Cleared. `
+        + esc(ruleOrigin(field, answer)), "ok icon-label");
+  } catch (error) {
+    out("source-edit-result", `${icon("material-close", "sm")} ${esc(error.message)}`,
+        "err icon-label");
   }
 }
 
@@ -1985,63 +2258,144 @@ async function saveSourceEditor() {
     out("source-edit-result", "This source is no longer available.", "err");
     return;
   }
-
+  // ASKED AGAIN, not trusted from when the editor opened: an engine upgraded or
+  // restarted since answers the other route's request with a 400 or a 404. Redrawn
+  // for the engine now answering, and nothing written.
+  if (sourceRulesMode() !== state.sourceRulesMode) {
+    renderSourceEditor(source);
+    out("source-edit-result", `${icon("material-close", "sm")} The engine changed `
+        + "while this was open, so nothing was saved. The editor now shows what it "
+        + "supports; check your changes and save again.", "err icon-label");
+    return;
+  }
   const button = $("source-edit-save");
-  const wanted = $("source-edit-active").checked;
   button.disabled = true;
-  out("source-edit-result", "Saving…", "muted");
-  try {
-    // The manifest fields first, then the active flag. Order matters: the
-    // active flip reloads the manifest, so saving fields afterwards would
-    // write onto a copy the engine had already replaced.
-    const edits = {
-      source_name: $("source-edit-name").value.trim(),
-      source_name_ar: $("source-edit-name-ar").value.trim(),
-      base_url: $("source-edit-url").value.trim(),
-      currency: $("source-edit-currency").value.trim(),
-      cadence: $("source-edit-cadence").value,
-      vat_mode: $("source-edit-vat").value,
-      fold_variants: $("source-edit-fold").checked,
-      robots: $("source-edit-robots").value,
-    };
-    // The custom rule rides along only when it is the chosen one. Sending it
-    // otherwise would leave a rule stored behind a choice that ignores it,
-    // which reads as "this site is customised" on every later open.
+  out("source-edit-result", "Saving changes…", "muted");
+
+  // THE MANIFEST'S FIELDS, for a price source: what the site is and how it is read.
+  const edits = {
+    source_name: $("source-edit-name").value.trim(),
+    source_name_ar: $("source-edit-name-ar").value.trim(),
+    base_url: $("source-edit-url").value.trim(),
+    currency: $("source-edit-currency").value.trim(),
+    cadence: $("source-edit-cadence").value,
+    vat_mode: $("source-edit-vat").value,
+    fold_variants: $("source-edit-fold").checked,
+  };
+
+  if (state.sourceRulesMode === "legacy") {
+    // AN ENGINE WITHOUT /rules, exactly as the editor saved before it (#1584): the
+    // robots choice is a manifest field there, and the switch has its own route.
+    // Only a price source reaches here -- a directory's Save is not drawn.
+    const wanted = $("source-edit-active").checked;
+    edits.robots = $("source-edit-robots").value;
+    // The custom rule rides along only when it is the chosen one.
     if (edits.robots === "custom") {
       const delay = $("source-edit-robots-delay").value.trim();
       edits.robots_custom = {
         enforce_disallow: $("source-edit-robots-enforce").checked,
-        crawl_delay_s: delay === "" ? null : Number(delay),
+        crawl_delay_s: delay === "" ? null : ruleNumber(delay),
       };
     } else {
       edits.robots_custom = null;
     }
-    const changed = Object.entries(edits).some(([field, value]) =>
-      // robots_custom is an OBJECT. `String({}) !== String(null)` is true for
-      // every pair of objects, so comparing it the same way as the text fields
-      // would report a change on every save and POST for nothing.
-      (value !== null && typeof value === "object") || field === "robots_custom"
-        ? JSON.stringify(source[field] ?? null) !== JSON.stringify(value ?? null)
-        : String(source[field] ?? "") !== String(value));
-    if (changed) {
+    try {
+      // robots_custom is an OBJECT, compared as JSON: String() of any two objects
+      // differs, which would report a change on every save.
+      const changed = Object.entries(edits).some(([field, value]) =>
+        field === "robots_custom"
+          ? JSON.stringify(source[field] ?? null) !== JSON.stringify(value ?? null)
+          : String(source[field] ?? "") !== String(value));
+      if (changed) {
+        await post("/api/sources/" + encodeURIComponent(source.source_key) + "/edit", edits);
+        Object.assign(source, edits);
+      }
+      const flipped = wanted !== Boolean(source.active);
+      if (flipped) {
+        await post("/api/sources/" + encodeURIComponent(source.source_key) + "/active",
+                   {active: wanted});
+        source.active = wanted;
+      }
+      if (changed || flipped) {
+        renderSites();
+        renderSourceManager();
+      }
+      renderSourceEditor(source);
+      out("source-edit-result", `${icon("material-check", "sm")} Changes saved.`,
+          "ok icon-label");
+    } catch (error) {
+      button.disabled = false;
+      out("source-edit-result", `${icon("material-close", "sm")} ${esc(error.message)}`,
+          "err icon-label");
+    }
+    return;
+  }
+
+  // His crawl rules are NOT manifest fields any more (#1584) -- the engine refuses
+  // them on /edit and keeps them in the warehouse, where a restart cannot lose them.
+  let detailsSaved = false;
+  try {
+    if (!source.kind && Object.entries(edits).some(([field, value]) =>
+      String(source[field] ?? "") !== String(value))) {
       await post("/api/sources/" + encodeURIComponent(source.source_key) + "/edit", edits);
       Object.assign(source, edits);
+      detailsSaved = true;
     }
-    if (wanted !== Boolean(source.active)) {
-      await post("/api/sources/" + encodeURIComponent(source.source_key) + "/active",
-                 {active: wanted});
-      source.active = wanted;
+    // AN ENGINE THAT CANNOT SAY whether it has /rules: the details are saved, his
+    // crawl choices were held, and the refusal says what to do.
+    if (state.sourceRulesMode === "refused") {
+      if (detailsSaved) {
+        renderSites();
+        renderSourceManager();
+      }
+      button.disabled = false;
+      out("source-edit-result", (detailsSaved ? "The name and details were saved. " : "")
+          + esc(capabilityRefusal("source_rules")), "err");
+      return;
     }
-    if (changed || wanted !== Boolean(source.active)) {
+    // NOT YET READ: the rule controls were held, so nothing in them is his to save.
+    // Read again, so the next Save can carry them.
+    let answer = state.sourceRules;
+    if (!answer) {
+      answer = await loadSourceRules(state.editingRulesKey);
+      if (!answer) {
+        if (detailsSaved) {
+          renderSites();
+          renderSourceManager();
+        }
+        button.disabled = false;
+        out("source-edit-result", `${icon("material-close", "sm")} `
+            + (detailsSaved ? "The name and details were saved. " : "")
+            + "How this source is crawled could not be read, so its crawl choices "
+            + "cannot change yet.", "err icon-label");
+        return;
+      }
+    }
+    // HIS CHOICES FOR THE SOURCE, only what changed, in one request to the warehouse.
+    const rules = ruleChanges(answer, sourceRulesForm(answer));
+    if (Object.keys(rules).length) {
+      const saved = await post(
+        "/api/sources/" + encodeURIComponent(state.editingRulesKey) + "/rules", rules);
+      renderSourceRules(saved);
+      if ("active" in rules) source.active = saved.fields.active.value;
+    }
+    if (detailsSaved || "active" in rules) {
       renderSites();
       renderSourceManager();
     }
-    renderSourceEditor(source);
+    button.disabled = false;
     out("source-edit-result", `${icon("material-check", "sm")} Changes saved.`, "ok icon-label");
   } catch (error) {
+    // HALF SAVED IS SAID AS HALF: the name and details went in before the crawl
+    // choices were refused, and the lists show the name he now has.
+    if (detailsSaved) {
+      renderSites();
+      renderSourceManager();
+    }
     button.disabled = false;
-    out("source-edit-result", `${icon("material-close", "sm")} ${esc(error.message)}`,
-        "err icon-label");
+    out("source-edit-result", `${icon("material-close", "sm")} `
+        + (detailsSaved ? "The name and details were saved; your crawl choices were "
+          + "not: " : "") + esc(error.message), "err icon-label");
   }
 }
 
@@ -5143,6 +5497,38 @@ const POLL_MS = 1500;   // throttled: aggregated progress, never per-record even
 let pollTimer = null;
 let pollPromise = null;
 
+// THE ONE READ OF WHAT IS RUNNING (#1542, the read model). Every page reads the same
+// thing on the same tick -- `active_only` up to the Jobs page's own bound, never the
+// newest five -- so the player adopts the same job and counts the same queue wherever he
+// is, and the Jobs page learns from it when a job starts or ends.
+//
+// A FAILED TICK RE-ARMS. It used to stop polling for good (the catch returned without a
+// timer), so one timeout left the player hidden until he navigated. It now backs off,
+// and only while there was something active to follow: against an engine that is down
+// the cadence is volume, not waiting -- a stopped local engine refuses at once.
+const POLL_BACKOFF_MS = [POLL_MS, 3000, 6000, 12000, 30000];
+let pollFailures = 0;
+// The `job_ref`s of the last SUCCESSFUL tick. A failed tick leaves it alone, so a
+// failure never reads as every job leaving.
+let lastActiveRefs = null;
+
+// WHILE NOTHING RUNS, one small read every 30 s (his choice, 2026-10-09: about two
+// requests a minute), so a job the scheduler starts appears without a press.
+const IDLE_PROBE_MS = 30000;
+let idleTimer = null;
+
+// A JOB IS NAMED FROM THE SOURCES PAYLOAD (`jobLabel`), which was read only when Run or
+// Sources opened -- so on any other page the player and the rows fell back to the key.
+// A live job reads it once when the panel holds none -- ONCE per panel, not once per
+// tick: a warehouse with no sources, or an engine that refuses the read, would otherwise
+// add a request to every 1.5 s tick. Run and Sources still read it on entry.
+let sourcesForNames = null;
+function sourcesForJobNames() {
+  if (state.sources.length) return Promise.resolve();
+  sourcesForNames ||= loadSources();
+  return sourcesForNames;
+}
+
 // ---- ONE formatter each (the DRY the owner asked for) ----------------------
 // A count with thousands separators. Every number the panel shows goes through
 // here, so 1030 reads as "1,030" everywhere and never as a bare 1030 in one
@@ -5418,8 +5804,9 @@ function renderMiniplayer(job, queued) {
   // at 0 about two milliseconds later, against a 1500 ms poll -- and with no kind in
   // the line there is nothing to read but "the crawl went back to the beginning".
   // Issue 778 is the same sentence about a different pair of jobs.
-  const scope = job.source_keys.length > 1 ? `${job.source_keys.length} sites` : job.source_keys[0];
-  const named = job.source_keys.length > 1 ? scope : jobLabel(job);
+  // ONE NAME FOR ONE JOB (#1542): the same `jobLabel` the Jobs row and the cancel
+  // question use, from the Sources identity -- "3 sites" named none of them.
+  const named = jobLabel(job, state.sources);
   $("mini-title").textContent = `${named} — ${job.status.replace(/_/g, " ")}`;
   const prog = miniProgress(job);
   $("mini-pct").textContent = prog.text;
@@ -5427,7 +5814,7 @@ function renderMiniplayer(job, queued) {
   $("mini-bar").classList.toggle("indeterminate", prog.indeterminate);
   const c = job.counters || {};
   const bits = [];
-  if (job.current_source_key) bits.push(`now: ${job.current_source_key}`);
+  if (job.current_source_key) bits.push(`now: ${sourceTitle(job.current_source_key, state.sources)}`);
   if (c.observations != null) bits.push(`${fmtCount(c.observations)} new data rows`);
   if (queued > 0) bits.push(`${queued} queued`);
   $("mini-sub").textContent = bits.join(" · ") || "starting…";
@@ -5436,13 +5823,60 @@ function renderMiniplayer(job, queued) {
   $("mini-pause").dataset.control = paused ? "resume" : "pause";
 }
 
+function armIdleProbe() {
+  clearTimeout(idleTimer);
+  idleTimer = setTimeout(async () => {
+    idleTimer = null;
+    if (document.visibilityState === "hidden") return;
+    // A STOPPED ENGINE IS ASKED AGAIN LATER, not never: its coming back up starts no
+    // poll of its own (`setStatus`), so a probe that gave up here stayed given up.
+    if (!state.engineUp) { armIdleProbe(); return; }
+    let found = [];
+    try { found = (await api("/api/jobs?active_only=true&limit=1")).jobs || []; }
+    catch (_) { found = []; }
+    if (found.length) pollJob(); else armIdleProbe();
+  }, IDLE_PROBE_MS);
+}
+
+/** The tick's answer changed which jobs are active: the Jobs page re-reads its history,
+ *  so a job that started appears and one that ended shows how it ended. Only while
+ *  that page is on screen -- it reads its history on entry anyway. */
+function noticeActiveSet(jobs) {
+  const refs = new Set(jobs.map((job) => job.job_ref));
+  const before = lastActiveRefs;
+  lastActiveRefs = refs;
+  if (!before) return;
+  const changed = refs.size !== before.size || [...refs].some((ref) => !before.has(ref));
+  if (changed && currentViewName() === "jobs") loadJobs({ keepNotice: true });
+}
+
 async function pollJobOnce() {
   clearTimeout(pollTimer);
   pollTimer = null;
+  clearTimeout(idleTimer);
+  idleTimer = null;
   if (document.visibilityState === "hidden") return;
   let jobs = [];
-  try { jobs = (await api("/api/jobs?active_only=true&limit=5")).jobs; }
-  catch (_) { renderMiniplayer(null); renderActivity(null); return; }
+  try { jobs = (await api(`/api/jobs?active_only=true&limit=${JOBS_LIMIT}`)).jobs || []; }
+  catch (_) {
+    renderMiniplayer(null); renderActivity(null);
+    pollFailures += 1;
+    if (lastActiveRefs && lastActiveRefs.size && document.visibilityState === "visible") {
+      // `pollFailures` counts this failure already, so the first one reads index 0.
+      const wait = POLL_BACKOFF_MS[Math.min(pollFailures - 1, POLL_BACKOFF_MS.length - 1)];
+      pollTimer = setTimeout(() => { pollJob(); }, wait);
+    } else {
+      // NOT BACKING OFF IS NOT STOPPING: with no job known to be active, the slow probe
+      // is what notices one starting, and a failed tick had left no timer at all.
+      armIdleProbe();
+    }
+    return;
+  }
+  pollFailures = 0;
+  // `active_only` is the engine's not-terminal set; filtered here too, once, so the
+  // adopted job and "N queued" are counted from the same list on every page.
+  jobs = jobs.filter((job) => job && !isSettled(job));
+  noticeActiveSet(jobs);
 
   // ISSUE 778. This was `jobs[0]`, and the list comes back newest first -- so a job
   // entered eighteen seconds after the one doing the work was drawn instead of it.
@@ -5451,6 +5885,7 @@ async function pollJobOnce() {
   const job = liveJob(jobs);
   state.job = job;
   if (job) {
+    await sourcesForJobNames();
     // A HANDOFF IS NOT A CONTINUATION, and until a crawl queued its own interpretation
     // this branch never had to know the difference: the adopted job was always the one
     // he had started, so repointing at it lost nothing.
@@ -5507,6 +5942,7 @@ async function pollJobOnce() {
     await redrawWhatTheJobChanged();
   }
   refreshRunButton();
+  if (document.visibilityState === "visible") armIdleProbe();
 }
 
 /** Redraw what a finished job changed — BOTH surfaces, not only the one on Run.
@@ -5524,11 +5960,17 @@ async function redrawWhatTheJobChanged() {
   if (currentViewName() === "data") await loadDatasets();
 }
 
-async function pollJob() {
+/** `fresh`: a NEW read issued after the caller's own change, never one already in
+ *  flight -- a press that resolves during a tick would otherwise be answered by a read
+ *  taken before the press, and the player would keep the job's old status. */
+async function pollJob({ fresh = false } = {}) {
   clearTimeout(pollTimer);
   pollTimer = null;
   if (document.visibilityState === "hidden") return null;
-  if (pollPromise) return pollPromise;
+  if (pollPromise) {
+    if (!fresh) return pollPromise;
+    await pollPromise;
+  }
   pollPromise = pollJobOnce().finally(() => { pollPromise = null; });
   return pollPromise;
 }
@@ -5537,6 +5979,9 @@ function handlePanelVisibility() {
   if (document.visibilityState === "hidden") {
     clearTimeout(pollTimer);
     pollTimer = null;
+    clearTimeout(idleTimer);
+    idleTimer = null;
+    pollFailures = 0;
     return;
   }
   // The shared appearance/timezone modules perform their own immediate refresh
@@ -5591,17 +6036,95 @@ async function reattachToRunningJob() {
  * ref, which line reports the refusal, what happens after -- so only the question is
  * shared, not the handler.
  */
-function confirmedControl(control) {
+async function confirmedControl(control, label) {
   if (control !== "cancel") return true;
-  return confirm("Cancel this job? Work already saved is kept.");
+  // ONE SENTENCE, TRUE FOR EVERY KIND AND STATUS (#1542). A held job settles at its next
+  // safe boundary and a queued or paused one at once (`set_control`, jobs.py:166-219);
+  // nothing already stored is rolled back, and only a price crawl cancelled mid-fetch
+  // drops its unsaved journal (jobs.py:795-806) -- which is not in the warehouse. The
+  // sentence this replaced, "Work already saved is kept.", was true; the one before the
+  // design study said pages "stay", which a cancelled crawl's journal does not.
+  return askToConfirm({
+    title: "Cancel this job?",
+    named: label,
+    copy: "Cancelling stops it for good. What it already stored stays in the warehouse.",
+    keep: "Keep job",
+    go: "Cancel job",
+  });
+}
+
+// ---- the panel's own confirmation ---------------------------------------------
+
+let confirmReturnFocus = null;
+let confirmSettle = null;
+
+/**
+ * Ask one irreversible question in `#confirm-veil` and resolve to his answer.
+ *
+ * NOT `window.confirm`, whose two buttons are the browser's: on the one control named
+ * Cancel its "Cancel" meant KEEP. Focus opens on the choice that changes nothing, Tab
+ * stays inside, and Escape or a click on the veil answers no -- the alertdialog pattern
+ * (WAI-ARIA APG). Focus goes back to whatever he pressed.
+ */
+function askToConfirm({ title, named = "", copy, keep, go }) {
+  if (confirmSettle) confirmSettle(false);
+  confirmReturnFocus = document.activeElement;
+  $("confirm-title").textContent = title;
+  const body = $("confirm-copy");
+  body.textContent = "";
+  if (named) {
+    const who = document.createElement("strong");
+    who.textContent = named;
+    body.append(who, document.createElement("br"));
+  }
+  body.append(document.createTextNode(copy));
+  $("confirm-keep").textContent = keep;
+  $("confirm-go").textContent = go;
+  $("confirm-veil").classList.remove("hidden");
+  $("confirm-keep").focus({ preventScroll: true });
+  return new Promise((resolve) => { confirmSettle = resolve; });
+}
+
+function answerConfirm(yes) {
+  const veil = $("confirm-veil");
+  if (!veil || veil.classList.contains("hidden")) return;
+  veil.classList.add("hidden");
+  const settle = confirmSettle;
+  confirmSettle = null;
+  if (confirmReturnFocus && confirmReturnFocus.isConnected) {
+    confirmReturnFocus.focus({ preventScroll: true });
+  }
+  confirmReturnFocus = null;
+  if (settle) settle(yes);
+}
+
+function confirmIsOpen() {
+  const veil = $("confirm-veil");
+  return Boolean(veil) && !veil.classList.contains("hidden");
+}
+
+/** Keep Tab inside the question while it is open. */
+function trapConfirmFocus(event) {
+  if (event.key !== "Tab" || !confirmIsOpen()) return;
+  const choices = [$("confirm-keep"), $("confirm-go")];
+  const at = choices.indexOf(document.activeElement);
+  event.preventDefault();
+  const next = event.shiftKey ? (at <= 0 ? choices.length - 1 : at - 1)
+    : (at + 1) % choices.length;
+  choices[next].focus({ preventScroll: true });
 }
 
 async function controlJob(control) {
-  if (!state.jobRef) return;
-  if (!confirmedControl(control)) return;
-  try { await post(`/api/jobs/${state.jobRef}/control`, { control }); }
+  // THE JOB IS FIXED BEFORE THE QUESTION. The question is awaited and the poll keeps
+  // running under it, so `state.jobRef` can move to another job (a crawl handing off to
+  // its interpretation) or to null before he answers; the press goes to the job the
+  // question named, whatever the player shows by then.
+  const jobRef = state.jobRef;
+  if (!jobRef) return;
+  if (!(await confirmedControl(control, state.job ? jobLabel(state.job, state.sources) : ""))) return;
+  try { await post(`/api/jobs/${jobRef}/control`, { control }); }
   catch (e) { $("run-blocked").textContent = e.message; }
-  await pollJob();
+  await pollJob({ fresh: true });
 }
 
 // ---- browse data -----------------------------------------------------------
@@ -7219,12 +7742,20 @@ function sayOn(id, text) {
  * 409 the panel exists to report lived for one round trip -- a caught error erased by
  * the reload the same handler triggers is a silent failure with extra steps.
  */
+// Each history read is numbered and only the latest one issued may draw: two can now be
+// in flight at once (entry and a change of the active set, or a press and one), and an
+// older answer landing last would draw a finished job as still running.
+let jobsReadSeq = 0;
+
 async function loadJobs({keepNotice = false} = {}) {
   const list = $("jobs-list");
+  const seq = ++jobsReadSeq;
   let payload;
   try {
     payload = await api(`/api/jobs?limit=${JOBS_LIMIT}`);
+    if (seq !== jobsReadSeq) return;
   } catch (error) {
+    if (seq !== jobsReadSeq) return;
     // THE PAGE SAYS WHY IT IS EMPTY. A blank list and a stopped engine look identical,
     // and that confusion is the shape of every complaint this page answers. This
     // overwrites a kept notice on purpose: an engine that cannot answer outranks a
@@ -7237,7 +7768,9 @@ async function loadJobs({keepNotice = false} = {}) {
     return;
   }
   if (!keepNotice) sayOn("jobs-blocked", "");
-  const rows = rowsFrom(payload);
+  await sourcesForJobNames();
+  if (seq !== jobsReadSeq) return;
+  const rows = rowsFrom(payload, state.sources);
   $("jobs-summary").textContent = summariseJobs(payload);
   sayOn("jobs-bounded", rows.length >= JOBS_LIMIT
     ? `Showing the newest ${JOBS_LIMIT} jobs. This is a PREFIX of the list, not the `
@@ -7258,6 +7791,12 @@ async function loadJobs({keepNotice = false} = {}) {
     // read "Reading…" until he closed it. Stored empty, it re-opens and re-fetches.
     wasOpen.set(previous.dataset.job, had === LOG_PLACEHOLDER ? "" : had);
   }
+  // AND SO DOES THE KEYBOARD'S PLACE. A redraw the tick starts, with nothing pressed,
+  // replaced the element he had focused and dropped him on <body>; it goes back to the
+  // same control in the same row, or to that row's summary once the control is gone.
+  const focused = list.contains(document.activeElement) ? document.activeElement : null;
+  const focusRef = focused?.closest(".job-row")?.dataset.job;
+  const focusText = focused?.tagName === "BUTTON" ? focused.textContent : null;
   list.replaceChildren(...rows.map((row) => {
     const box = drawJobRow(row);
     if (!wasOpen.has(row.job_ref)) return box;
@@ -7267,6 +7806,12 @@ async function loadJobs({keepNotice = false} = {}) {
     box.querySelector(".job-log").textContent = wasOpen.get(row.job_ref);
     return box;
   }));
+  const again = [...list.querySelectorAll(".job-row")].find((box) => box.dataset.job === focusRef);
+  if (again) {
+    const same = focusText == null ? null
+      : [...again.querySelectorAll("button")].find((button) => button.textContent === focusText);
+    (same || again.querySelector("summary")).focus();
+  }
 }
 
 /**
@@ -7365,7 +7910,7 @@ function drawJobRow(row) {
       button.textContent = control[0].toUpperCase() + control.slice(1);
       button.addEventListener("click", (event) => {
         event.preventDefault();
-        pressJobControl(row.job_ref, control, button);
+        pressJobControl(row.job_ref, control, button, row.label);
       });
       actions.append(button);
     }
@@ -7421,8 +7966,8 @@ async function openJobLog(jobRef, into) {
  * which is half of what this page is for: on 2026-09-07 the job he wanted to stop was
  * not the job the panel was drawing.
  */
-async function pressJobControl(jobRef, control, button) {
-  if (!confirmedControl(control)) return;
+async function pressJobControl(jobRef, control, button, label = "") {
+  if (!(await confirmedControl(control, label))) return;
   const was = button.textContent;
   button.disabled = true;
   button.textContent = "\u2026";
@@ -7442,6 +7987,10 @@ async function pressJobControl(jobRef, control, button) {
   // row on screen is the stale one that offered the button. `keepNotice` is what stops
   // that reload erasing the sentence explaining why.
   await loadJobs({keepNotice: refused});
+  // THE PLAYER HEARS OF THE PRESS TOO: a fresh tick, issued after it, whatever the
+  // page's live state -- pausing the only queued job settles it at once, and no tick
+  // would otherwise follow to tell the player.
+  pollJob({ fresh: true });
 
   // AND FOCUS COMES BACK TO THE BUTTON HE PRESSED, which `loadJobs` cannot do for
   // itself: `button.disabled = true` above moves focus to <body> immediately, so by the
@@ -8484,6 +9033,11 @@ function wireStartupShell() {
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") return;
     // Innermost first. The dialog is modal, so nothing behind it may answer.
+    if (confirmIsOpen()) {
+      event.stopPropagation();
+      answerConfirm(false);
+      return;
+    }
     if (restoreDialogIsOpen()) {
       event.stopPropagation();
       closeRestoreDialog();
@@ -8541,6 +9095,14 @@ function wireStartupShell() {
     if (event.target === $("disconnect-veil")) closeDisconnectDialog();
   });
   document.addEventListener("keydown", trapDisconnectFocus, true);
+
+  $("confirm-keep").addEventListener("click", () => answerConfirm(false));
+  $("confirm-go").addEventListener("click", () => answerConfirm(true));
+  // The veil, not the card: a click on the question must not answer it.
+  $("confirm-veil").addEventListener("click", (event) => {
+    if (event.target === $("confirm-veil")) answerConfirm(false);
+  });
+  document.addEventListener("keydown", trapConfirmFocus, true);
 
   setGoogleButtonScheme();
   window.addEventListener("scrapexappearancechange", () => {
@@ -9150,12 +9712,15 @@ function wireDeferredControls() {
         ?.focus({preventScroll: true}));
   });
   $("source-edit-robots-look").addEventListener("click", lookAtRobots);
+  document.querySelectorAll("[data-clear-rule]").forEach((button) =>
+    button.addEventListener("click", () => clearSourceRule(button.dataset.clearRule)));
   $("source-edit-robots").addEventListener("change", () => {
     const choice = $("source-edit-robots").value;
     $("source-edit-robots-custom").classList.toggle("hidden", choice !== "custom");
+    const delay = $("source-edit-robots-delay").value.trim();
     renderRobotsChoice({robots: choice, robots_custom: {
       enforce_disallow: $("source-edit-robots-enforce").checked,
-      crawl_delay_s: $("source-edit-robots-delay").value.trim() || null,
+      crawl_delay_s: delay === "" ? null : ruleNumber(delay),
     }});
   });
   $("source-edit-form").addEventListener("submit", async (event) => {
