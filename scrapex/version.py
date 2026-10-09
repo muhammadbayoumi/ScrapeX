@@ -293,7 +293,9 @@ CAPABILITIES: tuple[Capability, ...] = (
         surfaces=(Surface.PANEL, Surface.ENGINE),
         panel_control="skip-note",
         settings=(),
-        commit="a4851c16",
+        # The commit that built the skip and the panel line. A squash merge does not
+        # keep it: if this lands that way, cite the merge commit instead.
+        commit="68066288",
     ),
 )
 

@@ -21,7 +21,7 @@ No new capabilities. Fixes and internal change only — an extension and an engi
 
 Minimum supported extension: `0.3.8`.
 
-- **scheduled_skips** (a4851c16) — A scheduled run whose source is still running, or that finds another app writing to the warehouse, is skipped and logged as a job instead of waiting in a queue. _Runs in: panel, engine._
+- **scheduled_skips** (68066288) — A scheduled run whose source is still running, or that finds another app writing to the warehouse, is skipped and logged as a job instead of waiting in a queue. _Runs in: panel, engine._
 
 ## 0.3.7
 
