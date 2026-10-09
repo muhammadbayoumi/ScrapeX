@@ -22,8 +22,11 @@
  * !important where Tabulator used it first; the renderer's need none.
  */
 
-/* ---- the frame: same as `table` ---- */
-.tabulator {
+/* ---- the frame: same as `table` ----
+ * One block for both renderers until Tabulator leaves, so the header's colours
+ * and the row height cannot drift between them before the switch. */
+.tabulator,
+.dg {
   /* Grid-only header treatment requested for the Data page. A normal row is
    * .9rem × 1.5 line-height + .6rem on each side; 3.1875 is exactly 1.25×. */
   --grid-row-height: 2.55rem;
@@ -60,33 +63,6 @@
   overflow: hidden;
 }
 .dg {
-  /* Grid-only header treatment requested for the Data page. A normal row is
-   * .9rem × 1.5 line-height + .6rem on each side; 3.1875 is exactly 1.25×. */
-  --grid-row-height: 2.55rem;
-  --grid-header-height: 3.1875rem;
-  /* Blend the subtle container with the outline role so the header reads as
-   * one quiet band in light themes without becoming a heavy dark bar. The
-   * same semantic blend stays naturally close to the established dark header. */
-  --grid-header-surface: color-mix(
-    in srgb,
-    var(--surface-container-low) 76%,
-    var(--outline-variant)
-  );
-  --grid-header-hover: color-mix(
-    in srgb,
-    var(--grid-header-surface) 90%,
-    var(--primary)
-  );
-  /* A control inside the header needs to out-state the header's own hover, or
-   * pointing at the three-dot menu looks identical to pointing at the column
-   * behind it. Twice the blend, so the button reads as its own target. */
-  --grid-header-control-hover: color-mix(
-    in srgb,
-    var(--grid-header-surface) 78%,
-    var(--primary)
-  );
-  --grid-header-text: var(--on-surface);
-  --grid-header-weight: var(--fw-heavy);
   /* The cell's own side padding, which a tree's indent is added to. */
   --dg-cell-padding-inline: var(--sp-3);
   position: relative;
@@ -97,13 +73,6 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
-  background: var(--table-surface);
-  border: var(--table-rule);
-  border-radius: var(--table-radius);
-  color: var(--table-text);
-  font-size: var(--table-font-size);
-  font-family: var(--font);
-  overflow: hidden;
 }
 
 /* The Data grid is one framed object: header, rows and footer share the same
@@ -197,8 +166,9 @@
 .dg-row { display: flex; box-sizing: border-box; }
 .dg-body { position: relative; }
 /* Placed by translateY from the virtualizer; only the rows near the viewport exist.
- * Each lays itself out alone, so a row scrolling in does not re-lay the others. */
-.dg-body > .dg-row { position: absolute; top: 0; inset-inline-start: 0; contain: layout style; }
+ * No `contain`: measured at 23,502 rows it saved no layout and cost style on
+ * every frame (#1465's merge gate). */
+.dg-body > .dg-row { position: absolute; top: 0; inset-inline-start: 0; }
 .dg-col,
 .dg-cell {
   position: relative;
@@ -293,12 +263,17 @@
 .tabulator-row.tabulator-selected:hover {
   background-color: color-mix(in srgb, var(--accent) 14%, transparent) !important;
 }
-.dg-body .dg-row:hover { background-color: var(--table-hover-bg); }
+.dg-body .dg-row:hover { --dg-row-tint: var(--table-hover-bg); }
 .dg-body .dg-row.dg-selectable { cursor: pointer; }
 .dg-body .dg-row.dg-selected,
 .dg-body .dg-row.dg-selected:hover {
-  background-color: color-mix(in srgb, var(--accent) 14%, transparent);
+  --dg-row-tint: color-mix(in srgb, var(--accent) 14%, transparent);
 }
+/* A ROW'S STATE IS ONE TINT, named once and drawn twice: over the scroller on
+ * the row, and over an opaque surface on its pinned cells (below). Each state
+ * sets the tint rather than a background, so the stripe (end of this sheet,
+ * under :where) yields to hover and selection instead of outranking them. */
+.dg-body .dg-row { background-color: var(--dg-row-tint, transparent); }
 
 /* ---- pinned columns stay put while the rest scroll under them ---- */
 .dg-pinned {
@@ -307,8 +282,19 @@
   /* Opaque, or the columns scrolling underneath would show through. */
   background: inherit;
 }
-.dg-body .dg-row .dg-pinned { background-color: inherit; }
+/* Opaque: the scroller's surface, with the row's tint laid over it. Inheriting
+ * the row's own colour let a selected or hovered row's translucent tint show
+ * the columns scrolling underneath. */
+.dg-body .dg-row .dg-pinned {
+  background-color: var(--table-surface);
+  background-image: linear-gradient(var(--dg-row-tint, transparent), var(--dg-row-tint, transparent));
+}
 .dg-header .dg-pinned { background: var(--grid-header-surface); }
+/* The totals row's pinned cells keep that row's tint, over the header's surface. */
+.dg-header .dg-calcs .dg-pinned {
+  background-color: var(--grid-header-surface);
+  background-image: linear-gradient(var(--dg-calcs-tint), var(--dg-calcs-tint));
+}
 
 /* ---- row selection: one integrated table column -------------------------- */
 /* A frozen column normally gets a heavy vertical divider from Tabulator.
@@ -407,13 +393,13 @@
 
 /* ---- group bands, totals rows, placeholder ---- */
 .dg-body .dg-row.dg-group {
-  background: color-mix(in srgb, var(--text) 4%, transparent);
+  --dg-row-tint: color-mix(in srgb, var(--text) 4%, transparent);
   border-bottom: var(--table-rule);
   color: var(--text);
   font-weight: var(--fw-bold);
   cursor: pointer;
 }
-.dg-body .dg-row.dg-group:hover { background: var(--accent-weak); }
+.dg-body .dg-row.dg-group:hover { --dg-row-tint: var(--accent-weak); }
 .dg-group-cell {
   display: flex;
   align-items: center;
@@ -465,6 +451,9 @@
 .dg .dg-tree-toggle:focus-visible { outline: var(--focus-ring-width) solid var(--focus-ring-color); outline-offset: calc(-1 * var(--focus-ring-width)); box-shadow: none; }
 .dg-group-toggle::before,
 .dg-tree-toggle::before {
+  /* Static: components.css stretches every button::before over its positioned
+   * ancestor as a hit area, which drew a bar down the cell instead of this. */
+  position: static;
   content: "";
   border-block: .3rem solid transparent;
   border-inline-start: .4rem solid currentColor;
@@ -537,7 +526,8 @@
 .tabulator-menu .tabulator-menu-separator { border-top: var(--table-rule); }
 .dg-body .dg-row[aria-expanded] .dg-tree-cell { font-weight: var(--fw-bold); }
 .dg-header .dg-calcs {
-  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  --dg-calcs-tint: color-mix(in srgb, var(--accent) 8%, transparent);
+  background: var(--dg-calcs-tint);
   color: var(--text);
   border-bottom: var(--table-rule);
 }
@@ -1268,8 +1258,8 @@
 .tabulator .tabulator-tableholder { overflow-x: auto; }
 .dg.compact .dg-cell { padding-top: .15rem; padding-bottom: .15rem; }
 .dg.compact .dg-body .dg-row { min-height: 0; }
-.dg.striped .dg-body .dg-row.dg-row-even {
-  background-color: color-mix(in srgb, var(--text) 3%, transparent);
+:where(.dg.striped .dg-body) .dg-row.dg-row-even {
+  --dg-row-tint: color-mix(in srgb, var(--text) 3%, transparent);
 }
 .dg.wrap .dg-cell { white-space: normal; overflow-wrap: anywhere; }
 
