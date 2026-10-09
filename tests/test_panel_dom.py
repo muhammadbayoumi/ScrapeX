@@ -12385,6 +12385,94 @@ def test_a_job_of_several_sources_lists_every_key(open_panel):
     assert order == ["job-more", "source-identity-footer"], order
 
 
+def test_a_failed_start_stays_said_while_the_list_is_shown(open_panel):
+    """THE READS AFTER A FAILED START FAIL TOO, and each put "Start the engine" back over
+    "The engine did not start" within a tick. With the list on screen, the sentence and
+    its Open Run stay until something answers."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(300)
+    page.evaluate("""() => { state.engineUp = false; const real = window.fetch;
+        window.fetch = (u, o) => String(u).includes("/api/jobs")
+          ? Promise.reject(new TypeError("Failed to fetch")) : real(u, o); }""")
+    page.wait_for_function(
+        "() => document.getElementById('jobs-state').textContent.includes('Engine stopped answering')",
+        timeout=4000)
+    page.locator("#jobs-state button", has_text="Start engine").click()
+    page.wait_for_function(
+        "() => document.getElementById('jobs-state').textContent.includes('did not start')",
+        timeout=5000)
+    page.wait_for_timeout(3500)   # two ticks' worth of failing reads
+    said = page.locator("#jobs-state").inner_text()
+    assert "The engine did not start. Open Run to see why." in said, said
+    assert page.locator("#jobs-state button").all_inner_texts() == ["Open Run"]
+
+
+def test_each_time_shape_keeps_its_own_formatter(open_panel):
+    """THE FORMATTER CACHE IS KEYED BY SHAPE AND ZONE. Keyed by zone alone, the first
+    shape asked for would answer for every other: a date where a time was due."""
+    page = open_panel(jobs=HIS_JOBS)
+    said = page.evaluate("""() => ['date', 'datetime', 'short', 'time', 'no-such-shape']
+        .map((mode) => window.ScrapeXTime.format('2026-07-30T08:05:00Z', mode))""")
+    date, datetime, short, time, unknown = said
+    assert ":" not in date, said
+    assert date in datetime and ":" in datetime, said
+    assert short != datetime and ":" in short, said
+    assert time != datetime and ":" in time and date not in time, said
+    assert unknown == datetime, f"an unknown shape is not drawn as datetime: {said}"
+
+
+def test_a_rows_identity_is_escaped_complete_and_follows_sources(open_panel):
+    """THE IDENTITY IS NOW MARKUP (the panel's one sourceIdentity), so what it draws is
+    tested here: a key Sources does not list stands as its own name, escaped, wrapped
+    after its dots; the others are counted and every key listed; and when Sources
+    answers late, the row takes the source's domain and names."""
+    evil = "evil.<img src=x onerror=alert(1)>.org"   # no "_": an unlisted key reads them as spaces
+    job = dict(HIS_JOBS[1], job_ref="job_identity", source_keys=[evil, "muqawil_org"],
+               current_source_key=None)
+    page = open_panel(jobs=[job], sources=[])
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(400)
+    identity = _job_row(page, "job_identity").locator('[data-part="identity"]')
+    assert identity.locator("img").count() == 0, "a key was drawn as markup"
+    domain = identity.locator(".source-identity-domain")
+    assert domain.inner_text() == evil, "a key Sources does not list was not drawn as itself"
+    assert domain.locator("wbr").count() == 2, "the name does not wrap after its dots"
+    assert identity.locator(".job-more").inner_text() == "and 1 other"
+    assert identity.locator(".source-identity-key").inner_text() == f"{evil}, muqawil_org"
+    # SOURCES ANSWERS LATE: the row takes the source's identity on the next draw.
+    page.evaluate("""(key) => { state.sources = [{source_key: key, source_name: 'Evil Org',
+        source_name_ar: 'منظمة', base_url: 'https://www.evil-org.example'}]; renderJobs(); }""",
+                  evil)
+    assert domain.inner_text() == "evil-org.example"
+    assert "Evil Org" in identity.inner_text() and "منظمة" in identity.inner_text()
+
+
+def test_the_banner_redraws_for_what_it_says_and_start_resets(open_panel):
+    """WHAT THE BANNER SAYS DEPENDS ON THE FAILURE'S KIND AND ON THE ENGINE BEING UP,
+    and it redraws when either changes. And Starting… is for one press: once an answer
+    has come and gone, a later stop offers Start engine again, not an inert Starting…"""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(300)
+    page.evaluate("() => { jobsFailed('tick', {kind: 'http', message: 'the engine said no'}); }")
+    assert "Unable to refresh data" in page.locator("#jobs-state").inner_text()
+    page.evaluate("() => { jobsFailed('tick', new TypeError('Failed to fetch')); }")
+    assert "The engine did not answer" in page.locator("#jobs-state").inner_text()
+    page.evaluate("() => { state.engineUp = false; renderJobs(); }")
+    assert "Engine stopped answering" in page.locator("#jobs-state").inner_text()
+
+    down = open_panel(engine_up=False)   # the helper is absent: the start fails at once
+    down.click(JOBS_TAB)
+    down.wait_for_timeout(300)
+    down.locator("#jobs-state button", has_text="Start engine").click()
+    down.wait_for_function(
+        "() => document.getElementById('jobs-state').textContent.includes('did not start')",
+        timeout=5000)
+    down.evaluate("() => { jobsPage.failure = null; jobsFailed('history', new TypeError('x')); }")
+    assert down.locator("#jobs-state button").all_inner_texts() == ["Start engine"]
+
+
 def test_a_redraw_the_tick_starts_keeps_his_place_on_the_keyboard(open_panel):
     """A JOB STARTING ELSEWHERE IS NOT HIS PRESS. The tick's change of active set re-reads
     the history and redraws the page; the element he had focused stays focused -- the ⋮,

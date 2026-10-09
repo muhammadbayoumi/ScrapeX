@@ -7842,9 +7842,14 @@ function jobsTick(jobs, order) {
 /** A read failed. An HTTP answer is the engine speaking (`kind: "http"`, backend.js);
  *  anything else is no answer, and "not running" is said only once the probe agrees. */
 function jobsFailed(from, error) {
-  jobsPage.failure = { from, http: Boolean(error && error.kind === "http"),
-    message: (error && error.message) || "no answer",
-    startFailed: Boolean(error && error.startFailed) };
+  const http = Boolean(error && error.kind === "http");
+  // A FAILED START STAYS SAID until something answers. The reads that follow it fail
+  // too, with the engine still down, and each would otherwise put "Start the engine"
+  // back over "The engine did not start" within a tick (#1608's second gate pass).
+  const startFailed = Boolean(error && error.startFailed)
+    || Boolean(!http && jobsPage.failure && jobsPage.failure.startFailed);
+  jobsPage.failure = { from, http, message: (error && error.message) || "no answer",
+    startFailed };
   if (currentViewName() === "jobs") renderJobs();
 }
 
