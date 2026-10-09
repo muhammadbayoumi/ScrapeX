@@ -584,3 +584,29 @@ def test_the_run_menu_reads_his_switch_from_the_warehouse_it_lives_in(conn, tmp_
     assert all("switched off" in reason for reason in reasons)
     assert not any("sources.yaml" in reason for reason in reasons), (
         "the switch he flipped is his own, in the warehouse, not the manifest's")
+
+
+def test_a_schedule_no_registry_knows_is_spent_and_the_rest_still_fire(conn, tmp_path):
+    """#1609. The engine hands `fire_due` a `SourceResolver`, whose `UnknownSource` is a
+    `LookupError` and not a `KeyError`. A schedule for a key that neither the manifest
+    nor `source_site` names -- a scheduled source removed from `sources.yaml` before its
+    first crawl -- raised out of `fire_due` on every tick, and the worker then skipped
+    `_dispatch`: no job started at all. Now the slot is re-armed without firing, and
+    every other due schedule fires on the same tick."""
+    from scrapex.sourceresolver import SourceResolver
+
+    gone = "GONE_C"
+    resolver = SourceResolver(
+        MANIFEST, lambda: EngineDatabase(tmp_path / "scrapex-engine.db").connect())
+    _due(conn, gone)
+    _due(conn, SHOP)
+
+    queued = fire_due(conn, manifest=resolver)
+
+    assert [job["source_keys"] for job in list_jobs(conn)] == [[SHOP]]
+    assert len(queued) == 1
+    row = conn.execute("SELECT next_run_at FROM schedule WHERE source_key = ?",
+                       (gone,)).fetchone()
+    assert row[0] > utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"), (
+        "the unknown source's slot was not spent, so every tick meets it again")
+    assert fire_due(conn, manifest=resolver) == []
