@@ -367,14 +367,17 @@ jobs:
           # (grid_dom collected 20 before the four tests that draw the moved-column
           # card and press the AR|EN toggle landed alongside this.) Raised to 41
           # with the saved-width tests, counted with `collected`, not remembered.
+          # Raised to 50 with the tests that press the set filter, the select
+          # column, the tree toggle, the group band and the header label; and
+          # test_tab_page_dom.py to the 49 it collects, both with `collected`.
           #
           # They are named because the plan that moves the source page into the
           # extension proves steps 1, 3 and 4 through these two files and no
           # others, and its own argument for them is that the Data page already
           # shipped BROKEN once with 2,460 engine and 398 extension tests green
           # on it. A gate defending against that must not be the loosest one.
-          test "$(collected tests/test_grid_dom.py)" -ge 41
-          test "$(collected tests/test_tab_page_dom.py)" -ge 10
+          test "$(collected tests/test_grid_dom.py)" -ge 50
+          test "$(collected tests/test_tab_page_dom.py)" -ge 49
           # The grid's renderer is held to its contract by this file alone, with
           # grid.js out of the way, so it gets the same kind of floor. Counted
           # with the `collected` above, not remembered: 78.

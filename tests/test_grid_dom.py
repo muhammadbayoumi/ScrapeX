@@ -1010,3 +1010,183 @@ def test_tabulators_old_layout_keys_are_not_read_as_widths(page_factory, value):
         assert page.evaluate(f"() => localStorage.getItem({WIDTHS_KEY!r})") is None
     finally:
         context.close()
+
+
+# ---- the set filter, pressed the way he presses it ---------------------------
+#
+# Every filter test above calls setFilter() itself, so the path the owner takes
+# -- the header's filter button, the popup's boxes, Apply -- had no test, and
+# applyFilters() could read the stored field instead of what the cell shows and
+# stay green. These open the real popup and read the table and the chip after.
+
+def _filter_down_to(page, field, keep):
+    """Open `field`'s set filter, untick everything, tick `keep`, press Apply."""
+    page.click(f'#grid .dg-col[data-field="{field}"] .dg-header-button.dg-header-filter')
+    page.wait_for_selector(".setfilter", state="visible", timeout=3000)
+    page.locator(".setfilter-row.strong").click()          # (Select all) -> none
+    assert page.locator(".setfilter .setfilter-count").inner_text() == (
+        "0 of " + str(page.locator(".setfilter-row:not(.strong)").count()) + " selected")
+    page.locator(".setfilter-row:not(.strong)", has_text=keep).click()
+    page.locator(".setfilter-actions button", has_text="Apply").click()
+    page.wait_for_selector(".setfilter", state="detached", timeout=3000)
+
+
+def _shown_and_chips(page):
+    return page.evaluate("""() => [
+        ScrapeXDataGrid.find('#grid').getData('active').map(r => r.offer_id).sort(),
+        [...document.querySelectorAll('#grid-chips .chip.pill')].map(c => c.textContent),
+    ]""")
+
+
+def test_the_set_filter_matches_the_country_name_the_cell_shows(page):
+    """Country's field holds "EG"; the popup lists "Egypt", so Apply must match it."""
+    _filter_down_to(page, "country_code_alpha2", "Egypt")
+    shown, chips = _shown_and_chips(page)
+    assert shown == [2], f"ticking Egypt kept {shown}"
+    assert chips == ["Country code: is Egypt"], chips
+    assert page.evaluate(
+        "() => document.querySelector('.grid-footer-summary').textContent"
+    ).replace(" ", "").startswith("TotalRows:1")
+
+
+def test_the_set_filter_matches_a_padded_value_by_its_collapsed_entry(page_factory):
+    """"  AKS  " and "AKS" are one entry in the list, so one tick keeps both rows."""
+    payload = _payload()
+    payload["rows"].append(dict(payload["rows"][1], product_name="Padded brand row",
+                                brand="  AKS  ", offer_id=5, sku="SKU5"))
+    payload["total"] = payload["returned"] = len(payload["rows"])
+    page, context = page_factory(payload)
+    try:
+        _filter_down_to(page, "brand", "AKS")
+        assert page.locator(".setfilter").count() == 0
+        shown, chips = _shown_and_chips(page)
+        assert shown == [2, 5], f"the padded AKS row was dropped: {shown}"
+        assert chips == ["Brand: is AKS"], chips
+        stored = page.evaluate(
+            "() => ScrapeXDataGrid.find('#grid').getData('active').map(r => r.brand).sort()")
+        assert stored == ["  AKS  ", "AKS"], "the filter altered the stored value"
+    finally:
+        context.close()
+
+
+def test_the_set_filter_matches_a_numeric_column_as_text(page):
+    """Every value in the popup is text; Observations holds numbers. 2 keeps two rows."""
+    _filter_down_to(page, "observations", "2")
+    shown, chips = _shown_and_chips(page)
+    assert shown == [2, 4], f"ticking 2 kept {shown}"
+    assert chips == ["Observations: is 2"], chips
+
+
+def test_the_set_filters_search_ignores_case_and_narrows_the_choice(page):
+    """The popup's own search box: mixed case finds the name, and Apply keeps it.
+
+    grid.js has no "contains" text box of its own -- `active` only ever receives
+    `{values}` from this popup (grid.js:643), so its `type: "like"` branch at
+    :434 is reached by no control. This search box is the text the owner types.
+    """
+    page.click('#grid .dg-col[data-field="country_code_alpha2"] .dg-header-filter')
+    page.wait_for_selector(".setfilter", state="visible", timeout=3000)
+    page.fill(".setfilter input[type=search]", "sAUdi")
+    listed = page.locator(".setfilter-row:not(.strong)").all_inner_texts()
+    assert listed == ["Saudi Arabia"], listed
+    page.locator(".setfilter-row:not(.strong)", has_text="Saudi Arabia").click()
+    page.locator(".setfilter-actions button", has_text="Apply").click()
+    page.wait_for_selector(".setfilter", state="detached", timeout=3000)
+    shown, chips = _shown_and_chips(page)
+    assert shown == [1], shown
+    assert chips == ["Country code: is Saudi Arabia"], chips
+
+
+# ---- the arrow column has no filter and no menu ------------------------------
+
+def test_the_product_link_column_has_no_header_buttons(page_factory):
+    payload = _payload()
+    for i, row in enumerate(payload["rows"]):
+        row["product_link"] = f"https://example.test/p/{i}"
+    payload["columns"].append({"key": "product_link", "label": ""})
+    page, context = page_factory(payload)
+    try:
+        header = page.locator('#grid .dg-col[data-field="product_link"]')
+        assert header.count() == 1, "the product_link column was not drawn"
+        assert header.locator(".dg-header-button").count() == 0, (
+            "the arrow column offers a filter or a menu: " + header.inner_html())
+        # the control: an ordinary column next to it does carry both
+        assert page.locator(
+            '#grid .dg-col[data-field="brand"] .dg-header-button').count() == 2
+    finally:
+        context.close()
+
+
+# ---- the selection column ---------------------------------------------------
+
+def test_the_select_column_is_a_narrow_fixed_select_all_box(page):
+    header = page.locator('#grid .dg-col[data-field="__select"]')
+    assert header.count() == 1, "row selection is on by default and drew no column"
+    width = header.evaluate("el => el.getBoundingClientRect().width")
+    assert abs(width - 44) <= 1, f"the select column is {width}px wide, not 44"
+    assert header.locator(".dg-resize-handle").count() == 0
+    box = header.locator("input[type=checkbox]")
+    assert box.count() == 1, "the select column's header holds no select-all box"
+
+    box.click()
+    page.wait_for_function(
+        "() => ScrapeXDataGrid.find('#grid').getSelectedRows().length === 4", timeout=3000)
+    footer = page.evaluate(
+        "() => document.querySelector('.grid-footer-summary').textContent")
+    assert "Selected:4" in footer.replace(" ", ""), footer
+    ticked = page.evaluate("""() => [...document.querySelectorAll(
+        '#grid .dg-body .dg-row .dg-select')].map(b => b.checked)""")
+    assert ticked == [True] * 4, ticked
+
+
+# ---- nesting and grouping say where and how many -----------------------------
+
+def _tree_toggle_fields(page):
+    return page.evaluate("""() => [...document.querySelectorAll('#grid .dg-tree-toggle')]
+        .map(t => t.closest('.dg-cell').dataset.field)""")
+
+
+def test_the_tree_toggle_sits_in_the_nested_by_column(page):
+    """Nested by Brand, the toggle is in Brand's cell, not the first column's."""
+    _menu_item(page, "brand", "^Nest rows by this column")
+    page.wait_for_function(
+        "() => document.querySelector('#grid .dg-tree-toggle') !== null", timeout=5000)
+    assert _tree_toggle_fields(page) == ["brand"]
+
+    # Drag Price to the front: the first column changes, the toggle must not.
+    header = page.locator('#grid .dg-col[data-field="price"] .grid-header-label')
+    first = page.locator('#grid .dg-col[data-field="product_name"]')
+    src, dst = header.bounding_box(), first.bounding_box()
+    page.mouse.move(src["x"] + 3, src["y"] + src["height"] / 2)
+    page.mouse.down()
+    page.mouse.move(dst["x"] + 40, dst["y"] + dst["height"] / 2, steps=6)
+    page.mouse.move(dst["x"] + 4, dst["y"] + dst["height"] / 2, steps=6)
+    page.mouse.up()
+    page.wait_for_function("""() => {
+        const cols = [...document.querySelectorAll('#grid .dg-col[data-field]')]
+          .map(c => c.dataset.field).filter(f => !f.startsWith('__'));
+        return cols[0] === 'price';
+    }""", timeout=3000)
+    assert _tree_toggle_fields(page) == ["brand"]
+
+
+def test_a_group_band_ends_with_its_count(page):
+    _menu_item(page, "observations", "^Group by")
+    page.wait_for_function(
+        "() => document.querySelectorAll('#grid .dg-group').length > 0", timeout=5000)
+    bands = page.evaluate(
+        "() => [...document.querySelectorAll('#grid .dg-group')].map(g => g.textContent.trim())")
+    assert sorted(bands) == ["1 (2)", "2 (2)"], bands
+
+
+# ---- every header is drawn through the one label -----------------------------
+
+def test_a_header_carries_the_grid_header_label(page):
+    labels = page.evaluate("""() => Object.fromEntries(
+        [...document.querySelectorAll('#grid .dg-col[data-field]')]
+          .filter(c => !c.dataset.field.startsWith('__'))
+          .map(c => [c.dataset.field,
+                     (c.querySelector('.grid-header-label') || {}).textContent ?? null]))""")
+    assert labels["brand"] == "Brand", labels
+    assert labels["country_code_alpha2"] == "Country code", labels
+    assert all(v is not None for v in labels.values()), labels
