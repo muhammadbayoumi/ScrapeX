@@ -2312,6 +2312,18 @@ def create_app(
 
     @app.post("/api/sources")
     def api_add_source(body: dict):
+        # HIS PER-SOURCE CHOICES ARE NOT WRITTEN BY ADDING A SOURCE (#1584), for the
+        # reason /edit refuses them: they live in the warehouse, and a second writer
+        # for one field is how the copies drifted. Only `active: false` passes -- what
+        # the add form has always sent, and a new source's default anyway.
+        theirs = sorted(field for field in set(body or {}) & set(source_settings.FIELDS)
+                        if not (field == "active" and body[field] is False))
+        if theirs:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{', '.join(theirs)} are your per-source choices and are saved "
+                       "in the warehouse: add the source first, then choose them in "
+                       "its editor")
         try:
             entry = _entry_from_form(body or {})
         except (ValueError, KeyError) as exc:

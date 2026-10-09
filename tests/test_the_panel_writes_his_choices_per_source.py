@@ -18,12 +18,14 @@ deletes that file at exit, so a choice written there did not survive a restart).
 from __future__ import annotations
 
 import sqlite3
+import threading
 
 import httpx
 import pytest
 import yaml
 from fastapi.testclient import TestClient
 
+from scrapex import db as dbmod
 from scrapex import sourceboard
 from scrapex.databases.domain import EngineDatabase
 from scrapex.webui.app import create_app
@@ -49,19 +51,26 @@ class _ShippedShape(yaml.SafeDumper):
         return super().increase_indent(flow, False)
 
 
-@pytest.fixture()
-def engine(tmp_path):
-    """A warehouse with NO `source_site` rows -- every source here is one he has
-    never crawled -- and a manifest of its own, whose bytes the tests compare."""
+def _warehouse_and_manifest(tmp_path, entries: list[dict]):
+    """A warehouse on the real schema and a manifest of these entries, not yet served."""
     database = tmp_path / "scrapex-engine.db"
     EngineDatabase(database).initialize()
     manifest = tmp_path / "sources.yaml"
     # Shaped as the shipped file is -- `  - source_key:` opening each block, keys in the
     # order written -- because the manifest editor finds a source's block by that line.
-    manifest.write_text(yaml.dump({"sources": [
+    manifest.write_text(yaml.dump({"sources": entries}, Dumper=_ShippedShape,
+                                  sort_keys=False), encoding="utf-8")
+    return database, manifest
+
+
+@pytest.fixture()
+def engine(tmp_path):
+    """A warehouse with NO `source_site` rows -- every source here is one he has
+    never crawled -- and a manifest of its own, whose bytes the tests compare."""
+    database, manifest = _warehouse_and_manifest(tmp_path, [
         _entry(SHOP, robots="obey", crawl_pace_s=3.0),
         _entry(ZIDDY, active=True, user_agent="ShippedAgent/1.0"),
-    ]}, Dumper=_ShippedShape, sort_keys=False), encoding="utf-8")
+    ])
     client = TestClient(create_app(db_path=str(database), manifest_path=str(manifest)))
     return client, database, manifest
 
@@ -371,3 +380,130 @@ def test_a_directory_card_carries_no_automation_switch(engine):
     assert listed[DIRECTORY]["kind"] == "directory"
     assert "active" not in listed[DIRECTORY]
     assert "active" in listed[SHOP], "a price source keeps its switch"
+
+
+# ---- adding a source writes no choice of his (#1584) ------------------------------------
+
+def _new_source(**fields) -> dict:
+    return {"source_key": "NEW_SHOP", "source_name": "New", "base_url": "https://new.test",
+            "family": "custom-json-api", "currency": "SAR", "kind": "product_prices",
+            "scope": "census", **fields}
+
+
+@pytest.mark.parametrize("field, value", [
+    ("active", True), ("active", "false"), ("active", None), ("robots", "obey"),
+    ("robots_custom", {"enforce_disallow": True, "crawl_delay_s": 2}),
+    ("user_agent", "Mine/1.0"), ("crawl_pace_s", 4.0),
+])
+def test_adding_a_source_refuses_his_per_source_choices_by_name(engine, field, value):
+    """The same one writer per field as /edit: they are chosen in the editor, into the
+    warehouse. Only `active` exactly false passes -- not "false", not null."""
+    client, database, manifest = engine
+    before = manifest.read_bytes()
+
+    answer = client.post("/api/sources", json=_new_source(**{field: value}))
+
+    assert answer.status_code == 400, answer.text
+    assert field in answer.json()["detail"]
+    assert manifest.read_bytes() == before, "a refused add wrote the manifest"
+    assert _lifecycle(database, "NEW_SHOP") is None
+
+
+@pytest.mark.parametrize("extra", [{"active": False}, {}])
+def test_adding_a_source_off_or_saying_nothing_is_added_off(engine, extra):
+    """`active: false` is what the panel's add form sends; saying nothing is the same."""
+    client, _, manifest = engine
+
+    answer = client.post("/api/sources", json=_new_source(**extra))
+
+    assert answer.status_code == 200, answer.text
+    shipped = yaml.safe_load(manifest.read_text(encoding="utf-8"))["sources"]
+    assert [entry.get("active", False) for entry in shipped
+            if entry["source_key"] == "NEW_SHOP"] == [False]
+    assert _fields(client, "NEW_SHOP")["active"] == {
+        "value": False, "shipped": False, "origin": "source"}
+
+
+def test_the_manage_page_offers_no_switch_when_adding(engine):
+    """Its "Active now" box sent `active`, which adding refuses; the editor sets it."""
+    client, _, _ = engine
+
+    page = client.get("/manage")
+
+    assert page.status_code == 200
+    assert 'name="active"' not in page.text
+    assert "Active now" not in page.text
+
+
+# ---- one writer: a crawl holding the lock makes a choice wait, never half-write ---------
+
+@pytest.mark.parametrize("route, body", [
+    ("rules", {"crawl_pace_s": 5}), ("active", {"active": True}),
+])
+def test_a_choice_made_while_a_crawl_writes_is_refused_and_stores_nothing(
+        engine, monkeypatch, route, body):
+    client, database, manifest = engine
+    held, release = threading.Event(), threading.Event()
+    real_lock = dbmod.write_lock
+
+    def crawl():
+        with real_lock(str(database)):
+            held.set()
+            release.wait(30)
+
+    # The engine waits half a second, not the ten it gives a real crawl to finish.
+    monkeypatch.setattr(dbmod, "write_lock",
+                        lambda path, timeout_s=0.5: real_lock(path, timeout_s=0.5))
+    holder = threading.Thread(target=crawl)
+    holder.start()
+    assert held.wait(10)
+    try:
+        answer = client.post(f"/api/sources/{SHOP}/{route}", json=body)
+    finally:
+        release.set()
+        holder.join()
+
+    assert answer.status_code == 409, answer.text
+    with sqlite3.connect(database) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM source_setting").fetchone()[0] == 0
+    assert _lifecycle(database, SHOP) is None
+    assert _fields(client, SHOP)["crawl_pace_s"]["origin"] == "source"
+    assert _fields(client, SHOP)["active"]["origin"] == "source"
+
+
+# ---- startup brings lifecycle in line with what the engine's manifest ships -------------
+
+def test_startup_switches_on_a_registered_source_its_manifest_ships_on(tmp_path):
+    """A row registered as `draft` before this engine started, for a source its own
+    manifest ships `active: true`: the engine reconciles at startup, not at first save."""
+    database, manifest = _warehouse_and_manifest(tmp_path, [_entry(ZIDDY, active=True)])
+    with sqlite3.connect(database) as conn:
+        conn.execute("INSERT INTO source_site (source_key, lifecycle) VALUES (?, 'draft')",
+                     (ZIDDY,))
+
+    TestClient(create_app(db_path=str(database), manifest_path=str(manifest)))
+
+    assert _lifecycle(database, ZIDDY) == "active"
+
+
+# ---- what clearing returns to, and the general rule, are answered as stored ------------
+
+def test_the_shipped_values_and_the_general_rule_are_answered_beside_his_choice(tmp_path):
+    """Under his choice the answer still carries what the source ships -- the custom
+    rule included -- since that is what Clear returns to and what the panel says."""
+    database, manifest = _warehouse_and_manifest(tmp_path, [_entry(
+        SHOP, robots="custom", robots_custom={"enforce_disallow": True, "crawl_delay_s": 2},
+        crawl_pace_s=3.0)])
+    client = TestClient(create_app(db_path=str(database), manifest_path=str(manifest)))
+    assert client.post("/api/settings", json={"crawl_obey_disallow": 1}).status_code == 200
+
+    answer = client.post(f"/api/sources/{SHOP}/rules",
+                         json={"robots": "obey", "crawl_pace_s": 9}).json()
+
+    assert answer["general"]["obey_disallow"] is True
+    pace, robots = answer["fields"]["crawl_pace_s"], answer["fields"]["robots"]
+    assert (pace["value"], pace["shipped"], pace["origin"]) == (9.0, 3.0, "choice")
+    assert (robots["value"], robots["shipped"], robots["origin"]) == ("obey", "custom", "choice")
+    assert robots["shipped_custom"] == {"enforce_disallow": True, "crawl_delay_s": 2.0}
+    assert client.get(f"/api/sources/{SHOP}/rules").json() == {
+        key: value for key, value in answer.items() if key != "warehouse_updated"}

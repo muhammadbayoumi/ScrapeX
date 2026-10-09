@@ -58,9 +58,6 @@
       </div>
       <div class="field"><label>Materials (optional, comma separated)</label><input name="materials" placeholder="DIESEL, GASOLINE"></div>
       <div class="field"><label>Regions (optional, comma separated)</label><input name="regions" placeholder="SA, EG"></div>
-      <div class="field field-inline">
-        <input type="checkbox" name="active" id="active"><label for="active">Active now</label>
-      </div>
     </div>
     <button id="add-btn" type="submit">Add source</button>
     <span id="add-result" class="ms-3"></span>
@@ -99,7 +96,6 @@ $("#probe-btn").addEventListener("click", async () => {
     if(!res.ok){ ev.innerHTML = `<span class="err">${r.detail||"Test failed"}</span>`; return; }
     const s = r.suggested;
     for(const k of ["source_key","source_name","source_name_ar","base_url","family","currency","default_region","vat_mode","cadence","authority","fetcher","kind","scope"]) setField(k, s[k]);
-    $("#active").checked = !!s.active;
     const cls = r.implemented ? "ok" : "err";
     ev.innerHTML = `<div class="${cls}">Family: <b>${r.family}</b> — ${r.notes}</div>` +
       r.evidence.map(e => `<div class="ev">• ${e}</div>`).join("");
