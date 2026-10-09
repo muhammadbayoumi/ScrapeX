@@ -7074,13 +7074,7 @@ async function loadSchedules() {
                 <option value="skip" ${sched.missed_run_policy === "skip" ? "selected" : ""}>Skip that slot</option>
               </select>
             </div>
-            <div class="fieldset">
-              <label>If the previous run is still going</label>
-              <select data-role="overlap" aria-label="Overlap policy">
-                <option value="queue" ${(sched.overlap_policy || "queue") === "queue" ? "selected" : ""}>Queue behind it</option>
-                <option value="skip" ${sched.overlap_policy === "skip" ? "selected" : ""}>Skip this one</option>
-              </select>
-            </div>
+            <p class="hint" data-role="skip-note">If a run is still going, this slot is skipped and logged.</p>
           </div>
           <label class="check"><input type="checkbox" data-role="enabled"
                  ${paused ? "" : "checked"}>
@@ -7113,7 +7107,9 @@ async function loadSchedules() {
             timezone: row.querySelector('[data-role="tz"]').value.trim() || "UTC",
             run_mode: row.querySelector('[data-role="mode"]').value,
             missed_run_policy: row.querySelector('[data-role="missed"]').value,
-            overlap_policy: row.querySelector('[data-role="overlap"]').value,
+            // NOT A CHOICE ANY MORE (#1596): an engine with `scheduled_skips` skips a
+            // busy slot whatever this says, and an older one skips it because of it.
+            overlap_policy: "skip",
             enabled: row.querySelector('[data-role="enabled"]').checked,
           };
           if (freq.value === "weekly") body.weekday = Number(weekday.value);

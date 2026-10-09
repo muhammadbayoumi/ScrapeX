@@ -1087,7 +1087,7 @@ def _cmd_run_due(args) -> int:
         start is not optional once something has been queued.
     """
     from . import native
-    from .scheduler import fire_due
+    from .scheduler import due_schedules, fire_due
 
     _bind_log_streams()
     port = int(getattr(args, "port", None) or native.DEFAULT_ENGINE_PORT)
@@ -1103,19 +1103,24 @@ def _cmd_run_due(args) -> int:
     if not Path(db_path).exists():
         print(f"no database at {db_path} — nothing to fire", file=sys.stderr)
         return 1
+    conn = dbmod.connect(db_path)
     try:
+        # ANOTHER APP WRITING AT THE SLOT SKIPS IT (#1596, ruling D5), as in the
+        # engine's loop: what is due now is remembered, and written as a skip once
+        # this process has the lock. If the wait runs out nothing is written, and
+        # the next tick finds the slot overdue and applies its missed-run policy.
+        held_out = ({s["schedule_id"]: s["next_run_at"] for s in due_schedules(conn)}
+                    if dbmod.write_lock_holder(db_path) is not None else {})
         with dbmod.write_lock(db_path, timeout_s=RUN_DUE_LOCK_TIMEOUT_S):
-            conn = dbmod.connect(db_path)
-            try:
-                fired = fire_due(conn, manifest=load_manifest())
-            finally:
-                conn.close()
+            fired = fire_due(conn, manifest=load_manifest(), held_out=held_out)
     except dbmod.DbLockedError as exc:
         # Contention is a NORMAL state for something on a clock: another scrapex
         # is mid-write, and whatever is due stays due for the next tick. Exiting
         # non-zero would paint the task red in taskschd.msc over nothing.
         print(f"skipped this tick — {exc}")
         return 0
+    finally:
+        conn.close()
     if not fired:
         print("no schedules were due")
         return 0

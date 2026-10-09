@@ -73,7 +73,7 @@ from enum import StrEnum
 # The release stamp. Bump it for a functional, architectural or behavioural
 # change (issue 32 section 1.1), and regenerate the baseline + CHANGELOG in the
 # same commit: python -m scrapex.cli export-version
-VERSION = "0.4.57"
+VERSION = "0.4.58"
 
 #: Whether ScrapeX has been published to anybody but its owner.
 #:
@@ -277,6 +277,23 @@ CAPABILITIES: tuple[Capability, ...] = (
         # The commit that built the routes and the editor. A squash merge does not
         # keep it: if this lands that way, cite the merge commit instead.
         commit="9102a10a",
+    ),
+    Capability(
+        key="scheduled_skips",
+        # #1596 step A: a scheduled firing whose source is busy, or that finds another
+        # app holding the write lock, is written as a finished `skipped` job instead of
+        # queueing. A panel older than 0.3.8 does not know that status and treats it as
+        # unfinished -- offering Pause and Cancel on it, and the mini-player adopting
+        # it -- so the floor rises to the extension that draws it and drops the
+        # overlap choice the engine no longer reads.
+        since="0.3.8",
+        summary="A scheduled run whose source is still running, or that finds another "
+                "app writing to the warehouse, is skipped and logged as a job instead "
+                "of waiting in a queue.",
+        surfaces=(Surface.PANEL, Surface.ENGINE),
+        panel_control="skip-note",
+        settings=(),
+        commit="a4851c16",
     ),
 )
 

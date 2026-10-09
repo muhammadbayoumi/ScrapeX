@@ -25,7 +25,7 @@
     <div>
       <span class="schedules-eyebrow">Automation</span>
       <h1>Schedules</h1>
-      <p>Choose when each source runs and how ScrapeX should handle missed or overlapping work.</p>
+      <p>Choose when each source runs and what happens to a slot the engine missed.</p>
     </div>
     <div class="schedule-metrics" aria-label="Schedule summary">
       <div class="schedule-metric"><strong id="schedule-metric-scheduled">{{ totals.scheduled }}</strong><span>Scheduled</span></div>
@@ -183,13 +183,7 @@
                   <option value="skip" {% if s.missed_run_policy == "skip" %}selected{% endif %}>Skip that slot</option>
                 </select>
               </label>
-              <label class="schedule-field">
-                <span>When the previous run overlaps</span>
-                <select data-role="overlap" aria-label="Overlap policy for {{ r.source_name }}">
-                  <option value="queue" {% if (s.overlap_policy or "queue") == "queue" %}selected{% endif %}>Queue behind it</option>
-                  <option value="skip" {% if s.overlap_policy == "skip" %}selected{% endif %}>Skip this run</option>
-                </select>
-              </label>
+              <p class="schedule-field" data-role="skip-note">If a run is still going, this slot is skipped and logged.</p>
             </div>
           </div>
         </details>
@@ -256,8 +250,7 @@
       pick(row, "weekday-field").hidden = pick(row, "freq").value !== "weekly";
       pick(row, "time").disabled = manual;
       pick(row, "behavior-summary").textContent = [
-        chosenText(pick(row, "mode")), chosenText(pick(row, "missed")),
-        chosenText(pick(row, "overlap"))].join(" · ");
+        chosenText(pick(row, "mode")), chosenText(pick(row, "missed"))].join(" · ");
     }
     function syncState(row) {
       const state = scheduleState(row);
@@ -306,7 +299,7 @@
     rows.forEach((row) => {
       if (!pick(row, "tz").value) pick(row, "tz").value = zone;
       syncControls(row);
-      ["freq", "weekday", "time", "tz", "mode", "missed", "overlap", "enabled"]
+      ["freq", "weekday", "time", "tz", "mode", "missed", "enabled"]
         .forEach((role) => pick(row, role).addEventListener("change", () => markDirty(row)));
       pick(row, "tz").addEventListener("input", () => markDirty(row));
 
@@ -322,7 +315,7 @@
             timezone: pick(row, "tz").value.trim() || "UTC",
             run_mode: pick(row, "mode").value,
             missed_run_policy: pick(row, "missed").value,
-            overlap_policy: pick(row, "overlap").value,
+            overlap_policy: "skip",   // not a choice any more (#1596)
             enabled: pick(row, "enabled").checked,
           };
           if (body.frequency === "weekly") body.weekday = Number(pick(row, "weekday").value);

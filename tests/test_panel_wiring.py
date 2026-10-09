@@ -283,8 +283,15 @@ def test_the_schedules_section_is_an_editor_not_a_list():
     # FULL control (owner's ruling: this section is THE central place for
     # scheduling) — every knob the schedule model has must be present.
     for role in ("freq", "weekday", "time", "save", "tz", "mode",
-                 "missed", "overlap", "enabled"):
+                 "missed", "enabled"):
         assert f'data-role="{role}"' in JS, f"the {role} control is missing"
+    # NO OVERLAP CHOICE ANY MORE (#1596): a busy slot is skipped and logged whatever
+    # the stored policy says, so a select offering "Queue behind it" would be a
+    # control that changes nothing. One line says what happens instead, and the save
+    # still sends `skip`, so an engine older than that change skips too.
+    assert 'data-role="overlap"' not in JS, "the panel still offers an overlap choice"
+    assert "If a run is still going, this slot is skipped and logged." in JS
+    assert 'overlap_policy: "skip"' in JS
     # The scheduler fires only ACTIVE sources; a schedule that will not fire
     # must say so on its own row.
     assert "Auto is off for this site" in JS

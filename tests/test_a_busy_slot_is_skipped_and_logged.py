@@ -1,0 +1,391 @@
+"""A scheduled firing that finds its source busy is skipped, and says so (#1596, step A).
+
+His rulings on #1596: a run that comes due while the same source is already running, or
+while another app holds the warehouse's write lock, is skipped. A finished `skipped` job
+records why, naming the run that blocked it, and the schedule fires again at its next
+slot. It never waits in a queue, whatever the stored `overlap_policy` says (D2), and a
+PAUSED directory run counts as busy while a paused price run does not (D3). A skip
+decided while another app holds the lock is written once the lock is free (D5).
+
+Every row is written into the real schema (`dbmod.migrate`).
+"""
+from __future__ import annotations
+
+import subprocess
+import sys
+import threading
+import time
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+
+import pytest
+
+from scrapex import cli, jobs, native
+from scrapex import db as dbmod
+from scrapex.config import SourceEntry
+from scrapex.jobs import JobRunner, create_job, list_jobs
+from scrapex.scheduler import (
+    LOCK_HELD_REASON,
+    fire_due,
+    get_schedule,
+    upsert_schedule,
+    utcnow,
+)
+from scrapex.vocab import JobStatus, MissedRunPolicy, OverlapPolicy
+
+SHOP = "SHOP"
+ISO = "%Y-%m-%dT%H:%M:%SZ"
+
+
+def utc(y, m, d, hh=0, mm=0) -> datetime:
+    return datetime(y, m, d, hh, mm, tzinfo=UTC)
+
+
+class _Manifest:
+    """Every source active: `active` gating is `fire_due`'s own test elsewhere."""
+
+    def get(self, key):
+        return SourceEntry.model_validate({
+            "source_key": key, "source_name": key, "base_url": "https://source.test",
+            "family": "custom-json-api", "active": True,
+            "extract": [{"kind": "product_prices"}]})
+
+
+class _NoSuchSource:
+    """A resolver that knows no source, as `SourceResolver` answers one (#1609)."""
+
+    def get(self, key):
+        raise LookupError(key)
+
+
+@pytest.fixture()
+def conn():
+    c = dbmod.connect(":memory:")
+    dbmod.migrate(c)
+    yield c
+    c.close()
+
+
+def _skips(conn) -> list[dict]:
+    return [job for job in list_jobs(conn, limit=100)
+            if job["status"] == JobStatus.SKIPPED.value]
+
+
+def _queued(conn) -> list[dict]:
+    return [job for job in list_jobs(conn, limit=100)
+            if job["status"] == JobStatus.QUEUED.value]
+
+
+def _daily(conn, policy: str = OverlapPolicy.QUEUE.value) -> None:
+    upsert_schedule(conn, SHOP, frequency="daily", run_at="09:00",
+                    overlap_policy=policy, now=utc(2026, 7, 20, 8, 0))
+
+
+# ---- a busy source -----------------------------------------------------------
+
+@pytest.mark.parametrize("policy", [OverlapPolicy.QUEUE.value, OverlapPolicy.SKIP.value])
+@pytest.mark.parametrize("status", [JobStatus.QUEUED, JobStatus.RUNNING, JobStatus.PAUSING])
+def test_a_busy_source_is_skipped_once_names_its_blocker_and_rearms(conn, policy, status):
+    """D2: `queue` -- the default every schedule he saved without touching it carries --
+    skips now too. Exactly one finished row, its reason naming the job in the way, the
+    slot re-armed to tomorrow, and nothing queued behind the running job."""
+    blocker = create_job(conn, [SHOP])
+    conn.execute("UPDATE crawl_job SET status = ? WHERE job_ref = ?", (status.value, blocker))
+    conn.commit()
+    _daily(conn, policy)
+
+    assert fire_due(conn, utc(2026, 7, 20, 9, 0)) == [], "a skip is not a queued job"
+
+    skips = _skips(conn)
+    assert len(skips) == 1, skips
+    skip = skips[0]
+    assert skip["error_summary"] == f"skipped: a run is in progress ({blocker})"
+    assert skip["finished_at"], "a skip is written finished"
+    assert skip["source_keys"] == [SHOP]
+    assert skip["job_kind"] == "crawl" and skip["run_mode"] == "update", (
+        "the skip must carry the kind and mode the firing would have had")
+    assert [j["job_ref"] for j in _queued(conn)] == (
+        [blocker] if status == JobStatus.QUEUED else []), "a second run was queued"
+    assert len(list_jobs(conn, active_only=True)) == 1, "a second run was lined up"
+    assert get_schedule(conn, SHOP)["next_run_at"] == "2026-07-21T09:00:00Z"
+    assert get_schedule(conn, SHOP)["last_run_at"] is None, "it did not run"
+    log = jobs.job_logs(conn, skip["job_ref"])
+    assert any(row["message"] == skip["error_summary"] for row in log), (
+        "the reason is not in the job's log, where the Logs page reads it")
+
+
+def test_two_ticks_on_a_busy_source_leave_one_row(conn):
+    """The worker asks twice a second. Only the tick that met the slot writes a row."""
+    create_job(conn, [SHOP])
+    _daily(conn)
+
+    fire_due(conn, utc(2026, 7, 20, 9, 0))
+    fire_due(conn, utc(2026, 7, 20, 9, 0) + timedelta(seconds=1))
+
+    assert len(_skips(conn)) == 1
+
+
+def test_a_skip_does_not_block_the_next_slot(conn):
+    """`skipped` is not in `BLOCKING_JOB_STATUSES`: once the run in the way is over, the
+    next slot fires, and the skip row before it stands in nobody's way."""
+    blocker = create_job(conn, [SHOP])
+    _daily(conn)
+    fire_due(conn, utc(2026, 7, 20, 9, 0))
+    jobs._finish(conn, jobs.get_job(conn, blocker)["job_id"], JobStatus.COMPLETED, None)
+
+    assert len(fire_due(conn, utc(2026, 7, 21, 9, 0))) == 1
+
+
+@pytest.mark.parametrize("kind", ["directory_crawl", "profile_crawl"])
+def test_a_paused_directory_run_blocks_and_says_it_waits_for_him(conn, kind):
+    """D3: a paused directory run is a run waiting for him."""
+    paused = create_job(conn, [SHOP], job_kind=kind, status=JobStatus.PAUSED)
+    _daily(conn)
+
+    assert fire_due(conn, utc(2026, 7, 20, 9, 0)) == []
+
+    skips = _skips(conn)
+    assert [s["error_summary"] for s in skips] == [
+        f"skipped: a paused run is waiting for you ({paused})"]
+
+
+@pytest.mark.parametrize("status", [JobStatus.PAUSED, JobStatus.REQUIRES_REVIEW])
+def test_a_paused_price_run_does_not_block(conn, status):
+    """A paused PRICE run waits on him and never advances alone; counting it would stop
+    the schedule for good. D3 widened the busy set for directories only."""
+    create_job(conn, [SHOP], status=status)
+    _daily(conn)
+
+    assert len(fire_due(conn, utc(2026, 7, 20, 9, 0))) == 1
+    assert _skips(conn) == []
+
+
+def test_another_sources_run_does_not_block(conn):
+    create_job(conn, ["OTHER"])
+    _daily(conn)
+
+    assert len(fire_due(conn, utc(2026, 7, 20, 9, 0))) == 1
+    assert _skips(conn) == []
+
+
+def test_a_schedule_no_registry_knows_is_still_spent_without_a_row(conn):
+    """#1609 holds: a source no registry knows is spent, busy or not, and no skip row is
+    written for a source that was never going to run."""
+    create_job(conn, [SHOP])
+    _daily(conn)
+
+    assert fire_due(conn, utc(2026, 7, 20, 9, 0), manifest=_NoSuchSource()) == []
+
+    assert get_schedule(conn, SHOP)["next_run_at"] == "2026-07-21T09:00:00Z"
+    assert _skips(conn) == []
+
+
+# ---- a slot another app held out --------------------------------------------
+
+@pytest.mark.parametrize("missed", [MissedRunPolicy.RUN_WHEN_AVAILABLE.value,
+                                    MissedRunPolicy.SKIP.value])
+def test_a_held_out_slot_is_written_as_a_skip_and_the_next_slot_fires(conn, missed):
+    """D5: decided at the slot, written when the lock frees. A long hold is still a
+    skip, not a missed slot: the row is written whatever `missed_run_policy` says."""
+    upsert_schedule(conn, SHOP, frequency="daily", run_at="09:00",
+                    missed_run_policy=missed, now=utc(2026, 7, 20, 8, 0))
+    slot = get_schedule(conn, SHOP)
+    held_out = {slot["schedule_id"]: slot["next_run_at"]}
+
+    assert fire_due(conn, utc(2026, 7, 20, 9, 30), held_out=held_out) == []
+
+    assert [s["error_summary"] for s in _skips(conn)] == [LOCK_HELD_REASON]
+    assert get_schedule(conn, SHOP)["next_run_at"] == "2026-07-21T09:00:00Z"
+    assert len(fire_due(conn, utc(2026, 7, 21, 9, 0), held_out=held_out)) == 1, (
+        "the next slot did not fire: a remembered hold outlived the slot it was for")
+    assert len(_skips(conn)) == 1
+
+
+def test_a_held_out_slot_he_has_since_moved_is_not_skipped(conn):
+    """Matched on the slot, not the schedule: one he re-saved meanwhile is a new slot."""
+    _daily(conn)
+    held_out = {get_schedule(conn, SHOP)["schedule_id"]: "2026-07-19T09:00:00Z"}
+
+    assert len(fire_due(conn, utc(2026, 7, 20, 9, 0), held_out=held_out)) == 1
+    assert _skips(conn) == []
+
+
+# ---- the lock helper ---------------------------------------------------------
+
+@pytest.fixture()
+def other_process():
+    """A live process that is not us, so a lock file can name a real foreign holder."""
+    proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    try:
+        yield proc.pid
+    finally:
+        proc.kill()
+        proc.wait()
+
+
+def _hold_as(db_path: Path, pid: int) -> Path:
+    lock = Path(str(db_path) + ".lock")
+    lock.write_text(f"{pid}:{dbmod._process_started_at(pid)}", encoding="ascii")
+    return lock
+
+
+def test_the_holder_is_another_live_process_or_nobody(tmp_path, other_process):
+    db_path = tmp_path / "w.db"
+    assert dbmod.write_lock_holder(db_path) is None, "no lock file, nobody holds it"
+
+    lock = _hold_as(db_path, other_process)
+    assert dbmod.write_lock_holder(db_path) == other_process
+
+    _hold_as(db_path, dbmod.os.getpid())
+    assert dbmod.write_lock_holder(db_path) is None, "our own pid is not another app"
+    lock.unlink()
+
+    with dbmod.write_lock(db_path):
+        assert dbmod.write_lock_holder(db_path) is None, (
+            "a thread of this runtime holding the lock was taken for another app")
+
+
+def test_a_dead_holders_lock_is_reclaimed_not_reported(tmp_path):
+    db_path = tmp_path / "w.db"
+    proc = subprocess.Popen([sys.executable, "-c", "pass"])
+    proc.wait()
+    lock = Path(str(db_path) + ".lock")
+    lock.write_text(f"{proc.pid}:stale", encoding="ascii")
+
+    assert dbmod.write_lock_holder(db_path) is None
+    assert not lock.exists(), "a dead holder's lock was left to block the next writer"
+
+
+# ---- the engine's loop -------------------------------------------------------
+
+@pytest.fixture()
+def warehouse(tmp_path):
+    path = tmp_path / "w.db"
+    c = dbmod.connect(path)
+    dbmod.migrate(c)
+    upsert_schedule(c, SHOP, frequency="daily", run_at="00:00")
+    c.execute("UPDATE schedule SET next_run_at = ? WHERE source_key = ?",
+              ((utcnow() - timedelta(seconds=30)).strftime(ISO), SHOP))
+    c.commit()
+    yield path, c
+    c.close()
+
+
+def _runner(path) -> JobRunner:
+    return JobRunner(path, manifest_provider=lambda: _Manifest())
+
+
+def test_the_loop_skips_a_slot_another_app_held_and_writes_it_once_free(
+        warehouse, other_process):
+    path, conn = warehouse
+    runner = _runner(path)
+    slot = get_schedule(conn, SHOP)["next_run_at"]
+    lock = _hold_as(path, other_process)
+
+    runner._fire_schedules(conn)
+    runner._fire_schedules(conn)
+
+    assert list_jobs(conn) == [], "a row was written while another app held the lock"
+    assert get_schedule(conn, SHOP)["next_run_at"] == slot, (
+        "the schedule was re-armed while another app held the lock")
+
+    lock.unlink()
+    runner._fire_schedules(conn)
+
+    assert [j["error_summary"] for j in list_jobs(conn)] == [LOCK_HELD_REASON]
+    assert _queued(conn) == [], "the held-out slot ran late instead of being skipped"
+    assert get_schedule(conn, SHOP)["next_run_at"] > slot
+    assert runner._held_out == {}
+
+    conn.execute("UPDATE schedule SET next_run_at = ? WHERE source_key = ?",
+                 ((utcnow() - timedelta(seconds=1)).strftime(ISO), SHOP))
+    conn.commit()
+    runner._fire_schedules(conn)
+    assert len(_queued(conn)) == 1, "the next slot did not fire"
+    assert len(_skips(conn)) == 1
+
+
+def test_our_own_ingest_holding_the_gate_is_waited_for_not_skipped(warehouse):
+    """A job thread of this runtime ingesting under `write_lock` is not another app. The
+    loop waits on the in-process gate and then fires the slot."""
+    path, conn = warehouse
+    runner = _runner(path)
+    holding = threading.Event()
+
+    def ingest():
+        with dbmod.write_lock(path):
+            holding.set()
+            time.sleep(0.5)
+
+    thread = threading.Thread(target=ingest)
+    thread.start()
+    holding.wait(5)
+    runner._fire_schedules(conn)
+    thread.join()
+
+    assert _skips(conn) == [], "our own ingest was taken for another app"
+    assert len(_queued(conn)) == 1
+
+
+def test_the_loop_fires_under_the_write_lock(warehouse, monkeypatch):
+    """The scheduler no longer writes without the lock."""
+    path, conn = warehouse
+    seen: list[bool] = []
+    from scrapex import scheduler
+
+    def spy(c, **kwargs):
+        lock = Path(str(path) + ".lock")
+        seen.append(lock.exists() and int(lock.read_text().split(":")[0]) == dbmod.os.getpid())
+        return []
+
+    monkeypatch.setattr(scheduler, "fire_due", spy)
+    _runner(path)._fire_schedules(conn)
+
+    assert seen == [True]
+
+
+def test_an_idle_loop_does_not_take_the_lock(tmp_path, monkeypatch):
+    """Nothing due, no lock: an engine asking twice a second must not contend with
+    every other writer for nothing."""
+    path = tmp_path / "w.db"
+    c = dbmod.connect(path)
+    dbmod.migrate(c)
+    monkeypatch.setattr(dbmod, "write_lock",
+                        lambda *a, **k: pytest.fail("took the lock with nothing due"))
+    try:
+        _runner(path)._fire_schedules(c)
+    finally:
+        c.close()
+
+
+# ---- run-due -----------------------------------------------------------------
+
+def test_run_due_skips_a_slot_another_app_held_once_it_frees(
+        warehouse, other_process, monkeypatch, capsys):
+    path, conn = warehouse
+    monkeypatch.setattr(native, "_engine_listening", lambda port: False)
+    monkeypatch.setattr(native, "_spawn_engine",
+                        lambda port: pytest.fail("a skip queues nothing to run"))
+    monkeypatch.setattr(cli, "load_manifest", lambda *a, **k: _Manifest())
+    lock = _hold_as(path, other_process)
+    threading.Timer(0.3, lock.unlink).start()
+
+    assert cli.main(["run-due", "--db", str(path)]) == 0
+
+    assert [j["error_summary"] for j in list_jobs(conn)] == [LOCK_HELD_REASON]
+    assert "no schedules were due" in capsys.readouterr().out
+
+
+def test_run_due_writes_nothing_while_the_lock_stays_held(
+        warehouse, other_process, monkeypatch, capsys):
+    path, conn = warehouse
+    monkeypatch.setattr(native, "_engine_listening", lambda port: False)
+    monkeypatch.setattr(native, "_spawn_engine", lambda port: pytest.fail("nothing queued"))
+    monkeypatch.setattr(cli, "load_manifest", lambda *a, **k: _Manifest())
+    monkeypatch.setattr(cli, "RUN_DUE_LOCK_TIMEOUT_S", 0.3)
+    _hold_as(path, other_process)
+
+    assert cli.main(["run-due", "--db", str(path)]) == 0
+
+    assert list_jobs(conn) == []
+    assert "skipped this tick" in capsys.readouterr().out

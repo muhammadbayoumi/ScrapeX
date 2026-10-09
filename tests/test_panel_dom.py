@@ -5385,6 +5385,31 @@ def test_the_raw_utc_stays_reachable_on_every_converted_time(open_panel):
     assert not page.js_errors
 
 
+def test_a_schedule_row_offers_no_overlap_choice_and_saves_skip(open_panel):
+    """#1596 step A. A busy slot is skipped and logged whatever the stored policy says,
+    so the row draws one line saying so instead of a select that would change nothing,
+    and its Save still sends `skip` -- the field an engine older than that change reads,
+    so it skips too, even for a schedule he saved with the old default, `queue`."""
+    page = open_panel(sources=[CLEAN_SITE], schedules=SCHEDULE_SOON)
+    page.click(SETTINGS_TAB)
+    page.click('[data-sect="s-sched"]')
+    page.wait_for_timeout(500)
+    row = page.locator(".sched-row").first
+    row.locator("summary").click()
+
+    assert row.locator('[data-role="overlap"]').count() == 0, "the overlap select is drawn"
+    assert row.locator('[data-role="skip-note"]').inner_text() == (
+        "If a run is still going, this slot is skipped and logged.")
+
+    row.locator('[data-role="save"]').click()
+    page.wait_for_timeout(300)
+    saves = [w for w in page.evaluate("window.__writes")
+             if w["path"].startswith("/api/schedules/")]
+    assert len(saves) == 1, saves
+    assert saves[0]["body"]["overlap_policy"] == "skip", saves[0]["body"]
+    assert not page.js_errors
+
+
 def test_the_zone_is_named_beside_a_time_whose_reading_depends_on_it(open_panel):
     """Spec 33 6.8, in the issue's own shape: "30 July 2026, 11:05 AM — Zone".
 

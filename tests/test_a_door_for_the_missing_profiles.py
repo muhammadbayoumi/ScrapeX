@@ -845,6 +845,38 @@ def test_a_finished_profile_sweep_sets_the_interpret_badge(served):
     assert waiting["interpret"]["interpreted_at"] == "2026-09-06T14:07:16Z"
 
 
+@pytest.mark.parametrize("kind", [directoryjob.JOB_KIND, profilejob.JOB_KIND])
+def test_a_skipped_firing_is_not_a_crawl_that_owes_a_press(served, kind):
+    """A SKIP BOUGHT NO PAGES (#1596). A scheduled firing that did not run is a finished
+    job of the kind it would have had, so its finish time lands after the
+    interpretation's like a crawl's would -- and counted, it would light the badge on a
+    dataset whose pages were all read."""
+    client, path = served
+    conn = dbmod.connect(path)
+    try:
+        conn.execute(
+            "INSERT INTO crawl_job (job_ref, run_mode, source_keys, job_kind, status, "
+            "                       finished_at) "
+            "VALUES ('job_read','update',?,?,'completed','2026-09-06T14:07:16Z')",
+            (f'["{SITE}"]', datasetjob.JOB_KIND))
+        conn.execute(
+            "INSERT INTO crawl_job (job_ref, run_mode, source_keys, job_kind, status, "
+            "                       finished_at, error_summary) "
+            "VALUES ('job_skip','update',?,?,'skipped','2026-09-07T14:23:50Z', "
+            "        'skipped: a run is in progress (job_x)')",
+            (f'["{SITE}"]', kind))
+        conn.commit()
+    finally:
+        conn.close()
+
+    rows = client.get("/api/sources").json()["sources"]
+    waiting = next(row["work_waiting"] for row in rows
+                   if row.get("site_key") == SITE and row.get("work_waiting"))
+
+    assert waiting["interpret"] is None, (
+        f"a skipped firing was counted as a crawl that owes a press: {waiting}")
+
+
 def test_the_two_collecting_kinds_are_named_once(served):
     """TWO READERS, ONE FACT. The selection and the badge both need to know which kinds
     collect pages, and issue 792 happened because only the first was widened. A third

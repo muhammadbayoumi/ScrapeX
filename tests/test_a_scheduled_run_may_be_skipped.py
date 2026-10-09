@@ -207,9 +207,9 @@ def test_a_skipped_job_does_not_make_its_source_busy(conn):
     """THE ONE THAT MATTERS FOR STEP 2. A skip that counted as busy would make the next
     firing of the same schedule skip as well, and every one after it."""
     _skipped_job(conn, "MADAR")
-    assert scheduler._source_is_busy(conn, "MADAR") is False
-    create_job(conn, ["MADAR"])
-    assert scheduler._source_is_busy(conn, "MADAR") is True
+    assert scheduler._blocking_job(conn, "MADAR") is None
+    ref = create_job(conn, ["MADAR"])
+    assert scheduler._blocking_job(conn, "MADAR")["job_ref"] == ref
 
 
 # ---- every other copy of the terminal list -----------------------------------------

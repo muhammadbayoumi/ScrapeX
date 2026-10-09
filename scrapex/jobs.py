@@ -1016,6 +1016,11 @@ HEARTBEAT_KEY = "runtime_heartbeat"
 RECLAIM_KEY = "orphans_reclaimed_at"
 HEARTBEAT_MAX_AGE_S = 30.0
 
+# How long the worker loop waits for the write lock to fire due schedules. Short:
+# the loop also reaps and dispatches, and a slot that does not get the lock this
+# poll is still due on the next one, half a second later.
+SCHEDULE_LOCK_TIMEOUT_S = 2.0
+
 # A JOB may go quiet for far longer than a loop pass and still be healthy:
 # a polite crawler waits out a Crawl-delay between requests, and job 40
 # logged progress every ~8 minutes against a rate-limited shop. Judging a
@@ -1421,6 +1426,11 @@ class JobRunner:
         # is the only way its per-host rule can span jobs rather than one.
         self._running: dict[str, threading.Thread] = {}
         self._admission: _CrawlAdmission | None = None
+        # schedule_id -> the next_run_at that came due while ANOTHER app held the
+        # write lock (#1596, ruling D5). Its skip row is written once the lock is
+        # free; in memory only, so a restart in between leaves the slot to its
+        # missed-run policy.
+        self._held_out: dict[int, str] = {}
 
     def start(self) -> None:
         if self._thread is not None:
@@ -1572,11 +1582,34 @@ class JobRunner:
             }, ensure_ascii=False)))
         conn.commit()
 
-    def _loop(self) -> None:
+    def _fire_schedules(self, conn: sqlite3.Connection) -> None:
+        """Fire what is due, under the write lock, and never around it (#1596, D5).
+
+        Asked only when something IS due, so an idle engine does not take the lock
+        twice a second. Another app holding it: the due slots are remembered and
+        written as skips by the first pass that gets the lock. Our own ingest
+        holding the in-process gate is not another app: `write_lock` waits for it,
+        and if it outlasts the wait the slot simply stays due for the next poll.
+        """
         # Imported lazily: scheduler imports this module, so a top-level import
         # here would be circular.
-        from .scheduler import fire_due
+        from .scheduler import due_schedules, fire_due
 
+        due = due_schedules(conn)
+        if not due:
+            return
+        if dbmod.write_lock_holder(self._db_path) is not None:
+            for schedule in due:
+                self._held_out.setdefault(schedule["schedule_id"], schedule["next_run_at"])
+            return
+        try:
+            with dbmod.write_lock(self._db_path, timeout_s=SCHEDULE_LOCK_TIMEOUT_S):
+                fire_due(conn, manifest=self._manifest_provider(), held_out=self._held_out)
+        except dbmod.DbLockedError:
+            return                      # nothing written; decided again next poll
+        self._held_out.clear()
+
+    def _loop(self) -> None:
         conn = dbmod.connect(self._db_path)
         try:
             reclaim_orphaned_jobs(conn)     # a previous runtime may have died mid-run
@@ -1621,7 +1654,7 @@ class JobRunner:
                     conn.commit()
                     # The local runtime IS the scheduler (spec 26) — browser
                     # alarms cannot be relied on to wake anything.
-                    fire_due(conn, manifest=self._manifest_provider())
+                    self._fire_schedules(conn)
                     self._refresh_rates(conn)
                     self._dispatch(conn)
                 except Exception as exc:

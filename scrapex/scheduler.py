@@ -11,10 +11,12 @@ while we are off is therefore a normal state, handled explicitly by
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from . import jobs, source_settings
+from .datasetjob import COLLECTING_KINDS
 from .jobs import create_job, list_jobs
 from .vocab import (
     BLOCKING_JOB_STATUSES,
@@ -25,6 +27,11 @@ from .vocab import (
     RunMode,
     ScheduleFrequency,
 )
+
+#: The reason a skip row carries when another app held the warehouse's write lock at
+#: the slot (his ruling D5 on #1596). The worker decides the skip at the slot and
+#: writes this row once the lock is free, because writing it is itself a write.
+LOCK_HELD_REASON = "skipped: another app is writing to the warehouse"
 
 ISO = "%Y-%m-%dT%H:%M:%SZ"
 
@@ -164,24 +171,53 @@ def _rearm(conn: sqlite3.Connection, schedule: dict, now: datetime, fired: bool)
     )
 
 
-def _source_is_busy(conn: sqlite3.Connection, source_key: str) -> bool:
-    """Busy = occupying the worker or waiting for it.
+def _blocking_job(conn: sqlite3.Connection, source_key: str) -> dict | None:
+    """The job this source is busy with, or None.
 
-    Deliberately NOT "any non-terminal job": `paused` and `requires_review` wait
-    on the OWNER and never advance on their own, so counting them as busy would
-    silently stop that source's schedule from ever firing again.
+    Busy = occupying the worker or waiting for it (`BLOCKING_JOB_STATUSES`), and, for a
+    directory's collecting kinds only, PAUSED as well -- his ruling D3 on #1596: a
+    paused directory crawl is a run waiting for him, and a scheduled one starting
+    beside it would collect the same site twice. A paused PRICE job still does not
+    count: `paused` and `requires_review` wait on the OWNER and never advance on their
+    own, so counting them would silently stop that source's schedule for good.
     """
-    return any(source_key in job["source_keys"] and job["status"] in BLOCKING_JOB_STATUSES
-               for job in list_jobs(conn, limit=200, active_only=True))
+    for job in list_jobs(conn, limit=200, active_only=True):
+        if source_key not in job["source_keys"]:
+            continue
+        if job["status"] in BLOCKING_JOB_STATUSES:
+            return job
+        if job["status"] == JobStatus.PAUSED.value and job["job_kind"] in COLLECTING_KINDS:
+            return job
+    return None
+
+
+def _record_skip(conn: sqlite3.Connection, schedule: dict, reason: str) -> None:
+    """A firing that did not run, written as a finished SKIPPED job he can read.
+
+    The FAILED precedent in `fire_due` below, with the skip's status: created
+    uncommitted so the worker never sees it queued, closed by `jobs._finish`, which
+    commits it together with the caller's re-arm. The kind and mode are the ones the
+    firing would have had.
+    """
+    ref = create_job(conn, [schedule["source_key"]], schedule["run_mode"], commit=False)
+    job_id = jobs.get_job(conn, ref)["job_id"]
+    jobs.append_log(conn, job_id, reason, level=LogLevel.INFO,
+                    source_key=schedule["source_key"])
+    jobs._finish(conn, job_id, JobStatus.SKIPPED, reason)
 
 
 def fire_due(conn: sqlite3.Connection, now: datetime | None = None,
-             manifest=None) -> list[str]:
-    """Queue a job for every due schedule. Returns the job_refs created.
+             manifest=None, held_out: Mapping[int, str] | None = None) -> list[str]:
+    """Queue a job for every due schedule. Returns the job_refs queued.
 
-    Applies both policies at the moment of firing: a slot missed while the
-    machine was off obeys missed_run_policy, and a source whose previous run is
-    still going obeys overlap_policy.
+    A slot missed while the machine was off obeys missed_run_policy. A source whose
+    previous run is still going is SKIPPED, whatever `overlap_policy` says: the slot
+    re-arms and a finished SKIPPED job names the run that blocked it (his rulings on
+    #1596; the column stays, and nothing reads it any more).
+
+    `held_out` maps schedule_id to the `next_run_at` that came due while another app
+    held the write lock. Such a slot, still unchanged, is skipped the same way, with
+    `LOCK_HELD_REASON`. Skip rows are not in the returned list: nothing was queued.
 
     With a manifest given, `active` finally MEANS something: a schedule for an
     inactive source re-arms without firing. The flag was documentation until
@@ -236,15 +272,26 @@ def fire_due(conn: sqlite3.Connection, now: datetime | None = None,
             if not active:
                 _rearm(conn, schedule, now, fired=False)
                 continue
+        # BEFORE the missed-run policy: a slot the lock held out was not missed by a
+        # machine that was off, and a long hold must still leave its row.
+        if (held_out is not None
+                and held_out.get(schedule["schedule_id"]) == schedule["next_run_at"]):
+            _rearm(conn, schedule, now, fired=False)
+            _record_skip(conn, schedule, LOCK_HELD_REASON)
+            continue
         due_at = _parse_iso(schedule["next_run_at"])
         overdue = due_at is not None and (now - due_at) > timedelta(minutes=1)
 
         if overdue and schedule["missed_run_policy"] == MissedRunPolicy.SKIP.value:
             _rearm(conn, schedule, now, fired=False)
             continue
-        if (schedule["overlap_policy"] == OverlapPolicy.SKIP.value
-                and _source_is_busy(conn, schedule["source_key"])):
+        blocker = _blocking_job(conn, schedule["source_key"])
+        if blocker is not None:
             _rearm(conn, schedule, now, fired=False)
+            waiting = ("a paused run is waiting for you"
+                       if blocker["status"] == JobStatus.PAUSED.value
+                       else "a run is in progress")
+            _record_skip(conn, schedule, f"skipped: {waiting} ({blocker['job_ref']})")
             continue
 
         # Re-arm BEFORE queueing: create_job commits on its own, so if anything
