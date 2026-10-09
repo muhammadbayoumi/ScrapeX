@@ -123,8 +123,11 @@ def test_an_existing_warehouse_gains_the_table_and_keeps_its_sources(tmp_path, m
     then the same database opened by this build."""
     db = EngineDatabase(tmp_path / "upgraded.db")
     whole = db._migrations
-    assert whole[-1].name == MIGRATION, "0022 is no longer the newest; re-aim this test"
-    monkeypatch.setattr(db, "_migrations", whole[:-1])
+    # RE-AIMED WHEN 0023 LANDED ON TOP: the stop point is the migration before 0022 and
+    # the upgrade is 0022 alone, wherever it sits in the stream, so this keeps measuring
+    # the upgrade it was written for (v21 to v22) and not whichever migration is newest.
+    at = [one.name for one in whole].index(MIGRATION)
+    monkeypatch.setattr(db, "_migrations", whole[:at])
     db.initialize()
     with db.connect() as before:
         assert not before.execute("SELECT 1 FROM sqlite_master WHERE name = 'source_setting'"
@@ -133,11 +136,11 @@ def test_an_existing_warehouse_gains_the_table_and_keeps_its_sources(tmp_path, m
                        (DIRECTORY, "Saudi Contractors Authority"))
         before.commit()
 
-    monkeypatch.setattr(db, "_migrations", whole)
-    assert db.initialize() == [whole[-1].number]
+    monkeypatch.setattr(db, "_migrations", whole[:at + 1])
+    assert db.initialize() == [whole[at].number]
     upgraded = db.connect()
     try:
-        assert upgraded.execute("PRAGMA user_version").fetchone()[0] == whole[-1].number
+        assert upgraded.execute("PRAGMA user_version").fetchone()[0] == whole[at].number
         assert upgraded.execute("SELECT source_name FROM source_site WHERE source_key = ?",
                                 (DIRECTORY,)).fetchone()[0] == "Saudi Contractors Authority"
         save(upgraded, DIRECTORY, directories.get(DIRECTORY),

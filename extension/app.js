@@ -7896,7 +7896,7 @@ function drawJobRow(row) {
   }
   if (row.error_summary) {
     const failed = document.createElement("p");
-    failed.className = "hint err text-xs";
+    failed.className = `hint ${row.summary_class} text-xs`;
     failed.textContent = row.error_summary;
     box.append(failed);
   }

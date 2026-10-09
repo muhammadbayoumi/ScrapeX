@@ -482,12 +482,18 @@ class JobStatus(StrEnum):
     PARTIALLY_COMPLETED = "partially_completed"
     FAILED = "failed"
     REQUIRES_REVIEW = "requires_review"
+    # A scheduled firing that did not run, because its source was already running or
+    # another app held the write lock: his ruling D4 on #1596. It is written finished,
+    # with the reason in `error_summary`, and never resumed or retried -- the schedule
+    # fires again at its next slot instead. Not in `BLOCKING_JOB_STATUSES`: a skip
+    # occupies nothing, so it must never be the reason the next firing is skipped.
+    SKIPPED = "skipped"
 
 
 # Statuses that mean "this job will never run again" — safe to ignore on restart.
 TERMINAL_JOB_STATUSES = frozenset({
     JobStatus.CANCELLED, JobStatus.COMPLETED, JobStatus.COMPLETED_WITH_ERRORS,
-    JobStatus.PARTIALLY_COMPLETED, JobStatus.FAILED,
+    JobStatus.PARTIALLY_COMPLETED, JobStatus.FAILED, JobStatus.SKIPPED,
 })
 
 # Statuses where the worker is actively holding the job, so a pause/cancel has to

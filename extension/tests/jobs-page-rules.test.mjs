@@ -61,6 +61,7 @@ test("every status the engine knows has its own glyph and tone, as designed", ()
     completed_with_errors: ["material-warning", "warning"],
     completed: ["material-check-circle", "brand"],
     cancelled: ["material-block", "default"],
+    skipped: ["material-next-plan", "secondary"],
   };
   for (const [status, [glyph, tone]] of Object.entries(designed)) {
     const look = statusLook(status);
@@ -94,6 +95,24 @@ test("a job that never started says when it was added, and a cancel says so", ()
   assert.equal(timeLine({status: "cancelled", started_at: "2026-10-07T08:00:00Z",
     finished_at: "2026-10-07T09:12:00Z"}, fmt), "Started 7 Oct, 8:00 AM → cancelled 9:12 AM",
     "the same word whether it was cancelled queued or running");
+  // A SKIP NEVER STARTED, and says so the way a cancel does (#1596).
+  assert.equal(timeLine({status: "skipped", created_at: "2026-10-04T10:00:00Z",
+    finished_at: "2026-10-04T10:00:00Z"}, fmt), "Added 4 Oct, 10:00 AM → skipped 10:00 AM");
+  assert.equal(timeLine({status: "failed", created_at: "2026-10-04T10:00:00Z",
+    finished_at: "2026-10-04T10:03:00Z"}, fmt), "Added 4 Oct, 10:00 AM → 10:03 AM",
+    "a failure is not a cancel or a skip, and says neither");
+});
+
+test("a skip looks neutral and muted, and like neither a failure nor a cancel", () => {
+  assert.deepEqual(statusLook("skipped"),
+    {word: "Skipped", glyph: "material-next-plan", tone: "secondary"});
+  for (const other of ["failed", "cancelled"]) {
+    const look = statusLook(other);
+    assert.notEqual(look.glyph, "material-next-plan", other);
+    assert.notEqual(look.tone, "secondary", other);
+  }
+  assert.deepEqual(menuControls({status: "skipped"}), ["log"]);
+  assert.equal(primaryControl({status: "skipped"}), null);
 });
 
 test("the count line says what is shown, and whether it is live", () => {
