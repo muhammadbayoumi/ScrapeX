@@ -108,10 +108,27 @@ def test_a_directory_at_another_commit_is_refused_rather_than_mixed(upstream, tm
     assert _git("rev-parse", "HEAD", cwd=dest) == upstream["pin"]
 
 
-def test_without_a_commit_it_reads_the_one_the_notice_pins():
+def test_a_directory_a_failed_fetch_left_is_named_for_what_it_is(upstream, tmp_path):
+    dest = tmp_path / "checkout"
+    failed = _run("--remote", (tmp_path / "nowhere").as_uri(), "--commit", upstream["pin"],
+                  "--dest", str(dest))
+    assert failed.returncode != 0
+    assert (dest / ".git").is_dir()
+    done = _run("--remote", upstream["remote"], "--commit", upstream["pin"], "--dest", str(dest))
+    assert done.returncode != 0
+    # Not "another commit (HEAD)": there is no commit there at all.
+    assert "unfinished checkout with no commit" in done.stderr
+
+
+def test_without_a_commit_it_reads_the_one_the_notice_pins(upstream, tmp_path):
     sys.path.insert(0, str(ROOT))
     from tools import checkout_supabase_pin as tool
     from tools.read_supabase_tokens import pinned_commit
 
     pin = pinned_commit()
     assert tool.default_destination(pin).name == f"supabase-{pin[:12]}"
+    # main() with no --commit asks the local remote for the NOTICE's pin, which it does
+    # not hold: the failure names that commit, so the pin is what main() used.
+    done = _run("--remote", upstream["remote"], "--dest", str(tmp_path / "x"))
+    assert done.returncode != 0
+    assert f"fetching {pin[:12]} failed" in done.stderr

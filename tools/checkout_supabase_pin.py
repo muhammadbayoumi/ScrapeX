@@ -79,8 +79,13 @@ def checkout(commit: str, destination: Path, paths: list[str], remote: str = REM
         and head.stdout.strip() == commit
     if not reuse:
         if (destination / ".git").exists():
+            # A failed fetch leaves `.git` with no commit, and `rev-parse HEAD` then prints
+            # the literal word HEAD, so its stdout is not a commit to name.
+            if head.returncode != 0:
+                sys.exit(f"{destination} holds an unfinished checkout with no commit, "
+                         "left by a fetch that failed; remove it or pass --dest")
             sys.exit(f"{destination} holds a checkout at another commit "
-                     f"({head.stdout.strip()[:12] or 'none'}); remove it or pass --dest")
+                     f"({head.stdout.strip()[:12]}); remove it or pass --dest")
         _must(_git("init", "-q", cwd=destination), "git init")
         _must(_git("remote", "add", "origin", remote, cwd=destination), "git remote add")
     _must(_git("sparse-checkout", "set", "--no-cone", *[f"/{p.strip('/')}/" for p in paths],
