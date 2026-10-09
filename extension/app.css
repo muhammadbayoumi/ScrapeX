@@ -4077,7 +4077,45 @@
 /* THE JOBS PAGE (#1542) — his request of 2026-09-07, redesigned through
    design-the-experience and confirmed on 2026-10-09. Tokens and the shared components
    only: layout here, nothing typed that a token already says. */
+.jobs-tools { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: center; }
+.jobs-search { flex: 1 1 100%; }
+.jobs-filter-anchor { position: relative; }
 .jobs-count { margin: var(--sp-2) 0; }
+
+/* FilterPopover (FilterPopover.tsx@86c813ec:180-295): w-44, a header band, a named
+   checkbox group, Clear and Save at the end. */
+.jobs-filter {
+  position: absolute;
+  left: 0;
+  top: calc(100% + var(--sp-1));
+  z-index: var(--z-overlay);
+  width: 11rem;
+  padding: 0;
+  overflow: hidden;
+}
+.jobs-filter header {
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-subtle);
+}
+.jobs-filter fieldset { border: 0; margin: 0; padding: var(--sp-1) 0; }
+.jobs-filter label {
+  display: flex;
+  gap: var(--sp-2);
+  align-items: center;
+  padding: var(--sp-1) var(--sp-3);
+}
+/* Checked, the box is filled with the foreground, as Supabase fills it
+   (checkbox.tsx@86c813ec:24): --accent on white is 1.99:1 (#1582). */
+.jobs-filter input[type="checkbox"] { accent-color: var(--text); }
+.jobs-filter footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border-top: 1px solid var(--line);
+  background: var(--surface-subtle);
+}
 
 .jobs-list { padding: 0; overflow: visible; }
 .job-skeleton { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-3); }

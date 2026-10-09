@@ -55,8 +55,38 @@
 
       <!-- THE JOBS PAGE (#1542), designed through design-the-experience and confirmed by
            him on 2026-10-09. Live: the panel's one tick feeds it (pollJobOnce), so there
-           is no Refresh. -->
+           is no Refresh. The search is the Sources search, with its own words, because
+           it matches the same fields (sourceMatches). -->
       <div class="view-scroll">
+        <div class="jobs-tools">
+          <label class="source-manager-search jobs-search">
+            <span class="visually-hidden">Search jobs</span>
+            <svg class="sx-icon sm" aria-hidden="true">
+              <use href="#material-search"></use>
+            </svg>
+            <input id="jobs-search" type="search"
+                   placeholder="Search by domain, name, or key...">
+          </label>
+          <span class="jobs-filter-anchor">
+            <button id="jobs-status" class="ghost dashed" type="button"
+                    aria-haspopup="dialog" aria-expanded="false"
+                    aria-controls="jobs-filter">
+              <span id="jobs-status-label">Status</span>
+              <svg class="sx-icon sm" aria-hidden="true">
+                <use href="#material-expand-more"></use>
+              </svg>
+            </button>
+            <div id="jobs-filter" tabindex="-1" class="card jobs-filter hidden" role="dialog"
+                 aria-labelledby="jobs-filter-title">
+              <header class="text-xs muted" id="jobs-filter-title">Select status</header>
+              <fieldset id="jobs-filter-options" aria-labelledby="jobs-filter-title"></fieldset>
+              <footer>
+                <button id="jobs-filter-clear" class="ghost" type="button">Clear</button>
+                <button id="jobs-filter-save" type="button">Save</button>
+              </footer>
+            </div>
+          </span>
+        </div>
         <!-- NOT a live region: it changes on every read. A change he made is announced
              once, in #jobs-announce; a job's own change of status, once, there too. -->
         <p class="muted text-xs jobs-count" id="jobs-count">&nbsp;</p>

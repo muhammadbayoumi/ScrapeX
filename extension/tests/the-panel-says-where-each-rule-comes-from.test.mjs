@@ -17,6 +17,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import vm from "node:vm";
+import { sourceMatches } from "../jobsview.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SOURCE = readFileSync(join(HERE, "..", "app.js"), "utf8");
@@ -577,6 +578,7 @@ function managerCards(sources) {
     state: {sources, sourceFilter: ""},
     sourceIdentity: (s) => `<span>${s.source_key}</span>`,
     sourceDomain: () => "", openSourceEditor: () => {},
+    sourceMatches,   // the Sources search's one rule, from jobsview.js
   };
   vm.runInNewContext(`${fn("renderSourceManager")}\nrenderSourceManager();`, context);
   return box.innerHTML.split("</article>");

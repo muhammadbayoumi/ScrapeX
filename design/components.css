@@ -469,6 +469,15 @@ button.ghost:hover:not(:disabled),
   color: var(--text);
 }
 
+/* Supabase's Button `type="dashed"` (Button.tsx@86c813ec:38-62): the default button with
+   a dashed --line-strong border, as FilterPopover draws its trigger while no option is
+   chosen (FilterPopover.tsx@86c813ec:184). Chosen, the trigger is the solid default. */
+button.dashed,
+.button.dashed {
+  border-style: dashed;
+  border-color: var(--line-strong);
+}
+
 button.danger,
 .button.danger {
   border-color: var(--red);
