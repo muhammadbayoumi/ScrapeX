@@ -18,10 +18,10 @@ reviewable change.
 | `@tanstack/virtual-core` | 3.17.11 | `sha512-+ILjvtHup6Y2hzQ6YzwMgX1Q+oQpxEGOXCEsCNaPoIP0VxMbizIBTmYTDtkerkIQS8/CbP1BRuyt8V/8BCsy1g==` |
 
 - Licence: MIT for all three — each package's `LICENSE` travels in its directory.
-- Used by `datagrid.js`, the grid's renderer, which `grid.js` imports. That is
-  the engine's Data page (`templates/source.html`), the Datasets page
-  (`templates/datasets.html`), and the extension's Data page, which carries the
-  **second copy** in `extension/vendor/tanstack/`. The two copies are held
+- Used by `datagrid.js`, the grid's renderer. `grid.js` imports it for the
+  engine's Data page (`templates/source.html`) and the extension's Data page,
+  which carries the **second copy** in `extension/vendor/tanstack/`; the
+  Datasets page (`templates/datasets.html`) imports it directly. The two copies are held
   byte-identical by `tests/test_vendor.py`.
 - Chosen over Tabulator, AG Grid and react-data-grid in #1342: Supabase's
   design system builds its Data Table on TanStack and says its tables are
