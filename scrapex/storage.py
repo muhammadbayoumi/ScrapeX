@@ -632,9 +632,9 @@ def reconcile_active(conn) -> dict[str, bool]:
             # WHAT IT SHIPS WITH: its manifest entry, or its directory.
             shipped = source_settings.shipped_with(manifest, key)
             if shipped is not None:
-                # No refusal can come out of this: every entry passed `SourceEntry`,
-                # whose checks are the ones `effective` would apply, and a directory
-                # ships `active` alone.
+                # No refusal can come out of this, BECAUSE THE MANIFEST REFUSES AT LOAD:
+                # every entry passed `SourceEntry`, whose checks are the ones
+                # `effective` applies, and a directory ships `active` alone.
                 wanted[key] = source_settings.effective(conn, key, shipped).active
             elif "active" in (chosen := source_settings.read(conn, key)):
                 # A source neither the manifest nor the directory registry names

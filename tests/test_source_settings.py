@@ -560,11 +560,13 @@ def test_a_price_source_never_crawled_still_gets_what_it_shipped_with(conn, mani
     pytest.param(math.nan, False, id="nan"),
     pytest.param(-1, False, id="negative"),
     pytest.param(10**400, False, id="too-large-for-a-float"),
+    pytest.param(True, False, id="a-boolean"),
+    pytest.param("5", False, id="a-numeric-string"),
 ])
 def test_a_pace_means_the_same_in_the_manifest_the_module_and_the_table(conn, manifest,
                                                                         value, allowed):
-    """THREE PLACES HOLD THE PACE'S BOUND -- `SourceEntry.crawl_pace_s`, `_seconds` and
-    the table's CHECK -- and a value one of them takes and another refuses is a pace that
+    """THREE PLACES HOLD THE PACE'S BOUND -- `SourceEntry.crawl_pace_s` and `save`, both
+    through `config.checked_seconds`, and the table's CHECK -- and a value one of them takes and another refuses is a pace that
     works from the manifest and fails from the panel, or the reverse. NaN reaches the
     table as NULL, which is "not chosen", so the table "accepting" it stores no pace."""
     from scrapex.config import SourceEntry
@@ -579,6 +581,13 @@ def test_a_pace_means_the_same_in_the_manifest_the_module_and_the_table(conn, ma
         by_module = True
     except SourceSettingError:
         by_module = False
+    assert (by_manifest, by_module) == (allowed, allowed)
+
+    # THE TABLE IS ASKED ABOUT NUMBERS ONLY. A bool or a string never reaches it -- both
+    # doors refuse them above -- and SQLite's REAL affinity would turn "5" into 5.0 before
+    # any CHECK ran, so the table cannot be the one to refuse a numeric string.
+    if type(value) not in (int, float):
+        return
     try:
         # Bound as text and cast, because sqlite3 cannot bind an int past 64 bits; the
         # CAST turns 10**400 into the infinity SQLite would hold for it.
@@ -591,8 +600,7 @@ def test_a_pace_means_the_same_in_the_manifest_the_module_and_the_table(conn, ma
         by_table = stored is not None
     except sqlite3.IntegrityError:
         by_table = False
-
-    assert (by_manifest, by_module, by_table) == (allowed, allowed, allowed)
+    assert by_table is allowed
 
 
 def test_the_custom_rule_takes_exactly_the_knobs_the_crawl_obeys(conn, manifest):
@@ -801,3 +809,13 @@ def test_a_shipped_custom_choice_with_no_rule_is_refused_when_the_manifest_loads
                                                      "robots_custom": None})
     with pytest.raises(SourceSettingError, match="a custom robots rule is"):
         effective(conn, SHOP, bypassed)
+
+
+def test_a_directorys_own_shipped_answer_is_the_one_read(conn):
+    """Not "every directory is on": the registry entry's own `active` is what ships."""
+    from dataclasses import replace
+
+    switched_off = replace(directories.get(DIRECTORY), active=False)
+
+    assert effective(conn, DIRECTORY, switched_off).active is False
+    assert effective(conn, DIRECTORY, directories.get(DIRECTORY)).active is True

@@ -50,6 +50,8 @@ from . import directories
 from .config import (
     Manifest,
     SourceEntry,
+    checked_activation,
+    checked_custom_pairing,
     checked_robots,
     checked_robots_custom,
     checked_seconds,
@@ -185,15 +187,11 @@ def save(conn: sqlite3.Connection, source_key: str, shipped: Shipped,
             raise SourceSettingError(
                 f"{source_key}: active must be true, false or null, not {active!r}")
         columns["active"] = None if active is None else int(active)
-        if active is True and isinstance(shipped, SourceEntry) \
-                and shipped.family == ConnectorFamily.TBD_PROBE:
+        if active is True and isinstance(shipped, SourceEntry):
             # Only when THIS change activates it: a pace edit to a source whose stored
             # `active` predates its family reverting to TBD-probe is not an activation,
             # and `effective` already reads that source as inactive.
-            raise SourceSettingError(
-                f"{source_key}: family is TBD-probe, so there is no collector to run "
-                "yet; it cannot be activated until the site is probed and its family "
-                "is set")
+            _checked(source_key, checked_activation, shipped.family, True)
     if "robots" in changes:
         choice = changes["robots"]
         if choice is not None:
@@ -237,18 +235,9 @@ def save(conn: sqlite3.Connection, source_key: str, shipped: Shipped,
                       "robots_crawl_delay_s"),
                      tuple(stored) if stored is not None else (None,) * 4, strict=True))
     after.update({k: v for k, v in columns.items() if k in after})
-    has_rule = after["robots_enforce_disallow"] is not None
-    if after["robots_choice"] == RobotsChoice.CUSTOM and not has_rule:
-        # `robots.decide` refuses this at crawl time; refusing it here means the crawl
-        # never meets it.
-        raise SourceSettingError(
-            f"{source_key}: robots = custom needs its rule (robots_custom: "
-            "{enforce_disallow, crawl_delay_s}); choose default or obey, or send the rule")
-    if after["robots_choice"] != RobotsChoice.CUSTOM \
-            and (has_rule or after["robots_crawl_delay_s"] is not None):
-        raise SourceSettingError(
-            f"{source_key}: a custom robots rule needs robots = custom, and this source's "
-            f"choice is {after['robots_choice'] or 'not set'}")
+    has_rule = (after["robots_enforce_disallow"] is not None
+                or after["robots_crawl_delay_s"] is not None)
+    _checked(source_key, checked_custom_pairing, after["robots_choice"], has_rule)
 
     # AN UPDATE OR AN INSERT, AND NOT `INSERT ... ON CONFLICT DO UPDATE`. SQLite checks
     # a row's CHECKs on the row the INSERT proposes, before it looks for the conflict,
@@ -356,7 +345,7 @@ def _shipped_rules(source_key: str, shipped: Shipped) -> SourceRules:
 def shipped_with(manifest: Manifest, source_key: str) -> Shipped:
     """What the release says about a source: its manifest entry, else its directory,
     else None. The argument `effective` and `save` take, for a caller holding the
-    manifest rather than the entry (`storage.reconcile_active`, the panel's routes)."""
+    manifest rather than the entry: `storage.reconcile_active` today."""
     for entry in manifest.sources:
         if entry.source_key == source_key:
             return entry

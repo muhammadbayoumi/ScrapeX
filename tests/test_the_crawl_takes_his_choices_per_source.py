@@ -190,8 +190,8 @@ def test_the_command_line_crawl_runs_a_source_as_it_shipped(monkeypatch):
 
 # ---- active: the schedule, the record, the Run menu ---------------------------------
 
-def _due(conn, key: str) -> None:
-    upsert_schedule(conn, key, frequency="daily", run_at="00:00")
+def _due(conn, key: str, run_mode: str = "update") -> None:
+    upsert_schedule(conn, key, frequency="daily", run_at="00:00", run_mode=run_mode)
     conn.execute("UPDATE schedule SET next_run_at = ? WHERE source_key = ?",
                  ((utcnow() - timedelta(seconds=30)).strftime("%Y-%m-%dT%H:%M:%SZ"), key))
     conn.commit()
@@ -443,7 +443,7 @@ def test_a_broken_source_does_not_stop_the_healthy_one_from_firing(conn, broken,
     reason is a failed job of that source's, and the healthy one is queued."""
     manifest = Manifest(sources=[_bypassed(**broken), MANIFEST.get(QUIET)
                                  .model_copy(update={"active": True})])
-    _due(conn, SHOP)
+    _due(conn, SHOP, run_mode="full_rebuild")
     _due(conn, QUIET)
 
     queued = fire_due(conn, manifest=manifest)
@@ -454,7 +454,11 @@ def test_a_broken_source_does_not_stop_the_healthy_one_from_firing(conn, broken,
     assert by_source[SHOP]["status"] == "failed"
     assert says in by_source[SHOP]["error_summary"]
     lines = jobs.job_logs(conn, by_source[SHOP]["job_ref"])
-    assert any(line["level"] == "error" and says in line["message"] for line in lines)
+    assert any(line["level"] == "error" and says in line["message"]
+               and line["source_key"] == SHOP for line in lines), (
+        "the refusal's log line does not carry the source it is about")
+    assert by_source[SHOP]["run_mode"] == "full_rebuild", (
+        "the failed run is not the run the schedule asked for")
     assert SHOP in by_source[SHOP]["error_summary"], "the refusal does not name its source"
 
     # THE SLOT IS SPENT: the next tick neither queues it nor records it again.
@@ -506,7 +510,12 @@ def _no_network(*args, **kwargs):
     pytest.param({"robots": "custom"}, "needs its rule", id="custom-without-a-rule"),
     pytest.param({"user_agent": "\u0645\u062a\u0635\u0641\u062d/1"}, "printable ASCII",
                  id="agent-not-ascii"),
-    pytest.param({"crawl_pace_s": -1}, "greater than 0", id="negative-pace"),
+    pytest.param({"crawl_pace_s": -1}, "crawl_pace_s must be more than 0",
+                 id="negative-pace"),
+    pytest.param({"crawl_pace_s": True}, "crawl_pace_s must be a number of seconds",
+                 id="a-boolean-pace"),
+    pytest.param({"crawl_pace_s": "5"}, "crawl_pace_s must be a number of seconds",
+                 id="a-numeric-string-pace"),
 ])
 def test_the_panels_edit_refuses_what_the_crawl_could_not_obey(panel, broken, says):
     """The door the broken rules came in by: `/edit` wrote `robots: Obey` with a 200.

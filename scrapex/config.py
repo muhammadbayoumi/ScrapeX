@@ -134,6 +134,32 @@ def checked_robots_custom(rule: object) -> dict:
     return {"enforce_disallow": enforce, "crawl_delay_s": delay}
 
 
+def checked_custom_pairing(choice: object, has_rule: bool) -> None:
+    """The custom rule exists exactly when the choice is custom -- the table's CHECK.
+
+    Custom with no rule is what `robots.decide` refuses at crawl time, so it is refused
+    where it is typed. A rule under another choice is one the crawl ignores, and left
+    behind it would govern the site again the day somebody switches back to custom
+    (`/api/sources/{key}/edit` clears it for that reason). `choice` None is "not set".
+    """
+    custom = choice == RobotsChoice.CUSTOM
+    if custom and not has_rule:
+        raise ValueError("robots = custom needs its rule (robots_custom: "
+                         "{enforce_disallow, crawl_delay_s}); choose default or obey, "
+                         "or send the rule")
+    if not custom and has_rule:
+        raise ValueError("a custom robots rule needs robots = custom, and this source's "
+                         f"choice is {choice or 'not set'}")
+
+
+def checked_activation(family: object, active: bool) -> None:
+    """A source that has not been probed cannot be active (A3: no family until proven):
+    there is no collector to run."""
+    if active and family == ConnectorFamily.TBD_PROBE:
+        raise ValueError("family is TBD-probe, so there is no collector to run yet; run "
+                         "`scrapex probe` and set the real family before activating")
+
+
 def checked_user_agent(value: object) -> str | None:
     """An agent to send, or None for "none of its own" -- which is what empty means.
 
@@ -459,8 +485,8 @@ class SourceEntry(BaseModel):
     # this site's robots.txt. "custom" uses `robots_custom` below and refuses to
     # run without it -- see scrapex/robots.py for why falling back would be
     # worse than failing. Stored as a plain string because the manifest is a
-    # hand-editable file and an enum in YAML is a trap; robots.RobotsChoice
-    # validates it at the point of use.
+    # hand-editable file and an enum in YAML is a trap; it is checked when the
+    # manifest LOADS, by `checked_robots` -- the check his panel choices take too.
     robots: str = "default"
     #: Only read when `robots` is "custom": {enforce_disallow: bool,
     #: crawl_delay_s: float | null}. A null delay means the site's own.
@@ -476,10 +502,11 @@ class SourceEntry(BaseModel):
     # opinion and the tool-wide pace stands. It can only ever SLOW a crawl:
     # `resolve_fetcher` takes the slowest of every opinion, so naming 0.1 here
     # cannot make a source faster than the owner's own setting.
-    # FINITE as well as positive: an infinite pace is a crawl that never makes its next
-    # request, and NaN passes `gt=0` by comparing false to everything. The same bound as
-    # `source_setting.crawl_pace_s` (migration 0022) and `source_settings._seconds`.
-    crawl_pace_s: float | None = Field(default=None, gt=0, allow_inf_nan=False)
+    # CHECKED BY `checked_seconds`, the one definition of a pace: finite, more than 0,
+    # a number and not a bool or a numeric string -- the bound `source_setting`'s CHECK
+    # (migration 0022) and the panel's `source_settings.save` hold. Pydantic's own
+    # `gt=0` took `true` as 1.0 and "5" as 5.0, and said it in other words.
+    crawl_pace_s: float | None = None
     # Ordered families to try if `family` fails (spec 32). Recorded per source so
     # the choice is visible in the manifest rather than hidden in code.
     fallback_families: list[ConnectorFamily] = Field(default_factory=list)
@@ -551,28 +578,25 @@ class SourceEntry(BaseModel):
     def _user_agent_can_be_sent(cls, v: str | None) -> str | None:
         return checked_user_agent(v)
 
+    @field_validator("crawl_pace_s", mode="before")
+    @classmethod
+    def _pace_is_a_pace(cls, v: object) -> float | None:
+        return None if v is None else checked_seconds("crawl_pace_s", v, allow_zero=False)
+
     @model_validator(mode="after")
     def _custom_rule_exactly_under_custom(self) -> SourceEntry:
-        # The table's CHECK, held here too: custom with no rule is what `robots.decide`
-        # refuses at crawl time, and a rule under another choice is one the crawl
-        # ignores -- `/api/sources/{key}/edit` already clears it for that reason.
-        custom = self.robots == RobotsChoice.CUSTOM
-        if custom and self.robots_custom is None:
-            raise ValueError(f"{self.source_key}: robots = custom needs its rule "
-                             "(robots_custom: {enforce_disallow, crawl_delay_s})")
-        if not custom and self.robots_custom is not None:
-            raise ValueError(f"{self.source_key}: a custom robots rule needs "
-                             f"robots = custom, and this source's is {self.robots}")
+        try:
+            checked_custom_pairing(self.robots, self.robots_custom is not None)
+        except ValueError as exc:
+            raise ValueError(f"{self.source_key}: {exc}") from None
         return self
 
     @model_validator(mode="after")
     def _probe_placeholder_is_inactive(self) -> SourceEntry:
-        # A source that has not been probed cannot be active (A3: no family until proven).
-        if self.family == ConnectorFamily.TBD_PROBE and self.active:
-            raise ValueError(
-                f"{self.source_key}: family is TBD-probe; run `scrapex probe` and set the "
-                "real family before activating"
-            )
+        try:
+            checked_activation(self.family, self.active)
+        except ValueError as exc:
+            raise ValueError(f"{self.source_key}: {exc}") from None
         return self
 
 

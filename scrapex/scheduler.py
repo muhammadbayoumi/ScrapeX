@@ -164,22 +164,6 @@ def _rearm(conn: sqlite3.Connection, schedule: dict, now: datetime, fired: bool)
     )
 
 
-def _record_refused_run(conn: sqlite3.Connection, schedule: dict, exc: Exception) -> None:
-    """A scheduled run that could not start, recorded as a failed job of its own.
-
-    A job and not a log line: the Run page is where he reads why a source did not run,
-    and a job is the record it lists. Not queued, so nothing dispatches it.
-    """
-    ref = create_job(conn, [schedule["source_key"]], schedule["run_mode"], commit=False)
-    job_id = jobs.get_job(conn, ref)["job_id"]
-    reason = f"the scheduled run did not start: {exc}"
-    jobs.append_log(conn, job_id, reason, level=LogLevel.ERROR,
-                    source_key=schedule["source_key"])
-    # `_finish` is how every runner closes a job (`directoryjob`, `profilejob`): one
-    # place stamps the end, the status and the summary. It commits.
-    jobs._finish(conn, job_id, JobStatus.FAILED, reason)
-
-
 def _source_is_busy(conn: sqlite3.Connection, source_key: str) -> bool:
     """Busy = occupying the worker or waiting for it.
 
@@ -230,8 +214,19 @@ def fire_due(conn: sqlite3.Connection, now: datetime | None = None,
                 # manifest loads; this is the second layer, for whatever reaches here
                 # anyway. The slot is spent, and the refusal is a FAILED job naming the
                 # source and the reason, where he reads every other run's outcome.
+                #
+                # A job and not a log line: the Run page is where he reads why a source
+                # did not run, and a job is the record it lists. Closed FAILED by
+                # `jobs._finish` -- the one place every runner stamps the end, status
+                # and summary -- so nothing dispatches it. `_finish` commits.
                 _rearm(conn, schedule, now, fired=False)
-                _record_refused_run(conn, schedule, exc)
+                ref = create_job(conn, [schedule["source_key"]], schedule["run_mode"],
+                                 commit=False)
+                job_id = jobs.get_job(conn, ref)["job_id"]
+                reason = f"the scheduled run did not start: {exc}"
+                jobs.append_log(conn, job_id, reason, level=LogLevel.ERROR,
+                                source_key=schedule["source_key"])
+                jobs._finish(conn, job_id, JobStatus.FAILED, reason)
                 continue
             if not active:
                 _rearm(conn, schedule, now, fired=False)
