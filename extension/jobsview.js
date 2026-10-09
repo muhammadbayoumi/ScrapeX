@@ -106,12 +106,44 @@ export function liveJob(jobs) {
   return live.reduce((best, job) => (rank(job) < rank(best) ? job : best), live[0]);
 }
 
-/** `Profile fetch · muqawil_org`, from the payload's own words. */
-export function jobLabel(job) {
+/** A source's domain, the panel's primary identity for it: the URL's host, lower-case,
+ *  without a leading `www.` or a trailing dot. `sourceDomain` in app.js is this. */
+export function domainOf(url) {
+  let host = "";
+  try { host = new URL(url).host; } catch (_) { host = String(url || ""); }
+  host = host.replace(/\.$/, "");
+  return host.toLowerCase().startsWith("www.") ? host.slice(4) : host;
+}
+
+/** How the panel names one source key: the Sources identity's domain, else its name,
+ *  else the key. A job carries keys only; a site's key can also arrive as the
+ *  `site_key` behind a dataset card (`webui/app.py:942-947`), and a dataset's as its
+ *  `source_key`, so either finds it. */
+export function sourceTitle(key, sources) {
+  const source = (sources || []).find((one) => one && (one.source_key === key
+    || one.site_key === key));
+  if (!source) return key;
+  return domainOf(source.base_url) || source.source_name || key;
+}
+
+/**
+ * `Listing crawl · muqawil.org` -- the kind, and the source as the panel names sources.
+ *
+ * THE KIND STAYS (see `renderMiniplayer`): a crawl's chained interpretation starts on
+ * the same source a few milliseconds after the crawl ends, and without the kind the line
+ * reads as the crawl starting over. THE SOURCE IS THE PANEL'S ONE IDENTITY, the domain
+ * (`sourceIdentity`, components.css:781), and no longer the key: this read the key "from
+ * the payload's own words" because a job carries nothing else, so the row, the player
+ * and the Sources page named one site three ways (#1542). Without `sources`, the key.
+ */
+export function jobLabel(job, sources = []) {
   const kind = KIND_LABELS[job?.job_kind] || String(job?.job_kind || "Job");
-  const source = job?.current_source_key
-    || (job?.source_keys || [])[0] || "";
-  return source ? `${kind} · ${source}` : kind;
+  const keys = job?.source_keys || [];
+  const lead = job?.current_source_key || keys[0] || "";
+  if (!lead) return kind;
+  const others = Math.max(0, keys.length - 1);
+  const more = others ? ` and ${others} other${others === 1 ? "" : "s"}` : "";
+  return `${kind} · ${sourceTitle(lead, sources)}${more}`;
 }
 
 /**
@@ -284,10 +316,10 @@ export function summariseJobs(payload) {
  * entered; re-sorting by a timestamp in the page would disagree with it the moment two
  * jobs share a second, and `created_at` is stored at second resolution.
  */
-export function rowsFrom(payload) {
+export function rowsFrom(payload, sources = []) {
   return (payload?.jobs || []).filter((job) => job && job.job_ref).map((job) => ({
     job_ref: job.job_ref,
-    label: jobLabel(job),
+    label: jobLabel(job, sources),
     status: job.status,
     tone: statusTone(job.status),
     progress: progressLine(job),

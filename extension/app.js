@@ -13,8 +13,8 @@ import { capabilityProblem, deployedFrom, installedVersion, CAPABILITY_REPORTING
 import { PROTOCOL_VERSION } from "./transport.js";
 import { ENGINE_CANDIDATES, latestEngineRelease } from "./releases.js";
 import {
-  jobLabel, liveJob, observeRate, progressFraction, progressLine, recentRate, rowsFrom,
-  statusWords, summariseJobs,
+  domainOf, isSettled, jobLabel, liveJob, observeRate, progressFraction, progressLine, recentRate,
+  rowsFrom, sourceTitle, statusWords, summariseJobs,
 } from "./jobsview.js";
 import { getToken, accountFor, authorize, forgetToken, revokeToken } from "./identity.js";
 import {
@@ -1555,10 +1555,8 @@ async function confirmTimeZoneShared() {
 // ---- sites -----------------------------------------------------------------
 function hostOf(url) { try { return new URL(url).host; } catch (_) { return url || ""; } }
 
-function sourceDomain(url) {
-  const host = hostOf(url).replace(/\.$/, "");
-  return host.toLowerCase().startsWith("www.") ? host.slice(4) : host;
-}
+// The one rule, in jobsview.js, so a job and a source are named by the same domain.
+function sourceDomain(url) { return domainOf(url); }
 
 function sourceIdentity(source, compact = false, metricValue = null, metricLabel = "Row") {
   const key = source.source_key || "";
@@ -5151,6 +5149,26 @@ const POLL_MS = 1500;   // throttled: aggregated progress, never per-record even
 let pollTimer = null;
 let pollPromise = null;
 
+// THE ONE READ OF WHAT IS RUNNING (#1542, the read model). Every page reads the same
+// thing on the same tick -- `active_only` up to the Jobs page's own bound, never the
+// newest five -- so the player adopts the same job and counts the same queue wherever he
+// is, and the Jobs page learns from it when a job starts or ends.
+//
+// A FAILED TICK RE-ARMS. It used to stop polling for good (the catch returned without a
+// timer), so one timeout left the player hidden until he navigated. It now backs off,
+// and only while there was something active to follow: against an engine that is down
+// the cadence is volume, not waiting -- a stopped local engine refuses at once.
+const POLL_BACKOFF_MS = [POLL_MS, 3000, 6000, 12000, 30000];
+let pollFailures = 0;
+// The `job_ref`s of the last SUCCESSFUL tick. A failed tick leaves it alone, so a
+// failure never reads as every job leaving.
+let lastActiveRefs = null;
+
+// WHILE NOTHING RUNS, one small read every 30 s (his choice, 2026-10-09: about two
+// requests a minute), so a job the scheduler starts appears without a press.
+const IDLE_PROBE_MS = 30000;
+let idleTimer = null;
+
 // ---- ONE formatter each (the DRY the owner asked for) ----------------------
 // A count with thousands separators. Every number the panel shows goes through
 // here, so 1030 reads as "1,030" everywhere and never as a bare 1030 in one
@@ -5426,8 +5444,9 @@ function renderMiniplayer(job, queued) {
   // at 0 about two milliseconds later, against a 1500 ms poll -- and with no kind in
   // the line there is nothing to read but "the crawl went back to the beginning".
   // Issue 778 is the same sentence about a different pair of jobs.
-  const scope = job.source_keys.length > 1 ? `${job.source_keys.length} sites` : job.source_keys[0];
-  const named = job.source_keys.length > 1 ? scope : jobLabel(job);
+  // ONE NAME FOR ONE JOB (#1542): the same `jobLabel` the Jobs row and the cancel
+  // question use, from the Sources identity -- "3 sites" named none of them.
+  const named = jobLabel(job, state.sources);
   $("mini-title").textContent = `${named} — ${job.status.replace(/_/g, " ")}`;
   const prog = miniProgress(job);
   $("mini-pct").textContent = prog.text;
@@ -5435,7 +5454,7 @@ function renderMiniplayer(job, queued) {
   $("mini-bar").classList.toggle("indeterminate", prog.indeterminate);
   const c = job.counters || {};
   const bits = [];
-  if (job.current_source_key) bits.push(`now: ${job.current_source_key}`);
+  if (job.current_source_key) bits.push(`now: ${sourceTitle(job.current_source_key, state.sources)}`);
   if (c.observations != null) bits.push(`${fmtCount(c.observations)} new data rows`);
   if (queued > 0) bits.push(`${queued} queued`);
   $("mini-sub").textContent = bits.join(" · ") || "starting…";
@@ -5444,13 +5463,52 @@ function renderMiniplayer(job, queued) {
   $("mini-pause").dataset.control = paused ? "resume" : "pause";
 }
 
+function armIdleProbe() {
+  clearTimeout(idleTimer);
+  idleTimer = setTimeout(async () => {
+    idleTimer = null;
+    if (document.visibilityState === "hidden" || !state.engineUp) return;
+    let found = [];
+    try { found = (await api("/api/jobs?active_only=true&limit=1")).jobs || []; }
+    catch (_) { found = []; }
+    if (found.length) pollJob(); else armIdleProbe();
+  }, IDLE_PROBE_MS);
+}
+
+/** The tick's answer changed which jobs are active: the Jobs page re-reads its history,
+ *  so a job that started appears and one that ended shows how it ended. Only while
+ *  that page is on screen -- it reads its history on entry anyway. */
+function noticeActiveSet(jobs) {
+  const refs = new Set(jobs.map((job) => job.job_ref));
+  const before = lastActiveRefs;
+  lastActiveRefs = refs;
+  if (!before) return;
+  const changed = refs.size !== before.size || [...refs].some((ref) => !before.has(ref));
+  if (changed && currentViewName() === "jobs") loadJobs({ keepNotice: true });
+}
+
 async function pollJobOnce() {
   clearTimeout(pollTimer);
   pollTimer = null;
+  clearTimeout(idleTimer);
+  idleTimer = null;
   if (document.visibilityState === "hidden") return;
   let jobs = [];
-  try { jobs = (await api("/api/jobs?active_only=true&limit=5")).jobs; }
-  catch (_) { renderMiniplayer(null); renderActivity(null); return; }
+  try { jobs = (await api(`/api/jobs?active_only=true&limit=${JOBS_LIMIT}`)).jobs || []; }
+  catch (_) {
+    renderMiniplayer(null); renderActivity(null);
+    pollFailures += 1;
+    if (lastActiveRefs && lastActiveRefs.size && document.visibilityState === "visible") {
+      const wait = POLL_BACKOFF_MS[Math.min(pollFailures, POLL_BACKOFF_MS.length - 1)];
+      pollTimer = setTimeout(() => { pollJob(); }, wait);
+    }
+    return;
+  }
+  pollFailures = 0;
+  // `active_only` is the engine's not-terminal set; filtered here too, once, so the
+  // adopted job and "N queued" are counted from the same list on every page.
+  jobs = jobs.filter((job) => job && !isSettled(job));
+  noticeActiveSet(jobs);
 
   // ISSUE 778. This was `jobs[0]`, and the list comes back newest first -- so a job
   // entered eighteen seconds after the one doing the work was drawn instead of it.
@@ -5515,6 +5573,7 @@ async function pollJobOnce() {
     await redrawWhatTheJobChanged();
   }
   refreshRunButton();
+  if (document.visibilityState === "visible") armIdleProbe();
 }
 
 /** Redraw what a finished job changed — BOTH surfaces, not only the one on Run.
@@ -5532,11 +5591,17 @@ async function redrawWhatTheJobChanged() {
   if (currentViewName() === "data") await loadDatasets();
 }
 
-async function pollJob() {
+/** `fresh`: a NEW read issued after the caller's own change, never one already in
+ *  flight -- a press that resolves during a tick would otherwise be answered by a read
+ *  taken before the press, and the player would keep the job's old status. */
+async function pollJob({ fresh = false } = {}) {
   clearTimeout(pollTimer);
   pollTimer = null;
   if (document.visibilityState === "hidden") return null;
-  if (pollPromise) return pollPromise;
+  if (pollPromise) {
+    if (!fresh) return pollPromise;
+    await pollPromise;
+  }
   pollPromise = pollJobOnce().finally(() => { pollPromise = null; });
   return pollPromise;
 }
@@ -5545,6 +5610,9 @@ function handlePanelVisibility() {
   if (document.visibilityState === "hidden") {
     clearTimeout(pollTimer);
     pollTimer = null;
+    clearTimeout(idleTimer);
+    idleTimer = null;
+    pollFailures = 0;
     return;
   }
   // The shared appearance/timezone modules perform their own immediate refresh
@@ -5684,10 +5752,10 @@ async function controlJob(control) {
   // question named, whatever the player shows by then.
   const jobRef = state.jobRef;
   if (!jobRef) return;
-  if (!(await confirmedControl(control, state.job ? jobLabel(state.job) : ""))) return;
+  if (!(await confirmedControl(control, state.job ? jobLabel(state.job, state.sources) : ""))) return;
   try { await post(`/api/jobs/${jobRef}/control`, { control }); }
   catch (e) { $("run-blocked").textContent = e.message; }
-  await pollJob();
+  await pollJob({ fresh: true });
 }
 
 // ---- browse data -----------------------------------------------------------
@@ -7305,12 +7373,20 @@ function sayOn(id, text) {
  * 409 the panel exists to report lived for one round trip -- a caught error erased by
  * the reload the same handler triggers is a silent failure with extra steps.
  */
+// Each history read is numbered and only the latest one issued may draw: two can now be
+// in flight at once (entry and a change of the active set, or a press and one), and an
+// older answer landing last would draw a finished job as still running.
+let jobsReadSeq = 0;
+
 async function loadJobs({keepNotice = false} = {}) {
   const list = $("jobs-list");
+  const seq = ++jobsReadSeq;
   let payload;
   try {
     payload = await api(`/api/jobs?limit=${JOBS_LIMIT}`);
+    if (seq !== jobsReadSeq) return;
   } catch (error) {
+    if (seq !== jobsReadSeq) return;
     // THE PAGE SAYS WHY IT IS EMPTY. A blank list and a stopped engine look identical,
     // and that confusion is the shape of every complaint this page answers. This
     // overwrites a kept notice on purpose: an engine that cannot answer outranks a
@@ -7323,7 +7399,7 @@ async function loadJobs({keepNotice = false} = {}) {
     return;
   }
   if (!keepNotice) sayOn("jobs-blocked", "");
-  const rows = rowsFrom(payload);
+  const rows = rowsFrom(payload, state.sources);
   $("jobs-summary").textContent = summariseJobs(payload);
   sayOn("jobs-bounded", rows.length >= JOBS_LIMIT
     ? `Showing the newest ${JOBS_LIMIT} jobs. This is a PREFIX of the list, not the `
@@ -7528,6 +7604,10 @@ async function pressJobControl(jobRef, control, button, label = "") {
   // row on screen is the stale one that offered the button. `keepNotice` is what stops
   // that reload erasing the sentence explaining why.
   await loadJobs({keepNotice: refused});
+  // THE PLAYER HEARS OF THE PRESS TOO: a fresh tick, issued after it, whatever the
+  // page's live state -- pausing the only queued job settles it at once, and no tick
+  // would otherwise follow to tell the player.
+  pollJob({ fresh: true });
 
   // AND FOCUS COMES BACK TO THE BUTTON HE PRESSED, which `loadJobs` cannot do for
   // itself: `button.disabled = true` above moves focus to <body> immediately, so by the

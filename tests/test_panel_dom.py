@@ -11240,6 +11240,172 @@ def test_the_players_cancel_goes_to_the_job_the_question_named(open_panel):
     assert [w["path"] for w in sent] == ["/api/jobs/job_034c51a29deb/control"], (
         f"the cancel went to a job the question did not name: {sent}")
 
+TICK = "/api/jobs?active_only=true&limit=200"
+FAIL_TICKS = """(n) => {
+  window.__failTicks = n;
+  const real = window.fetch;
+  window.fetch = async (url, options) => {
+    if (String(url).includes("active_only=true&limit=200") && window.__failTicks > 0) {
+      window.__failTicks -= 1;
+      throw new TypeError("Failed to fetch");
+    }
+    return real(url, options);
+  };
+}"""
+
+
+def test_every_page_reads_what_is_running_the_same_way(open_panel):
+    """THE READ MODEL'S TICK (#1542): `active_only` up to the Jobs page's bound, on every
+    page. It read the newest five, so "N queued" stopped at 4 on Run and not on Jobs,
+    and a paused job older than the window vanished from the player on one page only."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.wait_for_function(
+        "() => !document.getElementById('miniplayer').classList.contains('hidden')")
+    calls = page.evaluate("() => window.__calls")
+    assert TICK in calls, f"the tick did not read active_only up to 200: {calls}"
+    assert not [c for c in calls if "active_only=true&limit=5" in c], (
+        "the newest-five read is still issued")
+
+
+def test_the_player_counts_only_the_jobs_still_to_settle(open_panel):
+    """THE TICK IS FILTERED ONCE, before the adoption and before the count. The harness
+    answers every `/api/jobs` with all seven of his jobs, settled ones included, as a
+    read the engine did not filter would: of the six beside the running one, three are
+    preparing, paused or queued and three have finished. "N queued" is the three."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.wait_for_function(
+        "() => !document.getElementById('miniplayer').classList.contains('hidden')")
+    sub = page.text_content("#mini-sub")
+    assert "3 queued" in sub, f"the player counted settled jobs as waiting: {sub!r}"
+
+
+def test_an_older_history_answer_never_draws_over_a_newer_one(open_panel):
+    """TWO HISTORY READS CAN NOW BE IN FLIGHT (entry and a change in the active set, or a
+    press and one). The one issued first is held back here and answers last, with the
+    paused job still paused; the page must keep the newer answer, where it is gone."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.evaluate("""() => { let n = 0; const real = window.fetch;
+        window.fetch = (u, o) => {
+          if (String(u).endsWith("/api/jobs?limit=200")) {
+            n += 1;
+            if (n === 1) return new Promise((done) =>
+              setTimeout(() => done(real(u, o)), 1200));
+            return real(u, o).then((r) => r.json()).then((body) => new Response(
+              JSON.stringify({...body, jobs: body.jobs.filter(
+                (job) => job.job_ref !== "job_0212decca681")}),
+              {status: 200, headers: {"Content-Type": "application/json"}}));
+          }
+          return real(u, o); }; }""")
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(100)
+    page.click("#jobs-reload")
+    page.wait_for_timeout(1800)
+    assert page.locator('#jobs-list .job-row[data-job="job_0212decca681"]').count() == 0, (
+        "the older answer, issued first and landing last, drew over the newer one")
+
+
+def test_a_failed_tick_tries_again_and_the_player_comes_back(open_panel):
+    """A FAILED TICK USED TO END POLLING FOR GOOD: the catch hid the player and returned
+    with no timer, so one timeout left it hidden until he navigated. It now backs off
+    (1.5 s, then 3 s) while there was a job to follow, and the first success redraws it."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.wait_for_function(
+        "() => !document.getElementById('miniplayer').classList.contains('hidden')")
+    page.evaluate(FAIL_TICKS, 2)
+    page.wait_for_function(
+        "() => document.getElementById('miniplayer').classList.contains('hidden')",
+        timeout=5000)
+    # Two failures, then a success: back within 1.5 s + 3 s plus a tick, never stuck.
+    page.wait_for_function(
+        "() => window.__failTicks === 0 && "
+        "!document.getElementById('miniplayer').classList.contains('hidden')",
+        timeout=10000)
+
+
+def test_a_press_is_followed_by_a_read_issued_after_it(open_panel):
+    """A PRESS GETS A FRESH READ, never one already in flight. `pollJob` handed back any
+    read in progress, so a press resolving during a tick was answered by a read taken
+    BEFORE it, and the player kept the job's old status (#1542, read model rule 3).
+
+    Each tick is held 2 s here and Pause is pressed while one is in flight. A fresh read
+    starts the moment that one lands, about 2 s after the press; reusing it leaves the
+    next read to the 1.5 s timer after it, about 3.5 s."""
+    page = open_panel(jobs=HIS_JOBS, route_delays={"/api/jobs?active_only": 2000})
+    page.wait_for_function(
+        "() => !document.getElementById('miniplayer').classList.contains('hidden')",
+        timeout=6000)
+    page.locator("#miniplayer summary").click()
+    page.evaluate("() => { window.__calls.length = 0; }")
+    page.wait_for_function(
+        "() => window.__calls.some((c) => c.includes('active_only=true&limit=200'))",
+        timeout=6000)
+    page.click("#mini-pause")
+    page.wait_for_function(
+        "() => window.__calls.some((c) => c.includes('/control'))", timeout=2000)
+    page.wait_for_function(
+        """() => { const at = window.__calls.findIndex((c) => c.includes('/control'));
+                   return at >= 0 && window.__calls.slice(at + 1)
+                     .some((c) => c.includes('active_only=true&limit=200')); }""",
+        timeout=2700)
+
+
+def test_with_nothing_running_one_small_read_every_thirty_seconds(browser, tmp_path):
+    """HIS CHOICE, 2026-10-09: while nothing is held or queued, `active_only&limit=1`
+    every 30 s, so a job the scheduler starts appears by itself; and when it finds one,
+    the full tick resumes. Driven on Playwright's clock, not by waiting 30 s."""
+    page_file = harness.build_page(tmp_path, harness.stub(jobs=[]), name="idle.html")
+    page = browser.new_page(viewport={"width": 360, "height": 800})
+    try:
+        page.goto(page_file.as_uri())
+        harness.wait_until_settled(page)
+        # The clock goes in AFTER boot (boot waits on timers of its own); a visibility
+        # change then runs a tick, which finds nothing and arms the probe on this clock.
+        page.clock.install()
+        page.evaluate("() => document.dispatchEvent(new Event('visibilitychange'))")
+        page.wait_for_function(
+            "() => window.__calls.filter((c) => c.includes('active_only=true&limit=200'))"
+            ".length >= 2", timeout=3000)
+        page.evaluate("() => { window.__calls.length = 0; }")
+        page.clock.run_for(29_000)
+        assert not [c for c in page.evaluate("() => window.__calls")
+                    if "active_only=true&limit=1" in c], "probed before 30 s"
+        page.clock.run_for(2_000)
+        page.wait_for_function(
+            "() => window.__calls.some((c) => c.includes('active_only=true&limit=1'))",
+            timeout=3000)
+        # The probe finds a job: the full tick follows at once.
+        page.evaluate("""() => { const real = window.fetch; window.fetch = (u, o) =>
+            String(u).includes("active_only=true&limit=1")
+              ? Promise.resolve(new Response(JSON.stringify({jobs: [{job_ref: "job_new",
+                  status: "queued", job_kind: "crawl", source_keys: ["x"]}]}),
+                  {status: 200, headers: {"Content-Type": "application/json"}}))
+              : real(u, o); }""")
+        page.evaluate("() => { window.__calls.length = 0; }")
+        page.clock.run_for(31_000)
+        page.wait_for_function(
+            "() => window.__calls.some((c) => c.includes('active_only=true&limit=200'))",
+            timeout=3000)
+    finally:
+        page.close()
+
+
+def test_the_jobs_page_rereads_its_history_when_a_job_starts_or_ends(open_panel):
+    """THE TICK TELLS THE PAGE. The Jobs page had no read of its own after entry, so a
+    job the scheduler started while he watched never got a row. A change in the tick's
+    active set, either way, re-reads the history while the page is on screen."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_selector("#jobs-list .job-row")
+    page.evaluate("""() => { window.__calls.length = 0; const real = window.fetch;
+        window.fetch = (u, o) => String(u).includes("active_only=true")
+          ? real(u, o).then((r) => r.json()).then((body) => new Response(JSON.stringify(
+              {...body, jobs: [...body.jobs, {job_ref: "job_new", status: "queued",
+                job_kind: "crawl", source_keys: ["x"]}]}),
+              {status: 200, headers: {"Content-Type": "application/json"}}))
+          : real(u, o); }""")
+    page.wait_for_function(
+        "() => window.__calls.some((c) => c === '/api/jobs?limit=200')", timeout=4000)
+
 
 def test_the_miniplayer_states_a_percentage_and_stops_claiming_one_it_lacks(open_panel):
     """`miniProgress` was rewritten and NONE of its three outputs was asserted.
