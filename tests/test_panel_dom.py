@@ -614,6 +614,51 @@ def test_the_jobs_page_shows_every_job_and_not_only_the_active_one(open_panel):
     assert not page.js_errors
 
 
+# A SCHEDULED FIRING THAT FOUND ITS SOURCE BUSY (#1596, his ruling D4): finished at the
+# moment it was written, never started, and the reason in `error_summary`.
+SKIPPED_JOB = {
+    "job_ref": "job_5c1e0d0f1a2b", "job_kind": "profile_crawl", "status": "skipped",
+    "run_mode": "update", "source_keys": ["muqawil_org"], "current_source_key": None,
+    "stage": None, "progress": {"done": 0, "total": 1},
+    "fetch": {"requests": 0, "expected": None, "basis": None, "as_of": None,
+              "unknown_sources": [], "sources": {}},
+    "queued_behind": None, "counters": {}, "created_at": "2026-10-09T06:00:00Z",
+    "started_at": None, "finished_at": "2026-10-09T06:00:00Z", "last_heartbeat_at": None,
+    "error_summary": "skipped: a run is in progress (job_034c51a29deb)"}
+
+
+def test_a_skipped_job_is_drawn_finished_and_says_why_without_alarm(open_panel):
+    """A skip is something the schedule did, not something that went wrong. Its row says
+    why, in the muted line and not the red one a failure uses; it offers no control,
+    because the engine refuses every one on a finished job; and the mini-player does not
+    adopt it as the job doing the work."""
+    failed = next(job for job in HIS_JOBS if job["status"] == "failed")
+    page = open_panel(jobs=[SKIPPED_JOB, failed])
+    page.wait_for_timeout(400)
+    assert not page.is_visible("#miniplayer"), (
+        "the mini-player adopted a skipped job as if it were running")
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(300)
+
+    row = page.locator(f'#jobs-list .job-row[data-job="{SKIPPED_JOB["job_ref"]}"]')
+    assert row.count() == 1, "the skipped job was not drawn"
+    assert row.locator(".badge").inner_text().strip() == "skipped"
+    assert row.locator(".job-actions button").count() == 0, (
+        "a skipped job offered a control the engine answers 409")
+    assert row.locator(".job-live").count() == 0
+    row.locator("summary").click()
+    reason = row.locator(".hint", has_text="a run is in progress")
+    assert reason.count() == 1, "the reason the schedule skipped it is not on the row"
+    classes = reason.get_attribute("class").split()
+    assert "muted" in classes and "err" not in classes, (
+        f"a skip's reason is drawn as an error: {classes}")
+    failure = page.locator(f'#jobs-list .job-row[data-job="{failed["job_ref"]}"] .hint')
+    assert "err" in failure.get_attribute("class").split(), (
+        "a failure's reason stopped being drawn as one")
+    assert "1 skipped" in page.locator("#jobs-summary").inner_text()
+    assert not page.js_errors
+
+
 def test_a_still_job_says_what_it_waits_for_and_names_no_job_it_cannot(open_panel):
     """ISSUE 778's SECOND HALF. `queued_behind` is `null` for a job blocked on the
     per-host politeness lane, which is the case that cost him 33 minutes of silence.

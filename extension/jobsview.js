@@ -20,7 +20,7 @@
 
 /** Terminal statuses, from `scrapex/vocab.py:TERMINAL_JOB_STATUSES`. */
 const SETTLED = new Set(["cancelled", "completed", "completed_with_errors",
-                         "partially_completed", "failed"]);
+                         "partially_completed", "failed", "skipped"]);
 
 /** Where the worker is holding the job, from `vocab.WORKER_HELD_STATUSES` plus the two
  *  transitional statuses `set_control` parks a held job in. A job in one of these owns a
@@ -280,7 +280,9 @@ export function statusTone(status) {
   if (value === "failed") return "danger";
   if (value === "completed_with_errors" || value === "partially_completed"
       || value === "requires_review") return "off";
-  if (value === "cancelled") return "";
+  // A SKIP IS NEUTRAL LIKE A CANCEL: nothing went wrong, a scheduled firing found its
+  // source busy and did not run (#1596). It must not wear `off` beside real trouble.
+  if (value === "cancelled" || value === "skipped") return "";
   if (HIS_MOVE.has(value)) return "off";
   return "";
 }
@@ -316,6 +318,12 @@ export function summariseJobs(payload) {
  * entered; re-sorting by a timestamp in the page would disagree with it the moment two
  * jobs share a second, and `created_at` is stored at second resolution.
  */
+/** The class a job's `error_summary` is drawn in. A skipped job's summary is the reason
+ *  the schedule passed it over (#1596), not an error, so it is muted rather than red. */
+export function summaryClass(status) {
+  return String(status || "") === "skipped" ? "muted" : "err";
+}
+
 export function rowsFrom(payload, sources = []) {
   return (payload?.jobs || []).filter((job) => job && job.job_ref).map((job) => ({
     job_ref: job.job_ref,
@@ -331,6 +339,7 @@ export function rowsFrom(payload, sources = []) {
     created_at: job.created_at,
     finished_at: job.finished_at,
     error_summary: job.error_summary || "",
+    summary_class: summaryClass(job.status),
   }));
 }
 
@@ -358,6 +367,13 @@ const STATUS_LOOK = {
   completed_with_errors: ["material-warning", "warning"],
   completed: ["material-check-circle", "brand"],
   cancelled: ["material-block", "default"],
+  // #1596, his ruling D4: a scheduled firing that found its source busy and did not run.
+  // Studio draws its own skipped step as a plain default badge with no icon
+  // (BranchManagement/ActionStatusBadge.tsx@86c813ec:18, 66-75); here every status has a
+  // glyph, so it takes Material's `next_plan` -- passed over, on to the next slot -- and
+  // the `secondary` tone, words and glyph both muted: quieter than a cancel, which is
+  // something he did, and nothing like a failure.
+  skipped: ["material-next-plan", "secondary"],
 };
 
 export function statusLook(status) {
@@ -373,7 +389,8 @@ export function statusLook(status) {
  * (jobs.py:936) and no pause is stamped, so finish minus start counts pauses, waits for
  * the site's turn and a sleeping laptop -- 3 h 35 m of one crawl, measured. A job that
  * never started reads from `created_at`. A finish on another day carries its date, and
- * a cancel says so whichever state it was cancelled from. `fmt` is ScrapeXTime.format.
+ * a cancel says so whichever state it was cancelled from. So does a skip (#1596), which
+ * never started: "Added 9 Oct, 6:00 AM → skipped 6:00 AM". `fmt` is ScrapeXTime.format.
  */
 export function timeLine(job, fmt) {
   const begun = job?.started_at;
@@ -383,7 +400,8 @@ export function timeLine(job, fmt) {
   if (!end || !from) return from;
   const sameDay = fmt(end, "date") === fmt(begun || job.created_at, "date");
   const when = sameDay ? fmt(end, "time") : fmt(end, "short");
-  return `${from} → ${job.status === "cancelled" ? "cancelled " : ""}${when}`;
+  const how = job.status === "cancelled" || job.status === "skipped" ? `${job.status} ` : "";
+  return `${from} → ${how}${when}`;
 }
 
 /** The line above the list: what is shown, out of what, and whether it is live. It is

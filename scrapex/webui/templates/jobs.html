@@ -92,6 +92,7 @@
   // From vocab.py, not re-typed: this Set is the polling stop-condition, so a
   // status missing from it polls a finished job forever.
   const TERMINAL = new Set({{ TERMINAL_JOB_STATUSES|tojson }});
+  const UNCLEAN = new Set({{ UNCLEAN_JOB_STATUSES|tojson }});
   const rows = [...document.querySelectorAll("[data-job-ref]")];
   if (!rows.length || !rows.some((row) => !TERMINAL.has(row.dataset.status))) return;
   const fmt = (n) => Number(n || 0).toLocaleString("en-US");
@@ -100,7 +101,7 @@
     const status = row.querySelector('[data-cell="status"]');
     status.textContent = job.status.replace(/_/g, " ");
     status.className = "badge " + (job.status === "completed" ? "ok"
-      : TERMINAL.has(job.status) ? "off" : "");
+      : UNCLEAN.has(job.status) ? "off" : "");
     let progress = job.progress.done + "/" + job.progress.total + " sources";
     if (!TERMINAL.has(job.status) && job.stage) {
       progress += " · " + job.stage + (job.current_source_key ? " " + job.current_source_key : "");
