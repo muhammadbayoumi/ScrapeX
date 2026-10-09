@@ -11433,38 +11433,59 @@ def test_the_jobs_page_rereads_its_history_when_a_job_starts_or_ends(open_panel)
 def test_a_redraw_the_tick_starts_keeps_his_place_on_the_keyboard(open_panel):
     """A JOB STARTING ELSEWHERE IS NOT HIS PRESS. The tick's change of active set re-reads
     the history and redraws every row; the element he had focused was replaced and focus
-    fell to <body>. It returns to the same control in the same row, and to the row's
-    summary when what he had focused was the summary."""
+    fell to <body>. It returns to the same control in the same row -- Cancel, the second,
+    so a restore to the row's first control fails here -- to the row's summary when that
+    is what he had focused, and to the summary when the control he was on is gone."""
     page = open_panel(jobs=HIS_JOBS)
     page.click(JOBS_TAB)
     page.wait_for_selector("#jobs-list .job-row")
-    row = '#jobs-list .job-row[data-job="job_034c51a29deb"]'
+    ref = "job_034c51a29deb"
+    row = f'#jobs-list .job-row[data-job="{ref}"]'
     page.click(f"{row} summary")
-    page.locator(f"{row} button", has_text="Pause").focus()
 
-    def a_job_starts(ref):
-        page.evaluate("""(ref) => { window.__calls.length = 0; const real = window.fetch;
-            window.fetch = (u, o) => String(u).includes("active_only=true")
-              ? real(u, o).then((r) => r.json()).then((body) => new Response(JSON.stringify(
-                  {...body, jobs: [...body.jobs, {job_ref: ref, status: "queued",
-                    job_kind: "crawl", source_keys: ["x"]}]}),
-                  {status: 200, headers: {"Content-Type": "application/json"}}))
-              : real(u, o); }""", ref)
+    def a_job_starts(new_ref, settled=None):
+        """The tick gains `new_ref`; with `settled`, the history then reads that job as
+        completed, as the engine would once it ended."""
+        page.evaluate("""([newRef, settled]) => { window.__calls.length = 0;
+            const real = window.fetch;
+            const json = (body) => new Response(JSON.stringify(body),
+              {status: 200, headers: {"Content-Type": "application/json"}});
+            window.fetch = (u, o) => {
+              const url = String(u);
+              if (url.includes("active_only=true")) {
+                return real(u, o).then((r) => r.json()).then((body) => json({...body,
+                  jobs: [...body.jobs, {job_ref: newRef, status: "queued",
+                    job_kind: "crawl", source_keys: ["x"]}]}));
+              }
+              if (settled && url.endsWith("/api/jobs?limit=200")) {
+                return real(u, o).then((r) => r.json()).then((body) => json({...body,
+                  jobs: body.jobs.map((job) => job.job_ref === settled
+                    ? {...job, status: "completed", finished_at: "2026-09-07T14:00:00Z"}
+                    : job)}));
+              }
+              return real(u, o); }; }""", [new_ref, settled])
         page.wait_for_function(
             "() => window.__calls.some((c) => c === '/api/jobs?limit=200')", timeout=4000)
         page.wait_for_timeout(300)
 
+    def focused():
+        return page.evaluate("""() => { const el = document.activeElement;
+            return [el.tagName, el.tagName === 'BUTTON' ? el.textContent : '',
+              el.closest('.job-row')?.dataset.job || null]; }""")
+
+    page.locator(f"{row} button", has_text="Cancel").focus()
     a_job_starts("job_new")
-    focused = page.evaluate("""() => { const el = document.activeElement;
-        return [el.tagName, el.tagName === 'BUTTON' ? el.textContent : '',
-            el.closest('.job-row')?.dataset.job || null]; }""")
-    assert focused == ["BUTTON", "Pause", "job_034c51a29deb"], (
-        f"the redraw moved his focus: {focused}")
+    assert focused() == ["BUTTON", "Cancel", ref], f"the redraw moved his focus: {focused()}"
+
     page.focus(f"{row} summary")
     a_job_starts("job_newer")
-    focused = page.evaluate("""() => [document.activeElement.tagName,
-        document.activeElement.closest('.job-row')?.dataset.job || null]""")
-    assert focused == ["SUMMARY", "job_034c51a29deb"], f"the redraw moved his focus: {focused}"
+    assert focused() == ["SUMMARY", "", ref], f"the redraw moved his focus: {focused()}"
+
+    # THE CONTROL IS GONE: the job he was on ended, and a completed row offers no Pause.
+    page.locator(f"{row} button", has_text="Pause").focus()
+    a_job_starts("job_newest", settled=ref)
+    assert page.locator(f"{row} button", has_text="Pause").count() == 0, "the job did not end"
+    assert focused() == ["SUMMARY", "", ref], f"the redraw moved his focus: {focused()}"
 
 
 def test_the_miniplayer_states_a_percentage_and_stops_claiming_one_it_lacks(open_panel):
