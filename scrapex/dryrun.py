@@ -326,10 +326,12 @@ def dry_payload(source_key: str, *, general: sqlite3.Connection,
                                        "against its listing card, which a price "
                                        "source has neither of"}
         body["last_run"] = last
+        # HIS RULES ARE READ, NOT USED FOR THE MENU: a broken one is refused here as the
+        # crawl would refuse it (a 400, never a 500). `active` gates no pass (#1611):
+        # the switch governs the schedule, and `POST /api/jobs` runs it by hand.
+        source_settings.effective(price, target.source_key, target.entry)
         body["passes"] = [one.as_dict() for one in passes.price_passes(
-            target.entry,
-            active=source_settings.effective(price, target.source_key, target.entry).active,
-            last_requests=last["requests"])]
+            target.entry, last_requests=last["requests"])]
         return body
 
     directory = _directory_for(target)

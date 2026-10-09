@@ -8,7 +8,7 @@ the real schema and the real migrations:
     the price crawl's fetcher     capture.capture_source -> build_connector -> resolve_fetcher
     the schedule                  scheduler.fire_due (active)
     the warehouse's own record    storage.reconcile_active -> source_site.lifecycle
-    the Run menu                  dryrun.dry_payload -> passes.price_passes (active)
+    the Run menu                  dryrun.dry_payload -> passes.price_passes (not gated, #1611)
     the robots screen             GET /api/sources/{key}/robots
     the command line's crawl      cli `crawl`, which opens no warehouse: the shipped layer
 
@@ -319,23 +319,19 @@ def test_a_manifest_with_a_rule_that_cannot_be_obeyed_never_loads(
     assert _lifecycle(conn, QUIET) == "active", "an unloadable manifest reconciled anyway"
 
 
-def test_the_run_menu_blocks_a_source_he_switched_off(conn):
+def test_the_run_menu_offers_every_pass_of_a_source_he_switched_off(conn):
+    """#1611, his ruling: the switch governs the schedule only. `POST /api/jobs` runs a
+    switched-off source by hand, so the Run menu must not call any pass blocked by it --
+    on or off, the passes are the same."""
     source_settings.save(conn, SHOP, source_settings.shipped_with(MANIFEST, SHOP), {"active": False})
     conn.commit()
-
-    body = dryrun.dry_payload(SHOP, general=conn, price=conn, manifest=MANIFEST)
-
-    assert all(one["blocked_by"] and "switched off" in one["blocked_by"]
-               for one in body["passes"])
-
-
-def test_the_run_menu_opens_a_source_he_switched_on(conn):
-    source_settings.save(conn, QUIET, source_settings.shipped_with(MANIFEST, QUIET), {"active": True})
+    off = dryrun.dry_payload(SHOP, general=conn, price=conn, manifest=MANIFEST)["passes"]
+    source_settings.save(conn, SHOP, source_settings.shipped_with(MANIFEST, SHOP), {"active": True})
     conn.commit()
+    on = dryrun.dry_payload(SHOP, general=conn, price=conn, manifest=MANIFEST)["passes"]
 
-    body = dryrun.dry_payload(QUIET, general=conn, price=conn, manifest=MANIFEST)
-
-    assert not any("switched off" in (one["blocked_by"] or "") for one in body["passes"])
+    assert not any("switched off" in (one["blocked_by"] or "") for one in off)
+    assert [one["blocked_by"] for one in off] == [one["blocked_by"] for one in on]
 
 
 # ---- the robots screen says what the crawl will do -------------------------------------
@@ -565,25 +561,6 @@ def test_a_source_whose_family_went_back_to_tbd_probe_does_not_fire(conn):
 
     assert fire_due(conn, manifest=reverted) == []
     assert list_jobs(conn) == []
-
-
-def test_the_run_menu_reads_his_switch_from_the_warehouse_it_lives_in(conn, tmp_path):
-    """`dry_payload` takes two connections; his switch is in the price-side one. Read
-    from the other -- here an empty engine database -- it would be missed."""
-    empty = EngineDatabase(tmp_path / "other.db")
-    empty.initialize()
-    source_settings.save(conn, SHOP, MANIFEST.get(SHOP), {"active": False})
-    conn.commit()
-    general = empty.connect()
-    try:
-        body = dryrun.dry_payload(SHOP, general=general, price=conn, manifest=MANIFEST)
-    finally:
-        general.close()
-
-    reasons = [one["blocked_by"] or "" for one in body["passes"]]
-    assert all("switched off" in reason for reason in reasons)
-    assert not any("sources.yaml" in reason for reason in reasons), (
-        "the switch he flipped is his own, in the warehouse, not the manifest's")
 
 
 def test_a_schedule_no_registry_knows_is_spent_and_the_rest_still_fire(conn, tmp_path):
