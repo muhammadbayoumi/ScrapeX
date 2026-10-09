@@ -240,7 +240,6 @@
 }
 .dg-body .dg-row {
   min-height: var(--grid-row-height);
-  background-color: var(--table-surface);
   color: var(--table-text);
   border-bottom: var(--table-rule);
 }
@@ -461,8 +460,10 @@
 }
 .dg-group-toggle.is-open::before,
 .dg-tree-toggle.is-open::before { transform: rotate(90deg); }
-[dir="rtl"] .dg-group-toggle:not(.is-open)::before,
-[dir="rtl"] .dg-tree-toggle:not(.is-open)::before { transform: rotate(180deg); }
+/* border-inline-start already points the triangle at the start edge in RTL;
+ * open, it turns the other way to point down. */
+[dir="rtl"] .dg-group-toggle.is-open::before,
+[dir="rtl"] .dg-tree-toggle.is-open::before { transform: rotate(-90deg); }
 .dg-tree-spacer {
   display: inline-block;
   width: 1.25rem;

@@ -96,6 +96,12 @@ def alpha(color: str) -> float:
     return float(found.group(1)) if found else 1.0
 
 
+def row_tint(page, selector: str) -> str:
+    """The colour a row is tinted with, which its pinned cells must lay over
+    their surface: the same colour, or the cell is a seam in the row."""
+    return page.evaluate("(sel) => getComputedStyle(document.querySelector(sel)).backgroundColor", selector)
+
+
 PINNED = """{
   columns: [{formatter: "rowSelection", titleFormatter: "rowSelection", width: 40,
              frozen: "left", headerSort: false},
@@ -136,13 +142,13 @@ def test_a_pinned_cell_is_opaque_in_a_selected_or_hovered_row(page):
         document.querySelector('.dg-body .dg-row.dg-selected .dg-pinned'));
       return [c.backgroundColor, c.backgroundImage]; }""")
     assert alpha(selected[0]) == 1.0, selected
-    assert "gradient" in selected[1], selected
+    assert row_tint(page, ".dg-body .dg-row.dg-selected") in selected[1], selected
     page.hover('.dg-body .dg-row[data-index="3"] [data-field="size"]')
     hovered = page.evaluate("""() => { const c = getComputedStyle(
         document.querySelector('.dg-body .dg-row[data-index="3"] .dg-pinned'));
       return [c.backgroundColor, c.backgroundImage]; }""")
     assert alpha(hovered[0]) == 1.0, hovered
-    assert "gradient" in hovered[1], hovered
+    assert row_tint(page, '.dg-body .dg-row[data-index="3"]') in hovered[1], hovered
 
 
 def test_a_striped_even_row_still_shows_its_selection_and_its_hover(page):
@@ -172,7 +178,8 @@ def test_the_totals_rows_pinned_cells_keep_its_tint(page):
     cells = page.evaluate("""() => Array.from(document.querySelectorAll('.dg-header .dg-calcs .dg-cell'))
       .map((c) => { const s = getComputedStyle(c); return [c.classList.contains('dg-pinned'), s.backgroundImage]; })""")
     pinned = [image for is_pinned, image in cells if is_pinned]
-    assert pinned and all("gradient" in image for image in pinned), cells
+    tint = row_tint(page, ".dg-header .dg-calcs")
+    assert pinned and all(tint in image for image in pinned), (tint, cells)
 
 
 def computed(page, selector: str, props: list[str], pseudo: str | None = None) -> dict:
@@ -260,3 +267,22 @@ def test_the_totals_row_is_a_band_of_its_own(page):
     build(page, PINNED)
     calcs = computed(page, ".dg-header .dg-calcs", ["background-color"])
     assert alpha(calcs["background-color"]) > 0, calcs
+
+
+def test_in_a_right_to_left_page_a_toggle_points_at_its_start_and_turns_down(page):
+    """border-inline-start already points the triangle at the start edge in RTL.
+    A further half-turn pointed it back the wrong way, and opening it pointed
+    it up."""
+    page.evaluate("document.documentElement.dir = 'rtl'")
+    build(page, """{columns: [{title: "Name", field: "name"}],
+                    data: [{name: "a", kids: [{name: "b"}]}], dataTree: true, dataTreeChildField: "kids"}""")
+    closed = computed(page, ".dg-tree-toggle", ["transform"], "::before")["transform"]
+    assert closed == "none", closed
+    page.click(".dg-tree-toggle")
+    page.wait_for_function("""() => getComputedStyle(document.querySelector('.dg-tree-toggle'), '::before')
+      .transform.startsWith('matrix(') """)
+    page.wait_for_timeout(300)
+    turned = computed(page, ".dg-tree-toggle", ["transform"], "::before")["transform"]
+    # rotate(-90deg) is matrix(0, -1, 1, 0, 0, 0): the triangle that points left turns to point down.
+    b = float(turned[len("matrix("):].split(",")[1])
+    assert b == pytest.approx(-1, abs=0.01), turned
