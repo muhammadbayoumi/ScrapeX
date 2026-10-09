@@ -12643,14 +12643,69 @@ def test_search_and_filter_say_which_one_emptied_the_list(open_panel):
     assert page.locator("#jobs-list .job-row").count() == 7
     assert page.input_value("#jobs-search") == ""
 
+    # BOTH: muqawil's jobs, under Queued -- the queued job is balady_gov_sa's, so none.
     page.fill("#jobs-search", "muqawil")
     page.click("#jobs-status")
-    page.locator("#jobs-filter label", has_text="Cancelled").locator("input").check()
+    page.locator("#jobs-filter label", has_text="Queued").locator("input").check()
     page.click("#jobs-filter-save")
     page.wait_for_timeout(200)
-    if page.locator("#jobs-list .job-row:visible").count() == 0:
-        assert "No job matches the search and the selected statuses" in (
-            page.locator("#jobs-state").inner_text())
+    assert page.locator("#jobs-list .job-row:visible").count() == 0
+    assert page.locator("#jobs-list").is_hidden(), "an empty list card stayed under the sentence"
+    assert "No job matches the search and the selected statuses" in (
+        page.locator("#jobs-state").inner_text())
+    # AND RESET CLEARS BOTH: every row, an empty search, and the filter unchosen.
+    reset = page.locator("#jobs-state button")
+    assert reset.inner_text() == "Reset filter"
+    reset.click()
+    page.wait_for_timeout(200)
+    assert page.locator("#jobs-list .job-row").count() == 7
+    assert page.input_value("#jobs-search") == ""
+    assert page.locator("#jobs-status-label").inner_text() == "Status"
+    assert "dashed" in page.locator("#jobs-status").get_attribute("class").split()
+    assert page.locator("#jobs-announce").inner_text() == "7 jobs"
+
+
+def test_the_no_results_sentence_follows_the_search_as_he_types(open_panel):
+    """TYPED LETTER BY LETTER, the list empties at one letter and the sentence must keep up
+    with every letter after it, not keep naming the term that first emptied it."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(300)
+    page.fill("#jobs-search", "tenders")
+    page.wait_for_timeout(200)
+    page.fill("#jobs-search", "tendersx")
+    page.wait_for_timeout(200)
+    assert "Your search for “tendersx” did not return any results" in (
+        page.locator("#jobs-state").inner_text())
+
+
+def test_a_press_outside_the_status_filter_closes_it_without_applying(open_panel):
+    """OUTSIDE, NOT SAVE: a press anywhere outside the filter closes it and what he ticked
+    is not applied."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(300)
+    page.click("#jobs-status")
+    page.locator("#jobs-filter label", has_text="Failed").locator("input").check()
+    page.click("#view-jobs .view-heading h1")
+    page.wait_for_timeout(200)
+    assert page.locator("#jobs-filter").is_hidden()
+    assert page.locator("#jobs-status").get_attribute("aria-expanded") == "false"
+    assert page.locator("#jobs-list .job-row").count() == 7, "an unsaved tick was applied"
+    assert page.locator("#jobs-status-label").inner_text() == "Status"
+
+
+def test_the_status_filters_ticks_are_drawn_in_the_foreground(open_panel):
+    """#1582: A CHECKED BOX FILLED WITH --accent IS 1.99:1 ON WHITE. Supabase fills it with
+    the foreground (checkbox.tsx@86c813ec:24), and so does the status filter."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(300)
+    page.click("#jobs-status")
+    accent, text = page.evaluate("""() => [
+        getComputedStyle(document.querySelector('#jobs-filter input[type=checkbox]')).accentColor,
+        getComputedStyle(document.body).color]""")
+    assert accent == text, f"the tick is {accent}, the foreground is {text}"
 
 
 def test_a_row_he_acted_on_stays_until_he_changes_the_filter(open_panel):
