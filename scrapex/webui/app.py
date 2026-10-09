@@ -439,6 +439,9 @@ TEMPLATES.env.globals["TERMINAL_JOB_STATUSES"] = sorted(
 TEMPLATES.env.globals["UNCLEAN_JOB_STATUSES"] = sorted(
     status.value for status in TERMINAL_JOB_STATUSES
     if status not in (JobStatus.COMPLETED, JobStatus.SKIPPED))
+# The one status /jobs draws differently by name: a skip never ran, so it states no
+# progress and its reason is a note, not an error (#1596).
+TEMPLATES.env.globals["SKIPPED_JOB_STATUS"] = JobStatus.SKIPPED.value
 STATIC_DIR = Path(__file__).parent / "static"
 PAGE_SIZE = 50
 AVAILABILITY_OPTIONS = ("in_stock", "out_of_stock", "unknown")
@@ -856,13 +859,16 @@ def create_app(
         # may have stopped part-way, with runs it planned still unread, so it may not
         # count as a reading. Same column, opposite answers, because "did it leave pages
         # behind" and "did it read them all" are not one fact.
+        #
+        # EXCEPT A SKIP (#1596): a scheduled firing that did not run bought no pages,
+        # though `jobs._finish` stamps its finish time like any other.
         marks = ",".join("?" for _ in datasetjob.COLLECTING_KINDS)
         crawled = general.execute(
             "SELECT finished_at FROM crawl_job "
             f" WHERE job_kind IN ({marks}) AND source_keys LIKE ? "
-            "   AND finished_at IS NOT NULL "
+            "   AND finished_at IS NOT NULL AND status != ? "
             " ORDER BY finished_at DESC LIMIT 1",
-            (*datasetjob.COLLECTING_KINDS, like)).fetchone()
+            (*datasetjob.COLLECTING_KINDS, like, JobStatus.SKIPPED.value)).fetchone()
         if crawled:
             # `completed`, NOT "it has a finish time" -- and the difference is a silent
             # one. `jobs._finish` stamps `finished_at` for EVERY terminal status, so a

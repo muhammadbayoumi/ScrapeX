@@ -655,7 +655,7 @@ SKIPPED_JOB = {
               "unknown_sources": [], "sources": {}},
     "queued_behind": None, "counters": {}, "created_at": "2026-10-09T06:00:00Z",
     "started_at": None, "finished_at": "2026-10-09T06:00:00Z", "last_heartbeat_at": None,
-    "error_summary": "skipped: a run is in progress (job_034c51a29deb)"}
+    "error_summary": "This site's previous run was still going (job_034c51a29deb)"}
 
 
 def test_a_skipped_job_is_drawn_finished_and_says_why_without_alarm(open_panel):
@@ -682,7 +682,7 @@ def test_a_skipped_job_is_drawn_finished_and_says_why_without_alarm(open_panel):
     assert _menu_items(page, ref) == ["View log"], "a skipped job's menu offers Cancel"
     page.keyboard.press("Escape")
     reason = row.locator('[data-part="error"]')
-    assert "a run is in progress" in reason.inner_text(), (
+    assert "previous run was still going" in reason.inner_text(), (
         "the reason the schedule skipped it is not on the row")
     classes = reason.get_attribute("class").split()
     assert "muted" in classes and "err" not in classes, (
@@ -691,6 +691,44 @@ def test_a_skipped_job_is_drawn_finished_and_says_why_without_alarm(open_panel):
     assert "err" in failure.get_attribute("class").split(), (
         "a failure's reason stopped being drawn as one")
     assert not page.js_errors
+
+
+def test_a_skipped_row_wears_look_c_and_not_a_running_rows_look(open_panel):
+    """#1596, his look C, drawn by #1608's row: Studio's `default` tone -- the word in
+    the foreground and the `next_plan` glyph muted -- where `running` is muted throughout.
+    And a job that never ran draws no bar and no "0 of 1"."""
+    running = {**SKIPPED_JOB, "job_ref": "job_running0001", "status": "running",
+               "finished_at": None, "started_at": "2026-10-09T05:00:00Z",
+               "error_summary": None}
+    page = open_panel(jobs=[SKIPPED_JOB, running])
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(300)
+
+    def status(ref):
+        return _job_row(page, ref).locator('[data-part="statusline"] .job-status')
+
+    def colour(name):
+        return page.evaluate(
+            "n => { const s = document.createElement('span');"
+            " s.style.color = getComputedStyle(document.body).getPropertyValue(n).trim();"
+            " document.body.append(s); const v = getComputedStyle(s).color; s.remove();"
+            " return v; }", name)
+
+    skip, run = status(SKIPPED_JOB["job_ref"]), status(running["job_ref"])
+    assert skip.locator('use[href="#material-next-plan"]').count() == 1, (
+        "the skip's status has no next_plan glyph")
+    look = "el => [el.className, getComputedStyle(el).color]"
+    assert skip.evaluate(look) != run.evaluate(look), (
+        "a skipped row's status is drawn exactly like a running row's")
+    assert skip.evaluate("el => getComputedStyle(el).color") == colour("--text"), (
+        "the skip's word is not in the foreground colour")
+    assert skip.locator("svg").evaluate("el => getComputedStyle(el).color") == colour(
+        "--muted"), "the skip's glyph is not muted"
+    row = _job_row(page, SKIPPED_JOB["job_ref"])
+    assert row.locator('[data-part="barline"]').is_hidden(), "a job that never ran drew a bar"
+    assert "0 of 1" not in row.inner_text()
+    assert not page.js_errors
+
 
 def test_a_still_job_says_what_it_waits_for_and_names_no_job_it_cannot(open_panel):
     """ISSUE 778's SECOND HALF. `queued_behind` is `null` for a job blocked on the
@@ -5388,6 +5426,84 @@ def test_the_raw_utc_stays_reachable_on_every_converted_time(open_panel):
     assert stamp.get_attribute("title") == "Stored as 2026-07-30T22:30:00Z (UTC)"
     # <time datetime> stays machine-readable UTC, never the converted text.
     assert stamp.get_attribute("datetime") == "2026-07-30T22:30:00Z"
+    assert not page.js_errors
+
+
+def test_a_schedule_row_offers_no_overlap_choice_and_saves_skip(open_panel):
+    """#1596 step A. A busy slot is skipped and logged whatever the stored policy says,
+    so the row draws one line saying so instead of a select that would change nothing,
+    and its Save still sends `skip` -- the field an engine older than that change reads,
+    so it skips too, even for a schedule he saved with the old default, `queue`."""
+    page = open_panel(sources=[CLEAN_SITE], schedules=SCHEDULE_SOON)
+    page.click(SETTINGS_TAB)
+    page.click('[data-sect="s-sched"]')
+    page.wait_for_timeout(500)
+    row = page.locator(".sched-row").first
+    row.locator("summary").click()
+
+    assert row.locator('[data-role="overlap"]').count() == 0, "the overlap select is drawn"
+    assert row.locator('[data-role="skip-note"]').inner_text() == (
+        "If this site's previous run is still going, ScrapeX skips the slot and lists it on the Jobs page.")
+
+    row.locator('[data-role="save"]').click()
+    page.wait_for_timeout(300)
+    saves = [w for w in page.evaluate("window.__writes")
+             if w["path"].startswith("/api/schedules/")]
+    assert len(saves) == 1, saves
+    assert saves[0]["body"]["overlap_policy"] == "skip", saves[0]["body"]
+    assert not page.js_errors
+
+
+def _skip_note(page):
+    page.click(SETTINGS_TAB)
+    page.click('[data-sect="s-sched"]')
+    page.wait_for_timeout(500)
+    row = page.locator(".sched-row").first
+    row.locator("summary").click()
+    return row.locator('[data-role="skip-note"]')
+
+
+@pytest.mark.parametrize("policy", ["queue", "skip"])
+def test_an_engine_without_scheduled_skips_is_told_what_it_really_does(open_panel, policy):
+    """#1620 review S9 and round 2: a 0.4.57 engine writes no skip row, so the line does
+    not promise the Jobs page -- and it still READS the stored policy, so a row stored as
+    `queue` (every row saved before this change) starts a second run there."""
+    schedules = {**SCHEDULE_SOON, "schedules": [
+        {**SCHEDULE_SOON["schedules"][0], "overlap_policy": policy}]}
+    page = open_panel(sources=[CLEAN_SITE], schedules=schedules,
+                      engine_version="0.4.57", omit_capabilities=("scheduled_skips",))
+
+    note = _skip_note(page).inner_text()
+
+    assert "lists it on the Jobs page" not in note, note
+    assert "update the engine" in note.lower(), note
+    if policy == "queue":
+        assert "still starts a second run" in note and "Save this schedule" in note, note
+    else:
+        assert "skips the slot" in note and "second run" not in note, note
+    assert not page.js_errors
+
+
+def test_a_panel_that_cannot_read_its_own_version_is_not_told_to_update_the_engine(
+        open_panel):
+    """The line asks the ENGINE's report, not `capabilityRefusal`, which also refuses when
+    Chrome did not say this extension's version -- a fault no engine update fixes."""
+    page = open_panel(sources=[CLEAN_SITE], schedules=SCHEDULE_SOON, extension_version="")
+
+    note = _skip_note(page).inner_text()
+
+    assert "lists it on the Jobs page" in note, note
+    assert "update the engine" not in note.lower(), note
+
+
+def test_an_engine_whose_report_failed_is_promised_nothing(open_panel):
+    """Nothing known, nothing said: neither the Jobs page nor an update."""
+    page = open_panel(sources=[CLEAN_SITE], schedules=SCHEDULE_SOON,
+                      fail_routes=("/api/version",))
+
+    note = _skip_note(page)
+
+    assert note.is_hidden() and note.inner_text() == ""
     assert not page.js_errors
 
 

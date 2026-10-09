@@ -564,9 +564,12 @@ def test_an_engine_release_does_not_raise_the_floor_under_the_published_extensio
     # NEEDS and not about which engine is reading it. Tagging engine-v0.4.0
     # changes VERSION and nothing here.
     assert all(s != "" for s in panel_sinces)
-    assert MINIMUM_EXTENSION_VERSION == "0.3.7", (
+    assert MINIMUM_EXTENSION_VERSION == "0.3.8", (
         "the floor moved without a capability being added; if that was "
         "deliberate, the published extension must be republished first")
+    # MOVED FROM 0.3.7 with `scheduled_skips` (#1596): the engine now writes `skipped`
+    # jobs, which a 0.3.7 panel takes for unfinished ones and offers Pause and Cancel
+    # on. The Chrome Web Store build must be republished at 0.3.8 first.
     # MOVED FROM 0.3.3 with `source_rules` (#1584): the source editor reads and saves
     # his per-source choices through /rules, which a 0.3.6 panel does not call. The
     # Chrome Web Store build must be republished at 0.3.7 before an engine carrying

@@ -280,7 +280,7 @@ const SKIPPED = {
   progress: {done: 0, total: 1, unit: "source(s)"}, fetch: {...NO_FETCH},
   queued_behind: null, created_at: "2026-10-09T06:00:00Z", started_at: null,
   finished_at: "2026-10-09T06:00:00Z",
-  error_summary: "skipped: a run is in progress (job_034c51a29deb)",
+  error_summary: "This site's previous run was still going (job_034c51a29deb)",
 };
 
 test("a skipped job is finished: no control, no wait, never the live one", () => {
@@ -300,6 +300,15 @@ test("a skip's reason is drawn muted, and a failure's still in red", () => {
     assert.equal(summaryClass(status), "err", String(status));
   }
   // The row drawn from it is test_a_skipped_job_is_drawn_finished_and_says_why_without_alarm.
+});
+
+test("a skip never ran, so it states no progress: no bar and no '0 of 1'", () => {
+  assert.equal(progressFraction(SKIPPED), null, "a job that never ran drew a bar");
+  assert.equal(progressLine(SKIPPED), "", "a job that never ran said how far it got");
+  // The same counters on a job that did start still say where it is.
+  const queued = {...SKIPPED, status: "queued"};
+  assert.equal(progressLine(queued), "0 of 1 source(s)");
+  assert.equal(progressFraction(queued), 0);
 });
 
 // THE COLLISION GUARD LIVES IN `tests/test_panel_wiring.py`, NOT HERE.
