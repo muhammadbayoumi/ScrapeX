@@ -4074,75 +4074,105 @@
     .checking-bar-thumb { background: CanvasText; }
   }
 
-/* THE JOBS PAGE — his request of 2026-09-07. Tokens only: the panel renders in
-   whichever theme and palette he has chosen, and a literal colour here would be the
-   one thing on the page that ignores it. */
-.jobs-head { align-items: baseline; justify-content: space-between; gap: 8px; }
+/* THE JOBS PAGE (#1542) — his request of 2026-09-07, redesigned through
+   design-the-experience and confirmed on 2026-10-09. Tokens and the shared components
+   only: layout here, nothing typed that a token already says. */
+.jobs-count { margin: var(--sp-2) 0; }
 
-.jobs-list { display: flex; flex-direction: column; gap: 6px; }
+.jobs-list { padding: 0; overflow: visible; }
+.job-skeleton { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-3); }
+.job-skeleton + .job-skeleton { border-top: 1px solid var(--line); }
 
-.job-row { padding: 8px 10px; }
-
-/* A COLUMN, because the waiting line sits inside the summary and must be readable
-   without opening the row. */
-.job-summary {
+/* ONE ROW. ⋮ holds the top corner and the one action sits on the status line (his
+   choice A); the DOM keeps the reading order (identity, status, action, ⋮, detail). */
+.job-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: var(--sp-2);
+  row-gap: var(--sp-1);
+  padding: var(--sp-3);
+}
+.job-row + .job-row { border-top: 1px solid var(--line); }
+.job-identity {
+  grid-column: 1 / -1;
+  padding-inline-end: calc(var(--sp-1) * 7 + var(--sp-2));
+}
+/* THE DOMAIN AND THE KEYS WRAP, IN JOBS ONLY (his choice D): they tell one row from
+   another, and the shared identity ellipsizes them at 320 px. `<wbr>` after each dot
+   puts the break there. */
+.job-identity .source-identity-domain,
+.job-identity .source-identity-key { white-space: normal; overflow-wrap: break-word; }
+.job-more { display: block; }
+.job-line {
+  grid-column: 1;
   display: flex;
-  flex-direction: column;
-  gap: 2px;
-  cursor: pointer;
-  list-style: none;
+  flex-wrap: wrap;
+  gap: 0 var(--sp-2);
+  align-items: center;
+  margin: 0;
 }
-
-.job-head { display: flex; align-items: center; gap: 8px; }
-
-/* WRAPS RATHER THAN TRUNCATES. This sentence is the answer to "why is nothing
-   happening", and half of it is not an answer. */
-.job-waiting { white-space: normal; }
-
-/* THE NAME TAKES THE ROOM AND TRUNCATES, so a long source key cannot push the status
-   badge off a 360px panel. */
-.job-label {
-  flex: 1 1 auto;
+.job-line > span { white-space: nowrap; }
+.job-status-line { grid-row: 2; }
+.job-primary { grid-column: 2; grid-row: 2 / span 2; justify-self: end; align-self: start; }
+.job-kebab { position: absolute; top: var(--sp-3); inset-inline-end: var(--sp-3); }
+/* The registry's table action is a bordered default Button, w-7 (table-actions.tsx@86c813ec:62-67,
+   his choice): narrower than the panel's 36 px icon-only rule, in a table row only. */
+.job-kebab > button.icon-button {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  width: calc(var(--sp-1) * 7);
+  padding: 0;
+  justify-content: center;
 }
+.job-menu { top: calc(100% + var(--sp-1)); inset-inline-end: 0; }
+.job-menu .account-menu-item { gap: var(--sp-2); }
+.job-menu .account-menu-item .sx-icon { flex: none; }
+.job-full { grid-column: 1 / -1; margin: 0; }
 
-/* ONE DOT FOR "THIS IS THE ONE MOVING", which is the question the whole page exists to
-   answer. `--accent-ink` because that is the positive ink this panel HAS: `--ok` is not
-   a token here, and an invalid var() makes the whole declaration invalid without
-   throwing -- which is what `test_every_custom_property_a_stylesheet_reads_is_one_
-   something_defines` exists to catch, and did. */
-.job-live {
-  flex: 0 0 auto;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--accent-ink);
+.job-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  color: var(--text);
+  font-weight: var(--fw-medium);
 }
+.job-status .sx-icon { flex: none; }
+/* TONES. A warning glyph is --warning-600 on the row's surface, with its words in the
+   foreground (#1577's mandate: 3.05:1 is an icon's contrast, not 12 px text's). */
+.job-tone-secondary,
+.job-tone-secondary .sx-icon,
+.job-tone-default .sx-icon { color: var(--muted); }
+.job-tone-foreground .sx-icon { color: var(--text); }
+.job-tone-brand,
+.job-tone-brand .sx-icon { color: var(--accent-ink); }
+.job-tone-destructive,
+.job-tone-destructive .sx-icon { color: var(--red); }
+.job-tone-warning .sx-icon { color: var(--warning-600); }
 
+.job-barline { grid-column: 1 / -1; display: flex; align-items: center; gap: var(--sp-2); }
 .job-bar {
+  flex: 1;
   height: 4px;
   border-radius: 2px;
   background: var(--surface-subtle);
   overflow: hidden;
-  margin: 4px 0;
 }
-
 .job-bar > span { display: block; height: 100%; background: var(--accent); }
 
-.job-actions { gap: 6px; margin-top: 6px; }
+/* THE FAILURE IN TWO LINES, THEN View log (his choice B). The log has it all. */
+.job-clamp {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
 
 /* THE LOG IS TEXT AND SCROLLS INSIDE ITS OWN BOX. Every line came off somebody else's
    website, and a long one must not make the panel scroll sideways. */
 .job-log {
-  margin: 6px 0 0;
   max-height: 40vh;
   overflow: auto;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   color: var(--muted);
 }
-
-.job-log:empty { display: none; }

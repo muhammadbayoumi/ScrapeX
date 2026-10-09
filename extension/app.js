@@ -13,8 +13,9 @@ import { capabilityProblem, deployedFrom, installedVersion, CAPABILITY_REPORTING
 import { PROTOCOL_VERSION } from "./transport.js";
 import { ENGINE_CANDIDATES, latestEngineRelease } from "./releases.js";
 import {
-  domainOf, isSettled, jobLabel, liveJob, observeRate, progressFraction, progressLine, recentRate,
-  rowsFrom, sourceTitle, statusWords, summariseJobs,
+  jobsCountLine, domainOf, isSettled, jobLabel, jobWaitingLine, liveJob,
+  menuControls, observeRate, primaryControl, progressFraction, progressLine,
+  recentRate, refusalLine, sourceTitle, statusLook, statusWords, timeLine,
 } from "./jobsview.js";
 import { getToken, accountFor, authorize, forgetToken, revokeToken } from "./identity.js";
 import {
@@ -5847,7 +5848,7 @@ function noticeActiveSet(jobs) {
   lastActiveRefs = refs;
   if (!before) return;
   const changed = refs.size !== before.size || [...refs].some((ref) => !before.has(ref));
-  if (changed && currentViewName() === "jobs") loadJobs({ keepNotice: true });
+  if (changed && currentViewName() === "jobs") loadJobs();
 }
 
 async function pollJobOnce() {
@@ -5857,9 +5858,11 @@ async function pollJobOnce() {
   idleTimer = null;
   if (document.visibilityState === "hidden") return;
   let jobs = [];
+  const order = ++jobsReadOrder;
   try { jobs = (await api(`/api/jobs?active_only=true&limit=${JOBS_LIMIT}`)).jobs || []; }
-  catch (_) {
+  catch (error) {
     renderMiniplayer(null); renderActivity(null);
+    if (jobsPage.loaded) jobsFailed("tick", error);
     pollFailures += 1;
     if (lastActiveRefs && lastActiveRefs.size && document.visibilityState === "visible") {
       // `pollFailures` counts this failure already, so the first one reads index 0.
@@ -5876,6 +5879,7 @@ async function pollJobOnce() {
   // `active_only` is the engine's not-terminal set; filtered here too, once, so the
   // adopted job and "N queued" are counted from the same list on every page.
   jobs = jobs.filter((job) => job && !isSettled(job));
+  jobsTick(jobs, order);
   noticeActiveSet(jobs);
 
   // ISSUE 778. This was `jobs[0]`, and the list comes back newest first -- so a job
@@ -6096,6 +6100,8 @@ function answerConfirm(yes) {
   }
   confirmReturnFocus = null;
   if (settle) settle(yes);
+  // A Jobs redraw waits while the question is open; it happens now.
+  if (jobsPage.held) renderJobs();
 }
 
 function confirmIsOpen() {
@@ -7705,307 +7711,626 @@ async function restoreSnapshot() {
     confirm.textContent = "Restore this copy";
   }
 }
-//: HOW MANY JOBS THE PAGE ASKS FOR. His warehouse held 163 the day he asked for this
-//: page, so 200 shows every one of them today -- and the page SAYS when it stopped at
-//: the bound rather than presenting a prefix as the whole, which is the failure the
-//: bound exists to prevent.
+//: HOW MANY JOBS THE PAGE SHOWS. His warehouse held 163 the day he asked for this page,
+//: so 200 shows every one of them today. One more is ASKED for, so the page can say
+//: "older jobs are not listed" only when one exists -- at exactly 200 that was false.
 const JOBS_LIMIT = 200;
 
 //: WHAT AN UNFINISHED LOG READ LOOKS LIKE. Named because two places must agree on it:
 //: `openJobLog` writes it, and a redraw must not mistake it for a log worth keeping.
 const LOG_PLACEHOLDER = "Reading…";
 
-/** A line that is there when it has something to say and gone when it does not.
- *  `data.js` has the same three lines as `show` (`data.js:47`); kept local rather than
- *  shared because that file is a TAB page and this one is the panel -- two documents,
- *  and nothing about one changes when the other does. */
-function sayOn(id, text) {
-  const node = $(id);
-  node.textContent = text || "";
-  node.classList.toggle("hidden", !text);
+/**
+ * The Jobs page (#1542): every job this warehouse has run, newest first, live.
+ *
+ * HIS REQUEST OF 2026-09-07, redesigned through design-the-experience and confirmed by
+ * him on 2026-10-09 (the design, its review rounds and his choices are on #1542).
+ *
+ * WHAT IT HOLDS, AND WHY IN ONE PLACE. Two reads feed it -- its own history and the
+ * panel's one tick -- and a row takes, field by field, the answer ISSUED later
+ * (`seq`), so a slow history answer never draws a finished job as running and a tick
+ * never overwrites a newer history. Rows are updated IN PLACE, keyed by `job_ref`: an
+ * open menu, focus, scroll and a text selection survive every read, and while a menu
+ * or a question is open nothing is redrawn at all (`held`).
+ */
+const jobsPage = {
+  order: [],               // job_refs, newest first, as the history answered
+  jobs: new Map(),         // job_ref -> {job, seq}
+  rows: new Map(),         // job_ref -> the row element
+  loaded: false,
+  bounded: false,
+  readAt: null,            // when the last read that drew the list answered
+  failure: null,           // {from: "history"|"tick", http: bool, message}
+  pressing: new Map(),     // job_ref -> control in flight
+  notes: new Map(),        // job_ref -> a refusal or failure sentence for that row
+  openLogs: new Set(),
+  logs: new Map(),         // job_ref -> log text, so a redraw never re-reads it
+  menuFor: null,           // job_ref whose ⋮ menu is open
+  held: false,             // a redraw waits until the menu or question closes
+};
+
+let jobsReadOrder = 0;     // one counter for both reads: later-issued wins, per row
+let jobsReadSeq = 0;       // the latest history read issued; only it may draw
+
+function jobsAnnounce(text) {
+  const node = $("jobs-announce");
+  node.textContent = "";
+  // A fresh text node each time, so the same sentence twice is still spoken twice.
+  setTimeout(() => { node.textContent = text; }, 30);
+}
+
+function jobsHolding() {
+  return Boolean(jobsPage.menuFor) || confirmIsOpen();
+}
+
+/** Take one read's jobs into the page, per row, where this read is the newer one. A
+ *  status a row already had and no longer has is announced once. */
+function jobsTake(jobs, seq, { history = false } = {}) {
+  const changed = [];
+  for (const job of jobs || []) {
+    if (!job || !job.job_ref) continue;
+    const held = jobsPage.jobs.get(job.job_ref);
+    if (held && held.seq > seq) continue;
+    if (held && held.job.status !== job.status && jobsPage.loaded) changed.push(job);
+    jobsPage.jobs.set(job.job_ref, { job, seq });
+  }
+  if (history) {
+    jobsPage.order = (jobs || []).filter((job) => job && job.job_ref).map((job) => job.job_ref);
+    for (const ref of [...jobsPage.jobs.keys()]) {
+      if (!jobsPage.order.includes(ref)) jobsPage.jobs.delete(ref);
+    }
+  }
+  for (const job of changed) {
+    jobsAnnounce(`${jobLabel(job, state.sources)}: ${statusWords(job.status)}`);
+  }
 }
 
 /**
- * The Jobs page: every job this warehouse has run.
+ * The page's own read: the newest JOBS_LIMIT jobs, plus one to know whether more exist.
  *
- * HIS REQUEST OF 2026-09-07, and the four things it makes visible are the four that
- * were not: a sweep at 620/938 hidden behind a blocked one showing 0/938, a duplicate
- * sweep he could not see was a second job, a cancelled job that ran to completion, and
- * a paused interpretation at 300/909.
- *
- * THE ENGINE NEEDED NO CHANGE. `GET /api/jobs?limit=N` already answers every status
- * with the full per-job view; the panel asked it once, with `active_only=true`, and
- * then read `jobs[0]`.
- *
- * `keepNotice` IS FOR THE CALLER THAT JUST WROTE ONE. A refusal is written by
- * `pressJobControl` and this function cleared it on the very next line it ran, so the
- * 409 the panel exists to report lived for one round trip -- a caught error erased by
- * the reload the same handler triggers is a silent failure with extra steps.
+ * Numbered, and only the latest one issued may draw: two can be in flight at once
+ * (entry and a change in the active set, or a press and one), and an older answer
+ * landing last would draw a finished job as still running.
  */
-// Each history read is numbered and only the latest one issued may draw: two can now be
-// in flight at once (entry and a change of the active set, or a press and one), and an
-// older answer landing last would draw a finished job as still running.
-let jobsReadSeq = 0;
-
-async function loadJobs({keepNotice = false} = {}) {
-  const list = $("jobs-list");
+async function loadJobs() {
   const seq = ++jobsReadSeq;
+  const order = ++jobsReadOrder;
+  if (!jobsPage.loaded) renderJobs();
   let payload;
   try {
-    payload = await api(`/api/jobs?limit=${JOBS_LIMIT}`);
-    if (seq !== jobsReadSeq) return;
+    payload = await api(`/api/jobs?limit=${JOBS_LIMIT + 1}`);
   } catch (error) {
     if (seq !== jobsReadSeq) return;
-    // THE PAGE SAYS WHY IT IS EMPTY. A blank list and a stopped engine look identical,
-    // and that confusion is the shape of every complaint this page answers. This
-    // overwrites a kept notice on purpose: an engine that cannot answer outranks a
-    // refusal from the one that could.
-    list.replaceChildren();
-    $("jobs-summary").textContent = "";
-    sayOn("jobs-bounded", "");
-    sayOn("jobs-blocked", `The engine did not answer: ${error.message}. Start it from `
-      + "the Run screen.");
+    jobsFailed("history", error);
     return;
   }
-  if (!keepNotice) sayOn("jobs-blocked", "");
+  if (seq !== jobsReadSeq) return;
   await sourcesForJobNames();
   if (seq !== jobsReadSeq) return;
-  const rows = rowsFrom(payload, state.sources);
-  $("jobs-summary").textContent = summariseJobs(payload);
-  sayOn("jobs-bounded", rows.length >= JOBS_LIMIT
-    ? `Showing the newest ${JOBS_LIMIT} jobs. This is a PREFIX of the list, not the `
-      + "whole of it."
-    : "");
+  const jobs = payload.jobs || [];
+  jobsPage.bounded = jobs.length > JOBS_LIMIT;
+  jobsTake(jobs.slice(0, JOBS_LIMIT), order, { history: true });
+  jobsPage.loaded = true;
+  jobsPage.readAt = new Date().toISOString();
+  if (jobsPage.failure && jobsPage.failure.from === "history") jobsPage.failure = null;
+  renderJobs();
+}
 
-  // WHAT HE WAS LOOKING AT SURVIVES THE REDRAW. The controls sit INSIDE the row, so a
-  // blind `replaceChildren` shut the row he had just pressed a button in and threw away
-  // the log it had fetched -- undoing the interaction this page was designed around. The
-  // FOCUS half of that is restored by `pressJobControl` and deliberately not here: that
-  // handler disables the button on its first line, and disabling a focused element moves
-  // focus to <body>, so by the time this runs there is nothing left to read.
-  const wasOpen = new Map();
-  for (const previous of list.querySelectorAll("details.job-row[open]")) {
-    const had = previous.querySelector(".job-log")?.textContent || "";
-    // A ROW REFRESHED MID-FETCH CARRIES THE PLACEHOLDER, NOT A LOG. Restoring that would
-    // satisfy the `toggle` listener's `!log.textContent` test for ever and the row would
-    // read "Reading…" until he closed it. Stored empty, it re-opens and re-fetches.
-    wasOpen.set(previous.dataset.job, had === LOG_PLACEHOLDER ? "" : had);
+/** The tick answered (`pollJobOnce`), on any page: rows of the jobs it carries take its
+ *  answer where it is the newer one. Drawn only while the page is on screen. */
+function jobsTick(jobs, order) {
+  if (!jobsPage.loaded) return;
+  jobsTake(jobs, order);
+  if (jobsPage.failure && jobsPage.failure.from === "tick") jobsPage.failure = null;
+  if (currentViewName() === "jobs") renderJobs();
+}
+
+/** A read failed. An HTTP answer is the engine speaking (`kind: "http"`, backend.js);
+ *  anything else is no answer, and "not running" is said only once the probe agrees. */
+function jobsFailed(from, error) {
+  jobsPage.failure = { from, http: error && error.kind === "http",
+    message: (error && error.message) || "no answer" };
+  if (currentViewName() === "jobs") renderJobs();
+}
+
+function jobsLive() {
+  return [...jobsPage.jobs.values()].some(({ job }) => !isSettled(job)
+    && ["queued", "preparing", "running", "resuming", "pausing", "cancelling"].includes(job.status));
+}
+
+function renderJobs() {
+  if (jobsHolding()) { jobsPage.held = true; return; }
+  jobsPage.held = false;
+  const list = $("jobs-list");
+  const stateBox = $("jobs-state");
+  const fmt = (value, mode) => window.ScrapeXTime.format(value, mode);
+  stateBox.replaceChildren();
+  const failure = jobsPage.failure;
+  const down = failure && !failure.http;
+
+  if (!jobsPage.loaded) {
+    if (failure) {
+      stateBox.append(jobsBanner(failure, false));
+      $("jobs-count").textContent = "";
+      list.classList.add("hidden");
+      return;
+    }
+    $("jobs-count").textContent = "Loading jobs…";
+    list.classList.remove("hidden");
+    list.replaceChildren(...Array.from({ length: 4 }, () => {
+      const one = document.createElement("div");
+      one.className = "job-skeleton";
+      one.append(document.createElement("div"), document.createElement("div"));
+      one.querySelectorAll("div").forEach((bar) => bar.classList.add("skeleton"));
+      return one;
+    }));
+    return;
   }
-  // AND SO DOES THE KEYBOARD'S PLACE. A redraw the tick starts, with nothing pressed,
-  // replaced the element he had focused and dropped him on <body>; it goes back to the
-  // same control in the same row, or to that row's summary once the control is gone.
-  const focused = list.contains(document.activeElement) ? document.activeElement : null;
-  const focusRef = focused?.closest(".job-row")?.dataset.job;
-  const focusText = focused?.tagName === "BUTTON" ? focused.textContent : null;
-  list.replaceChildren(...rows.map((row) => {
-    const box = drawJobRow(row);
-    if (!wasOpen.has(row.job_ref)) return box;
-    box.open = true;
-    // Restored rather than re-fetched: the row's own `toggle` listener only reads when
-    // the log is empty, so putting the text back is also what stops a second request.
-    box.querySelector(".job-log").textContent = wasOpen.get(row.job_ref);
-    return box;
-  }));
-  const again = [...list.querySelectorAll(".job-row")].find((box) => box.dataset.job === focusRef);
-  if (again) {
-    const same = focusText == null ? null
-      : [...again.querySelectorAll("button")].find((button) => button.textContent === focusText);
-    (same || again.querySelector("summary")).focus();
+
+  const all = jobsPage.order.map((ref) => jobsPage.jobs.get(ref)?.job).filter(Boolean);
+  const live = !failure && jobsLive();
+  $("jobs-count").textContent = jobsCountLine({ shown: all.length, total: all.length, live,
+    seconds: POLL_MS / 1000, readAt: jobsPage.readAt, bounded: jobsPage.bounded }, fmt);
+  if (failure) stateBox.append(jobsBanner(failure, true));
+  // A row no longer in the history leaves the DOM before any empty state returns, or a
+  // hidden list would still hold it.
+  const wanted = all.map((job) => job.job_ref);
+  for (const [ref, row] of jobsPage.rows) {
+    if (!wanted.includes(ref)) { row.remove(); jobsPage.rows.delete(ref); }
+  }
+
+  if (!all.length) {
+    list.classList.add("hidden");
+    stateBox.append(jobsEmpty("No jobs yet", "Start one from the Run screen.", "Open Run",
+      () => showView("run")));
+    return;
+  }
+  list.classList.remove("hidden");
+  list.querySelectorAll(".job-skeleton").forEach((one) => one.remove());
+  let before = null;
+  for (const job of all) {
+    let row = jobsPage.rows.get(job.job_ref);
+    if (!row) { row = buildJobRow(job.job_ref); jobsPage.rows.set(job.job_ref, row); }
+    fillJobRow(row, job, { down });
+    // MOVED ONLY WHEN OUT OF PLACE: moving a node blurs whatever inside it had focus.
+    const expected = before ? before.nextElementSibling : list.firstElementChild;
+    if (expected !== row) list.insertBefore(row, expected);
+    before = row;
   }
 }
 
-/**
- * One job as a row that opens.
- *
- * `<details>` RATHER THAN A CLICK HANDLER AND A CLASS TOGGLE: it is keyboard-operable
- * and announced by a screen reader without a line of script, and the log is fetched the
- * first time a row opens rather than two hundred times on load.
- */
-function drawJobRow(row) {
-  const box = document.createElement("details");
-  box.className = "card job-row";
-  box.dataset.job = row.job_ref;
-  const head = document.createElement("summary");
-  head.className = "job-summary";
-  // WHY A JOB IS NOT MOVING GOES IN THE PART THAT IS ALWAYS VISIBLE. It is the one
-  // sentence this page exists to say: a closed row showed `preparing` and nothing else,
-  // which is exactly the screen he read as "nothing is working". The log, the controls
-  // and the timestamps open on demand; this does not.
-  const top = document.createElement("span");
-  top.className = "job-head";
-  // THE STATUS IS A BADGE, AND `statusTone` OWNS WHICH ONE -- the kit has `ok`, `off` and
-  // `danger`, and any other class renders as plain grey, which `renderEngineDetail`
-  // already records as a mistake made once and `failed` repeated with `err`.
-  // UN-UNDERSCORED, like every other status this panel shows: `renderActivity`,
-  // `renderMiniplayer` and the summary line directly above this list all do it, and a
-  // badge reading `completed_with_errors` under a summary reading `completed with errors`
-  // spells one status two ways on one screen.
-  const badge = document.createElement("span");
-  badge.className = `badge ${row.tone}`;
-  badge.textContent = statusWords(row.status);
-  const label = document.createElement("span");
-  label.className = "job-label";
-  label.textContent = row.label;
-  top.append(badge, label);
-  if (row.progress) {
-    const progress = document.createElement("span");
-    progress.className = "muted text-xs";
-    progress.textContent = row.progress;
-    top.append(progress);
+function jobsBanner(failure, listShown) {
+  const box = document.createElement("div");
+  const title = document.createElement("strong");
+  title.className = "text-sm";
+  const copy = document.createElement("p");
+  copy.className = "text-xs muted";
+  const read = jobsPage.readAt ? window.ScrapeXTime.format(jobsPage.readAt, "time") : "";
+  let action = null;
+  if (failure.http) {
+    box.className = listShown ? "banner" : "banner danger";
+    title.textContent = listShown ? "Unable to refresh data" : "Unable to read jobs";
+    copy.textContent = listShown
+      ? `Showing the jobs as read at ${read}. The engine answered: ${failure.message}`
+      : failure.message;
+    if (!listShown) action = ["Try again", () => loadJobs()];
+  } else if (!state.engineUp) {
+    box.className = "banner";
+    title.textContent = listShown ? "Engine stopped answering" : "Engine not running";
+    copy.textContent = listShown
+      ? `Showing the jobs as read at ${read}. Their controls return when the engine `
+        + "answers. Start the engine to read them again."
+      : "Start the engine to read jobs.";
+    action = ["Start engine", async () => {
+      await startEngineFromPanel();
+      if (!state.engineUp) jobsFailed(failure.from, { message: $("engine-note").textContent });
+      else { jobsPage.failure = null; loadJobs(); pollJob({ fresh: true }); }
+    }];
+  } else {
+    // NO ANSWER, BUT THE ENGINE IS UP: a timeout or a dropped connection, not a stopped
+    // engine -- so no Start button for an engine that is running.
+    box.className = "banner";
+    title.textContent = "The engine did not answer";
+    copy.textContent = listShown
+      ? `Showing the jobs as read at ${read}. Try again in a moment.`
+      : "Try again in a moment.";
+    action = ["Try again", () => loadJobs()];
   }
-  if (row.live) {
-    // `moving` AND NOT `running`, because `row.live` is now `isMoving` and that set holds
-    // `resuming` too. It said "running" over a `preparing` job for as long as the dot was
-    // drawn from "holds a worker".
-    const dot = document.createElement("span");
-    dot.className = "job-live";
-    dot.setAttribute("aria-label", "moving");
-    top.append(dot);
+  box.setAttribute("role", "alert");
+  box.append(title, copy);
+  if (action) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "ghost";
+    button.textContent = action[0];
+    button.addEventListener("click", action[1]);
+    box.append(button);
   }
-  head.append(top);
-  if (row.waiting) {
-    const why = document.createElement("span");
-    why.className = "job-waiting muted text-xs";
-    why.textContent = row.waiting;
-    head.append(why);
-  }
-  box.append(head);
-
-  const when = document.createElement("p");
-  when.className = "muted text-xs";
-  const started = window.ScrapeXTime.markup(row.created_at, "datetime", {zone: true});
-  when.innerHTML = row.finished_at
-    ? `${started} &rarr; ${window.ScrapeXTime.markup(row.finished_at, "datetime", {zone: true})}`
-    : started;
-  box.append(when);
-
-  if (row.fraction !== null) {
-    const bar = document.createElement("div");
-    bar.className = "job-bar";
-    bar.setAttribute("role", "progressbar");
-    // THE VALUE IS ON THE ELEMENT, not only in the width. Issue 725 is this exact
-    // omission on the crawl bar: a screen reader was told there was a bar and never
-    // what it read.
-    bar.setAttribute("aria-valuenow", String(Math.round(row.fraction * 100)));
-    bar.setAttribute("aria-valuemin", "0");
-    bar.setAttribute("aria-valuemax", "100");
-    const fill = document.createElement("span");
-    fill.style.width = `${Math.round(row.fraction * 100)}%`;
-    bar.append(fill);
-    box.append(bar);
-  }
-  if (row.error_summary) {
-    const failed = document.createElement("p");
-    failed.className = `hint ${row.summary_class} text-xs`;
-    failed.textContent = row.error_summary;
-    box.append(failed);
-  }
-  if (row.controls.length) {
-    const actions = document.createElement("div");
-    actions.className = "row job-actions";
-    for (const control of row.controls) {
-      const button = document.createElement("button");
-      button.className = "ghost";
-      button.type = "button";
-      button.textContent = control[0].toUpperCase() + control.slice(1);
-      button.addEventListener("click", (event) => {
-        event.preventDefault();
-        pressJobControl(row.job_ref, control, button, row.label);
-      });
-      actions.append(button);
-    }
-    box.append(actions);
-  }
-
-  const log = document.createElement("pre");
-  // `text-xs` IS A CLASS THIS PANEL HAS. It was a `var(--text-xs, 11px)` read, and a
-  // token nothing declares is a declaration the browser drops in silence.
-  log.className = "job-log text-xs";
-  box.append(log);
-  box.addEventListener("toggle", () => {
-    if (box.open && !log.textContent) openJobLog(row.job_ref, log);
-  });
   return box;
 }
 
-/**
- * One job's log, into its own row.
- *
- * DRAWN AS TEXT, and that is not a shortcut: every line was written by a crawl of
- * somebody else's website. The Run screen keeps `renderLogs` for the LIVE job, which is
- * a different question -- a streaming log that repolls and scrolls itself -- so this is
- * not a second copy of one renderer.
- *
- * THE STAMP GOES THROUGH `ScrapeXTime`, WHICH IS THE RULE AND WAS BEING BROKEN HERE.
- * `logged_at` is stored UTC, and printing it raw put a `...Z` under a row header rendered
- * in his own zone -- two zones on one screen, which is the defect that module exists to
- * remove. `format()` and not `node()` because this stays ONE text node: the log is a
- * snapshot that never repolls, and keeping it text is also what lets a redraw carry an
- * open row's log across without re-fetching it. The cost is that an open log's stamps do
- * not follow a zone change until the row is opened again; the header's `<time>` nodes do.
- */
-async function openJobLog(jobRef, into) {
-  into.textContent = LOG_PLACEHOLDER;
-  try {
-    const log = await api(`/api/jobs/${encodeURIComponent(jobRef)}/logs`);
-    const entries = log.entries || [];
-    into.textContent = entries.length
-      ? entries.map((entry) =>
-          `${window.ScrapeXTime.format(entry.logged_at, "short")}  `
-          + `${entry.level || ""}  ${entry.message || ""}`).join("\n")
-      : "This job wrote no log.";
-  } catch (error) {
-    into.textContent = `The log could not be read: ${error.message}`;
+function jobsEmpty(title, line, label, act) {
+  const box = document.createElement("div");
+  box.className = "card empty";
+  const head = document.createElement("p");
+  head.className = "text-sm";
+  head.textContent = title;
+  const copy = document.createElement("p");
+  copy.className = "text-xs";
+  copy.textContent = line;
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "ghost";
+  button.textContent = label;
+  button.addEventListener("click", act);
+  box.append(head, copy, button);
+  return box;
+}
+
+// ---- one row ---------------------------------------------------------------------
+
+function jobsSvg(id) {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("class", "sx-icon sm");
+  svg.setAttribute("aria-hidden", "true");
+  const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+  use.setAttribute("href", iconHref(id));
+  svg.append(use);
+  return svg;
+}
+
+function jobsPart(row, part) {
+  return row.querySelector(`[data-part="${part}"]`);
+}
+
+/** The row's fixed frame, built once per job. DOM order is the reading order
+ *  (table.mdx@86c813ec:193, 201): identity, status line, the one action, ⋮ and its
+ *  menu, then the detail lines. CSS alone puts ⋮ in the corner (his choice A). */
+function buildJobRow(ref) {
+  const row = document.createElement("div");
+  row.className = "job-row";
+  row.dataset.job = ref;
+  row.innerHTML = `
+    <span class="source-identity job-identity" data-part="identity"></span>
+    <div class="job-line job-status-line text-xs" data-part="statusline"></div>
+    <span class="job-primary" data-part="primary"><button type="button" class="ghost"></button></span>
+    <span class="job-kebab">
+      <button type="button" class="ghost icon-button" aria-haspopup="menu" aria-expanded="false"
+              data-part="kebab">${icon("material-more-vert", "sm")}</button>
+      <div class="account-menu job-menu hidden" role="menu" data-part="menu"></div>
+    </span>
+    <p class="job-line text-xs muted" data-part="time"></p>
+    <div class="job-barline hidden" data-part="barline">
+      <div class="job-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100"><span></span></div>
+      <span class="text-xs muted" data-part="progress"></span>
+    </div>
+    <p class="job-full text-xs muted hidden" data-part="note"></p>
+    <div class="job-full text-xs hidden" data-part="failure">
+      <span class="err job-clamp" data-part="error"></span>
+      <button type="button" class="link text-xs" aria-expanded="false" data-part="logtoggle">View log</button>
+    </div>
+    <pre class="job-log text-xs job-full hidden" data-part="log"></pre>
+    <div class="job-full text-xs hidden" data-part="logclose">
+      <button type="button" class="link text-xs" aria-expanded="true">Hide log</button>
+    </div>
+    <p class="job-full text-xs err hidden" role="alert" data-part="refusal"></p>`;
+  const job = () => jobsPage.jobs.get(ref)?.job;
+  jobsPart(row, "primary").firstElementChild.addEventListener("click", (event) => {
+    const button = event.currentTarget;
+    if (button.getAttribute("aria-disabled") === "true") return;
+    pressJobControl(job(), button.dataset.control, button);
+  });
+  const kebab = jobsPart(row, "kebab");
+  kebab.addEventListener("click", () => {
+    if (kebab.getAttribute("aria-disabled") === "true") return;
+    if (jobsPage.menuFor === ref) jobsCloseMenu(true); else jobsOpenMenu(ref, 0);
+  });
+  kebab.addEventListener("keydown", (event) => {
+    if (kebab.getAttribute("aria-disabled") === "true") return;
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      jobsOpenMenu(ref, event.key === "ArrowUp" ? -1 : 0);
+    }
+  });
+  jobsPart(row, "menu").addEventListener("keydown", (event) => jobsMenuKeys(event, ref));
+  jobsPart(row, "logtoggle").addEventListener("click", () => jobsToggleLog(ref));
+  jobsPart(row, "logclose").firstElementChild.addEventListener("click", () => jobsToggleLog(ref));
+  return row;
+}
+
+function fillJobRow(row, job, { down = false } = {}) {
+  const ref = job.job_ref;
+  const sources = state.sources;
+  // IDENTITY: the panel's one source identity (sourceIdentity, components.css:779-860),
+  // built as text. Several sources name the first and count the rest.
+  const identity = jobsPart(row, "identity");
+  const keys = job.source_keys || [];
+  const lead = job.current_source_key || keys[0] || "";
+  const source = (sources || []).find((one) => one && (one.source_key === lead
+    || one.site_key === lead));
+  const domain = source ? domainOf(source.base_url) : "";
+  const strong = document.createElement("strong");
+  strong.className = "source-identity-domain";
+  strong.dir = domain ? "ltr" : "auto";
+  // THE DOMAIN WRAPS, AND ONLY AFTER A DOT (his choice D, Jobs only): it is what tells
+  // one row from another, and the shared identity ellipsizes it at 320 px.
+  (domain || sourceTitle(lead, sources)).split(".").forEach((piece, i, all) => {
+    strong.append(document.createTextNode(piece + (i < all.length - 1 ? "." : "")));
+    if (i < all.length - 1) strong.append(document.createElement("wbr"));
+  });
+  const parts = [strong];
+  if (source && domain) {
+    const names = document.createElement("span");
+    names.className = "source-identity-names";
+    const en = document.createElement("span");
+    en.className = "source-identity-name-en";
+    en.dir = "ltr";
+    en.textContent = source.source_name || lead;
+    names.append(en);
+    if (source.source_name_ar && source.source_name_ar !== source.source_name) {
+      const dot = document.createElement("span");
+      dot.className = "source-identity-separator";
+      dot.setAttribute("aria-hidden", "true");
+      dot.textContent = "·";
+      const ar = document.createElement("span");
+      ar.className = "source-identity-name";
+      ar.dir = "auto";
+      ar.textContent = source.source_name_ar;
+      names.append(dot, ar);
+    }
+    parts.push(names);
+  }
+  if (keys.length > 1) {
+    const more = document.createElement("span");
+    more.className = "job-more text-xs muted";
+    more.textContent = `and ${keys.length - 1} other${keys.length === 2 ? "" : "s"}`;
+    parts.push(more);
+  }
+  const footer = document.createElement("code");
+  footer.className = "source-identity-key";
+  footer.textContent = keys.join(", ");
+  parts.push(footer);
+  identity.replaceChildren(...parts);
+
+  // STATUS: the engine's word, its glyph and tone; then the kind.
+  const look = statusLook(job.status);
+  const line = jobsPart(row, "statusline");
+  const status = document.createElement("span");
+  status.className = `job-status job-tone-${look.tone}`;
+  status.append(jobsSvg(look.glyph), document.createTextNode(look.word));
+  const sep = document.createElement("span");
+  sep.className = "muted";
+  sep.textContent = " ·";
+  const lead2 = document.createElement("span");
+  lead2.append(status, sep);
+  const kind = document.createElement("span");
+  kind.className = "muted";
+  kind.textContent = jobLabel({ job_kind: job.job_kind });
+  line.replaceChildren(lead2, kind);
+
+  // THE ONE ACTION, AND ITS STATE IN FLIGHT: aria-disabled, so focus stays on it.
+  const label = jobLabel(job, sources);
+  const named = `${label}, ${timeLine(job, (v, m) => window.ScrapeXTime.format(v, m))}`;
+  const control = primaryControl(job);
+  const pressing = jobsPage.pressing.get(ref);
+  const primary = jobsPart(row, "primary");
+  const button = primary.firstElementChild;
+  primary.classList.toggle("hidden", !control && !pressing);
+  // A JOB THAT ENDS UNDER HIS FOCUS: the action he was on is hidden, and a hidden element
+  // drops focus to <body>. It goes to the row's ⋮, as after a press that changed the verb.
+  if (primary.classList.contains("hidden") && primary.contains(document.activeElement)) {
+    jobsPart(row, "kebab").focus();
+  }
+  const verb = pressing || control;
+  if (verb) {
+    const word = verb[0].toUpperCase() + verb.slice(1);
+    const busy = Boolean(pressing);
+    button.dataset.control = verb;
+    button.textContent = busy ? `${word === "Pause" ? "Pausing" : word === "Resume" ? "Resuming" : "Cancelling"}…` : word;
+    button.setAttribute("aria-label", `${button.textContent} ${named}`);
+    if (busy || down) button.setAttribute("aria-disabled", "true");
+    else button.removeAttribute("aria-disabled");
+    if (busy) button.setAttribute("aria-busy", "true"); else button.removeAttribute("aria-busy");
+  }
+  const kebab = jobsPart(row, "kebab");
+  kebab.setAttribute("aria-label", `More actions for ${named}`);
+  if (down) kebab.setAttribute("aria-disabled", "true"); else kebab.removeAttribute("aria-disabled");
+  jobsPart(row, "menu").setAttribute("aria-label", `Actions for ${named}`);
+
+  jobsPart(row, "time").textContent = timeLine(job, (v, m) => window.ScrapeXTime.format(v, m));
+
+  const fraction = progressFraction(job);
+  const barline = jobsPart(row, "barline");
+  barline.classList.toggle("hidden", fraction === null);
+  if (fraction !== null) {
+    const bar = barline.querySelector(".job-bar");
+    bar.setAttribute("aria-valuenow", String(Math.round(fraction * 100)));
+    bar.firstElementChild.style.width = `${Math.round(fraction * 100)}%`;
+    jobsPart(row, "progress").textContent = progressLine(job);
+  }
+  const note = jobsPart(row, "note");
+  const waiting = jobWaitingLine(job);
+  note.textContent = waiting;
+  note.classList.toggle("hidden", !waiting);
+
+  // THE FAILURE: two lines, then View log (his choice B). Its toggle opens the log here.
+  const failure = jobsPart(row, "failure");
+  failure.classList.toggle("hidden", !job.error_summary);
+  jobsPart(row, "error").textContent = job.error_summary || "";
+  const open = jobsPage.openLogs.has(ref);
+  const toggle = jobsPart(row, "logtoggle");
+  toggle.textContent = open ? "Hide log" : "View log";
+  toggle.setAttribute("aria-expanded", String(open));
+  if (down) toggle.setAttribute("aria-disabled", "true"); else toggle.removeAttribute("aria-disabled");
+  const log = jobsPart(row, "log");
+  log.classList.toggle("hidden", !open);
+  if (open && log.textContent !== (jobsPage.logs.get(ref) || LOG_PLACEHOLDER)) {
+    log.textContent = jobsPage.logs.get(ref) || LOG_PLACEHOLDER;
+  }
+  // A LOG OPENED FROM ⋮ ON A ROW WITH NO FAILURE HAS ITS OWN WAY BACK.
+  jobsPart(row, "logclose").classList.toggle("hidden", !(open && !job.error_summary));
+  const said = jobsPage.notes.get(ref) || "";
+  const refusal = jobsPart(row, "refusal");
+  if (refusal.textContent !== said) refusal.textContent = said;
+  refusal.classList.toggle("hidden", !said);
+}
+
+// ---- the row's menu, the WAI-ARIA APG menu button ---------------------------------
+
+function jobsOpenMenu(ref, at) {
+  if (jobsPage.menuFor && jobsPage.menuFor !== ref) jobsCloseMenu(false);
+  const row = jobsPage.rows.get(ref);
+  const job = jobsPage.jobs.get(ref)?.job;
+  if (!row || !job) return;
+  const menu = jobsPart(row, "menu");
+  const items = menuControls(job).map((control) => {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "account-menu-item" + (control === "cancel" ? " is-destructive" : "");
+    item.setAttribute("role", "menuitem");
+    item.tabIndex = -1;
+    const open = jobsPage.openLogs.has(ref);
+    item.append(jobsSvg(control === "cancel" ? "material-block" : "material-description"),
+      document.createTextNode(control === "cancel" ? "Cancel job…"
+        : open ? "Hide log" : "View log"));
+    item.addEventListener("click", () => {
+      jobsCloseMenu(true);
+      if (control === "cancel") pressJobControl(job, "cancel", jobsPart(row, "kebab"));
+      else jobsToggleLog(ref);
+    });
+    return item;
+  });
+  menu.replaceChildren(...items);
+  menu.classList.remove("hidden");
+  jobsPart(row, "kebab").setAttribute("aria-expanded", "true");
+  jobsPage.menuFor = ref;
+  items[at < 0 ? items.length - 1 : 0]?.focus();
+}
+
+function jobsCloseMenu(returnFocus) {
+  const ref = jobsPage.menuFor;
+  if (!ref) return;
+  jobsPage.menuFor = null;
+  const row = jobsPage.rows.get(ref);
+  if (row) {
+    jobsPart(row, "menu").classList.add("hidden");
+    const kebab = jobsPart(row, "kebab");
+    kebab.setAttribute("aria-expanded", "false");
+    if (returnFocus) kebab.focus();
+  }
+  if (jobsPage.held) renderJobs();
+}
+
+function jobsMenuKeys(event, ref) {
+  const row = jobsPage.rows.get(ref);
+  const items = [...jobsPart(row, "menu").querySelectorAll('[role="menuitem"]')];
+  const at = items.indexOf(document.activeElement);
+  const go = (i) => { event.preventDefault(); items[(i + items.length) % items.length].focus(); };
+  if (event.key === "ArrowDown") go(at + 1);
+  else if (event.key === "ArrowUp") go(at - 1);
+  else if (event.key === "Home") go(0);
+  else if (event.key === "End") go(items.length - 1);
+  else if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); jobsCloseMenu(true); }
+  else if (event.key === "Tab") jobsCloseMenu(false);
+}
+
+function wireJobsPage() {
+  // A press outside the open menu closes it, without acting.
+  document.addEventListener("pointerdown", (event) => {
+    if (jobsPage.menuFor && !event.target.closest(".job-kebab")) jobsCloseMenu(false);
+  });
+}
+
+// ---- the log ----------------------------------------------------------------------
+
+function jobsToggleLog(ref) {
+  const row = jobsPage.rows.get(ref);
+  if (jobsPage.openLogs.has(ref)) jobsPage.openLogs.delete(ref);
+  else {
+    jobsPage.openLogs.add(ref);
+    if (!jobsPage.logs.has(ref)) openJobLog(ref);
+  }
+  renderJobs();
+  // Focus stays on the control he used, or comes to the row's toggle.
+  if (row && !row.contains(document.activeElement)) {
+    const job = jobsPage.jobs.get(ref)?.job;
+    (job && job.error_summary ? jobsPart(row, "logtoggle")
+      : jobsPage.openLogs.has(ref) ? jobsPart(row, "logclose").firstElementChild
+        : jobsPart(row, "kebab"))?.focus();
   }
 }
 
 /**
- * Pause, resume or cancel -- from the row of the job it belongs to.
+ * One job's log, kept for the page so a redraw never reads it twice.
  *
- * THE CONTROLS ARE ON THE JOB AND NOT ONLY ON WHICHEVER ONE THE MINI-PLAYER ADOPTED,
- * which is half of what this page is for: on 2026-09-07 the job he wanted to stop was
- * not the job the panel was drawing.
+ * DRAWN AS TEXT, and that is not a shortcut: every line was written by a crawl of
+ * somebody else's website. Each stamp goes through ScrapeXTime, and a line one source
+ * wrote names it, because a job of several sources otherwise reads "failed" with no
+ * source at all (#1542).
  */
-async function pressJobControl(jobRef, control, button, label = "") {
+async function openJobLog(ref) {
+  try {
+    const log = await api(`/api/jobs/${encodeURIComponent(ref)}/logs`);
+    const entries = log.entries || [];
+    jobsPage.logs.set(ref, entries.length
+      ? entries.map((entry) => [window.ScrapeXTime.format(entry.logged_at, "short"),
+        entry.level || "", entry.source_key || "", entry.message || ""]
+        .filter(Boolean).join("  ")).join("\n")
+      : "This job wrote no log.");
+  } catch (error) {
+    jobsPage.logs.set(ref, `The log could not be read: ${error.message}`);
+  }
+  renderJobs();
+}
+
+/**
+ * Pause, resume or cancel, from the row of the job it belongs to.
+ *
+ * THE BUTTON STAYS FOCUSABLE IN FLIGHT (aria-disabled, "Pausing…"): `disabled` dropped
+ * focus to <body>. A REFUSAL is said in
+ * that row, from the status the reloaded row reached -- the 409 carries only a sentence
+ * (webui/app.py:4779-4780); any other answer says its own detail; no answer is the
+ * engine-lost path. Then the list is re-read, and the player is given a fresh read.
+ */
+async function pressJobControl(job, control, button) {
+  if (!job) return;
+  const ref = job.job_ref;
+  const label = jobLabel(job, state.sources);
   if (!(await confirmedControl(control, label))) return;
-  const was = button.textContent;
-  button.disabled = true;
-  button.textContent = "\u2026";
+  jobsPage.notes.delete(ref);
+  jobsPage.pressing.set(ref, control);
+  renderJobs();
   let refused = false;
   try {
-    await post(`/api/jobs/${encodeURIComponent(jobRef)}/control`, {control});
+    await post(`/api/jobs/${encodeURIComponent(ref)}/control`, { control });
   } catch (error) {
-    // 409 IS AN ANSWER AND NOT A CRASH: the job settled between the draw and the press,
-    // which a long list of jobs makes likely rather than rare.
-    refused = true;
-    sayOn("jobs-blocked", `${control} was refused: ${error.message}`);
+    if (error && error.status === 409) refused = true;
+    else if (error && error.kind === "http") {
+      const verb = control[0].toUpperCase() + control.slice(1);
+      jobsPage.notes.set(ref, `${verb} failed: ${error.message}`);
+    } else jobsFailed("history", error);
   } finally {
-    button.disabled = false;
-    button.textContent = was;
+    jobsPage.pressing.delete(ref);
   }
-  // THE LIST IS RELOADED EVEN ON A REFUSAL, because a 409 means the job settled and the
-  // row on screen is the stale one that offered the button. `keepNotice` is what stops
-  // that reload erasing the sentence explaining why.
-  await loadJobs({keepNotice: refused});
-  // THE PLAYER HEARS OF THE PRESS TOO: a fresh tick, issued after it, whatever the
-  // page's live state -- pausing the only queued job settles it at once, and no tick
-  // would otherwise follow to tell the player.
+  await loadJobs();
   pollJob({ fresh: true });
-
-  // AND FOCUS COMES BACK TO THE BUTTON HE PRESSED, which `loadJobs` cannot do for
-  // itself: `button.disabled = true` above moves focus to <body> immediately, so by the
-  // time the redraw runs there is nothing to read back. The element is gone either way
-  // -- what is restored is its replacement, found by job and by label. If the press
-  // changed the job's status the label may no longer be offered, and then the row's own
-  // summary takes focus so it stays where he left it rather than on <body>.
-  // Matched on `dataset.job` rather than a built selector, so a job ref never has to be
-  // escaped into one.
-  const row = [...$("jobs-list").querySelectorAll("details.job-row")]
-    .find((one) => one.dataset.job === jobRef);
+  if (refused) {
+    const now = jobsPage.jobs.get(ref)?.job;
+    jobsPage.notes.set(ref, refusalLine(control, label, now ? now.status : "finished"));
+    renderJobs();
+  }
+  // FOCUS: on the control he pressed while it still offers the same action; on the
+  // row's ⋮ once it does not (a change of verb counts as gone -- Pause on a queued job
+  // settles it at once, and a second Enter must not resume it).
+  const row = jobsPage.rows.get(ref);
   if (!row) return;
-  const again = [...row.querySelectorAll("button")]
-    .find((one) => one.textContent === was);
-  (again || row.querySelector("summary"))?.focus();
+  const again = jobsPart(row, "primary").firstElementChild;
+  const still = !jobsPart(row, "primary").classList.contains("hidden")
+    && again.dataset.control === control;
+  if (button === again && still) again.focus();
+  else if (row.contains(button) || document.activeElement === document.body) {
+    jobsPart(row, "kebab").focus();
+  }
 }
 
 async function loadDatabase() {
@@ -9762,12 +10087,8 @@ function wireDeferredControls() {
     .addEventListener("click", loadCurrentPage);
   $("url").addEventListener("keydown", (e) => { if (e.key === "Enter") probe(); });
 
-  // THE JOBS PAGE HAS NO POLL, SO THIS BUTTON IS ITS ONLY REFRESH -- and it shipped
-  // drawn and unwired, which is worse than not drawing it. The list is a snapshot from
-  // the moment the view was entered while the mini-player above it repolls every 1.5s,
-  // so without this he watched a live player sit on a frozen list and had to leave the
-  // rail and come back. `test_panel_dom.py` presses it and counts the second request.
-  $("jobs-reload").addEventListener("click", () => loadJobs());
+  // THE JOBS PAGE IS LIVE, so it has no Refresh: the panel's one tick feeds it (#1542).
+  wireJobsPage();
 
   runModeSelectUi = setupRunModeSelect();
   $("run-mode").addEventListener("change", refreshMode);
