@@ -5599,15 +5599,93 @@ async function reattachToRunningJob() {
  * ref, which line reports the refusal, what happens after -- so only the question is
  * shared, not the handler.
  */
-function confirmedControl(control) {
+async function confirmedControl(control, label) {
   if (control !== "cancel") return true;
-  return confirm("Cancel this job? Work already saved is kept.");
+  // ONE SENTENCE, TRUE FOR EVERY KIND AND STATUS (#1542). A held job settles at its next
+  // safe boundary and a queued or paused one at once (`set_control`, jobs.py:166-219);
+  // nothing already stored is rolled back, and only a price crawl cancelled mid-fetch
+  // drops its unsaved journal (jobs.py:795-806) -- which is not in the warehouse. The
+  // sentence this replaced, "Work already saved is kept.", was true; the one before the
+  // design study said pages "stay", which a cancelled crawl's journal does not.
+  return askToConfirm({
+    title: "Cancel this job?",
+    named: label,
+    copy: "Cancelling stops it for good. What it already stored stays in the warehouse.",
+    keep: "Keep job",
+    go: "Cancel job",
+  });
+}
+
+// ---- the panel's own confirmation ---------------------------------------------
+
+let confirmReturnFocus = null;
+let confirmSettle = null;
+
+/**
+ * Ask one irreversible question in `#confirm-veil` and resolve to his answer.
+ *
+ * NOT `window.confirm`, whose two buttons are the browser's: on the one control named
+ * Cancel its "Cancel" meant KEEP. Focus opens on the choice that changes nothing, Tab
+ * stays inside, and Escape or a click on the veil answers no -- the alertdialog pattern
+ * (WAI-ARIA APG). Focus goes back to whatever he pressed.
+ */
+function askToConfirm({ title, named = "", copy, keep, go }) {
+  if (confirmSettle) confirmSettle(false);
+  confirmReturnFocus = document.activeElement;
+  $("confirm-title").textContent = title;
+  const body = $("confirm-copy");
+  body.textContent = "";
+  if (named) {
+    const who = document.createElement("strong");
+    who.textContent = named;
+    body.append(who, document.createElement("br"));
+  }
+  body.append(document.createTextNode(copy));
+  $("confirm-keep").textContent = keep;
+  $("confirm-go").textContent = go;
+  $("confirm-veil").classList.remove("hidden");
+  $("confirm-keep").focus({ preventScroll: true });
+  return new Promise((resolve) => { confirmSettle = resolve; });
+}
+
+function answerConfirm(yes) {
+  const veil = $("confirm-veil");
+  if (!veil || veil.classList.contains("hidden")) return;
+  veil.classList.add("hidden");
+  const settle = confirmSettle;
+  confirmSettle = null;
+  if (confirmReturnFocus && confirmReturnFocus.isConnected) {
+    confirmReturnFocus.focus({ preventScroll: true });
+  }
+  confirmReturnFocus = null;
+  if (settle) settle(yes);
+}
+
+function confirmIsOpen() {
+  const veil = $("confirm-veil");
+  return Boolean(veil) && !veil.classList.contains("hidden");
+}
+
+/** Keep Tab inside the question while it is open. */
+function trapConfirmFocus(event) {
+  if (event.key !== "Tab" || !confirmIsOpen()) return;
+  const choices = [$("confirm-keep"), $("confirm-go")];
+  const at = choices.indexOf(document.activeElement);
+  event.preventDefault();
+  const next = event.shiftKey ? (at <= 0 ? choices.length - 1 : at - 1)
+    : (at + 1) % choices.length;
+  choices[next].focus({ preventScroll: true });
 }
 
 async function controlJob(control) {
-  if (!state.jobRef) return;
-  if (!confirmedControl(control)) return;
-  try { await post(`/api/jobs/${state.jobRef}/control`, { control }); }
+  // THE JOB IS FIXED BEFORE THE QUESTION. The question is awaited and the poll keeps
+  // running under it, so `state.jobRef` can move to another job (a crawl handing off to
+  // its interpretation) or to null before he answers; the press goes to the job the
+  // question named, whatever the player shows by then.
+  const jobRef = state.jobRef;
+  if (!jobRef) return;
+  if (!(await confirmedControl(control, state.job ? jobLabel(state.job) : ""))) return;
+  try { await post(`/api/jobs/${jobRef}/control`, { control }); }
   catch (e) { $("run-blocked").textContent = e.message; }
   await pollJob();
 }
@@ -7373,7 +7451,7 @@ function drawJobRow(row) {
       button.textContent = control[0].toUpperCase() + control.slice(1);
       button.addEventListener("click", (event) => {
         event.preventDefault();
-        pressJobControl(row.job_ref, control, button);
+        pressJobControl(row.job_ref, control, button, row.label);
       });
       actions.append(button);
     }
@@ -7429,8 +7507,8 @@ async function openJobLog(jobRef, into) {
  * which is half of what this page is for: on 2026-09-07 the job he wanted to stop was
  * not the job the panel was drawing.
  */
-async function pressJobControl(jobRef, control, button) {
-  if (!confirmedControl(control)) return;
+async function pressJobControl(jobRef, control, button, label = "") {
+  if (!(await confirmedControl(control, label))) return;
   const was = button.textContent;
   button.disabled = true;
   button.textContent = "\u2026";
@@ -8492,6 +8570,11 @@ function wireStartupShell() {
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") return;
     // Innermost first. The dialog is modal, so nothing behind it may answer.
+    if (confirmIsOpen()) {
+      event.stopPropagation();
+      answerConfirm(false);
+      return;
+    }
     if (restoreDialogIsOpen()) {
       event.stopPropagation();
       closeRestoreDialog();
@@ -8549,6 +8632,14 @@ function wireStartupShell() {
     if (event.target === $("disconnect-veil")) closeDisconnectDialog();
   });
   document.addEventListener("keydown", trapDisconnectFocus, true);
+
+  $("confirm-keep").addEventListener("click", () => answerConfirm(false));
+  $("confirm-go").addEventListener("click", () => answerConfirm(true));
+  // The veil, not the card: a click on the question must not answer it.
+  $("confirm-veil").addEventListener("click", (event) => {
+    if (event.target === $("confirm-veil")) answerConfirm(false);
+  });
+  document.addEventListener("keydown", trapConfirmFocus, true);
 
   setGoogleButtonScheme();
   window.addEventListener("scrapexappearancechange", () => {
