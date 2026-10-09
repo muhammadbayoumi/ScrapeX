@@ -249,9 +249,34 @@ def test_the_auto_switch_writes_the_warehouse_and_every_page_says_so(engine):
     finally:
         conn.close()
     assert board[SHOP] == "active"
-    schedules = client.get("/schedules").text
-    shop_card = schedules[schedules.index(SHOP):][:4000]
-    assert "Auto is off for this source" not in shop_card.split("schedule-card-footer")[0]
+    assert "Auto is off" not in _schedule_card(client, SHOP), (
+        "the schedules page still says his switched-on source will not fire")
+
+
+def _schedule_card(client, key: str) -> str:
+    page = client.get("/schedules").text
+    start = page.index(f'data-sched="{key}"')
+    return page[start:page.index("</form>", start)]
+
+
+def test_the_schedules_page_says_a_shipped_on_source_he_switched_off_will_not_fire(engine):
+    client, _, _ = engine
+    assert "Auto is off" not in _schedule_card(client, ZIDDY), "fixture: ZIDDY ships on"
+
+    client.post(f"/api/sources/{ZIDDY}/active", json={"active": False})
+
+    assert "Auto is off" in _schedule_card(client, ZIDDY)
+
+
+def test_lifecycle_follows_what_the_engines_own_manifest_ships(engine):
+    """`reconcile_active` read the repository's `sources.yaml` whatever manifest the
+    engine had loaded. ZIDDY is in this engine's manifest only, and ships on: a write
+    that registers it must leave its record saying so."""
+    client, database, _ = engine
+
+    client.post(f"/api/sources/{ZIDDY}/rules", json={"crawl_pace_s": 4})
+
+    assert _lifecycle(database, ZIDDY) == "active"
 
 
 def test_switching_off_a_source_that_ships_on_is_his_and_is_said(engine):
