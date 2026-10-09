@@ -93,10 +93,11 @@ function runner({ active, byRef, visible = true, view = "run" }) {
     "document", "clearTimeout", "setTimeout", "POLL_MS",
     // `pollTimer` is a module-level `let` in app.js that `pollJobOnce` assigns, and
     // `redrawWhatTheJobChanged` is defined beside it in the same file. The read model's
-    // own state and its two helpers are stood in for: they have their own guards.
-    "let pollTimer, idleTimer, pollFailures = 0, lastActiveRefs = null;\n"
-      + "const POLL_BACKOFF_MS = [1500], JOBS_LIMIT = 200;\n"
+    // and the Jobs page's own state and helpers are stood in for: they have their own guards.
+    "let pollTimer, idleTimer, pollFailures = 0, lastActiveRefs = null, jobsReadOrder = 0;\n"
+      + "const POLL_BACKOFF_MS = [1500], JOBS_LIMIT = 200, jobsPage = {loaded: false};\n"
       + "function noticeActiveSet() {}\nfunction armIdleProbe() {}\n"
+      + "function jobsTick() {}\nfunction jobsFailed() {}\n"
       + "async function sourcesForJobNames() {}\n"
       + REDRAW + "\n" + POLL_JOB_ONCE
       + "\nreturn {pollJobOnce};");
