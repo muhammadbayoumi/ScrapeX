@@ -730,6 +730,15 @@ textarea[aria-invalid="true"] {
   color: var(--red);
 }
 
+/* Studio's `default` badge: the word in the foreground, its glyph muted (#1596). */
+.badge.default {
+  color: var(--text);
+}
+
+.badge.default .sx-icon {
+  color: var(--muted);
+}
+
 button.chip {
   min-height: var(--control-height-tiny);
   border: 1px solid var(--line);

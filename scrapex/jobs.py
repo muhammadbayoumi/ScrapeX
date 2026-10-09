@@ -1426,11 +1426,6 @@ class JobRunner:
         # is the only way its per-host rule can span jobs rather than one.
         self._running: dict[str, threading.Thread] = {}
         self._admission: _CrawlAdmission | None = None
-        # schedule_id -> the next_run_at that came due while ANOTHER app held the
-        # write lock (#1596, ruling D5). Its skip row is written once the lock is
-        # free; in memory only, so a restart in between leaves the slot to its
-        # missed-run policy.
-        self._held_out: dict[int, str] = {}
 
     def start(self) -> None:
         if self._thread is not None:
@@ -1583,31 +1578,22 @@ class JobRunner:
         conn.commit()
 
     def _fire_schedules(self, conn: sqlite3.Connection) -> None:
-        """Fire what is due, under the write lock, and never around it (#1596, D5).
+        """Fire what is due, under the write lock and never around it (#1596, D5).
 
-        Asked only when something IS due, so an idle engine does not take the lock
-        twice a second. Another app holding it: the due slots are remembered and
-        written as skips by the first pass that gets the lock. Our own ingest
-        holding the in-process gate is not another app: `write_lock` waits for it,
-        and if it outlasts the wait the slot simply stays due for the next poll.
+        `scheduler.fire_due_under_lock` is the rule, shared with `run-due`. A slot it
+        could not decide this poll -- another app writing, or our own ingest holding
+        the gate past the wait -- is in its held-out record, so the next poll, or a
+        restarted engine, decides it.
         """
         # Imported lazily: scheduler imports this module, so a top-level import
         # here would be circular.
-        from .scheduler import due_schedules, fire_due
+        from .scheduler import fire_due_under_lock
 
-        due = due_schedules(conn)
-        if not due:
-            return
-        if dbmod.write_lock_holder(self._db_path) is not None:
-            for schedule in due:
-                self._held_out.setdefault(schedule["schedule_id"], schedule["next_run_at"])
-            return
         try:
-            with dbmod.write_lock(self._db_path, timeout_s=SCHEDULE_LOCK_TIMEOUT_S):
-                fire_due(conn, manifest=self._manifest_provider(), held_out=self._held_out)
+            fire_due_under_lock(conn, self._db_path, self._manifest_provider(),
+                                SCHEDULE_LOCK_TIMEOUT_S)
         except dbmod.DbLockedError:
-            return                      # nothing written; decided again next poll
-        self._held_out.clear()
+            return                      # recorded; decided on a later poll
 
     def _loop(self) -> None:
         conn = dbmod.connect(self._db_path)

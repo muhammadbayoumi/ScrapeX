@@ -439,6 +439,9 @@ TEMPLATES.env.globals["TERMINAL_JOB_STATUSES"] = sorted(
 TEMPLATES.env.globals["UNCLEAN_JOB_STATUSES"] = sorted(
     status.value for status in TERMINAL_JOB_STATUSES
     if status not in (JobStatus.COMPLETED, JobStatus.SKIPPED))
+# The one status /jobs draws differently by name: a skip never ran, so it states no
+# progress and its reason is a note, not an error (#1596).
+TEMPLATES.env.globals["SKIPPED_JOB_STATUS"] = JobStatus.SKIPPED.value
 STATIC_DIR = Path(__file__).parent / "static"
 PAGE_SIZE = 50
 AVAILABILITY_OPTIONS = ("in_stock", "out_of_stock", "unknown")

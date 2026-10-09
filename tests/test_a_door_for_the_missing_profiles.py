@@ -863,7 +863,7 @@ def test_a_skipped_firing_is_not_a_crawl_that_owes_a_press(served, kind):
             "INSERT INTO crawl_job (job_ref, run_mode, source_keys, job_kind, status, "
             "                       finished_at, error_summary) "
             "VALUES ('job_skip','update',?,?,'skipped','2026-09-07T14:23:50Z', "
-            "        'skipped: a run is in progress (job_x)')",
+            "        'This site''s previous run was still going (job_x)')",
             (f'["{SITE}"]', kind))
         conn.commit()
     finally:

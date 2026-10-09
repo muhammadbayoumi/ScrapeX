@@ -347,7 +347,7 @@ const SKIPPED = {
   progress: {done: 0, total: 1, unit: "source(s)"}, fetch: {...NO_FETCH},
   queued_behind: null, created_at: "2026-10-09T06:00:00Z", started_at: null,
   finished_at: "2026-10-09T06:00:00Z",
-  error_summary: "skipped: a run is in progress (job_034c51a29deb)",
+  error_summary: "This site's previous run was still going (job_034c51a29deb)",
 };
 
 test("a skipped job is finished: no control, no wait, no dot, never the live one", () => {
@@ -374,6 +374,27 @@ test("a skip's reason is drawn muted, and a failure's still in red", () => {
   assert.equal(skip.settled, true);
   assert.deepEqual(skip.controls, []);
   assert.equal(fail.summary_class, "err");
+});
+
+test("a skip never ran, so it states no progress: no bar and no '0 of 1'", () => {
+  assert.equal(progressFraction(SKIPPED), null, "a job that never ran drew a bar");
+  assert.equal(progressLine(SKIPPED), "", "a job that never ran said how far it got");
+  const [row] = rowsFrom({jobs: [SKIPPED]});
+  assert.equal(row.fraction, null);
+  assert.equal(row.progress, "");
+  // The same counters on a job that did start still say where it is.
+  const queued = {...SKIPPED, status: "queued"};
+  assert.equal(progressLine(queued), "0 of 1 source(s)");
+  assert.equal(progressFraction(queued), 0);
+});
+
+test("a skip's row wears look C, and a running row does not (#1596)", () => {
+  const [skip, running] = rowsFrom({jobs: [SKIPPED, {...SKIPPED, job_ref: "r",
+    status: "running", finished_at: null}]});
+  assert.equal(skip.tone, "default");
+  assert.equal(skip.glyph, "material-next-plan");
+  assert.notEqual(skip.tone, running.tone, "a skip is drawn as a running job is drawn");
+  assert.equal(running.glyph, "", "only the skip takes a glyph until #1608");
 });
 
 test("the summary counts skips like any other status", () => {

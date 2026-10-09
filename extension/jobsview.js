@@ -167,6 +167,7 @@ export function jobLabel(job, sources = []) {
  * tighter than the Activity panel, so it takes the `~` and leaves the date there.
  */
 export function progressLine(job) {
+  if (job?.status === "skipped") return "";   // never ran: "0 of 1" would say it did
   const [done, total, unit, basis] = counted(job);
   if (!(total > 0)) {
     // A NUMERATOR WITH NO DENOMINATOR IS STILL NEWS. A crawl whose total is not yet
@@ -195,6 +196,7 @@ function counted(job) {
 /** 0–1, or null when the job states no denominator. Null is not zero: a bar drawn at
  *  0% for a job with no total says "nothing has happened", which may be false. */
 export function progressFraction(job) {
+  if (job?.status === "skipped") return null;   // never ran: no bar, not an empty one
   const [done, total] = counted(job);
   if (!(total > 0)) return null;
   return Math.max(0, Math.min(1, done / total));
@@ -329,7 +331,10 @@ export function rowsFrom(payload, sources = []) {
     job_ref: job.job_ref,
     label: jobLabel(job, sources),
     status: job.status,
-    tone: statusTone(job.status),
+    // LOOK C FOR A SKIP ALONE (#1596): its tone and glyph from `statusLook`, so it is
+    // not drawn as `running` is. #1608 draws every status from `statusLook`.
+    tone: job.status === "skipped" ? statusLook(job.status).tone : statusTone(job.status),
+    glyph: job.status === "skipped" ? statusLook(job.status).glyph : "",
     progress: progressLine(job),
     fraction: progressFraction(job),
     waiting: jobWaitingLine(job),

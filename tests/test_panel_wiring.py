@@ -290,7 +290,7 @@ def test_the_schedules_section_is_an_editor_not_a_list():
     # control that changes nothing. One line says what happens instead, and the save
     # still sends `skip`, so an engine older than that change skips too.
     assert 'data-role="overlap"' not in JS, "the panel still offers an overlap choice"
-    assert "If a run is still going, this slot is skipped and logged." in JS
+    assert "If this site's previous run is still going, ScrapeX skips the slot and lists it on the Jobs page." in JS
     assert 'overlap_policy: "skip"' in JS
     # The scheduler fires only ACTIVE sources; a schedule that will not fire
     # must say so on its own row.

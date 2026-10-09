@@ -7007,6 +7007,11 @@ async function loadSchedules() {
       return;
     }
     const zone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+    // ONLY AN ENGINE WITH `scheduled_skips` LISTS A SKIP (#1596): an older one re-arms
+    // a busy slot and writes nothing, so promising the Jobs page there would be false.
+    const skipNote = capabilityRefusal("scheduled_skips")
+      ? "If this site's previous run is still going, ScrapeX skips the slot. Update the engine to see skipped slots on the Jobs page."
+      : "If this site's previous run is still going, ScrapeX skips the slot and lists it on the Jobs page.";
     $("schedules").innerHTML = sites.map((s) => {
       const sched = saved.get(s.source_key) || {};
       const freq = sched.frequency || "manual";
@@ -7074,7 +7079,7 @@ async function loadSchedules() {
                 <option value="skip" ${sched.missed_run_policy === "skip" ? "selected" : ""}>Skip that slot</option>
               </select>
             </div>
-            <p class="hint" data-role="skip-note">If a run is still going, this slot is skipped and logged.</p>
+            <p class="hint" data-role="skip-note">${esc(skipNote)}</p>
           </div>
           <label class="check"><input type="checkbox" data-role="enabled"
                  ${paused ? "" : "checked"}>
@@ -7839,6 +7844,7 @@ function drawJobRow(row) {
   const badge = document.createElement("span");
   badge.className = `badge ${row.tone}`;
   badge.textContent = statusWords(row.status);
+  if (row.glyph) badge.insertAdjacentHTML("afterbegin", icon(row.glyph, "sm"));
   const label = document.createElement("span");
   label.className = "job-label";
   label.textContent = row.label;

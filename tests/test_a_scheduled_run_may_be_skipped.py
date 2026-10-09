@@ -50,7 +50,7 @@ pytestmark = pytest.mark.extension
 
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATION = "0023_a_scheduled_run_may_be_skipped.sql"
-REASON = "skipped: a run is in progress (job_0a1b2c3d4e5f)"
+REASON = "This site's previous run was still going (job_0a1b2c3d4e5f)"
 
 
 @pytest.fixture()
@@ -290,3 +290,17 @@ def test_the_web_pages_do_not_call_a_skip_a_failure(tmp_path):
     failed = _web_pages_after(tmp_path / "failed", JobStatus.FAILED)
     assert "did not finish cleanly" in failed["/"]
     assert _badge(failed["/jobs"]) == ["off"]
+
+
+def test_the_jobs_page_draws_a_skips_reason_as_a_note_and_no_progress(tmp_path):
+    """#1620 review S7, S8: a job that never ran states no "0/1 sources", and the reason
+    the schedule passed it over is a muted note, not the red error box."""
+    skipped = _web_pages_after(tmp_path / "skipped", JobStatus.SKIPPED)["/jobs"]
+    assert f'<p class="job-note muted">{REASON}</p>'.replace("'", "&#39;") in skipped
+    assert "job-error" not in skipped.split("<script>")[0]
+    assert re.search(r'data-cell="progress">Did not run', skipped), skipped
+    assert "0/1 sources" not in skipped
+
+    failed = _web_pages_after(tmp_path / "failed", JobStatus.FAILED)["/jobs"]
+    assert f'<p class="job-error">{REASON}</p>'.replace("'", "&#39;") in failed
+    assert "0/1 sources" in failed

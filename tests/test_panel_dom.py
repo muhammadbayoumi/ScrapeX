@@ -624,7 +624,7 @@ SKIPPED_JOB = {
               "unknown_sources": [], "sources": {}},
     "queued_behind": None, "counters": {}, "created_at": "2026-10-09T06:00:00Z",
     "started_at": None, "finished_at": "2026-10-09T06:00:00Z", "last_heartbeat_at": None,
-    "error_summary": "skipped: a run is in progress (job_034c51a29deb)"}
+    "error_summary": "This site's previous run was still going (job_034c51a29deb)"}
 
 
 def test_a_skipped_job_is_drawn_finished_and_says_why_without_alarm(open_panel):
@@ -647,7 +647,7 @@ def test_a_skipped_job_is_drawn_finished_and_says_why_without_alarm(open_panel):
         "a skipped job offered a control the engine answers 409")
     assert row.locator(".job-live").count() == 0
     row.locator("summary").click()
-    reason = row.locator(".hint", has_text="a run is in progress")
+    reason = row.locator(".hint", has_text="previous run was still going")
     assert reason.count() == 1, "the reason the schedule skipped it is not on the row"
     classes = reason.get_attribute("class").split()
     assert "muted" in classes and "err" not in classes, (
@@ -656,6 +656,38 @@ def test_a_skipped_job_is_drawn_finished_and_says_why_without_alarm(open_panel):
     assert "err" in failure.get_attribute("class").split(), (
         "a failure's reason stopped being drawn as one")
     assert "1 skipped" in page.locator("#jobs-summary").inner_text()
+    assert not page.js_errors
+
+
+def test_a_skipped_row_wears_look_c_and_not_a_running_rows_look(open_panel):
+    """#1620 review S6: his look C, drawn by today's row -- Studio's `default` tone, the
+    word in the foreground and the `next_plan` glyph muted. The row's badge used to be
+    exactly a running job's. And a job that never ran draws no bar and no "0 of 1"."""
+    running = {**SKIPPED_JOB, "job_ref": "job_running0001", "status": "running",
+               "finished_at": None, "started_at": "2026-10-09T05:00:00Z",
+               "error_summary": None}
+    page = open_panel(jobs=[SKIPPED_JOB, running])
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(300)
+
+    def badge(ref):
+        return page.locator(f'#jobs-list .job-row[data-job="{ref}"] .badge')
+
+    skip, run = badge(SKIPPED_JOB["job_ref"]), badge(running["job_ref"])
+    assert skip.locator('use[href="#material-next-plan"]').count() == 1, (
+        "the skip's badge has no next_plan glyph")
+    assert run.locator("svg").count() == 0
+    look = "el => [el.className, getComputedStyle(el).color]"
+    assert skip.evaluate(look) != run.evaluate(look), (
+        "a skipped row's badge is drawn exactly like a running row's")
+    text = page.evaluate("getComputedStyle(document.body).getPropertyValue('--text')")
+    assert skip.evaluate("el => getComputedStyle(el).color") == page.evaluate(
+        "c => { const s = document.createElement('span'); s.style.color = c;"
+        " document.body.append(s); const v = getComputedStyle(s).color; s.remove();"
+        " return v; }", text.strip()), "the skip's word is not in the foreground colour"
+    row = page.locator(f'#jobs-list .job-row[data-job="{SKIPPED_JOB["job_ref"]}"]')
+    assert row.locator(".job-bar").count() == 0, "a job that never ran drew a bar"
+    assert "0 of 1" not in row.inner_text()
     assert not page.js_errors
 
 
@@ -5399,7 +5431,7 @@ def test_a_schedule_row_offers_no_overlap_choice_and_saves_skip(open_panel):
 
     assert row.locator('[data-role="overlap"]').count() == 0, "the overlap select is drawn"
     assert row.locator('[data-role="skip-note"]').inner_text() == (
-        "If a run is still going, this slot is skipped and logged.")
+        "If this site's previous run is still going, ScrapeX skips the slot and lists it on the Jobs page.")
 
     row.locator('[data-role="save"]').click()
     page.wait_for_timeout(300)
@@ -5407,6 +5439,23 @@ def test_a_schedule_row_offers_no_overlap_choice_and_saves_skip(open_panel):
              if w["path"].startswith("/api/schedules/")]
     assert len(saves) == 1, saves
     assert saves[0]["body"]["overlap_policy"] == "skip", saves[0]["body"]
+    assert not page.js_errors
+
+
+def test_an_engine_without_scheduled_skips_is_not_promised_a_jobs_page_row(open_panel):
+    """#1620 review S9: a 0.4.57 engine re-arms a busy slot and writes no row, so the
+    line must not say the slot is listed on the Jobs page."""
+    page = open_panel(sources=[CLEAN_SITE], schedules=SCHEDULE_SOON,
+                      engine_version="0.4.57", omit_capabilities=("scheduled_skips",))
+    page.click(SETTINGS_TAB)
+    page.click('[data-sect="s-sched"]')
+    page.wait_for_timeout(500)
+    row = page.locator(".sched-row").first
+    row.locator("summary").click()
+
+    note = row.locator('[data-role="skip-note"]').inner_text()
+    assert "lists it on the Jobs page" not in note, note
+    assert "Update the engine" in note, note
     assert not page.js_errors
 
 

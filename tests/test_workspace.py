@@ -432,7 +432,7 @@ def test_the_schedules_page_is_the_full_editor(client):
         assert f'data-role="{role}"' in body, f"the {role} control is missing"
     # The overlap choice is gone here too (#1596): a busy slot is skipped and logged.
     assert 'data-role="overlap"' not in body
-    assert "If a run is still going, this slot is skipped and logged." in body
+    assert "If this site's previous run is still going, ScrapeX skips the slot and lists it on the Jobs page." in body
     assert 'overlap_policy: "skip"' in body
     assert "/api/schedules/" in body, "no save path — still read-only"
     assert "Monday" in body                       # 0=Monday, server convention
