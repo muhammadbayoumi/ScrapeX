@@ -18,6 +18,8 @@ const STAMPS = {
   "2026-10-04T10:00:00Z": {date: "4 October 2026", short: "4 Oct, 10:00 AM", time: "10:00 AM"},
   "2026-10-04T10:03:00Z": {date: "4 October 2026", short: "4 Oct, 10:03 AM", time: "10:03 AM"},
   "2026-10-09T09:14:00Z": {date: "9 October 2026", short: "9 Oct, 9:14 AM", time: "9:14 AM"},
+  "2026-10-05T08:00:00Z": {date: "5 October 2026", short: "5 Oct, 8:00 AM", time: "8:00 AM"},
+  "2026-10-05T09:00:00Z": {date: "5 October 2026", short: "5 Oct, 9:00 AM", time: "9:00 AM"},
 };
 const fmt = (stamp, mode) => STAMPS[stamp][mode];
 
@@ -35,13 +37,34 @@ test("a status reads as the engine's word, sentence-cased, with its glyph and to
   // AN UNKNOWN STATUS STILL NAMES ITSELF: a status this file has not heard of is news.
   assert.deepEqual(statusLook("being_audited"),
     {word: "Being audited", glyph: "material-info", tone: "default"});
+  for (const nothing of ["", null, undefined]) {
+    assert.deepEqual(statusLook(nothing), {word: "", glyph: "material-info", tone: "default"},
+      String(nothing));
+  }
 });
 
-test("every status the engine knows has a look of its own", () => {
-  for (const status of ["preparing", "running", "resuming", "pausing", "cancelling",
-    "queued", "scheduled", "paused", "requires_review", "failed", "partially_completed",
-    "completed_with_errors", "completed", "cancelled"]) {
-    assert.notEqual(statusLook(status).glyph, "material-info", status);
+test("every status the engine knows has its own glyph and tone, as designed", () => {
+  // The whole table, so no entry can drift: the in-between states warn, a cancelled job
+  // is neutral rather than failed, and the tones follow Studio (see STATUS_LOOK).
+  const designed = {
+    preparing: ["material-sync", "warning"],
+    running: ["material-pending", "secondary"],
+    resuming: ["material-sync", "warning"],
+    pausing: ["material-pause-circle", "warning"],
+    cancelling: ["material-block", "warning"],
+    queued: ["material-schedule", "default"],
+    scheduled: ["material-schedule", "default"],
+    paused: ["material-pause-circle", "foreground"],
+    requires_review: ["material-warning", "warning"],
+    failed: ["material-cancel", "destructive"],
+    partially_completed: ["material-warning", "warning"],
+    completed_with_errors: ["material-warning", "warning"],
+    completed: ["material-check-circle", "brand"],
+    cancelled: ["material-block", "default"],
+  };
+  for (const [status, [glyph, tone]] of Object.entries(designed)) {
+    const look = statusLook(status);
+    assert.deepEqual([look.glyph, look.tone], [glyph, tone], status);
   }
 });
 
@@ -55,6 +78,12 @@ test("the time line states what is stored, start to finish, and never a duration
   assert.equal(timeLine({status: "completed", started_at: "2026-10-05T22:00:00Z",
     finished_at: "2026-10-06T00:37:00Z"}, fmt), "Started 5 Oct, 10:00 PM → 6 Oct, 12:37 AM",
     "a finish on another day carries its date");
+  // THE DAY IS THE START'S, NOT THE DAY IT WAS ADDED: queued on the 4th, run on the 5th.
+  assert.equal(timeLine({status: "completed", created_at: "2026-10-04T10:00:00Z",
+    started_at: "2026-10-05T08:00:00Z", finished_at: "2026-10-05T09:00:00Z"}, fmt),
+  "Started 5 Oct, 8:00 AM → 9:00 AM");
+  // A finish with nothing to finish from says nothing rather than half a line.
+  assert.equal(timeLine({status: "completed", finished_at: "2026-10-05T09:00:00Z"}, fmt), "");
 });
 
 test("a job that never started says when it was added, and a cancel says so", () => {
@@ -78,6 +107,16 @@ test("the count line says what is shown, and whether it is live", () => {
     "3 jobs · Read at 9:14 AM", "not live: say when it was read");
   assert.equal(jobsCountLine({...live, total: 200, shown: 200, bounded: true}, fmt),
     "Newest 200 jobs shown; older jobs are not listed · Refreshes every 1.5s while a job is in progress or queued");
+  assert.equal(jobsCountLine({...live, total: 200, shown: 3, bounded: true}, fmt),
+    "3 of the newest 200 jobs · Refreshes every 1.5s while a job is in progress or queued");
+  assert.equal(jobsCountLine({...live, readAt: "2026-10-09T09:14:00Z"}, fmt),
+    "8 jobs · Refreshes every 1.5s while a job is in progress or queued",
+    "live: the read time is not said beside it");
+  assert.equal(jobsCountLine({shown: 0, total: 0, live: false}, fmt), "0 jobs");
+  assert.equal(jobsCountLine({shown: 1234, total: 1234, live: false}, fmt), "1,234 jobs");
+  assert.equal(jobsCountLine({shown: 2, total: 2, live: true}, fmt),
+    "2 jobs · Refreshes every 1.5s while a job is in progress or queued",
+    "the panel's tick, 1.5 s, when no interval is passed");
 });
 
 test("one exposed action per row, and the menu holds the rest", () => {
@@ -96,4 +135,7 @@ test("a refusal names the job and the status it reached", () => {
     "Pause was refused: Listing crawl · muqawil.org is already completed");
   assert.equal(refusalLine("cancel", "Crawl · elburoj.com", "cancelled"),
     "Cancel was refused: Crawl · elburoj.com is already cancelled");
+  assert.equal(refusalLine("pause", "Crawl · elburoj.com", "completed_with_errors"),
+    "Pause was refused: Crawl · elburoj.com is already completed with errors",
+    "the status in words, as the row says it");
 });
