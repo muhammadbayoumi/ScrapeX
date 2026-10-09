@@ -97,6 +97,7 @@ function runner({ active, byRef, visible = true, view = "run" }) {
     "let pollTimer, idleTimer, pollFailures = 0, lastActiveRefs = null;\n"
       + "const POLL_BACKOFF_MS = [1500], JOBS_LIMIT = 200;\n"
       + "function noticeActiveSet() {}\nfunction armIdleProbe() {}\n"
+      + "async function sourcesForJobNames() {}\n"
       + REDRAW + "\n" + POLL_JOB_ONCE
       + "\nreturn {pollJobOnce};");
   const built = build(

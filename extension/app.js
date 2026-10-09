@@ -5169,6 +5169,18 @@ let lastActiveRefs = null;
 const IDLE_PROBE_MS = 30000;
 let idleTimer = null;
 
+// A JOB IS NAMED FROM THE SOURCES PAYLOAD (`jobLabel`), which was read only when Run or
+// Sources opened -- so on any other page the player and the rows fell back to the key.
+// A live job reads it once when the panel holds none -- ONCE per panel, not once per
+// tick: a warehouse with no sources, or an engine that refuses the read, would otherwise
+// add a request to every 1.5 s tick. Run and Sources still read it on entry.
+let sourcesForNames = null;
+function sourcesForJobNames() {
+  if (state.sources.length) return Promise.resolve();
+  sourcesForNames ||= loadSources();
+  return sourcesForNames;
+}
+
 // ---- ONE formatter each (the DRY the owner asked for) ----------------------
 // A count with thousands separators. Every number the panel shows goes through
 // here, so 1030 reads as "1,030" everywhere and never as a bare 1030 in one
@@ -5517,6 +5529,7 @@ async function pollJobOnce() {
   const job = liveJob(jobs);
   state.job = job;
   if (job) {
+    await sourcesForJobNames();
     // A HANDOFF IS NOT A CONTINUATION, and until a crawl queued its own interpretation
     // this branch never had to know the difference: the adopted job was always the one
     // he had started, so repointing at it lost nothing.
@@ -7399,6 +7412,8 @@ async function loadJobs({keepNotice = false} = {}) {
     return;
   }
   if (!keepNotice) sayOn("jobs-blocked", "");
+  await sourcesForJobNames();
+  if (seq !== jobsReadSeq) return;
   const rows = rowsFrom(payload, state.sources);
   $("jobs-summary").textContent = summariseJobs(payload);
   sayOn("jobs-bounded", rows.length >= JOBS_LIMIT

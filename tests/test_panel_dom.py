@@ -537,7 +537,8 @@ def test_a_rendered_row_states_its_number_in_the_unit_the_job_counted(open_panel
 
     sweep = page.locator('#jobs-list .job-row[data-job="job_034c51a29deb"]')
     said = sweep.inner_text()
-    assert "Profile fetch" in said and "muqawil_org" in said, (
+    # The source by its domain, as the panel names sources (#1542), not by its key.
+    assert "Profile fetch · muqawil.org" in said, (
         f"the row does not name the kind and the source: {said!r}")
     assert "620 of 938 page(s)" in said, (
         f"the row states its progress in the wrong unit, or not at all: {said!r}")
@@ -11073,9 +11074,10 @@ def test_a_live_warehouse_that_could_not_be_counted_is_not_read_as_a_pass(
 
 
 CANCEL_SENTENCE = "Cancelling stops it for good. What it already stored stays in the warehouse."
-# The names the panel gives the two jobs these tests cancel (`jobLabel`).
-PAUSED_ROW = "Interpretation · muqawil_org"
-PLAYER_JOB = "Profile fetch · muqawil_org"
+# The names the panel gives the two jobs these tests cancel (`jobLabel`): kind · domain,
+# the domain from the stub's muqawil_org dataset card (`site_key`).
+PAUSED_ROW = "Interpretation · muqawil.org"
+PLAYER_JOB = "Profile fetch · muqawil.org"
 
 
 def _control_writes(page):
@@ -11302,6 +11304,21 @@ def test_an_older_history_answer_never_draws_over_a_newer_one(open_panel):
     page.wait_for_timeout(1800)
     assert page.locator('#jobs-list .job-row[data-job="job_0212decca681"]').count() == 0, (
         "the older answer, issued first and landing last, drew over the newer one")
+
+
+MUQAWIL_SOURCE = [{"source_key": "muqawil_org", "source_name": "Saudi Contractors Authority",
+                   "base_url": "https://muqawil.org", "active": True, "implemented": True}]
+
+
+def test_the_player_names_the_source_by_its_domain_on_any_page(open_panel):
+    """ONE NAME FOR ONE JOB, wherever he is. The Sources payload was read only when Run
+    or Sources opened, so on Welcome or Jobs the player fell back to the key; a live job
+    now reads it once if the panel holds none."""
+    page = open_panel(jobs=HIS_JOBS, sources=MUQAWIL_SOURCE)
+    page.wait_for_function(
+        "() => (document.getElementById('mini-title').textContent || '')"
+        ".includes('muqawil.org')", timeout=5000)
+    assert page.text_content("#mini-title").startswith("Profile fetch · muqawil.org")
 
 
 def test_a_failed_tick_tries_again_and_the_player_comes_back(open_panel):
