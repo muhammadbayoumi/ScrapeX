@@ -236,6 +236,9 @@ def test_the_header_button_the_toggle_and_a_menu_item_ring_when_reached_by_keybo
     page.keyboard.press("Enter")
     page.wait_for_selector(".dg-menu .dg-menu-item")
     page.keyboard.press("ArrowDown")
+    # The fill has a transition: wait for it to land rather than read it mid-way.
+    page.wait_for_function("""() => { const c = getComputedStyle(document.activeElement).backgroundColor;
+      return c !== 'rgba(0, 0, 0, 0)' && c !== 'transparent'; }""", timeout=2000)
     item = page.evaluate("""() => { const el = document.activeElement; const s = getComputedStyle(el);
       return [el.classList.contains('dg-menu-item'), el.matches(':focus-visible'), s.outlineStyle, s.backgroundColor]; }""")
     assert item[0] and item[1] and item[2] == "solid" and alpha(item[3]) > 0, item
@@ -249,8 +252,8 @@ def test_a_menu_floats_over_the_page_on_its_own_surface(page):
     assert menu["position"] == "fixed" and int(menu["z-index"]) >= 1000, menu
     assert alpha(menu["background-color"]) == 1.0 and menu["border-top-style"] != "none", menu
     page.hover(".dg-menu .dg-menu-item")
-    page.wait_for_timeout(400)
-    assert alpha(computed(page, ".dg-menu .dg-menu-item", ["background-color"])["background-color"]) > 0
+    page.wait_for_function("""() => { const c = getComputedStyle(document.querySelector('.dg-menu .dg-menu-item')).backgroundColor;
+      return c !== 'rgba(0, 0, 0, 0)' && c !== 'transparent'; }""", timeout=2000)
 
 
 def test_the_totals_row_is_a_band_of_its_own(page):
