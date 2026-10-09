@@ -460,7 +460,8 @@ def run_profile_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
     finally:
         # ON EVERY EXIT, as the listing crawl does it. Under `obey` a Disallow does
         # not stop the sweep: `contractors.details` refuses that page alone, and
-        # this robots line is what says why the pages were not read.
+        # this robots line is what says why the pages were not read. A sweep it
+        # refused ENTIRELY raises `RobotsDisallowed` and ends `failed` above (#1580).
         directoryjob.log_politeness(conn, job["job_id"], source_key, fetcher)
         conn.commit()
 

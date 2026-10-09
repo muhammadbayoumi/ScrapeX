@@ -79,8 +79,10 @@ def _no_real_sleeping(monkeypatch):
     monkeypatch.setattr("scrapex.connectors.base.time.sleep", sleep)
 
 
-def _spy(monkeypatch, robots: str = "", robots_status: int = 200) -> dict:
+def _spy(monkeypatch, robots: str = "", robots_status: int = 200, page=None) -> dict:
     """Let the runner build its fetcher for real, then cut only the wire.
+
+    `page`, when given, answers every request that is not robots.txt.
 
     What the real client was built with -- its headers and timeout -- is read BEFORE the
     transport is swapped, because the swap is a new `httpx.Client` and would report its
@@ -94,6 +96,8 @@ def _spy(monkeypatch, robots: str = "", robots_status: int = 200) -> dict:
             if robots_status != 200:
                 return httpx.Response(robots_status)
             return httpx.Response(200, text=robots) if robots else httpx.Response(404)
+        if page is not None:
+            return page(request)
         return httpx.Response(200, text="<html></html>")
 
     def spying(crawl_settings, rules):
@@ -434,23 +438,179 @@ def test_a_disallow_obeyed_by_the_owners_switch_fails_the_listing_and_says_why(
 
 def test_a_disallow_obeyed_by_the_owners_switch_refuses_each_profile_and_says_why(
         conn, monkeypatch):
-    """THE PROFILE SWEEP DOES NOT STOP. The REAL `contractors.details` contains each
-    page's failure, so under `obey` with every path disallowed no profile page goes
-    out, each is refused on its own, the sweep ends `completed` with nothing stored,
-    and the robots line is said once. Whether that should read as `completed` is
-    the owner's question, filed rather than decided here."""
+    """THE OWNER'S RULING ON #1580. The REAL `contractors.details` refuses each page on
+    its own, so under `obey` with every path disallowed no profile page goes out and
+    nothing is stored -- and a sweep in which robots.txt refused EVERY page it tried
+    ends `failed`, as the listing crawl does under the same switch, with the reason in
+    the log and on the job, naming the switch that would change it."""
     settings.save(conn, {"crawl_obey_disallow": "1"})
     conn.commit()
     built = _spy(monkeypatch, robots="User-agent: *\nDisallow: /\n")
 
+    with pytest.raises(RobotsDisallowed):
+        _run_profile(conn)
+
+    ref = conn.execute("SELECT job_ref FROM crawl_job").fetchone()[0]
+    job = jobs.get_job(conn, ref)
+    assert job["status"] == "failed"
+    assert "robots.txt refused every one of the 2 profile page(s)" in job["error_summary"]
+    assert "crawl_obey_disallow" in job["error_summary"]
+    # THE FIRST REFUSAL'S OWN REASON travels with it: which rule said no.
+    assert "the tool default, which obeys Disallow" in job["error_summary"]
+    assert built["fetcher"].requests_count == 0
+    assert _stored(conn) == 0
+    assert _run_rows(conn) == [("failed", 0, 2, 0)]
+    lines = _lines(conn, ref)
+    messages = [line["message"] for line in lines]
+    failed = [line for line in lines
+              if line["message"].startswith("failed: robots.txt refused every one")]
+    assert len(failed) == 1 and failed[0]["level"] == "error", messages
+    assert sum("RobotsDisallowed" in m for m in messages) == 2, messages
+    assert "profiles stored 0, failed 2, resumed 0" in messages
+    disallow = [m for m in messages if m.startswith(f"{HOST}: robots.txt disallows")]
+    assert len(disallow) == 1, messages
+
+
+def test_a_sweep_robots_refused_only_in_part_completes_as_before(conn, monkeypatch):
+    """MIXED: the Arabic profile is disallowed, the English one is not. One page is
+    stored, so the sweep did its work -- `completed`, as before #1580."""
+    settings.save(conn, {"crawl_obey_disallow": "1"})
+    conn.commit()
+    built = _spy(monkeypatch, robots="User-agent: *\nDisallow: /ar/\n")
+
     ref = _run_profile(conn)
 
     assert jobs.get_job(conn, ref)["status"] == "completed"
-    assert built["fetcher"].requests_count == 0
+    assert built["fetcher"].requests_count == 1
+    assert _stored(conn) == 1
+    assert _run_rows(conn) == [("success", 1, 1, 1)]
     messages = [line["message"] for line in _lines(conn, ref)]
-    assert any("RobotsDisallowed" in m for m in messages), messages
-    disallow = [m for m in messages if m.startswith(f"{HOST}: robots.txt disallows")]
-    assert len(disallow) == 1, messages
+    assert sum("RobotsDisallowed" in m for m in messages) == 1, messages
+    assert not any("refused every one" in m for m in messages), messages
+
+
+def test_a_sweep_refused_in_part_and_failed_for_another_reason_completes(
+        conn, monkeypatch):
+    """REFUSED PLUS ANOTHER ERROR, NOTHING STORED. The Arabic page is refused by
+    robots.txt; the English one goes out and answers 404. Not EVERY page was refused --
+    one was asked of the site -- so the rule does not fire and the sweep ends
+    `completed` with `stored 0, failed 2`, exactly as a sweep of dead pages does."""
+    settings.save(conn, {"crawl_obey_disallow": "1"})
+    conn.commit()
+    built = _spy(monkeypatch, robots="User-agent: *\nDisallow: /ar/\n",
+                 page=lambda request: httpx.Response(404))
+
+    ref = _run_profile(conn)
+
+    assert jobs.get_job(conn, ref)["status"] == "completed"
+    assert built["fetcher"].requests_count >= 1
+    assert _stored(conn) == 0
+    assert [row[:3] for row in _run_rows(conn)] == [("success", 0, 2)]
+    messages = [line["message"] for line in _lines(conn, ref)]
+    assert "profiles stored 0, failed 2, resumed 0" in messages, messages
+    assert not any("refused every one" in m for m in messages), messages
+
+
+def _obeying(robots: str):
+    """The fetcher `make_fetch` builds under `obey`, its wire cut to a site whose
+    robots.txt is `robots` and whose every page answers 200."""
+    fetcher, fetch = contractors.make_fetch(
+        {"min_interval_s": 0.0, "obey_disallow": True}, source_settings.NO_OPINION)
+    fetcher._client.close()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/robots.txt":
+            return httpx.Response(200, text=robots)
+        return httpx.Response(200, text="<html></html>")
+    fetcher._client = httpx.Client(transport=httpx.MockTransport(handler))
+    return fetcher, fetch
+
+
+@pytest.mark.parametrize("workers", [1, 3], ids=["one-worker", "pool"])
+def test_every_page_refused_fails_the_sweep_on_both_paths(conn, workers):
+    """THE POOL TOO. `details` counts the pool's futures in a loop of their own, so a
+    rule that read the single-worker loop alone would let the pool complete."""
+    db_file = conn.execute("PRAGMA database_list").fetchone()[2]
+    fetcher, fetch = _obeying("User-agent: *\nDisallow: /\n")
+    said: list[str] = []
+    try:
+        with contractors.lines_go_to(said.append), \
+                pytest.raises(RobotsDisallowed, match="refused every one of the 6"):
+            contractors.details(conn, directories.get(SITE), fetch, fetcher, "all-no",
+                                ids=("7101", "7102", "7103"), workers=workers,
+                                connect=lambda: dbmod.connect(db_file))
+        assert fetcher.requests_count == 0
+    finally:
+        fetcher.close()
+    assert _stored(conn) == 0
+    assert _run_rows(conn) == [("failed", 0, 6, 0)]
+    assert "profiles stored 0, failed 6, resumed 0" in said, said
+
+
+@pytest.mark.parametrize("workers", [1, 3], ids=["one-worker", "pool"])
+def test_a_partly_refused_sweep_completes_on_both_paths(conn, workers):
+    db_file = conn.execute("PRAGMA database_list").fetchone()[2]
+    fetcher, fetch = _obeying("User-agent: *\nDisallow: /ar/\n")
+    try:
+        contractors.details(conn, directories.get(SITE), fetch, fetcher, "half-no",
+                            ids=("7101", "7102", "7103"), workers=workers,
+                            connect=lambda: dbmod.connect(db_file))
+    finally:
+        fetcher.close()
+    assert _stored(conn) == 3
+    assert _run_rows(conn) == [("success", 3, 3, 3)]
+
+
+def test_a_sweep_the_owner_stopped_after_refusals_is_not_failed_over_his_stop(conn):
+    """HIS STOP OUTRANKS THE RULE. Two pages refused, then `between_pages` asks to stop:
+    the job is already settled paused or cancelled by the hook, and raising here would
+    turn it `failed`. The run closes PARTIAL, as any stopped sweep does."""
+    fetcher, fetch = _obeying("User-agent: *\nDisallow: /\n")
+    try:
+        contractors.details(conn, directories.get(SITE), fetch, fetcher, "stopped",
+                            ids=("7101", "7102"),
+                            between_pages=lambda index, total: index == 2)
+    finally:
+        fetcher.close()
+    assert _run_rows(conn) == [("partial", 0, 2, 0)]
+
+
+def test_an_empty_frontier_tries_nothing_and_is_not_failed(conn):
+    """NOTHING TRIED, NOTHING REFUSED. Every page is already stored under the run
+    reference, so the obeying sweep asks for none, and an empty sweep is not a
+    refused one: it ends as before."""
+    db_file = conn.execute("PRAGMA database_list").fetchone()[2]
+    crawling, fetch = contractors.make_fetch({"min_interval_s": 0.0},
+                                             source_settings.NO_OPINION)
+    crawling._client.close()
+    crawling._client = httpx.Client(transport=httpx.MockTransport(
+        lambda request: httpx.Response(200, text="<html></html>")))
+    try:
+        contractors.details(conn, directories.get(SITE), fetch, crawling, "held",
+                            ids=("7101",), connect=lambda: dbmod.connect(db_file))
+    finally:
+        crawling.close()
+    fetcher, fetch = _obeying("User-agent: *\nDisallow: /\n")
+    try:
+        contractors.details(conn, directories.get(SITE), fetch, fetcher, "held",
+                            ids=("7101",))
+    finally:
+        fetcher.close()
+    assert fetcher.requests_count == 0
+    # `partial`, not `failed`: today's reading of a sweep whose todo is shorter than
+    # its frontier, left as it was.
+    assert _run_rows(conn)[1] == ("partial", 0, 0, 0)
+
+
+def _stored(conn) -> int:
+    return conn.execute("SELECT COUNT(*) FROM generic_page_snapshot").fetchone()[0]
+
+
+def _run_rows(conn) -> list[tuple]:
+    """`(status, rows_seen, errors, requests)` of every run row, oldest first."""
+    return [tuple(row) for row in conn.execute(
+        "SELECT status, rows_seen, errors_count, requests_count FROM crawl_run "
+        "ORDER BY run_id")]
 
 
 @RUNNERS
