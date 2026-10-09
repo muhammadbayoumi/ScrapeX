@@ -195,8 +195,13 @@ def fire_due(conn: sqlite3.Connection, now: datetime | None = None,
         if manifest is not None:
             try:
                 entry = manifest.get(schedule["source_key"])
-            except KeyError:
-                entry = None                     # removed from the manifest
+            except LookupError:
+                # REMOVED FROM THE MANIFEST, or known to no registry at all (#1609):
+                # the engine passes a `SourceResolver`, whose `UnknownSource` is a
+                # `LookupError` and not a `KeyError`. Caught as `KeyError` it escaped
+                # this loop on every tick, and the worker skipped `_dispatch` with it --
+                # no job started, his manual ones included.
+                entry = None
             # HIS `active` FOR THIS SOURCE, over the manifest's (#1584): a source he
             # switched on in the panel fires, one he switched off does not, whatever
             # `sources.yaml` ships. A source the manifest does not name still never
