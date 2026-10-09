@@ -5478,7 +5478,10 @@ function armIdleProbe() {
   clearTimeout(idleTimer);
   idleTimer = setTimeout(async () => {
     idleTimer = null;
-    if (document.visibilityState === "hidden" || !state.engineUp) return;
+    if (document.visibilityState === "hidden") return;
+    // A STOPPED ENGINE IS ASKED AGAIN LATER, not never: its coming back up starts no
+    // poll of its own (`setStatus`), so a probe that gave up here stayed given up.
+    if (!state.engineUp) { armIdleProbe(); return; }
     let found = [];
     try { found = (await api("/api/jobs?active_only=true&limit=1")).jobs || []; }
     catch (_) { found = []; }
@@ -5512,6 +5515,10 @@ async function pollJobOnce() {
     if (lastActiveRefs && lastActiveRefs.size && document.visibilityState === "visible") {
       const wait = POLL_BACKOFF_MS[Math.min(pollFailures, POLL_BACKOFF_MS.length - 1)];
       pollTimer = setTimeout(() => { pollJob(); }, wait);
+    } else {
+      // NOT BACKING OFF IS NOT STOPPING: with no job known to be active, the slow probe
+      // is what notices one starting, and a failed tick had left no timer at all.
+      armIdleProbe();
     }
     return;
   }
@@ -7434,6 +7441,12 @@ async function loadJobs({keepNotice = false} = {}) {
     // read "Reading…" until he closed it. Stored empty, it re-opens and re-fetches.
     wasOpen.set(previous.dataset.job, had === LOG_PLACEHOLDER ? "" : had);
   }
+  // AND SO DOES THE KEYBOARD'S PLACE. A redraw the tick starts, with nothing pressed,
+  // replaced the element he had focused and dropped him on <body>; it goes back to the
+  // same control in the same row, or to that row's summary once the control is gone.
+  const focused = list.contains(document.activeElement) ? document.activeElement : null;
+  const focusRef = focused?.closest(".job-row")?.dataset.job;
+  const focusText = focused?.tagName === "BUTTON" ? focused.textContent : null;
   list.replaceChildren(...rows.map((row) => {
     const box = drawJobRow(row);
     if (!wasOpen.has(row.job_ref)) return box;
@@ -7443,6 +7456,12 @@ async function loadJobs({keepNotice = false} = {}) {
     box.querySelector(".job-log").textContent = wasOpen.get(row.job_ref);
     return box;
   }));
+  const again = [...list.querySelectorAll(".job-row")].find((box) => box.dataset.job === focusRef);
+  if (again) {
+    const same = focusText == null ? null
+      : [...again.querySelectorAll("button")].find((button) => button.textContent === focusText);
+    (same || again.querySelector("summary")).focus();
+  }
 }
 
 /**

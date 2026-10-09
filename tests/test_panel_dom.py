@@ -11424,6 +11424,43 @@ def test_the_jobs_page_rereads_its_history_when_a_job_starts_or_ends(open_panel)
         "() => window.__calls.some((c) => c === '/api/jobs?limit=200')", timeout=4000)
 
 
+def test_a_redraw_the_tick_starts_keeps_his_place_on_the_keyboard(open_panel):
+    """A JOB STARTING ELSEWHERE IS NOT HIS PRESS. The tick's change of active set re-reads
+    the history and redraws every row; the element he had focused was replaced and focus
+    fell to <body>. It returns to the same control in the same row, and to the row's
+    summary when what he had focused was the summary."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_selector("#jobs-list .job-row")
+    row = '#jobs-list .job-row[data-job="job_034c51a29deb"]'
+    page.click(f"{row} summary")
+    page.locator(f"{row} button", has_text="Pause").focus()
+
+    def a_job_starts(ref):
+        page.evaluate("""(ref) => { window.__calls.length = 0; const real = window.fetch;
+            window.fetch = (u, o) => String(u).includes("active_only=true")
+              ? real(u, o).then((r) => r.json()).then((body) => new Response(JSON.stringify(
+                  {...body, jobs: [...body.jobs, {job_ref: ref, status: "queued",
+                    job_kind: "crawl", source_keys: ["x"]}]}),
+                  {status: 200, headers: {"Content-Type": "application/json"}}))
+              : real(u, o); }""", ref)
+        page.wait_for_function(
+            "() => window.__calls.some((c) => c === '/api/jobs?limit=200')", timeout=4000)
+        page.wait_for_timeout(300)
+
+    a_job_starts("job_new")
+    focused = page.evaluate("""() => { const el = document.activeElement;
+        return [el.tagName, el.tagName === 'BUTTON' ? el.textContent : '',
+            el.closest('.job-row')?.dataset.job || null]; }""")
+    assert focused == ["BUTTON", "Pause", "job_034c51a29deb"], (
+        f"the redraw moved his focus: {focused}")
+    page.focus(f"{row} summary")
+    a_job_starts("job_newer")
+    focused = page.evaluate("""() => [document.activeElement.tagName,
+        document.activeElement.closest('.job-row')?.dataset.job || null]""")
+    assert focused == ["SUMMARY", "job_034c51a29deb"], f"the redraw moved his focus: {focused}"
+
+
 def test_the_miniplayer_states_a_percentage_and_stops_claiming_one_it_lacks(open_panel):
     """`miniProgress` was rewritten and NONE of its three outputs was asserted.
 
