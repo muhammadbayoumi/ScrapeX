@@ -12686,6 +12686,47 @@ def test_a_row_he_acted_on_stays_until_he_changes_the_filter(open_panel):
     assert row.count() == 0
 
 
+def test_focus_leaving_the_status_filter_closes_it(open_panel):
+    """THE FILTER IS FilterPopover, A NON-MODAL POPOVER: focus leaving it closes it without
+    applying, as the row's menu closes on Tab. Left open, it held every redraw: his search
+    announced "0 of 7 jobs" while the screen still drew all seven, and another page
+    reached by the keyboard found it waiting over the Jobs page on his return."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(300)
+    page.locator("#jobs-status").focus()
+    page.keyboard.press("Enter")
+    page.wait_for_timeout(100)
+    assert page.locator("#jobs-filter").is_visible()
+    page.locator("#jobs-search").focus()   # Shift+Tab out of it, as he would
+    page.wait_for_timeout(100)
+    assert page.locator("#jobs-filter").is_hidden(), "focus left and the filter stayed open"
+    assert page.locator("#jobs-status").get_attribute("aria-expanded") == "false"
+    assert page.evaluate("() => document.activeElement.id") == "jobs-search", (
+        "closing took focus back from where he moved it")
+    page.keyboard.type("zzz")
+    page.wait_for_timeout(300)
+    assert page.locator("#jobs-list .job-row:visible").count() == 0, "the search drew nothing"
+
+    page.locator("#jobs-status").focus()
+    page.keyboard.press("Enter")
+    page.wait_for_timeout(100)
+    page.evaluate("() => showView('run')")   # the rail, by the keyboard: no pointerdown
+    page.click(JOBS_TAB)
+    assert page.locator("#jobs-filter").is_hidden(), "the filter waited open over the page"
+
+
+def test_a_change_of_search_announces_its_count_in_words(open_panel):
+    """THE ANNOUNCEMENT IS THE COUNT LINE'S WORDING: one job is "1 job", not "1 jobs"."""
+    page = open_panel(jobs=HIS_JOBS[:1])
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(300)
+    page.fill("#jobs-search", "m")
+    page.wait_for_function("() => document.getElementById('jobs-announce').textContent !== ''",
+                           timeout=3000)
+    assert page.locator("#jobs-announce").inner_text() == "1 job"
+
+
 def test_a_redraw_the_tick_starts_keeps_his_place_on_the_keyboard(open_panel):
     """A JOB STARTING ELSEWHERE IS NOT HIS PRESS. The tick's change of active set re-reads
     the history and redraws the page; the element he had focused stays focused -- the ⋮,

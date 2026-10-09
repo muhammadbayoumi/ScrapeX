@@ -329,8 +329,13 @@ export function timeLine(job, fmt) {
 
 /** The line above the list: what is shown, out of what, and whether it is live. It is
  *  not a live region; a change he made is announced on its own. */
+/** "1 job", "1,234 jobs": the count of jobs, worded one way wherever it is said. */
+export function jobsNoun(n) {
+  return `${n.toLocaleString()} job${n === 1 ? "" : "s"}`;
+}
+
 export function jobsCountLine({shown, total, live, seconds = 1.5, readAt, bounded, kept}, fmt) {
-  const noun = (n) => `${n.toLocaleString()} job${n === 1 ? "" : "s"}`;
+  const noun = jobsNoun;
   const parts = [bounded
     ? (shown === total ? `Newest ${total} jobs shown; older jobs are not listed`
       : `${shown.toLocaleString()} of the newest ${total} jobs`)
@@ -341,19 +346,25 @@ export function jobsCountLine({shown, total, live, seconds = 1.5, readAt, bounde
   return parts.join(" · ");
 }
 
-/** Search matches the fields the Sources search matches (app.js visibleSources) on any
- *  of the job's sources, and the bare key for a source Sources does not list. */
+/** THE SOURCES SEARCH, in one place: a source matches a term on its English or Arabic
+ *  name, its key, or its domain. The Sources page and the Jobs page both ask this, so
+ *  the two searches cannot drift apart (#1623's gate). */
+export function sourceMatches(source, term) {
+  const wanted = String(term || "").trim().toLowerCase();
+  if (!wanted) return true;
+  return [source?.source_name, source?.source_name_ar, source?.source_key,
+    domainOf(source?.base_url)]
+    .some((field) => String(field || "").toLowerCase().includes(wanted));
+}
+
+/** Search on the Jobs page: any of a job's sources matches as the Sources search would,
+ *  and so does the job's own key -- which is all there is for one Sources does not list. */
 export function jobMatches(job, term, sources = []) {
   const wanted = String(term || "").trim().toLowerCase();
   if (!wanted) return true;
   return (job?.source_keys || []).some((key) => {
-    const source = (sources || []).find((one) => one && (one.source_key === key
-      || one.site_key === key));
-    const fields = source
-      ? [source.source_name, source.source_name_ar, source.source_key, source.site_key,
-        source.base_url, key]
-      : [key];
-    return fields.some((field) => String(field || "").toLowerCase().includes(wanted));
+    const source = sourceOf(key, sources);
+    return String(key).toLowerCase().includes(wanted) || Boolean(source && sourceMatches(source, wanted));
   });
 }
 

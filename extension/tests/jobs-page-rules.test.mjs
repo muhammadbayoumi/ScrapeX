@@ -6,7 +6,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  jobsCountLine, filterOptions, jobMatches, menuControls, noResultsLine, primaryControl,
+  jobsCountLine, jobsNoun, filterOptions, jobMatches, menuControls, noResultsLine, primaryControl,
+  sourceMatches,
   refusalLine, statusLook, timeLine,
 } from "../jobsview.js";
 
@@ -198,4 +199,22 @@ test("an empty result says which narrowing emptied it", () => {
   assert.equal(noResultsLine({term: "", statuses: 2}), "No job has the selected statuses");
   assert.equal(noResultsLine({term: "muqawil", statuses: 1}),
     "No job matches the search and the selected statuses");
+});
+
+test("the Sources search's one rule: names, key and domain -- not the rest of the URL", () => {
+  const source = {source_key: "ELBUROJ", source_name: "Elburoj", source_name_ar: "البروج",
+    base_url: "https://www.elburoj.com/shop"};
+  for (const term of ["elburoj", "البروج", "ELBUROJ", "elburoj.com", "  Elb  "]) {
+    assert.ok(sourceMatches(source, term), term);
+  }
+  for (const term of ["https", "www.", "/shop"]) {
+    assert.ok(!sourceMatches(source, term), `${term} matched outside the domain`);
+  }
+  assert.ok(sourceMatches(source, ""), "an empty search keeps every source");
+});
+
+test("a count of jobs is worded one way: one job, many jobs", () => {
+  assert.equal(jobsNoun(1), "1 job");
+  assert.equal(jobsNoun(0), "0 jobs");
+  assert.equal(jobsNoun(1234), "1,234 jobs");
 });

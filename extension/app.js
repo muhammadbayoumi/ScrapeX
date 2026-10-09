@@ -13,10 +13,10 @@ import { capabilityProblem, deployedFrom, installedVersion, CAPABILITY_REPORTING
 import { PROTOCOL_VERSION } from "./transport.js";
 import { ENGINE_CANDIDATES, latestEngineRelease } from "./releases.js";
 import {
-  jobsCountLine, domainOf, filterOptions, isSettled, jobLabel, jobLead, jobMatches,
+  jobsCountLine, jobsNoun, domainOf, filterOptions, isSettled, jobLabel, jobLead, jobMatches,
   jobWaitingLine, liveJob, menuControls, noResultsLine, observeRate, othersLine,
   primaryControl, progressFraction, progressLine, recentRate, refusalLine, sourceOf,
-  sourceTitle, statusLook, statusWords, summaryClass, timeLine,
+  sourceMatches, sourceTitle, statusLook, statusWords, summaryClass, timeLine,
 } from "./jobsview.js";
 import { getToken, accountFor, authorize, forgetToken, revokeToken } from "./identity.js";
 import {
@@ -339,6 +339,9 @@ function showView(name, animate = true) {
   const navigationName = SUB_VIEW_RAIL[name] || name;
   runModeSelectUi?.close();
   closeWorkspaceMenu();
+  // The Jobs page's status filter too: reached by the keyboard, the rail takes no
+  // pointerdown, and the popover would wait open over the page for his return.
+  jobsCloseFilter(false, { refocus: false });
   // BUG FIXED HERE, introduced with the accounts card and merged in PR 168.
   // (Written without the number sign: the colour-literal guard reads a hash
   // followed by three hex digits as a colour, and 168 qualifies.)
@@ -1733,11 +1736,7 @@ function renderSites() {
 function renderSourceManager() {
   const box = $("source-manager-list");
   const term = state.sourceFilter.trim().toLowerCase();
-  const shown = state.sources.filter((source) =>
-    !term || (source.source_name || "").toLowerCase().includes(term) ||
-    (source.source_name_ar || "").toLowerCase().includes(term) ||
-    (source.source_key || "").toLowerCase().includes(term) ||
-    sourceDomain(source.base_url).includes(term));
+  const shown = state.sources.filter((source) => sourceMatches(source, term));
 
   $("source-manager-count").textContent = state.sources.length
     ? `${shown.length} of ${state.sources.length}`
@@ -7878,12 +7877,10 @@ function jobsLive() {
  *  every row he acted on since his last change of either. */
 function jobsShown() {
   const all = jobsPage.order.map((ref) => jobsPage.jobs.get(ref)?.job).filter(Boolean);
-  const shown = all.filter((job) => jobsPage.kept.has(job.job_ref)
-    || ((!jobsPage.statuses.size || jobsPage.statuses.has(job.status))
-      && jobMatches(job, jobsPage.term, state.sources)));
-  const kept = shown.filter((job) => !((!jobsPage.statuses.size
-    || jobsPage.statuses.has(job.status)) && jobMatches(job, jobsPage.term, state.sources)))
-    .length;
+  const narrowed = (job) => (!jobsPage.statuses.size || jobsPage.statuses.has(job.status))
+    && jobMatches(job, jobsPage.term, state.sources);
+  const shown = all.filter((job) => jobsPage.kept.has(job.job_ref) || narrowed(job));
+  const kept = shown.filter((job) => !narrowed(job)).length;
   return { all, shown, kept };
 }
 
@@ -8078,8 +8075,8 @@ function jobsSetNarrowing({ term = jobsPage.term, statuses = jobsPage.statuses }
   $("jobs-status").classList.toggle("dashed", !count);
   renderJobs();
   const { all, shown } = jobsShown();
-  jobsAnnounce(shown.length === all.length ? `${all.length} jobs`
-    : `${shown.length} of ${all.length} jobs`);
+  jobsAnnounce(shown.length === all.length ? jobsNoun(all.length)
+    : `${shown.length.toLocaleString()} of ${jobsNoun(all.length)}`);
 }
 
 // ---- one row ---------------------------------------------------------------------
@@ -8361,13 +8358,16 @@ function jobsOpenFilter() {
   (box.querySelector("input") || $("jobs-filter-save")).focus();
 }
 
-function jobsCloseFilter(apply) {
+/** Close the status filter. `apply` is Save (true), Clear ("clear") or neither (false).
+ *  FOCUS RETURNS TO THE TRIGGER unless he moved it elsewhere himself (`refocus` false):
+ *  Tab out of it, or another page, takes focus where he sent it. */
+function jobsCloseFilter(apply, { refocus = true } = {}) {
   if ($("jobs-filter").classList.contains("hidden")) return;
   const picked = new Set([...$("jobs-filter-options").querySelectorAll("input:checked")]
     .map((one) => one.value));
   $("jobs-filter").classList.add("hidden");
   $("jobs-status").setAttribute("aria-expanded", "false");
-  $("jobs-status").focus();
+  if (refocus) $("jobs-status").focus();
   if (apply) jobsSetNarrowing({ statuses: apply === "clear" ? new Set() : picked });
   else if (jobsPage.held) renderJobs();
 }
@@ -8383,6 +8383,14 @@ function wireJobsPage() {
   $("jobs-filter-clear").addEventListener("click", () => jobsCloseFilter("clear"));
   $("jobs-filter").addEventListener("keydown", (event) => {
     if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); jobsCloseFilter(false); }
+  });
+  // FOCUS LEAVING THE FILTER CLOSES IT, without applying, as Radix's non-modal Popover
+  // (FilterPopover) and the row's own menu do on Tab: left open, it held every redraw
+  // while his search announced a result the screen did not show (#1623's gate).
+  $("jobs-filter").closest(".jobs-filter-anchor").addEventListener("focusout", (event) => {
+    if (!event.currentTarget.contains(event.relatedTarget)) {
+      jobsCloseFilter(false, { refocus: false });
+    }
   });
   // A press outside the open menu or filter closes it, without applying anything.
   document.addEventListener("pointerdown", (event) => {
