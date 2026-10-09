@@ -201,12 +201,12 @@ _PRICE: dict[str, Pass] = {
 }
 
 
-def price_passes(entry, *, active: bool,
-                 last_requests: int | None = None) -> tuple[Pass, ...]:
+def price_passes(entry, *, last_requests: int | None = None) -> tuple[Pass, ...]:
     """The run modes `POST /api/jobs` accepts, per source.
 
-    `active` is `source_settings.effective(...).active` -- his choice, else the
-    manifest's -- passed in rather than read off `entry`, which knows only the second.
+    NOT GATED ON `active` (#1611, his ruling): the switch governs the schedule only, and
+    `POST /api/jobs` runs a switched-off source by hand. A menu that called every pass
+    blocked while the route ran it was the one telling him something untrue.
 
     The cost is the source's OWN last run — `crawl_run.requests_count` — because a
     number retyped from another shop's catalogue is not this shop's cost.
@@ -214,16 +214,13 @@ def price_passes(entry, *, active: bool,
     phrase = (f"last run made {last_requests:,} requests"
               if last_requests else
               "no finished run has measured this source's request count yet")
-    # EVERY REASON, NOT THE FIRST ONE. ELBUROJ is both switched off and on a family
-    # with no published history; naming one of the two sends the owner to fix a
+    # EVERY REASON, NOT THE FIRST ONE. A source on a family with no connector and no
+    # published history has two; naming one of the two sends the owner to fix a
     # setting that will not make the control work.
     common: list[str] = []
     if entry.family not in _BUILDERS:
         common.append(f"family {entry.family.value!r} has no connector in "
                       "scrapex/connectors/factory.py, so nothing can collect it")
-    if not active:
-        # Not "in sources.yaml": the switch he flipped may be his own, in the warehouse.
-        common.append("the source is switched off")
 
     built: list[Pass] = []
     for key in (mode.value for mode in RunMode):
