@@ -91,9 +91,9 @@ class SourceResolver:
     def get(self, source_key: str):
         """The manifest's entry, else the registry's row, else `UnknownSource`.
 
-        RAISES A LOOKUP ERROR, like `Manifest.get` raises `KeyError` -- `UnknownSource`
-        subclasses it, so every existing `except KeyError` around this call keeps catching
-        what it caught before. A resolver that returned None instead would turn
+        RAISES A LOOKUP ERROR, as `Manifest.get` raises `KeyError`. `UnknownSource`
+        subclasses `LookupError`, NOT `KeyError`, so a caller must catch `LookupError`:
+        an `except KeyError` around this call misses it (#1609). A resolver that returned None instead would turn
         `POST /api/jobs`'s clear 404 into an `AttributeError` deeper in the worker, which
         is the delayed failure `R-71` measured and `OP-92` records.
         """
