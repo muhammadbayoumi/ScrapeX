@@ -42,6 +42,7 @@ from scrapex.extract import service as extraction
 from scrapex.extract.models import ApprovalField, CandidateApproval, SnapshotCreate
 from scrapex.extract.muqawil import bilingual_profile_candidate, listing_candidate
 from scrapex.jobs import JobRunner, create_job, get_job
+from scrapex.vocab import TERMINAL_JOB_STATUSES
 from scrapex.webui.app import create_app
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -1030,6 +1031,41 @@ def test_update_ignores_cancelled_snapshots_as_incremental_baselines(
 
     assert cancelled["organizations"] == resumed["organizations"] == 1
     assert resumed["baseline_job_ref"] == complete["job_ref"]
+
+
+@pytest.mark.parametrize("status", sorted(status.value for status in TERMINAL_JOB_STATUSES))
+def test_a_finished_job_of_any_kind_does_not_hold_the_definition(conn, status):
+    """`skipped` (#1596) included. The three "is one still active?" queries typed the
+    terminal list out by hand, so a status added to `vocab` read here as a job active for
+    ever: no new run, no status change, no edit of that definition again. All three
+    are called, so each query's own parameters are exercised."""
+    definition = enrichment.create_definition(conn, _request(conn))
+    definition_id = definition["enrichment_definition_id"]
+    earlier = enrichment.create_enrichment_job(conn, definition_id)
+    conn.execute("UPDATE crawl_job SET status=? WHERE job_ref=?",
+                 (status, earlier["job_ref"]))
+    conn.commit()
+
+    assert enrichment.set_definition_status(conn, definition_id, "paused")["status"] \
+        == "paused"
+    enrichment.set_definition_status(conn, definition_id, "active")
+    assert enrichment.update_definition(conn, definition_id, _request(conn))[
+        "enrichment_definition_id"] == definition_id
+    assert enrichment.create_enrichment_job(conn, definition_id)["job_ref"] \
+        != earlier["job_ref"]
+
+
+def test_a_queued_job_still_holds_the_definition(conn):
+    """The other side of the test above, so it cannot pass by never refusing."""
+    definition = enrichment.create_definition(conn, _request(conn))
+    definition_id = definition["enrichment_definition_id"]
+    enrichment.create_enrichment_job(conn, definition_id)
+    with pytest.raises(enrichment.EnrichmentError, match="is active"):
+        enrichment.set_definition_status(conn, definition_id, "paused")
+    with pytest.raises(enrichment.EnrichmentError, match="update after it finishes"):
+        enrichment.update_definition(conn, definition_id, _request(conn))
+    with pytest.raises(enrichment.EnrichmentError, match="already active"):
+        enrichment.create_enrichment_job(conn, definition_id)
 
 
 def test_update_retries_provider_failures_from_the_latest_attempt(conn, monkeypatch):

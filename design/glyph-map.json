@@ -19,7 +19,8 @@
         "fit_screen", "unfold_more", "unfold_less", "view_stream", "account_tree",
         "view_column", "restart_alt", "close", "search", "drag_indicator",
         "settings", "palette", "light_mode", "dark_mode", "add", "expand_more",
-        "logout", "check_circle", "cancel", "pause_circle", "block", "warning", "pending"
+        "logout", "check_circle", "cancel", "pause_circle", "block", "warning", "pending",
+        "next_plan"
       ]
     },
     "material-symbols": {
