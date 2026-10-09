@@ -67,6 +67,8 @@ OVERLAYS = {
     ("design/data-workspace.css", ".dataset-popover"): ("--shadow-md", POPOVER),
     ("design/grid-theme.css", ".tabulator-menu, .tabulator-popup-container"): ("--shadow-md", MENU),
     ("design/grid-theme.css", ".tabulator-menu ~ .tabulator-menu"): ("--shadow-lg", SUBMENU),
+    ("design/grid-theme.css", ".dg-menu, .dg-popup"): ("--shadow-md", MENU),
+    ("design/grid-theme.css", ".dg-submenu"): ("--shadow-lg", SUBMENU),
     ("design/grid-theme.css", ".grid-feature-popover"): ("--shadow-md", POPOVER),
     ("design/grid-theme.css", ".column-chooser"): ("--shadow-lg", SHEET),
     ("extension/app.css", ".sx-select-list"): ("--shadow-md", SELECT),
