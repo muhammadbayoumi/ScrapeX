@@ -556,8 +556,15 @@ def test_a_corrupt_record_is_refused_loudly_and_moved_aside(
     held_out_path(path).write_text(text, encoding="utf-8")
 
     with pytest.raises(HeldOutUnreadable):
-        _runner(path)._fire_schedules(conn)
+        read_held_out(path)
     assert Path(str(held_out_path(path)) + ".corrupt").read_text(encoding="utf-8") == text
+
+    held_out_path(path).write_text(text, encoding="utf-8")
+    _runner(path)._fire_schedules(conn)          # recorded, not raised into the loop
+    recorded = conn.execute("SELECT value FROM scrapex_meta WHERE key = ?",
+                            (jobs.WORKER_ERROR_KEY,)).fetchone()
+    assert recorded and "HeldOutUnreadable" in recorded[0], recorded
+    assert list_jobs(conn) == [], "a refused record still let the pass write"
 
     held_out_path(path).write_text(text, encoding="utf-8")
     assert cli.main(["run-due", "--db", str(path)]) == 1
@@ -566,3 +573,38 @@ def test_a_corrupt_record_is_refused_loudly_and_moved_aside(
 
     assert cli.main(["run-due", "--db", str(path)]) == 0, "the next tick starts clean"
     assert len(_queued(conn)) == 1
+
+
+def test_a_held_out_record_that_cannot_be_read_does_not_stop_his_jobs(
+        warehouse, monkeypatch, capsys):
+    """#1609's class, round 2: a directory where the record belongs -- an OSError on
+    every poll, like a sharing violation or an ACL on Windows -- is recorded where
+    /api/health reads it, and the job he started by hand still starts."""
+    path, conn = warehouse
+    held_out_path(path).mkdir()
+    manual = create_job(conn, ["MANUAL"])
+    started: list[str] = []
+
+    def capture(*args, **kwargs):
+        started.append(args[1].source_key)
+        raise RuntimeError("stub crawl")
+
+    runner = JobRunner(path, manifest_provider=lambda: _Manifest(), poll_interval_s=0.05,
+                       capture=capture)
+    runner.start()
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline and jobs.get_job(conn, manual)["status"] == "queued":
+        time.sleep(0.05)
+    runner.stop()
+
+    assert jobs.get_job(conn, manual)["status"] != "queued", (
+        "a broken held-out record stopped every dispatch, his manual job included")
+    assert "MANUAL" in started
+    recorded = conn.execute("SELECT value FROM scrapex_meta WHERE key = ?",
+                            (jobs.WORKER_ERROR_KEY,)).fetchone()
+    assert recorded and "held-out.json" in recorded[0], (
+        "the broken record was not reported where /api/health reads it")
+
+    _run_due_stubs(monkeypatch)
+    assert cli.main(["run-due", "--db", str(path)]) == 1
+    assert "held-out.json" in capsys.readouterr().err

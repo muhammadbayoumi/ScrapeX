@@ -7007,11 +7007,22 @@ async function loadSchedules() {
       return;
     }
     const zone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-    // ONLY AN ENGINE WITH `scheduled_skips` LISTS A SKIP (#1596): an older one re-arms
-    // a busy slot and writes nothing, so promising the Jobs page there would be false.
-    const skipNote = capabilityRefusal("scheduled_skips")
-      ? "If this site's previous run is still going, ScrapeX skips the slot. Update the engine to see skipped slots on the Jobs page."
-      : "If this site's previous run is still going, ScrapeX skips the slot and lists it on the Jobs page.";
+    // WHAT A BUSY SLOT DOES DEPENDS ON THE ENGINE, SO THE LINE ASKS ITS REPORT (#1596).
+    // One that deploys `scheduled_skips` skips and lists it. One KNOWN not to -- its
+    // report lacks the key, or it is too old to report -- still reads the row's stored
+    // policy: `skip` re-arms with no row, `queue` (every row saved before this change)
+    // starts a second run. Nothing known -- no report yet, or Chrome did not say this
+    // extension's version -- says nothing rather than tell him to update an engine.
+    const deployed = deployedFrom(state.versionReport);
+    const engineSkips = Boolean(deployed && deployed.scheduled_skips);
+    const engineIsOlder = (deployed && !deployed.scheduled_skips)
+      || state.versionStatus === "unsupported";
+    const skipNote = (sched) => engineSkips
+      ? "If this site's previous run is still going, ScrapeX skips the slot and lists it on the Jobs page."
+      : !engineIsOlder ? ""
+        : sched.overlap_policy === "skip"
+          ? "If this site's previous run is still going, ScrapeX skips the slot. Update the engine to see skipped slots on the Jobs page."
+          : "This engine still starts a second run if this site's previous run is still going. Save this schedule to skip the slot instead, and update the engine to see skipped slots on the Jobs page.";
     $("schedules").innerHTML = sites.map((s) => {
       const sched = saved.get(s.source_key) || {};
       const freq = sched.frequency || "manual";
@@ -7079,7 +7090,7 @@ async function loadSchedules() {
                 <option value="skip" ${sched.missed_run_policy === "skip" ? "selected" : ""}>Skip that slot</option>
               </select>
             </div>
-            <p class="hint" data-role="skip-note">${esc(skipNote)}</p>
+            <p class="hint" data-role="skip-note" ${skipNote(sched) ? "" : "hidden"}>${esc(skipNote(sched))}</p>
           </div>
           <label class="check"><input type="checkbox" data-role="enabled"
                  ${paused ? "" : "checked"}>

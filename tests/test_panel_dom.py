@@ -5442,20 +5442,56 @@ def test_a_schedule_row_offers_no_overlap_choice_and_saves_skip(open_panel):
     assert not page.js_errors
 
 
-def test_an_engine_without_scheduled_skips_is_not_promised_a_jobs_page_row(open_panel):
-    """#1620 review S9: a 0.4.57 engine re-arms a busy slot and writes no row, so the
-    line must not say the slot is listed on the Jobs page."""
-    page = open_panel(sources=[CLEAN_SITE], schedules=SCHEDULE_SOON,
-                      engine_version="0.4.57", omit_capabilities=("scheduled_skips",))
+def _skip_note(page):
     page.click(SETTINGS_TAB)
     page.click('[data-sect="s-sched"]')
     page.wait_for_timeout(500)
     row = page.locator(".sched-row").first
     row.locator("summary").click()
+    return row.locator('[data-role="skip-note"]')
 
-    note = row.locator('[data-role="skip-note"]').inner_text()
+
+@pytest.mark.parametrize("policy", ["queue", "skip"])
+def test_an_engine_without_scheduled_skips_is_told_what_it_really_does(open_panel, policy):
+    """#1620 review S9 and round 2: a 0.4.57 engine writes no skip row, so the line does
+    not promise the Jobs page -- and it still READS the stored policy, so a row stored as
+    `queue` (every row saved before this change) starts a second run there."""
+    schedules = {**SCHEDULE_SOON, "schedules": [
+        {**SCHEDULE_SOON["schedules"][0], "overlap_policy": policy}]}
+    page = open_panel(sources=[CLEAN_SITE], schedules=schedules,
+                      engine_version="0.4.57", omit_capabilities=("scheduled_skips",))
+
+    note = _skip_note(page).inner_text()
+
     assert "lists it on the Jobs page" not in note, note
-    assert "Update the engine" in note, note
+    assert "update the engine" in note.lower(), note
+    if policy == "queue":
+        assert "still starts a second run" in note and "Save this schedule" in note, note
+    else:
+        assert "skips the slot" in note and "second run" not in note, note
+    assert not page.js_errors
+
+
+def test_a_panel_that_cannot_read_its_own_version_is_not_told_to_update_the_engine(
+        open_panel):
+    """The line asks the ENGINE's report, not `capabilityRefusal`, which also refuses when
+    Chrome did not say this extension's version -- a fault no engine update fixes."""
+    page = open_panel(sources=[CLEAN_SITE], schedules=SCHEDULE_SOON, extension_version="")
+
+    note = _skip_note(page).inner_text()
+
+    assert "lists it on the Jobs page" in note, note
+    assert "update the engine" not in note.lower(), note
+
+
+def test_an_engine_whose_report_failed_is_promised_nothing(open_panel):
+    """Nothing known, nothing said: neither the Jobs page nor an update."""
+    page = open_panel(sources=[CLEAN_SITE], schedules=SCHEDULE_SOON,
+                      fail_routes=("/api/version",))
+
+    note = _skip_note(page)
+
+    assert note.is_hidden() and note.inner_text() == ""
     assert not page.js_errors
 
 

@@ -1587,13 +1587,20 @@ class JobRunner:
         """
         # Imported lazily: scheduler imports this module, so a top-level import
         # here would be circular.
-        from .scheduler import fire_due_under_lock
+        from .scheduler import HeldOutUnreadable, fire_due_under_lock
 
         try:
             fire_due_under_lock(conn, self._db_path, self._manifest_provider(),
                                 SCHEDULE_LOCK_TIMEOUT_S)
         except dbmod.DbLockedError:
             return                      # recorded; decided on a later poll
+        except (OSError, HeldOutUnreadable) as exc:
+            # THE SCHEDULE'S FAULT, NOT EVERY JOB'S (#1609's class): a held-out record
+            # that cannot be read or written -- a sharing violation, an ACL, a directory
+            # at its path -- is recorded where /api/health reads it, and the loop goes
+            # on to `_dispatch`, so a job he started by hand still starts.
+            traceback.print_exc(file=sys.stderr)
+            self._record_failure(conn, exc)
 
     def _loop(self) -> None:
         conn = dbmod.connect(self._db_path)
