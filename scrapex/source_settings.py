@@ -313,6 +313,51 @@ def layered(chosen: dict, source_key: str, shipped: Shipped) -> SourceRules:
                        crawl_pace_s=chosen.get("crawl_pace_s", base.crawl_pace_s))
 
 
+#: WHERE A FIELD'S VALUE COMES FROM, in the three words his ruling named (#1584): his
+#: choice for this source, what the source ships with (its `sources.yaml` entry or its
+#: `directories.Directory`), or -- where the source ships no opinion -- his general rule
+#: on the Settings page, which the crawl then applies (`connectors.base.general_fetcher`).
+ORIGIN_CHOICE = "choice"
+ORIGIN_SOURCE = "source"
+ORIGIN_GENERAL = "general"
+
+
+def explained(conn: sqlite3.Connection, source_key: str, shipped: Shipped) -> dict:
+    """Each field's effective value, where it comes from, and what clearing returns to.
+
+    The panel's answer to "why is this source crawled like this": `effective`'s values,
+    each with its origin, and the shipped value beside it -- clearing his choice returns
+    the field there (his ruling). `robots` carries its custom rule, since the two move
+    as one. `active` has no general rule, so its origin is his choice or the source.
+    """
+    chosen = read(conn, source_key)
+    rules = layered(chosen, source_key, shipped)
+    base = _shipped_rules(source_key, shipped)
+
+    def origin(field: str, ships_an_opinion: bool) -> str:
+        if field in chosen:
+            return ORIGIN_CHOICE
+        return ORIGIN_SOURCE if ships_an_opinion else ORIGIN_GENERAL
+
+    unprobed = (isinstance(shipped, SourceEntry)
+                and shipped.family == ConnectorFamily.TBD_PROBE)
+    return {
+        "active": {"value": rules.active, "shipped": base.active,
+                   # Forced off for an unprobed family whatever he chose (`layered`),
+                   # so the off it shows is the source's, not his.
+                   "origin": ORIGIN_SOURCE if unprobed
+                   else origin("active", ships_an_opinion=True)},
+        "robots": {"value": str(rules.robots), "custom": rules.robots_custom,
+                   "shipped": str(base.robots), "shipped_custom": base.robots_custom,
+                   # `default` is the source deferring to his general rule.
+                   "origin": origin("robots", base.robots is not RobotsChoice.DEFAULT)},
+        "user_agent": {"value": rules.user_agent, "shipped": base.user_agent,
+                       "origin": origin("user_agent", base.user_agent is not None)},
+        "crawl_pace_s": {"value": rules.crawl_pace_s, "shipped": base.crawl_pace_s,
+                         "origin": origin("crawl_pace_s", base.crawl_pace_s is not None)},
+    }
+
+
 def _shipped_rules(source_key: str, shipped: Shipped) -> SourceRules:
     """What the release says about this source, as the five answers.
 

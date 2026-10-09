@@ -778,6 +778,14 @@
     font-size: var(--fs-sm);
   }
   .source-edit-form { display: flex; flex-direction: column; }
+  /* Where a crawl rule's value comes from, and the button that clears his choice,
+     on one wrapping line (#1584). Layout only: the colours are `.hint`'s. */
+  .source-edit-origin {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--sp-2);
+  }
   .source-edit-switch {
     display: flex;
     align-items: center;

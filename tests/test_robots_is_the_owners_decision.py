@@ -321,11 +321,10 @@ sources:
 
 
 def test_switching_away_from_custom_clears_the_rule_it_leaves_behind(tmp_path):
-    """The edit route drops nulls so a partial edit cannot wipe a field, which
-    means a client CANNOT clear the custom rule by sending null. Left behind, it
-    sits under a choice that ignores it and reads as "this site is customised"
-    on every later open — until someone switches back and is governed by a rule
-    they last saw weeks ago."""
+    """A custom rule left behind sits under a choice that ignores it and reads as
+    "this site is customised" on every later open — until someone switches back and
+    is governed by a rule they last saw weeks ago. His `default` must not carry the
+    rule the source shipped under `custom`."""
     import os
     import subprocess
     import sys
@@ -364,12 +363,13 @@ sources:
     assert load_manifest(manifest).get("SWITCHY").robots_custom, "fixture is wrong"
 
     client = TestClient(create_app(db_path=str(database), manifest_path=str(manifest)))
-    answer = client.post("/api/sources/SWITCHY/edit",
-                         json={"robots": "default", "robots_custom": None})
+    # HIS CHOICE, IN THE WAREHOUSE (#1584): the robots choice is saved by /rules, and
+    # the shipped custom rule is not carried under his `default`.
+    answer = client.post("/api/sources/SWITCHY/rules", json={"robots": "default"})
     assert answer.status_code == 200, answer.text
 
-    after = load_manifest(manifest).get("SWITCHY")
-    assert after.robots == "default"
-    assert not after.robots_custom, (
-        f"the 9-second rule is still stored under a choice that ignores it: "
-        f"{after.robots_custom}")
+    robots = answer.json()["fields"]["robots"]
+    assert (robots["value"], robots["origin"]) == ("default", "choice")
+    assert robots["custom"] is None, (
+        f"the 9-second rule is still in force under a choice that ignores it: "
+        f"{robots['custom']}")

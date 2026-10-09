@@ -584,8 +584,13 @@ def undeclared_sources(conn) -> list[str]:
     return sorted(stored - declared)
 
 
-def reconcile_active(conn) -> dict[str, bool]:
+def reconcile_active(conn, manifest=None) -> dict[str, bool]:
     """Write each source's EFFECTIVE `active` into the warehouse that describes it.
+
+    `manifest` is the one the caller runs on -- the engine passes the manifest it loaded
+    from its own path. It was read from `config.MANIFEST_FILE` here whatever the engine
+    had loaded, so an engine started on another manifest (`SCRAPEX_SOURCES`, a test)
+    reconciled against the repository's file. Without one, that file is still read.
 
     EFFECTIVE, NOT THE MANIFEST'S (#1584): his choice for a source, from
     `source_setting`, else what `sources.yaml` ships -- the same answer the scheduler
@@ -614,10 +619,11 @@ def reconcile_active(conn) -> dict[str, bool]:
 
     # A manifest that fails to load -- including one whose robots rules `SourceEntry`
     # refuses -- is not read as "every source is off".
-    try:
-        manifest = load_manifest(MANIFEST_FILE)
-    except Exception:
-        return {}                                # no manifest to obey
+    if manifest is None:
+        try:
+            manifest = load_manifest(MANIFEST_FILE)
+        except Exception:
+            return {}                            # no manifest to obey
 
     changed: dict[str, bool] = {}
     try:

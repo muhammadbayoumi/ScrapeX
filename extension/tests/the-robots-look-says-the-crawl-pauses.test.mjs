@@ -38,7 +38,7 @@ async function look(report) {
     "source-edit-robots-report": box,
     "source-edit-robots-look": button,
   };
-  const run = make((id) => elements[id], {editingSourceKey: "SHOP"},
+  const run = make((id) => elements[id], {editingRulesKey: "SHOP"},
                    async () => report);
   await run();
   return {text: box.textContent, warn: classes.has("warn"), button};

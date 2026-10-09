@@ -517,16 +517,19 @@ def _no_network(*args, **kwargs):
     pytest.param({"crawl_pace_s": "5"}, "crawl_pace_s must be a number of seconds",
                  id="a-numeric-string-pace"),
 ])
-def test_the_panels_edit_refuses_what_the_crawl_could_not_obey(panel, broken, says):
-    """The door the broken rules came in by: `/edit` wrote `robots: Obey` with a 200.
-    It now answers 400 with the checker's sentence, and the manifest is unchanged."""
+def test_the_panel_refuses_rules_the_crawl_could_not_obey(panel, broken, says):
+    """The broken rules came in by `/edit`, which wrote `robots: Obey` with a 200. They
+    are saved by `/rules` now (#1584), which answers 400 with the checker's sentence --
+    the one `SourceEntry` gives -- and stores nothing, not even the registry row."""
     before = panel.app.state.manifest.get(SHOP)
 
-    answer = panel.post(f"/api/sources/{SHOP}/edit", json=broken)
+    answer = panel.post(f"/api/sources/{SHOP}/rules", json=broken)
 
     assert answer.status_code == 400, answer.text
     assert says in answer.json()["detail"]
     assert panel.app.state.manifest.get(SHOP) == before
+    assert panel.get(f"/api/sources/{SHOP}/rules").json()["fields"]["robots"]["origin"] \
+        == "source"
 
 
 @pytest.mark.parametrize("start", ["paused", "draft"])

@@ -656,7 +656,7 @@
              rather than delete and re-add it. Everything here is a manifest
              field; the source_key has its own section below because changing
              it moves data, not just a label. -->
-        <div class="stack mt-2">
+        <div class="stack mt-2" data-price-only>
           <div class="fieldset">
             <label for="source-edit-name">Display name (English)</label>
             <input id="source-edit-name" dir="ltr">
@@ -697,7 +697,7 @@
            it, so changing it moves data rather than renaming a label. Its own
            section, with its own button, so it cannot be changed by accident
            while editing a display name. -->
-      <section class="card" aria-labelledby="source-edit-key-heading">
+      <section class="card" aria-labelledby="source-edit-key-heading" data-price-only>
         <div class="section-head">
           <div>
             <h2 id="source-edit-key-heading">Source key</h2>
@@ -723,20 +723,31 @@
             <p>Allow scheduled runs for this source.</p>
           </div>
         </div>
-        <label class="source-edit-switch" for="source-edit-active">
-          <span>
-            <strong>Automatic runs</strong>
-            <small id="source-edit-active-help">
-              Manual runs remain available when automation is off.
-            </small>
-          </span>
-          <input id="source-edit-active" type="checkbox">
-        </label>
+        <!-- PRICE SOURCES ONLY: no schedule fires a directory yet, and a switch that
+             changes nothing is worse than no switch. -->
+        <div data-price-only>
+          <label class="source-edit-switch" for="source-edit-active">
+            <span>
+              <strong>Automatic runs</strong>
+              <small id="source-edit-active-help">
+                Manual runs remain available when automation is off.
+              </small>
+            </span>
+            <input id="source-edit-active" type="checkbox">
+          </label>
+          <!-- WHERE THE VALUE COMES FROM (#1584): his choice, or what the source
+               ships with. Clearing his choice returns it to the source's. -->
+          <p class="hint source-edit-origin">
+            <span id="source-edit-active-origin" role="status" aria-live="polite"></span>
+            <button type="button" class="link compact" data-clear-rule="active"
+                    hidden>Clear your choice</button>
+          </p>
+        </div>
         <!-- A DISPLAY rule, and it says so: nothing about the crawl or the
              stored rows changes. The owner asked for it per source because it
              is right for a shop that sells one product in six colours at one
              price, and wrong for a shop whose variations mean something. -->
-        <label class="source-edit-switch" for="source-edit-fold">
+        <label class="source-edit-switch" for="source-edit-fold" data-price-only>
           <span>
             <strong>Group same-priced variations into one row</strong>
             <small id="source-edit-fold-help">
@@ -789,6 +800,11 @@
             <option value="custom">A custom rule for this site</option>
           </select>
           <p id="source-edit-robots-consequence" class="muted text-xs"></p>
+          <p class="hint source-edit-origin">
+            <span id="source-edit-robots-origin" role="status" aria-live="polite"></span>
+            <button type="button" class="link compact" data-clear-rule="robots"
+                    hidden>Clear your choice</button>
+          </p>
         </div>
         <!-- Shown only for `custom`: the two things robots.txt itself controls,
              and nothing else. -->
@@ -805,7 +821,40 @@
         </div>
       </section>
 
-      <section class="card" aria-labelledby="source-edit-columns-heading">
+      <!-- HOW THIS SOURCE IS FETCHED: the agent it presents and its pace, his choice
+           over what the source ships with over his general rule on the Settings
+           page (#1584). Each says where its value comes from, and a field left
+           empty follows the one named under it. Saved with Save changes. -->
+      <section class="card" aria-labelledby="source-edit-fetch-heading">
+        <div class="section-head">
+          <div>
+            <h2 id="source-edit-fetch-heading">How this source is fetched</h2>
+            <p class="muted text-xs">Leave a field empty to follow the source, or
+              your general rule where the source sets none.</p>
+          </div>
+        </div>
+        <div class="fieldset">
+          <label for="source-edit-agent">User agent</label>
+          <input id="source-edit-agent" class="tech" dir="ltr" autocomplete="off">
+          <p class="hint source-edit-origin">
+            <span id="source-edit-agent-origin" role="status" aria-live="polite"></span>
+            <button type="button" class="link compact" data-clear-rule="user_agent"
+                    hidden>Clear your choice</button>
+          </p>
+        </div>
+        <div class="fieldset">
+          <label for="source-edit-pace">Seconds between requests</label>
+          <input id="source-edit-pace" type="number" min="0.1" step="0.5">
+          <p class="hint muted">The slower of this and your general pace applies.</p>
+          <p class="hint source-edit-origin">
+            <span id="source-edit-pace-origin" role="status" aria-live="polite"></span>
+            <button type="button" class="link compact" data-clear-rule="crawl_pace_s"
+                    hidden>Clear your choice</button>
+          </p>
+        </div>
+      </section>
+
+      <section class="card" aria-labelledby="source-edit-columns-heading" data-price-only>
         <div class="section-head">
           <div>
             <h2 id="source-edit-columns-heading">Columns</h2>
@@ -824,7 +873,7 @@
       <!-- TWO actions, never one. The owner's ruling: stopping a source and
            erasing its data are different things with different outcomes, so
            neither can be mistaken for the other. Each says what it keeps. -->
-      <section class="card" aria-labelledby="source-edit-danger-heading">
+      <section class="card" aria-labelledby="source-edit-danger-heading" data-price-only>
         <div class="section-head">
           <div>
             <h2 id="source-edit-danger-heading">Remove or erase</h2>
