@@ -83,6 +83,23 @@ const SELECT_FORMATTER = "rowSelection";
 const ROWNUM_FORMATTER = "rownum";
 const text = (v) => (v === null || v === undefined) ? "" : String(v);
 
+/** Whether a row's field holds `needle`, ignoring case and the needle's own
+ * outer spaces. The one "like" rule: setFilter and the header's box both use it. */
+const likeTest = (field, needle) => {
+  const folded = text(needle).trim().toLowerCase();
+  return (data) => text(data[field]).toLowerCase().includes(folded);
+};
+
+/* A BAND'S KEY IS ITS VALUE, ENCODED SO NO VALUE CAN SPELL ANOTHER BAND'S ID.
+ * TanStack keys a band by the string of its value and nests it as
+ * `parent>column:value` (createGroupedRowModel.js:69-70), so a scraped value
+ * holding `>column:` could take another band's id, and null read as "null".
+ * Encoded, every string value starts `j"` and ends at its first unescaped
+ * quote, which no nested id can match. A field that is absent and one that is
+ * null are one band: JSON, which the rows come from, has no undefined. */
+const groupKey = (value) => "j" + JSON.stringify(value === undefined ? null : value);
+const groupValue = (key) => JSON.parse(key.slice(1));
+
 /** An icon the host hands over: a node (copied) or a function that makes one.
  *
  * Never markup: this file parses no HTML at all, so nothing a cell, a header or
@@ -176,7 +193,7 @@ class GroupHandle {
     this._row = row;
   }
 
-  getKey() { return this._row.groupingValue; }
+  getKey() { return groupValue(this._row.groupingValue); }
   getCount() { return this._row.leafRows.length; }
   /** The data rows the band holds, at every level beneath it. */
   getRows() { return this._row.leafRows.map((row) => new RowHandle(this._grid, row)); }
@@ -328,8 +345,7 @@ export class DataGrid {
   setFilter(filters) {
     const next = (filters || []).filter((f) => f && this._defs.has(f.field)).map((f) => {
       if (typeof f.test === "function") return {id: f.field, value: {test: f.test}};
-      const needle = text(f.value).toLowerCase();
-      return {id: f.field, value: {test: (data) => text(data[f.field]).toLowerCase().includes(needle)}};
+      return {id: f.field, value: {test: likeTest(f.field, f.value)}};
     });
     this._table.setColumnFilters(next);
     this._afterStateChange();
@@ -503,7 +519,7 @@ export class DataGrid {
         // the sort value would fold every empty and every padded variant into
         // one band nobody asked for. A caller that wants a reading other than the
         // field passes a function in groupBy instead.
-        getGroupingValue: (data) => data[id],
+        getGroupingValue: (data) => groupKey(data[id]),
       };
     });
 
@@ -514,7 +530,7 @@ export class DataGrid {
     groupBy.forEach((spec, index) => {
       if (typeof spec === "function") {
         const id = "__group" + index;
-        columns.push({id, accessorFn: (data) => text(spec(data)), enableSorting: false,
+        columns.push({id, accessorFn: (data) => groupKey(text(spec(data))), enableSorting: false,
                       filterFn: () => true});
         grouping.push(id);
       } else if (this._defs.has(spec)) {
@@ -741,6 +757,22 @@ export class DataGrid {
     }
   }
 
+  /** The widths `_layout` settled, given to every cell already drawn. */
+  _placeWidths() {
+    const total = px(this._totalWidth);
+    this._header.style.width = total;
+    this._body.style.width = total;
+    this._header.querySelectorAll(".dg-col").forEach((cell) => this._placeCell(cell, cell.dataset.field));
+    const ids = this._visibleColumnIds();
+    this._header.querySelectorAll(".dg-calcs").forEach((row) => {
+      Array.from(row.children).forEach((cell, index) => this._placeCell(cell, ids[index]));
+    });
+    this._rowElements.forEach((element) => {
+      element.style.width = total;
+      element.querySelectorAll(".dg-cell[data-field]").forEach((cell) => this._placeCell(cell, cell.dataset.field));
+    });
+  }
+
   _grow(id) {
     const def = this._defs.get(id) || {};
     return def.widthGrow === undefined ? 1 : Number(def.widthGrow) || 0;
@@ -889,12 +921,10 @@ export class DataGrid {
     if (current && current.value && current.value.text) input.value = current.value.text;
     input.addEventListener("click", (event) => event.stopPropagation());
     input.addEventListener("input", () => {
-      const needle = input.value.trim().toLowerCase();
       this._table.setColumnFilters((old) => {
         const rest = (old || []).filter((f) => f.id !== id);
-        if (!needle) return rest;
-        return rest.concat({id, value: {text: input.value,
-          test: (data) => text(data[id]).toLowerCase().includes(needle)}});
+        if (!input.value.trim()) return rest;
+        return rest.concat({id, value: {text: input.value, test: likeTest(id, input.value)}});
       });
       this._invalidateRows();
       this._renderBody();
@@ -967,24 +997,40 @@ export class DataGrid {
       event.stopPropagation();
       const startX = event.clientX;
       const startWidth = this._widths.get(id) || cell.getBoundingClientRect().width;
+      const fixedBefore = this._fixedWidths.get(id);
       const rtl = getComputedStyle(this.element).direction === "rtl";
       this._resizing = id;
       handle.classList.add("is-active");
       // FOLLOWED ON THE DOCUMENT, NOT THE HANDLE. A listener on the handle heard
       // the first move and lost the rest when the redraw removed it, so a 60px
       // drag widened the column by 10.
+      // ONE PLACEMENT A FRAME, AND NO ROW DRAWN AGAIN. A redraw per pointer move
+      // dropped and drew every row on screen, and the totals over every row, for
+      // a change that moves only widths: at 23,502 rows a move took 48 ms. The
+      // cells already drawn take their new widths, and a wrapped row's new
+      // height reaches the virtualizer through its own observer.
+      let frame = 0;
       const move = (moveEvent) => {
         const delta = (moveEvent.clientX - startX) * (rtl ? -1 : 1);
         this._fixedWidths.set(id, Math.max(this._minWidth(id), Math.round(startWidth + delta)));
-        this.redraw();
+        if (frame) return;
+        frame = requestAnimationFrame(() => {
+          frame = 0;
+          if (this._destroyed) return;
+          this._layout();
+          this._placeWidths();
+        });
       };
       const end = () => {
         document.removeEventListener("pointermove", move);
         document.removeEventListener("pointerup", end);
         document.removeEventListener("pointercancel", end);
+        if (frame) cancelAnimationFrame(frame);
         this._resizing = null;
         this._renderHeader();
-        this._emit("columnResized", new ColumnHandle(this, id));
+        // A click on the handle is not a resize: the host saves what it hears
+        // as a fixed width, and the column would stop sharing the frame.
+        if (this._fixedWidths.get(id) !== fixedBefore) this._emit("columnResized", new ColumnHandle(this, id));
       };
       document.addEventListener("pointermove", move);
       document.addEventListener("pointerup", end);
@@ -1482,9 +1528,10 @@ export class DataGrid {
     const level = this._groupIds.indexOf(row.groupingColumnId);
     const headers = Array.isArray(this.options.groupHeader) ? this.options.groupHeader : [];
     const make = headers[level] || headers[0];
+    const value = groupValue(row.groupingValue);
     const label = typeof make === "function"
-      ? make(row.groupingValue, row.leafRows.length)
-      : text(row.groupingValue) + " (" + row.leafRows.length + ")";
+      ? make(value, row.leafRows.length)
+      : text(value) + " (" + row.leafRows.length + ")";
     cell.append(label instanceof Node ? label : document.createTextNode(text(label)));
     return cell;
   }
