@@ -6,7 +6,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  controlsFor, forgetRate, isMoving, isSettled, jobLabel, jobWaitingLine, liveJob, observeRate, ownsAWorker, progressFraction, progressLine, recentRate, rowsFrom, statusTone, statusWords, summariseJobs, summaryClass,
+  controlsFor, forgetRate, isSettled, jobLabel, jobWaitingLine, liveJob, observeRate, ownsAWorker,
+  progressFraction, progressLine, recentRate, statusWords, summaryClass,
 } from "../jobsview.js";
 
 /** `fetch` AS THE RUNNERS ACTUALLY LEAVE IT, which is empty.
@@ -247,32 +248,6 @@ test("a job over several sources names the first and counts the rest", () => {
     "Crawl · Offline list and 2 others", "the source it is on now leads");
 });
 
-test("every tone is a badge variant the kit actually defines", () => {
-  // THE DEFECT CLASS, NOT THE ONE STATUS. `failed` returned `err`, which is a MESSAGE
-  // tone in this panel and not a badge one -- `.badge.err` does not exist, so the
-  // cascade fell back to `color: var(--muted)` and 28 of his 163 jobs drew grey,
-  // indistinguishable from `cancelled`. An invalid `var()` and an undefined badge class
-  // fail the same silent way, which is why this asserts the whole range.
-  const DEFINED = new Set(["ok", "off", "danger", ""]);
-  const STATUSES = ["completed", "failed", "completed_with_errors",
-                    "partially_completed", "requires_review", "cancelled", "paused",
-                    "running", "preparing", "queued", "scheduled", "resuming",
-                    "pausing", "cancelling", "skipped", "something_new"];
-  for (const status of STATUSES) {
-    assert.ok(DEFINED.has(statusTone(status)),
-      `statusTone(${status}) = "${statusTone(status)}", which components.css does not `
-      + "define -- it renders as plain grey and says nothing");
-  }
-
-  assert.equal(statusTone("completed"), "ok");
-  assert.equal(statusTone("failed"), "danger",
-    "a failed job must be the one colour he can pick out of 163 rows");
-  assert.equal(statusTone("partially_completed"), "off");
-  assert.equal(statusTone("paused"), "off");
-  assert.equal(statusTone("skipped"), "",
-    "a skip is neutral like a cancel; `off` would rank it beside real trouble");
-});
-
 test("a status is spelt one way per screen", () => {
   // The badge printed the raw status while the summary directly above it un-underscored
   // the same word, so one screen read `completed_with_errors` and `completed with
@@ -280,48 +255,6 @@ test("a status is spelt one way per screen", () => {
   assert.equal(statusWords("completed_with_errors"), "completed with errors");
   assert.equal(statusWords("running"), "running");
   assert.equal(statusWords(null), "");
-  assert.match(summariseJobs({jobs: [{job_ref: "j", status: "completed_with_errors"}]}),
-    /completed with errors/);
-});
-
-test("the dot means moving, not merely holding a worker", () => {
-  // `app.css` calls it "ONE DOT FOR 'THIS IS THE ONE MOVING'", and it was drawn from
-  // `ownsAWorker` -- which is the discriminator `ADOPTION_ORDER` exists to reject. It lit
-  // on the `preparing` job that sat blocked for 33 minutes and announced "running".
-  assert.equal(isMoving(WORKING), true);
-  assert.equal(isMoving({status: "resuming"}), true);
-  assert.equal(isMoving(BLOCKED), false,
-    "the blocked job that cost him 33 minutes was called moving");
-  assert.equal(ownsAWorker(BLOCKED), true,
-    "it does hold a worker -- which is exactly why the two must not be one question");
-  for (const status of ["pausing", "cancelling", "queued", "paused"]) {
-    assert.equal(isMoving({status}), false, status);
-  }
-  assert.equal(rowsFrom({jobs: [BLOCKED]})[0].live, false,
-    "the row's dot still comes from 'holds a worker'");
-});
-
-test("the summary says how many and in what state", () => {
-  const said = summariseJobs({jobs: [WORKING, BLOCKED, DONE, PAUSED]});
-  assert.match(said, /4 jobs/);
-  assert.match(said, /1 running/);
-  assert.match(said, /1 completed/);
-  assert.match(summariseJobs({jobs: []}), /No jobs yet/);
-  assert.match(summariseJobs({jobs: [DONE]}), /1 job\b/, "one job was called jobs");
-});
-
-test("the rows keep the payload's order and carry every job, settled included", () => {
-  // THE WHOLE POINT: 162 of his 163 jobs were unreachable because the only query the
-  // panel made carried `active_only=true`.
-  const rows = rowsFrom({jobs: [DONE, WORKING, BLOCKED, PAUSED]});
-
-  assert.deepEqual(rows.map((row) => row.job_ref),
-    [DONE.job_ref, WORKING.job_ref, BLOCKED.job_ref, PAUSED.job_ref]);
-  assert.equal(rows.filter((row) => row.settled).length, 1);
-  assert.equal(rows.find((row) => row.job_ref === WORKING.job_ref).live, true);
-  assert.equal(rows.filter((row) => row.job_ref).length, 4);
-  assert.deepEqual(rowsFrom({jobs: [null, {}, DONE]}).map((r) => r.job_ref),
-    [DONE.job_ref], "a job with no ref reached the page as a row with no identity");
 });
 
 test("held and settled are read off the vocabulary, not guessed", () => {
@@ -350,12 +283,11 @@ const SKIPPED = {
   error_summary: "skipped: a run is in progress (job_034c51a29deb)",
 };
 
-test("a skipped job is finished: no control, no wait, no dot, never the live one", () => {
+test("a skipped job is finished: no control, no wait, never the live one", () => {
   assert.equal(isSettled(SKIPPED), true);
   assert.deepEqual(controlsFor(SKIPPED), [],
     "a skip offered Pause or Cancel, which the engine answers 409");
   assert.equal(jobWaitingLine(SKIPPED), "", "a skip was described as waiting");
-  assert.equal(isMoving(SKIPPED), false);
   assert.equal(ownsAWorker(SKIPPED), false);
   assert.equal(liveJob([SKIPPED]), null, "the mini-player adopted a skip as live");
   assert.equal(liveJob([SKIPPED, PAUSED]), PAUSED);
@@ -367,20 +299,7 @@ test("a skip's reason is drawn muted, and a failure's still in red", () => {
                         "cancelled", "something_new", "", null, undefined]) {
     assert.equal(summaryClass(status), "err", String(status));
   }
-  const [skip, fail] = rowsFrom({jobs: [SKIPPED, {job_ref: "f", status: "failed",
-    error_summary: "boom"}]});
-  assert.equal(skip.error_summary, SKIPPED.error_summary, "the reason did not reach the row");
-  assert.equal(skip.summary_class, "muted");
-  assert.equal(skip.settled, true);
-  assert.deepEqual(skip.controls, []);
-  assert.equal(fail.summary_class, "err");
-});
-
-test("the summary counts skips like any other status", () => {
-  const said = summariseJobs({jobs: [SKIPPED, SKIPPED, DONE]});
-  assert.match(said, /3 jobs/);
-  assert.match(said, /2 skipped/);
-  assert.match(said, /1 completed/);
+  // The row drawn from it is test_a_skipped_job_is_drawn_finished_and_says_why_without_alarm.
 });
 
 // THE COLLISION GUARD LIVES IN `tests/test_panel_wiring.py`, NOT HERE.
