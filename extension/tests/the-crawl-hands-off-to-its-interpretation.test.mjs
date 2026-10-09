@@ -32,7 +32,7 @@ import test from "node:test";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { jobLabel, liveJob } from "../jobsview.js";
+import { isSettled, jobLabel, liveJob, sourceTitle } from "../jobsview.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SOURCE = readFileSync(join(HERE, "..", "app.js"), "utf8");
@@ -88,15 +88,20 @@ function runner({ active, byRef, visible = true, view = "run" }) {
   };
   // eslint-disable-next-line no-new-func
   const build = new Function(
-    "api", "state", "liveJob", "renderMiniplayer", "renderActivity", "renderLogs",
+    "api", "state", "liveJob", "isSettled", "renderMiniplayer", "renderActivity", "renderLogs",
     "refreshRunButton", "loadSources", "loadDatasets", "currentViewName",
     "document", "clearTimeout", "setTimeout", "POLL_MS",
     // `pollTimer` is a module-level `let` in app.js that `pollJobOnce` assigns, and
-    // `redrawWhatTheJobChanged` is defined beside it in the same file.
-    "let pollTimer;\n" + REDRAW + "\n" + POLL_JOB_ONCE
+    // `redrawWhatTheJobChanged` is defined beside it in the same file. The read model's
+    // own state and its two helpers are stood in for: they have their own guards.
+    "let pollTimer, idleTimer, pollFailures = 0, lastActiveRefs = null;\n"
+      + "const POLL_BACKOFF_MS = [1500], JOBS_LIMIT = 200;\n"
+      + "function noticeActiveSet() {}\nfunction armIdleProbe() {}\n"
+      + "async function sourcesForJobNames() {}\n"
+      + REDRAW + "\n" + POLL_JOB_ONCE
       + "\nreturn {pollJobOnce};");
   const built = build(
-    api, state, liveJob,
+    api, state, liveJob, isSettled,
     (job) => { seen.miniplayer = job && job.job_ref; },
     (job) => {
       seen.activity = job && job.job_ref;
@@ -189,8 +194,9 @@ test("nothing active still reports the last job, because nothing overwrites it",
   assert.equal(over.state.jobRef, null, "the finished ref was not cleared");
 });
 
-/** `renderMiniplayer` over stub nodes, returning the title it wrote. */
-function titleFor(job) {
+/** `renderMiniplayer` over stub nodes, returning the title it wrote. `sources` is the
+ *  Sources payload the panel holds in `state.sources`. */
+function titleFor(job, sources = []) {
   const drawn = [];
   const nodes = {};
   const $ = (id) => (nodes[id] ||= {
@@ -200,9 +206,10 @@ function titleFor(job) {
     get textContent() { return ""; },
   });
   // eslint-disable-next-line no-new-func
-  const build = new Function("$", "jobLabel", "miniProgress", "fmtCount",
+  const build = new Function("$", "jobLabel", "sourceTitle", "state", "miniProgress", "fmtCount",
     RENDER_MINIPLAYER + "\nreturn renderMiniplayer;");
-  build($, jobLabel, () => ({ text: "", pct: 0, indeterminate: false }), String)(job, 0);
+  build($, jobLabel, sourceTitle, { sources },
+        () => ({ text: "", pct: 0, indeterminate: false }), String)(job, 0);
   return drawn.filter(([id]) => id === "mini-title").map(([, value]) => value)[0];
 }
 
@@ -213,11 +220,17 @@ test("the mini-player names the KIND, so a handoff cannot read as a restart", ()
     "which is issue 778's sentence");
 });
 
-test("two sources keep the count, because no one kind covers them", () => {
-  // `jobLabel` names ONE source, so a multi-source job keeps the "3 sites" wording
-  // rather than silently naming the first key as if it were the whole job.
-  assert.equal(titleFor({ ...CRAWL, source_keys: ["a", "b", "c"] }),
-    "3 sites — running");
+test("several sources are named and counted, never passed off as one", () => {
+  // "3 sites" named none of them. `jobLabel` now names the first and counts the rest
+  // (#1542), so the first key is never presented as if it were the whole job.
+  assert.equal(titleFor({ ...CRAWL, current_source_key: null, source_keys: ["a", "b", "c"] }),
+    "Listing crawl · a and 2 others — running");
+});
+
+test("the player names the source as the panel does, by its domain (#1542)", () => {
+  const sources = [{ source_key: "muqawil_org", base_url: "https://muqawil.org" }];
+  assert.equal(titleFor(CRAWL, sources), "Listing crawl · muqawil.org — running",
+    "the row, the player and the Sources page must name one site one way");
 });
 
 
