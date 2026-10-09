@@ -376,8 +376,8 @@ jobs:
           test "$(collected tests/test_tab_page_dom.py)" -ge 10
           # The grid's renderer is held to its contract by this file alone, with
           # grid.js out of the way, so it gets the same kind of floor. Counted
-          # with the `collected` above, not remembered: 76.
-          test "$(collected tests/test_datagrid_dom.py)" -ge 76
+          # with the `collected` above, not remembered: 77.
+          test "$(collected tests/test_datagrid_dom.py)" -ge 77
 
       - name: The extension gate must not have emptied
         # The same reasoning as the line above, for the set the split depends

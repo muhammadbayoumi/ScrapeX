@@ -1025,7 +1025,9 @@ export class DataGrid {
         document.removeEventListener("pointermove", move);
         document.removeEventListener("pointerup", end);
         document.removeEventListener("pointercancel", end);
-        if (frame) cancelAnimationFrame(frame);
+        // A move the next frame would have placed is placed now, so the width
+        // drawn and the one announced below are the last one asked for.
+        if (frame) { cancelAnimationFrame(frame); frame = 0; this._layout(); this._placeWidths(); }
         this._resizing = null;
         this._renderHeader();
         // A click on the handle is not a resize: the host saves what it hears

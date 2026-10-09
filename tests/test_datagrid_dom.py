@@ -1413,6 +1413,27 @@ def test_after_a_resize_drag_wrapped_rows_are_placed_by_their_new_height(page):
         assert below["top"] == pytest.approx(above["top"] + above["height"], abs=1), rows
 
 
+def test_a_release_before_the_next_frame_keeps_the_last_move(page):
+    """A move is placed on the next frame. A release that arrives before it
+    must still draw and announce that move: the host saves the announced
+    width, and a stale one comes back on the next build."""
+    build(page, RESIZE)
+    page.evaluate("""() => { window.__resized = [];
+      grid.on("columnResized", (column) => window.__resized.push(column.getWidth())); }""")
+    before = page.evaluate("grid.getColumn('a').getWidth()")
+    handle = page.locator(f'{header(page, "a")} .dg-resize-handle').bounding_box()
+    x, y = handle["x"] + handle["width"] / 2, handle["y"] + handle["height"] / 2
+    page.evaluate("""([x, y]) => {
+      const handle = document.querySelector('.dg-col[data-field="a"] .dg-resize-handle');
+      const at = (dx) => ({clientX: x + dx, clientY: y, bubbles: true, button: 0, pointerId: 1});
+      handle.dispatchEvent(new PointerEvent("pointerdown", at(0)));
+      document.dispatchEvent(new PointerEvent("pointermove", at(30)));
+      document.dispatchEvent(new PointerEvent("pointerup", at(30)));
+    }""", [x, y])
+    assert page.evaluate("window.__resized") == [pytest.approx(before + 30, abs=1)]
+    assert page.locator(header(page, "a")).bounding_box()["width"] == pytest.approx(before + 30, abs=1)
+
+
 def test_in_a_right_to_left_page_dragging_towards_the_start_widens(page):
     page.evaluate("document.getElementById('mount').dir = 'rtl'")
     build(page, RESIZE)
