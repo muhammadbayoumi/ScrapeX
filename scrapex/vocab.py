@@ -560,7 +560,12 @@ class MissedRunPolicy(StrEnum):
 
 
 class OverlapPolicy(StrEnum):
-    """What to do when the previous run for this source is still going."""
+    """What to do when the previous run for this source is still going.
+
+    STORED, AND NO LONGER READ (#1596): `scheduler.fire_due` skips a busy slot
+    whatever this says, and the panel always sends `skip`, so an engine older than
+    that change skips too. The column stays; dropping it is a migration nobody needs.
+    """
 
     QUEUE = "queue"     # let it line up behind the running one
     SKIP = "skip"       # drop this occurrence entirely

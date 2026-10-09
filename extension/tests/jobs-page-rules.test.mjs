@@ -61,7 +61,7 @@ test("every status the engine knows has its own glyph and tone, as designed", ()
     completed_with_errors: ["material-warning", "warning"],
     completed: ["material-check-circle", "brand"],
     cancelled: ["material-block", "default"],
-    skipped: ["material-next-plan", "secondary"],
+    skipped: ["material-next-plan", "default"],
   };
   for (const [status, [glyph, tone]] of Object.entries(designed)) {
     const look = statusLook(status);
@@ -103,13 +103,18 @@ test("a job that never started says when it was added, and a cancel says so", ()
     "a failure is not a cancel or a skip, and says neither");
 });
 
-test("a skip looks neutral and muted, and like neither a failure nor a cancel", () => {
+test("a skip wears a cancel's neutral tone, its own glyph, and never a running look", () => {
+  // His choice C on #1596 (2026-10-09): Studio's `default` tone
+  // (ActionStatusBadge.tsx@86c813ec:18, 79), with the one glyph this page requires.
   assert.deepEqual(statusLook("skipped"),
-    {word: "Skipped", glyph: "material-next-plan", tone: "secondary"});
-  for (const other of ["failed", "cancelled"]) {
-    const look = statusLook(other);
-    assert.notEqual(look.glyph, "material-next-plan", other);
-    assert.notEqual(look.tone, "secondary", other);
+    {word: "Skipped", glyph: "material-next-plan", tone: "default"});
+  assert.equal(statusLook("skipped").tone, statusLook("cancelled").tone,
+    "a skip is as neutral as a cancel");
+  assert.notEqual(statusLook("skipped").tone, statusLook("running").tone,
+    "a skip is drawn exactly as a running job is drawn");
+  assert.notEqual(statusLook("skipped").tone, statusLook("failed").tone);
+  for (const other of ["failed", "cancelled", "running"]) {
+    assert.notEqual(statusLook(other).glyph, "material-next-plan", other);
   }
   assert.deepEqual(menuControls({status: "skipped"}), ["log"]);
   assert.equal(primaryControl({status: "skipped"}), null);

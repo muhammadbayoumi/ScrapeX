@@ -1016,6 +1016,11 @@ HEARTBEAT_KEY = "runtime_heartbeat"
 RECLAIM_KEY = "orphans_reclaimed_at"
 HEARTBEAT_MAX_AGE_S = 30.0
 
+# How long the worker loop waits for the write lock to fire due schedules. Short:
+# the loop also reaps and dispatches, and a slot that does not get the lock this
+# poll is still due on the next one, half a second later.
+SCHEDULE_LOCK_TIMEOUT_S = 2.0
+
 # A JOB may go quiet for far longer than a loop pass and still be healthy:
 # a polite crawler waits out a Crawl-delay between requests, and job 40
 # logged progress every ~8 minutes against a rate-limited shop. Judging a
@@ -1572,11 +1577,32 @@ class JobRunner:
             }, ensure_ascii=False)))
         conn.commit()
 
-    def _loop(self) -> None:
+    def _fire_schedules(self, conn: sqlite3.Connection) -> None:
+        """Fire what is due, under the write lock and never around it (#1596, D5).
+
+        `scheduler.fire_due_under_lock` is the rule, shared with `run-due`. A slot it
+        could not decide this poll -- another app writing, or our own ingest holding
+        the gate past the wait -- is in its held-out record, so the next poll, or a
+        restarted engine, decides it.
+        """
         # Imported lazily: scheduler imports this module, so a top-level import
         # here would be circular.
-        from .scheduler import fire_due
+        from .scheduler import HeldOutUnreadable, fire_due_under_lock
 
+        try:
+            fire_due_under_lock(conn, self._db_path, self._manifest_provider(),
+                                SCHEDULE_LOCK_TIMEOUT_S)
+        except dbmod.DbLockedError:
+            return                      # recorded; decided on a later poll
+        except (OSError, HeldOutUnreadable) as exc:
+            # THE SCHEDULE'S FAULT, NOT EVERY JOB'S (#1609's class): a held-out record
+            # that cannot be read or written -- a sharing violation, an ACL, a directory
+            # at its path -- is recorded where /api/health reads it, and the loop goes
+            # on to `_dispatch`, so a job he started by hand still starts.
+            traceback.print_exc(file=sys.stderr)
+            self._record_failure(conn, exc)
+
+    def _loop(self) -> None:
         conn = dbmod.connect(self._db_path)
         try:
             reclaim_orphaned_jobs(conn)     # a previous runtime may have died mid-run
@@ -1621,7 +1647,7 @@ class JobRunner:
                     conn.commit()
                     # The local runtime IS the scheduler (spec 26) — browser
                     # alarms cannot be relied on to wake anything.
-                    fire_due(conn, manifest=self._manifest_provider())
+                    self._fire_schedules(conn)
                     self._refresh_rates(conn)
                     self._dispatch(conn)
                 except Exception as exc:

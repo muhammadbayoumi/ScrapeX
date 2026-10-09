@@ -57,7 +57,7 @@
           </div>
           <div>
             <dt>Progress</dt>
-            <dd data-cell="progress">{{ j.progress.done }}/{{ j.progress.total }} sources{% if j.stage and j.status in ('running', 'preparing') %} · {{ j.stage }}{% if j.current_source_key %} {{ j.current_source_key }}{% endif %}{% endif %}</dd>
+            <dd data-cell="progress">{% if j.status == SKIPPED_JOB_STATUS %}Did not run{% else %}{{ j.progress.done }}/{{ j.progress.total }} sources{% endif %}{% if j.stage and j.status in ('running', 'preparing') %} · {{ j.stage }}{% if j.current_source_key %} {{ j.current_source_key }}{% endif %}{% endif %}</dd>
           </div>
           <div>
             <dt>New data rows</dt>
@@ -79,7 +79,8 @@
       </div>
 
       {% if j.error_summary %}
-        <p class="job-error">{{ j.error_summary }}</p>
+        {# A skip's reason is why the schedule passed it over, not an error (#1596). #}
+        <p class="{{ 'job-note muted' if j.status == SKIPPED_JOB_STATUS else 'job-error' }}">{{ j.error_summary }}</p>
       {% endif %}
     </article>
   {% endfor %}
@@ -93,6 +94,7 @@
   // status missing from it polls a finished job forever.
   const TERMINAL = new Set({{ TERMINAL_JOB_STATUSES|tojson }});
   const UNCLEAN = new Set({{ UNCLEAN_JOB_STATUSES|tojson }});
+  const SKIPPED = {{ SKIPPED_JOB_STATUS|tojson }};
   const rows = [...document.querySelectorAll("[data-job-ref]")];
   if (!rows.length || !rows.some((row) => !TERMINAL.has(row.dataset.status))) return;
   const fmt = (n) => Number(n || 0).toLocaleString("en-US");
@@ -102,7 +104,9 @@
     status.textContent = job.status.replace(/_/g, " ");
     status.className = "badge " + (job.status === "completed" ? "ok"
       : UNCLEAN.has(job.status) ? "off" : "");
-    let progress = job.progress.done + "/" + job.progress.total + " sources";
+    // The server's own words for a job that never ran, kept on every repaint (#1596).
+    let progress = job.status === SKIPPED ? "Did not run"
+      : job.progress.done + "/" + job.progress.total + " sources";
     if (!TERMINAL.has(job.status) && job.stage) {
       progress += " · " + job.stage + (job.current_source_key ? " " + job.current_source_key : "");
     }
