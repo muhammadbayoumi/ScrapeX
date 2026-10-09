@@ -12318,6 +12318,93 @@ def test_a_skipped_job_reads_as_a_skip_and_its_reason_muted(open_panel):
     assert failed.get_attribute("class").split()[0] == "err"
 
 
+def test_start_engine_keeps_his_focus_on_the_banners_button(open_panel):
+    """THE BANNER'S OWN REDRAW, which he caused: Start engine becomes Starting…, and the
+    button he pressed is replaced. Focus goes to the new one, never to <body>."""
+    page = open_panel(engine_up=False, native_mode="nonresponsive")
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(300)
+    page.locator("#jobs-state button", has_text="Start engine").focus()
+    page.keyboard.press("Enter")
+    page.wait_for_timeout(300)
+    assert page.evaluate("() => [document.activeElement.tagName, document.activeElement.textContent]") \
+        == ["BUTTON", "Starting…"]
+
+
+def test_the_banner_says_its_time_in_the_zone_he_reads_in(open_panel):
+    """ONE INSTANT, ONE ZONE. The banner says when the list was read; after he changes
+    zone it says it in the new one, as the count line and the rows do."""
+    page = open_panel(jobs=[job for job in HIS_JOBS
+                            if job["status"] in ("completed", "failed", "cancelled")])
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(400)
+    page.evaluate(_JOBS_ENGINE_MODES, {"tick": "fail"})
+    page.evaluate("() => pollJob()")
+    page.wait_for_function(
+        "() => document.getElementById('jobs-state').textContent.includes('read at')", timeout=4000)
+    before = page.locator("#jobs-count").inner_text().split("Read at ")[-1].strip()
+    # The zone changes and the page draws again -- any read does that; drawn here
+    # directly, so the next tick cannot clear the banner first.
+    page.evaluate("() => { window.ScrapeXTime.set('Pacific/Kiritimati'); renderJobs(); }")
+    banner = page.locator("#jobs-state").inner_text()
+    count = page.locator("#jobs-count").inner_text()
+    read = count.split("Read at ")[-1].strip()
+    assert read and read != before, f"the zone did not change: {before!r} then {read!r}"
+    assert f"read at {read}" in banner, f"banner {banner!r} against count {count!r}"
+
+
+def test_formatting_a_time_builds_no_formatter_after_the_first(open_panel):
+    """A FORMATTER IS ~0.4 MS TO BUILD, and a page of 200 rows formats ~1,600 times when
+    it fills them. After the first call, formatting builds none: not for the shape, not
+    to resolve the zone, not to check it."""
+    page = open_panel(jobs=HIS_JOBS)
+    built = page.evaluate("""() => {
+        window.ScrapeXTime.format('2026-10-09T09:14:00Z', 'short');
+        const Real = Intl.DateTimeFormat; let made = 0;
+        Intl.DateTimeFormat = function (...args) { made += 1; return new Real(...args); };
+        Intl.DateTimeFormat.prototype = Real.prototype;
+        try { for (let i = 0; i < 100; i += 1) window.ScrapeXTime.format('2026-10-09T09:14:00Z', 'short'); }
+        finally { Intl.DateTimeFormat = Real; }
+        return made; }""")
+    assert built == 0, f"100 calls built {built} formatters"
+
+
+def test_a_press_note_goes_once_the_job_moves(open_panel):
+    """A PRESS WITH NO ANSWER MAY STILL HAVE REACHED THE ENGINE. Once the job is reported
+    paused, "Pause got no answer… Try again" would contradict the row it sits in."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(400)
+    page.evaluate(_JOBS_STATUS_REWRITE)
+    page.evaluate("""() => { const real = window.fetch;
+        window.fetch = (u, o) => {
+          if (!String(u).includes('/control')) return real(u, o);
+          window.__status.job_034c51a29deb = 'paused';   // it reached the engine after all
+          return Promise.reject(new TypeError('Failed to fetch')); }; }""")
+    row = _job_row(page, "job_034c51a29deb")
+    row.locator('[data-part="primary"] button').click()
+    page.wait_for_function("""() => document.querySelector(
+        '#jobs-list .job-row[data-job="job_034c51a29deb"] [data-part="statusline"]')
+        .textContent.includes('Paused')""", timeout=5000)
+    page.wait_for_timeout(200)
+    assert row.locator('[data-part="refusal"]').inner_text() == ""
+
+
+def test_a_job_of_several_sources_lists_every_key(open_panel):
+    """HIS CHOICE D: the keys identify a row, and in Jobs they are all shown. A job of
+    several sources leads with one identity, counts the rest, and lists every key."""
+    two = [dict(HIS_JOBS[1], job_ref="job_two_sources", source_keys=["muqawil_org", "balady_gov_sa"],
+                current_source_key=None)]
+    page = open_panel(jobs=two)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(400)
+    identity = _job_row(page, "job_two_sources").locator('[data-part="identity"]')
+    assert identity.locator(".source-identity-key").inner_text() == "muqawil_org, balady_gov_sa"
+    order = identity.evaluate("""(el) => [...el.querySelectorAll('.job-more, .source-identity-footer')]
+        .map((node) => node.className.split(' ')[0])""")
+    assert order == ["job-more", "source-identity-footer"], order
+
+
 def test_a_redraw_the_tick_starts_keeps_his_place_on_the_keyboard(open_panel):
     """A JOB STARTING ELSEWHERE IS NOT HIS PRESS. The tick's change of active set re-reads
     the history and redraws the page; the element he had focused stays focused -- the ⋮,

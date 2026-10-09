@@ -7777,7 +7777,12 @@ function jobsTake(jobs, seq, { history = false } = {}) {
     if (!job || !job.job_ref) continue;
     const held = jobsPage.jobs.get(job.job_ref);
     if (held && held.seq > seq) continue;
-    if (held && held.job.status !== job.status && jobsPage.loaded) changed.push(job);
+    if (held && held.job.status !== job.status) {
+      if (jobsPage.loaded) changed.push(job);
+      // A NOTE ABOUT A PRESS DESCRIBES THE STATUS IT WAS PRESSED IN. A press with no
+      // answer may still have reached the engine; once the job moves, the note is stale.
+      jobsPage.notes.delete(job.job_ref);
+    }
     jobsPage.jobs.set(job.job_ref, { job, seq });
   }
   if (history) {
@@ -7896,7 +7901,7 @@ function renderJobs() {
   list.classList.remove("hidden");
   list.querySelectorAll(".job-skeleton").forEach((one) => one.remove());
   let before = null;
-  // Read once per render: resolving the zone builds an Intl.DateTimeFormat of its own.
+  // The zone a row's times were drawn in is one of its inputs: a change of zone redraws it.
   const zoneNow = window.ScrapeXTime.zone();
   for (const job of all) {
     let row = jobsPage.rows.get(job.job_ref);
@@ -7988,10 +7993,14 @@ function jobsBanner(failure, listShown) {
  * every 1.5 s tick was announced again each time and took the focus off its own button.
  */
 function jobsState(box, failure, listShown = false, empty = false) {
+  // The zone too: the banner says when the list was read, in the zone he reads it in.
   const drawn = JSON.stringify([failure, listShown, empty, state.engineUp, jobsPage.readAt,
-    jobsPage.starting]);
+    jobsPage.starting, window.ScrapeXTime.zone()]);
   if (box.dataset.drawn === drawn) return;
   box.dataset.drawn = drawn;
+  // A REDRAW HE CAUSED -- Start engine becoming Starting… -- replaces the button he
+  // pressed; focus goes to the new banner's button rather than to <body>.
+  const hadFocus = box.contains(document.activeElement);
   const parts = failure ? [jobsBanner(failure, listShown)] : [];
   if (empty) {
     const card = document.createElement("div");
@@ -8011,6 +8020,7 @@ function jobsState(box, failure, listShown = false, empty = false) {
     parts.push(card);
   }
   box.replaceChildren(...parts);
+  if (hadFocus) box.querySelector("button")?.focus();
 }
 
 // ---- one row ---------------------------------------------------------------------
@@ -8104,8 +8114,8 @@ function fillJobRow(row, job, { down = false } = {}) {
   const lead = jobLead(job);
   const source = sourceOf(lead, sources);
   const more = othersLine(job);
-  const drawnAs = JSON.stringify([lead, more, source?.base_url, source?.source_name,
-    source?.source_name_ar]);
+  const drawnAs = JSON.stringify([lead, job.source_keys || [], source?.base_url,
+    source?.source_name, source?.source_name_ar]);
   if (identity.dataset.drawn !== drawnAs) {
     identity.dataset.drawn = drawnAs;
     // THE PANEL'S ONE SOURCE IDENTITY, the same builder every page uses; a key Sources
@@ -8113,10 +8123,14 @@ function fillJobRow(row, job, { down = false } = {}) {
     identity.innerHTML = sourceIdentity(source || { source_key: lead }, false, null, "Row",
       { wrap: true });
     if (more) {
+      // EVERY KEY, as his choice D drew them: the footer names the lead's key, and a job
+      // of several sources lists them all there, under the count of the others.
       const others = document.createElement("span");
       others.className = "job-more text-xs muted";
       others.textContent = more;
-      identity.append(others);
+      identity.querySelector(".source-identity-footer").before(others);
+      identity.querySelector(".source-identity-key").textContent =
+        (job.source_keys || []).join(", ");
     }
   }
 
