@@ -335,6 +335,88 @@ export function rowsFrom(payload, sources = []) {
 }
 
 
+// ---- the Jobs page's own rules (#1542) ---------------------------------------------
+
+/** Each status's glyph and tone. The WORD is the engine's own, sentence-cased: no job
+ *  state is renamed here. Tones follow Studio (PreviousRunsTab.tsx@86c813ec:222-247:
+ *  running muted, success brand-600, failed destructive, words coloured too;
+ *  ProjectCardStatus.tsx@86c813ec:110-114, 171-187: paused in the foreground, the
+ *  in-between states in warning). Glyphs are the Material sprite's until #1057 moves the
+ *  panel to Lucide (docs/DESIGN-SYSTEM.md, Icons; his decision of 2026-10-09). */
+const STATUS_LOOK = {
+  running: ["material-pending", "secondary"],
+  resuming: ["material-sync", "warning"],
+  preparing: ["material-sync", "warning"],
+  queued: ["material-schedule", "default"],
+  scheduled: ["material-schedule", "default"],
+  paused: ["material-pause-circle", "foreground"],
+  pausing: ["material-pause-circle", "warning"],
+  cancelling: ["material-block", "warning"],
+  requires_review: ["material-warning", "warning"],
+  failed: ["material-cancel", "destructive"],
+  partially_completed: ["material-warning", "warning"],
+  completed_with_errors: ["material-warning", "warning"],
+  completed: ["material-check-circle", "brand"],
+  cancelled: ["material-block", "default"],
+};
+
+export function statusLook(status) {
+  const words = statusWords(status);
+  const [glyph, tone] = STATUS_LOOK[String(status || "")] || ["material-info", "default"];
+  return {word: words ? words[0].toUpperCase() + words.slice(1) : "", glyph, tone};
+}
+
+/**
+ * When the job ran, as the warehouse stored it: "Started 7 Oct, 8:00 AM → 9:12 AM".
+ *
+ * NO DURATION, AND THAT IS THE POINT (his choice C). `started_at` survives a resume
+ * (jobs.py:936) and no pause is stamped, so finish minus start counts pauses, waits for
+ * the site's turn and a sleeping laptop -- 3 h 35 m of one crawl, measured. A job that
+ * never started reads from `created_at`. A finish on another day carries its date, and
+ * a cancel says so whichever state it was cancelled from. `fmt` is ScrapeXTime.format.
+ */
+export function timeLine(job, fmt) {
+  const begun = job?.started_at;
+  const from = begun ? `Started ${fmt(begun, "short")}`
+    : job?.created_at ? `Added ${fmt(job.created_at, "short")}` : "";
+  const end = job?.finished_at;
+  if (!end || !from) return from;
+  const sameDay = fmt(end, "date") === fmt(begun || job.created_at, "date");
+  const when = sameDay ? fmt(end, "time") : fmt(end, "short");
+  return `${from} → ${job.status === "cancelled" ? "cancelled " : ""}${when}`;
+}
+
+/** The line above the list: what is shown, out of what, and whether it is live. It is
+ *  not a live region; a change he made is announced on its own. */
+export function jobsCountLine({shown, total, live, seconds = 1.5, readAt, bounded}, fmt) {
+  const noun = (n) => `${n.toLocaleString()} job${n === 1 ? "" : "s"}`;
+  const parts = [bounded
+    ? (shown === total ? `Newest ${total} jobs shown; older jobs are not listed`
+      : `${shown.toLocaleString()} of the newest ${total} jobs`)
+    : shown === total ? noun(total) : `${shown.toLocaleString()} of ${noun(total)}`];
+  if (live) parts.push(`Refreshes every ${seconds}s while a job is in progress or queued`);
+  else if (readAt) parts.push(`Read at ${fmt(readAt, "time")}`);
+  return parts.join(" · ");
+}
+
+/** The one action a row shows (table.mdx@86c813ec:201): Pause or Resume. */
+export function primaryControl(job) {
+  return controlsFor(job).find((control) => control !== "cancel") || null;
+}
+
+/** The rest, in the row's menu: its log, and Cancel where Cancel can still act. */
+export function menuControls(job) {
+  const status = String(job?.status || "");
+  const cancel = controlsFor(job).includes("cancel") && status !== "cancelling";
+  return cancel ? ["log", "cancel"] : ["log"];
+}
+
+export function refusalLine(control, label, status) {
+  const verb = control[0].toUpperCase() + control.slice(1);
+  return `${verb} was refused: ${label} is already ${statusWords(status)}`;
+}
+
+
 // ---- how fast a crawl is actually going -------------------------------------
 
 /** How far back the rate is measured.
