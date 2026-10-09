@@ -134,7 +134,10 @@ def handed(monkeypatch):
     monkeypatch.setattr(contractors, "approve", _approve)
     monkeypatch.setattr(contractors, "open_engine", lambda: SimpleNamespace(close=lambda: None))
     monkeypatch.setattr(contractors, "get_directory", lambda key: SimpleNamespace(key="muqawil_org"))
-    monkeypatch.setattr(contractors, "make_fetch", lambda pace: (None, None))
+    monkeypatch.setattr(contractors, "make_fetch", lambda pace, rules: (None, None))
+    # The stub connection has no warehouse; his per-source choices are not under test.
+    monkeypatch.setattr(contractors.source_settings, "effective",
+                        lambda conn, key, shipped: contractors.source_settings.NO_OPINION)
     monkeypatch.setattr(contractors, "say", lambda message: None)
     return seen
 

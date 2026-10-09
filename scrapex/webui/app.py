@@ -46,6 +46,7 @@ from .. import (
     provenance,
     rates,
     retention,
+    source_settings,
     sourceboard,
     taxonomy,
 )
@@ -580,8 +581,9 @@ def create_app(
         that existed on one machine, was reverted by a checkout, and went
         unnoticed for eleven days.
 
-        Nothing reads the stored flag to decide a crawl — the scheduler reads the
-        manifest — so this repairs no behaviour. It repairs what the owner's own
+        Nothing reads the stored flag to decide a crawl — the scheduler asks
+        `source_settings.effective`, the same answer written here (#1584) — so this
+        repairs no behaviour. It repairs what the owner's own
         database SAYS, which is what he queries, exports, and will read from the
         Console.
         """
@@ -2347,7 +2349,15 @@ def create_app(
         conn = read_conn()
         try:
             crawl = crawl_settings(conn)
-            agent = resolve_user_agent(entry.user_agent, crawl)
+            # THE CRAWL'S OWN ANSWER for this source -- his choice, else what it shipped
+            # with (#1584) -- so the choice, rule and agent shown are the ones
+            # `capture_source` fetches with, not the manifest's alone. A rule that cannot
+            # be acted on is said, as a 400 with its sentence, never a 500.
+            try:
+                rules = source_settings.effective(conn, source_key, entry)
+            except source_settings.SourceSettingError as exc:
+                raise HTTPException(status_code=400, detail=str(exc))
+            agent = resolve_user_agent(rules.user_agent, crawl)
             obeys_by_default = bool(crawl.get("obey_disallow"))
             # Absent reads as HONOUR, exactly as `resolve_fetcher` reads it: the
             # delay shown here is the delay the crawl applies (#1413).
@@ -2371,9 +2381,12 @@ def create_app(
         # ONE HOST: `base_url`'s. A source that reads another host too (heidelberg's
         # API and corporate hosts) has each read by the crawl on first contact, and
         # `robots_url` below says which one this answer is about.
+        #
+        # BUILT FROM `rules`, the crawl's own per-source answer (#1584): his agent,
+        # pace and robots choice where he set them, else what the source shipped with.
         browser = entry.fetcher == Fetcher.BROWSER
-        fetcher = (general_fetcher(crawl, source_user_agent=entry.user_agent)
-                   if browser else resolve_fetcher(entry, crawl))
+        fetcher = (general_fetcher(crawl, source_user_agent=rules.user_agent)
+                   if browser else resolve_fetcher(entry, rules, crawl))
         try:
             # PROMPTLY: the panel is waiting, with no timeout of its own. A long
             # Retry-After is reported instead of waited (`retry_after_s`), and the
@@ -2385,12 +2398,10 @@ def create_app(
         report = inspect(entry.base_url, read.text, user_agent=agent,
                          unreadable=read.unreadable,
                          unreachable=read.unreachable and not browser)
-        choice = RobotsChoice(entry.robots or "default")
+        choice = rules.robots
         custom = None
-        if choice is RobotsChoice.CUSTOM and entry.robots_custom:
-            custom = RobotsCustom(
-                enforce_disallow=bool(entry.robots_custom.get("enforce_disallow")),
-                crawl_delay_s=entry.robots_custom.get("crawl_delay_s"))
+        if choice is RobotsChoice.CUSTOM and rules.robots_custom:
+            custom = RobotsCustom(**rules.robots_custom)
         # Shown as "what would happen on a disallowed path", because that is the
         # only case where the three choices differ at all.
         if browser:
@@ -2448,7 +2459,7 @@ def create_app(
             "rules": [{"kind": r.kind, "value": r.value, "agent": r.agent}
                       for r in report.rules],
             "choice": str(choice),
-            "custom": entry.robots_custom,
+            "custom": rules.robots_custom,
             "tool_default_obeys": obeys_by_default,
             "on_a_disallowed_path": outcome,
         }
@@ -4528,6 +4539,9 @@ def create_app(
             refuse_writes(price)
             payload = dry_payload(source_key, general=general, price=price,
                                   manifest=app.state.manifest)
+        except source_settings.SourceSettingError as exc:
+            # His rules for this source cannot be read: said as a 400, never a 500.
+            raise HTTPException(status_code=400, detail=str(exc))
         finally:
             general.close()
             price.close()

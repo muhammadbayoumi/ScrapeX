@@ -44,10 +44,10 @@ from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 
-from . import catalog, runs, taxonomy
+from . import catalog, runs, source_settings, taxonomy
 from . import validators as validator_store
 from .catalog_models import SiteCreate
-from .connectors.base import CrawlBlocked, declare_frontier, general_fetcher
+from .connectors.base import CrawlBlocked, declare_frontier, source_fetcher
 from .crawlscope import CrawlScope
 from .databases import DatabaseRegistry
 from .databases.registry import DATABASE_ROOT
@@ -83,6 +83,7 @@ from .sightings import (
 from .sites.muqawil import MuqawilPageSource
 from .snapshotbody import decode, label_for
 from .snapshotcrawl import already_stored, read_scope
+from .source_settings import SourceRules
 from .vocab import RunStatus
 
 # THE FOUR CONSTANTS THAT USED TO BE HERE were `BASE`, `DATASET`, `SITE_NAME` and
@@ -200,7 +201,7 @@ def open_engine():
     return registry.engine.connect()
 
 
-def make_fetch(crawl_settings: dict | None):
+def make_fetch(crawl_settings: dict | None, rules: SourceRules):
     """One fetcher, and PACING LIVES HERE AND NOWHERE ELSE.
 
     `HttpFetcher` rate-limits with jitter, replays ETags so an unchanged page
@@ -214,8 +215,13 @@ def make_fetch(crawl_settings: dict | None):
     robots switches never reached a directory. The jobs pass
     `capture.crawl_settings(conn)`; the command line passes its `--pace` alone,
     and every key it leaves out reads as the shipped default.
+
+    AND HIS CHOICES FOR THIS DIRECTORY (#1414 stage 2, #1584): `rules` is
+    `source_settings.effective(conn, key, directory)` -- the directory being what it
+    ships with -- so its robots choice, custom rule, agent and pace reach the fetcher by
+    the same function a price source's do.
     """
-    fetcher = general_fetcher(crawl_settings)
+    fetcher = source_fetcher(rules, crawl_settings)
 
     def fetch(url: str) -> str:
         return fetcher.get(url).text
@@ -2065,7 +2071,9 @@ def run(args: argparse.Namespace) -> int:
     directory = get_directory(getattr(args, "source", None))
     started = time.monotonic()
     if args.plan:
-        _, fetch = make_fetch({"min_interval_s": args.pace})
+        # No warehouse is opened for a plan, so it is sized as a source that said
+        # nothing; its requests are counted, not paced by anything he chose.
+        _, fetch = make_fetch({"min_interval_s": args.pace}, source_settings.NO_OPINION)
         plan(directory, fetch, started)
         return 0
 
@@ -2073,7 +2081,9 @@ def run(args: argparse.Namespace) -> int:
     try:
         named = _named_ids(args.ids) if args.ids is not None else ()
         if args.crawl:
-            fetcher, fetch = make_fetch({"min_interval_s": args.pace})
+            # His choices for this directory, from the warehouse this run opened.
+            rules = source_settings.effective(conn, directory.key, directory)
+            fetcher, fetch = make_fetch({"min_interval_s": args.pace}, rules)
             # THE FACTORY, NOT A CONNECTION: `sqlite3` refuses one across
             # threads, so each worker opens its own. Only passed when it is
             # actually needed, so a single-worker crawl keeps using `conn`.
@@ -2088,7 +2098,8 @@ def run(args: argparse.Namespace) -> int:
                   heavy_attempts=args.heavy_attempts,
                   workers=args.workers, connect=factory)
         if args.details:
-            fetcher, fetch = make_fetch({"min_interval_s": args.pace})
+            rules = source_settings.effective(conn, directory.key, directory)
+            fetcher, fetch = make_fetch({"min_interval_s": args.pace}, rules)
             # SAME FACTORY, SAME REASON as --crawl above: one connection per
             # worker, opened only when more than one is asked for. 34,834 pages at
             # 9.03 s each is 87 hours single-threaded and about 14 with six.

@@ -28,7 +28,7 @@ import sqlite3
 import httpx
 import pytest
 
-from scrapex import contractors, directoryjob, jobs, localinbox, profilejob
+from scrapex import contractors, directoryjob, jobs, localinbox, profilejob, source_settings
 from scrapex import db as dbmod
 from scrapex.config import ExtractSpec, SourceEntry
 from scrapex.connectors import base as connectors_base
@@ -105,8 +105,8 @@ def _wire(monkeypatch, site: _Site, *, max_attempts: int | None = None) -> dict:
     built: dict = {}
     real = contractors.make_fetch
 
-    def cut(crawl_settings):
-        fetcher, fetch = real(crawl_settings)
+    def cut(crawl_settings, rules):
+        fetcher, fetch = real(crawl_settings, rules)
         fetcher._client.close()
         fetcher._client = httpx.Client(transport=httpx.MockTransport(site))
         if max_attempts is not None:
@@ -324,7 +324,7 @@ def test_a_run_row_that_cannot_be_closed_does_not_swallow_the_stop(conn, monkeyp
         raise sqlite3.OperationalError("database is locked")
 
     site = _Site(httpx.Response(503))
-    fetcher, fetch = contractors.make_fetch({"min_interval_s": 0.0})
+    fetcher, fetch = contractors.make_fetch({"min_interval_s": 0.0}, source_settings.NO_OPINION)
     fetcher._client = httpx.Client(transport=httpx.MockTransport(site))
     said: list[str] = []
     monkeypatch.setattr(contractors.runs, "close_run", locked)
@@ -393,7 +393,7 @@ def test_the_pooled_sweep_stops_every_worker(conn, monkeypatch, robots, page):
     after one raises, so without the halt each queued page would still be asked for --
     one request each against a site whose breaker had tripped."""
     site = _Site(robots, page=page)
-    fetcher, fetch = contractors.make_fetch({"min_interval_s": 0.0})
+    fetcher, fetch = contractors.make_fetch({"min_interval_s": 0.0}, source_settings.NO_OPINION)
     fetcher._client = httpx.Client(transport=httpx.MockTransport(site))
     fetcher._max_attempts = 1
     db_file = conn.execute("PRAGMA database_list").fetchone()[2]
@@ -432,7 +432,7 @@ def test_the_pooled_sweep_counts_every_page_its_workers_stored(conn, monkeypatch
         return httpx.Response(403)
 
     site = _Site(httpx.Response(404), page=six_then_refuse)
-    fetcher, fetch = contractors.make_fetch({"min_interval_s": 0.0})
+    fetcher, fetch = contractors.make_fetch({"min_interval_s": 0.0}, source_settings.NO_OPINION)
     fetcher._client = httpx.Client(transport=httpx.MockTransport(site))
     fetcher._max_attempts = 1
     db_file = conn.execute("PRAGMA database_list").fetchone()[2]
@@ -485,7 +485,7 @@ def test_a_later_workers_other_failure_does_not_lose_the_sites_stop(conn,
         return httpx.Response(503)
 
     site = _Site(slow_down)
-    fetcher, fetch = contractors.make_fetch({"min_interval_s": 0.0})
+    fetcher, fetch = contractors.make_fetch({"min_interval_s": 0.0}, source_settings.NO_OPINION)
     fetcher._client = httpx.Client(transport=httpx.MockTransport(site))
     fetcher._max_attempts = 1
     said: list[str] = []
@@ -522,7 +522,7 @@ def test_another_worker_failure_with_no_block_still_closes_the_run(conn,
         return dbmod.connect(db_file)
 
     site = _Site(httpx.Response(404))
-    fetcher, fetch = contractors.make_fetch({"min_interval_s": 0.0})
+    fetcher, fetch = contractors.make_fetch({"min_interval_s": 0.0}, source_settings.NO_OPINION)
     fetcher._client = httpx.Client(transport=httpx.MockTransport(site))
     said: list[str] = []
 
@@ -621,8 +621,8 @@ def _price_wire(monkeypatch, site, connector_for=None) -> dict:
     built: dict = {}
     real = capmod.build_connector
 
-    def cut(entry, crawl_settings=None):
-        connector, fetcher = real(entry, crawl_settings)
+    def cut(entry, rules, crawl_settings=None):
+        connector, fetcher = real(entry, rules, crawl_settings)
         fetcher._client.close()
         fetcher._client = httpx.Client(transport=httpx.MockTransport(site))
         built["fetcher"] = fetcher
