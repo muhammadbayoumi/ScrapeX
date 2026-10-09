@@ -433,8 +433,12 @@ TEMPLATES.env.globals["workspace_navigation_groups"] = workspace_navigation_grou
 # once already, when completed_with_errors was introduced (migration 0020).
 TEMPLATES.env.globals["TERMINAL_JOB_STATUSES"] = sorted(
     status.value for status in TERMINAL_JOB_STATUSES)
+# "Did not finish cleanly": every terminal status but the two that are not trouble. A
+# skip (#1596) is a schedule passing over a busy source, so it raises no danger tile and
+# wears no `off` badge -- the panel draws it neutral too (`extension/jobsview.js`).
 TEMPLATES.env.globals["UNCLEAN_JOB_STATUSES"] = sorted(
-    status.value for status in TERMINAL_JOB_STATUSES if status is not JobStatus.COMPLETED)
+    status.value for status in TERMINAL_JOB_STATUSES
+    if status not in (JobStatus.COMPLETED, JobStatus.SKIPPED))
 STATIC_DIR = Path(__file__).parent / "static"
 PAGE_SIZE = 50
 AVAILABILITY_OPTIONS = ("in_stock", "out_of_stock", "unknown")

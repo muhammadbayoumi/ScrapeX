@@ -16,13 +16,16 @@ Integration tests run the real `db/engine/schema.sql` plus the shipped migration
 from __future__ import annotations
 
 import re
+import shutil
 import sqlite3
 from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient
 
 from scrapex import db as dbmod
 from scrapex import scheduler
+from scrapex.config import MANIFEST_FILE
 from scrapex.databases.domain import EngineDatabase
 from scrapex.jobs import (
     _finish,
@@ -40,6 +43,7 @@ from scrapex.vocab import (
     JobStatus,
     LogLevel,
 )
+from scrapex.webui.app import create_app
 
 # It reads the panel's two terminal sets and its sprite, so an extension-only change runs it.
 pytestmark = pytest.mark.extension
@@ -239,3 +243,50 @@ def test_every_status_glyph_is_a_symbol_the_panel_carries():
     for sprite in (ROOT / "extension" / "app.html", ROOT / "design" / "material-icons.svg"):
         carried = set(re.findall(r'<symbol id="([a-z0-9-]+)"', sprite.read_text(encoding="utf-8")))
         assert glyphs <= carried, (sprite.name, sorted(glyphs - carried))
+
+
+# ---- the engine's own web pages --------------------------------------------------
+
+def _web_pages_after(tmp_path, status: JobStatus) -> dict[str, str]:
+    """`/` and `/jobs` from the real app, over a warehouse whose newest job ended in
+    `status`."""
+    path = tmp_path / "harvest.db"
+    connection = dbmod.connect(path)
+    dbmod.migrate(connection)
+    ref = create_job(connection, ["MADAR"])
+    _finish(connection, get_job(connection, ref)["job_id"], status, REASON)
+    connection.close()
+    manifest = tmp_path / "sources.yaml"
+    shutil.copy(MANIFEST_FILE, manifest)
+    client = TestClient(create_app(path, manifest_path=manifest))
+    pages = {}
+    for page in ("/", "/jobs"):
+        answer = client.get(page)
+        assert answer.status_code == 200, (page, answer.status_code)
+        pages[page] = answer.text
+    return pages
+
+
+def _badge(html: str) -> list[str]:
+    found = re.search(r'data-cell="status" class="badge ([^"]*)"', html)
+    assert found, "the jobs page no longer draws a status badge where this test reads it"
+    return found.group(1).split()
+
+
+def test_the_web_pages_do_not_call_a_skip_a_failure(tmp_path):
+    """`UNCLEAN_JOB_STATUSES` was "terminal minus completed", so a skip raised the
+    overview's danger tile -- "The latest collection did not finish cleanly" -- and wore
+    the `off` badge on /jobs. A skip is the schedule passing over a busy source."""
+    skipped = _web_pages_after(tmp_path / "skipped", JobStatus.SKIPPED)
+    assert "did not finish cleanly" not in skipped["/"]
+    assert _badge(skipped["/jobs"]) == [], _badge(skipped["/jobs"])
+    # THE REPAINT SAYS THE SAME: the live script paints `off` from the same set.
+    unclean = re.search(r"const UNCLEAN = new Set\((\[.*?\])\);", skipped["/jobs"])
+    assert unclean, "the jobs page's repaint no longer reads UNCLEAN_JOB_STATUSES"
+    assert "skipped" not in unclean.group(1) and "failed" in unclean.group(1)
+    assert 'UNCLEAN.has(job.status) ? "off"' in skipped["/jobs"]
+
+    # AND A FAILURE STILL DOES BOTH, so the test cannot pass by never warning.
+    failed = _web_pages_after(tmp_path / "failed", JobStatus.FAILED)
+    assert "did not finish cleanly" in failed["/"]
+    assert _badge(failed["/jobs"]) == ["off"]
