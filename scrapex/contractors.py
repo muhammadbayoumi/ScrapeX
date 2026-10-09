@@ -1094,8 +1094,12 @@ def details(conn, directory: Directory, fetch, fetcher, run_ref: str,
     # stored, so `completed` would claim a sweep that never happened. A sweep with one
     # page stored, or one page failed for any other reason, is not this case and closes
     # as before; nor is a sweep the owner stopped, whose job is already settled, nor an
-    # empty frontier, which tried nothing.
-    all_refused = bool(refused) and refused == stored + failed and not stopped_early
+    # empty frontier, which tried nothing; nor a RESUMED sweep, whose run reference
+    # already holds pages an earlier pass stored -- that run collected something, and
+    # "nothing was stored" would be false of it. A refusal is only ever a failed page,
+    # so `refused == failed` with nothing stored is the whole of "every page refused".
+    all_refused = (bool(refused) and stored == 0 and refused == failed
+                   and not resumed and not stopped_early)
     # CLOSED WITH WHAT ACTUALLY HAPPENED, and `partial` is a real status rather than a
     # kindness: a ceiling stopped this sweep short, so a later reader must not take it
     # as "the site was fully read on this run". The State column's whole worth is that

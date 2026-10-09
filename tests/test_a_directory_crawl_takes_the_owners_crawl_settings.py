@@ -575,6 +575,39 @@ def test_a_sweep_the_owner_stopped_after_refusals_is_not_failed_over_his_stop(co
     assert _run_rows(conn) == [("partial", 0, 2, 0)]
 
 
+def test_a_resumed_sweep_whose_rest_is_refused_is_not_failed(conn):
+    """A RESUMED SWEEP COLLECTED SOMETHING. The first pass stores the English page and
+    gets a 404 for the Arabic one; the second pass, under the same run reference and
+    obeying `Disallow: /ar/`, is refused the only page left. Read in one pass that
+    frontier completes (`test_a_partly_refused_sweep_completes_on_both_paths`), so read
+    in two it must not end `failed` saying nothing was stored."""
+    db_file = conn.execute("PRAGMA database_list").fetchone()[2]
+    crawling, fetch = contractors.make_fetch({"min_interval_s": 0.0},
+                                             source_settings.NO_OPINION)
+    crawling._client.close()
+    crawling._client = httpx.Client(transport=httpx.MockTransport(
+        lambda request: httpx.Response(404) if "/ar/" in request.url.path
+        else httpx.Response(200, text="<html></html>")))
+    try:
+        contractors.details(conn, directories.get(SITE), fetch, crawling, "resumed",
+                            ids=("7101",), connect=lambda: dbmod.connect(db_file))
+    finally:
+        crawling.close()
+    assert _stored(conn) == 1
+    fetcher, fetch = _obeying("User-agent: *\nDisallow: /ar/\n")
+    said: list[str] = []
+    try:
+        with contractors.lines_go_to(said.append):
+            contractors.details(conn, directories.get(SITE), fetch, fetcher, "resumed",
+                                ids=("7101",), connect=lambda: dbmod.connect(db_file))
+    finally:
+        fetcher.close()
+    assert fetcher.requests_count == 0
+    assert "profiles stored 0, failed 1, resumed 1" in said, said
+    assert not any("refused every one" in line for line in said), said
+    assert "failed" not in [row[0] for row in _run_rows(conn)]
+
+
 def test_an_empty_frontier_tries_nothing_and_is_not_failed(conn):
     """NOTHING TRIED, NOTHING REFUSED. Every page is already stored under the run
     reference, so the obeying sweep asks for none, and an empty sweep is not a
