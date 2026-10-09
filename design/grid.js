@@ -8,17 +8,17 @@
  */
 // The Data page grid.
 //
-// Tabulator gives what a hand-built <table> cannot without months of work: a
-// three-dot menu on every column head, drag to resize, drag to reorder, row
-// grouping, and a layout that survives a reload. The owner asked for the AG Grid
-// look; the features in those screenshots — set filter, row grouping with
-// aggregation, the columns tool panel, Excel export — live in ag-grid-enterprise,
-// whose npm licence field reads "Commercial". This builds the same shapes on the
-// MIT library we already vendor.
+// It draws through datagrid.js: Supabase's Data Grid pattern on TanStack Table
+// and TanStack Virtual (#1342), which give a three-dot menu on every column
+// head, drag to resize, drag to reorder, row grouping and a tree. The owner
+// asked for the AG Grid look; the features in those screenshots — set filter,
+// row grouping with aggregation, the columns tool panel, Excel export — live in
+// ag-grid-enterprise, whose npm licence field reads "Commercial", and he will
+// not pay for one. This builds the same shapes on MIT libraries we vendor.
 //
-// What Tabulator does NOT own: meaning. The unit still rides on the price, the
-// tax verdict still carries where to read it, and the offer id still opens the
-// real history page. Those came from earlier work and survive the new renderer
+// What the renderer does NOT own: meaning. The unit still rides on the price,
+// the tax verdict still carries where to read it, and the offer id still opens
+// the real history page. Those came from earlier work and survive any renderer
 // because these formatters keep them.
 (function () {
   "use strict";
@@ -27,7 +27,31 @@
   const note = document.getElementById("grid-note");
   const toolbar = document.getElementById("grid-toolbar");
   const viewport = mount && mount.closest("[data-grid-viewport]");
-  if (!mount || typeof Tabulator !== "function") return;
+  if (!mount) return;
+
+  // THE RENDERER IS A MODULE BESIDE THIS FILE, reached from this classic script
+  // by import(). Resolved against this script's own address, so the engine's
+  // /static/ and the extension's root both find their own copy, and carrying
+  // this script's query string keeps the engine's cache-buster on it too. A
+  // renderer that does not load is said on the page, by the load below.
+  const here = document.currentScript && document.currentScript.src
+    ? new URL(document.currentScript.src) : null;
+  const rendererUrl = here
+    ? new URL("datagrid.js" + here.search, here) : new URL("datagrid.js", document.baseURI);
+  let DataGrid = null;
+  const rendererReady = import(rendererUrl.href).then((module) => {
+    // The page's own handle on the renderer, as the vendored library used to be:
+    // the devtools and the tests find the grid on screen through its find().
+    // Every grid is built through this same handle, so whatever the page holds
+    // there (the tests count constructions through it) sees every one.
+    window.ScrapeXDataGrid = module.DataGrid;
+    DataGrid = window.ScrapeXDataGrid;
+  }, (error) => {
+    throw new Error("the grid's library did not load (" + (error && error.message || error) + ")");
+  });
+  // Handled where it is waited for, in load(); this only stops a rejection the
+  // table's own failure got to first from being reported a second time.
+  rendererReady.catch(() => {});
 
   const SOURCE = mount.dataset.source;
   // THE HOST MAY NAME THE ENGINE AND LOAD THE TABLE ITSELF (#1198). The
@@ -66,7 +90,8 @@
   }
   // ---- ONE ordering for the whole page ---------------------------------------
   //
-  // Tabulator's string sorter calls localeCompare with the BROWSER's locale.
+  // A library's string sort compares by code unit or with the BROWSER's locale;
+  // the previous renderer's called localeCompare with the browser's locale.
   // Here that is en-US, where Arabic has no collation of its own and falls back
   // to the order Unicode happens to store the letters in: ء آ أ إ ا instead of
   // ء أ إ ا آ. Measured on this data, that diverges from Arabic order at the
@@ -79,6 +104,8 @@
   // Declaring ar first gives Arabic its collation; Latin ordering comes out
   // byte-for-byte identical to the en collator (checked against the real
   // names), so English readers lose nothing.
+  // The renderer's default compare collates the same way (datagrid.js
+  // DEFAULT_COLLATOR), for a caller that passes no sorter of its own.
   const COLLATOR = new Intl.Collator(["ar", "en"], {numeric: true});
 
   /** The value with its whitespace normalised — for COMPARING, never for showing.
@@ -113,23 +140,19 @@
     return link;
   }
 
-  /** Compare as text, the way this page lists text everywhere else.
-   *
-   * alignEmptyValues lives INSIDE each of Tabulator's built-in sorters rather
-   * than around them, so a replacement has to carry the empties contract
-   * itself. Without it an ascending sort on a sparse column floods its first
-   * screens with blanks — the exact complaint sorterParams was added to answer.
-   */
-  function textSorter(a, b, aRow, bRow, column, dir, params) {
-    const left = collapse(a);
-    const right = collapse(b);
-    if (left && right) return COLLATOR.compare(left, right);
-    let empty = left ? 1 : (right ? -1 : 0);
-    const align = (params && params.alignEmptyValues) || "bottom";
-    if ((align === "top" && dir === "desc") || (align === "bottom" && dir === "asc")) {
-      empty = -empty;
-    }
-    return empty;
+  // ---- how a column sorts: {value, compare} ----------------------------------
+  //
+  // `value` reads what a row sorts by and answers undefined for an EMPTY cell;
+  // the renderer sorts empties last in both directions, on every column.
+  // Without that an ascending sort on a sparse column floods its first screens
+  // with blanks — the owner read that, reasonably, as "sorting does not work".
+  // `compare` orders two values that are both present, ascending; the renderer
+  // reverses it for descending.
+  const presentOrEmpty = (value) => value || undefined;
+
+  /** Compare as text, the way this page lists text everywhere else. */
+  function textSorter(key) {
+    return {value: (row) => presentOrEmpty(collapse(row[key])), compare: COLLATOR.compare};
   }
 
   // ---- what a column actually READS ------------------------------------------
@@ -163,9 +186,7 @@
   }
 
   function displaySorter(field) {
-    return (a, b, aRow, bRow, column, dir, params) => textSorter(
-      readValue(field, aRow.getData()), readValue(field, bRow.getData()),
-      aRow, bRow, column, dir, params);
+    return {value: (row) => presentOrEmpty(readValue(field, row)), compare: COLLATOR.compare};
   }
 
   /** The number a value STARTS with, for values that are not only a number. */
@@ -183,21 +204,31 @@
    * measurements: 3.25 kg lands before 3.5 kg, which numeric collation alone
    * gets wrong because it compares the digit runs 25 and 5.
    */
-  function measureSorter(a, b, aRow, bRow, column, dir, params) {
-    const left = collapse(a);
-    const right = collapse(b);
-    if (left && right) {
-      const leftNumber = leadingNumber(left);
-      const rightNumber = leadingNumber(right);
-      if (!isNaN(leftNumber) && !isNaN(rightNumber) && leftNumber !== rightNumber) {
-        return leftNumber - rightNumber;
-      }
-      return COLLATOR.compare(left, right);
+  function compareMeasures(left, right) {
+    const leftNumber = leadingNumber(left);
+    const rightNumber = leadingNumber(right);
+    if (!isNaN(leftNumber) && !isNaN(rightNumber) && leftNumber !== rightNumber) {
+      return leftNumber - rightNumber;
     }
-    return textSorter(a, b, aRow, bRow, column, dir, params);
+    return COLLATOR.compare(left, right);
   }
 
-  /** "number" if every value in the column is one, otherwise text.
+  function measureSorter(key) {
+    return {value: (row) => presentOrEmpty(collapse(row[key])), compare: compareMeasures};
+  }
+
+  /** A number, or EMPTY for anything that does not read as one. */
+  function numberSorter(key) {
+    return {
+      value: (row) => {
+        const number = parseFloat(String(row[key]));
+        return isNaN(number) ? undefined : number;
+      },
+      compare: (left, right) => left - right,
+    };
+  }
+
+  /** A number sorter if every value in the column is one, otherwise text.
    *
    * A column is numeric only when NOTHING in it is a word. One real word
    * settles it, because a numeric sorter would send every word to the same
@@ -216,47 +247,34 @@
       sawText = true;
       if (isNaN(leadingNumber(value))) { everyTextLeadsWithNumber = false; break; }
     }
-    if (sawText) return everyTextLeadsWithNumber ? measureSorter : textSorter;
-    return sawNumber ? "number" : textSorter;
+    if (sawText) return everyTextLeadsWithNumber ? measureSorter(key) : textSorter(key);
+    return sawNumber ? numberSorter(key) : textSorter(key);
   }
 
   const GRID_MIN_COLUMN_WIDTH = 128;
-  // v2 intentionally forgets column widths and sort state saved by the older
-  // grid. Those values could leave a header too narrow for its controls and a
-  // saved sorter could make the first three-click cycle start mid-sequence.
-  const PERSISTENCE_ID = "scrapex-grid-v3-" + SOURCE;
+  // The widths the owner chose (by dragging an edge or by auto-fit), kept per
+  // source so they survive a reload. WIDTH only, never VISIBLE: which columns
+  // exist and which are shown is the SERVER's answer, and a browser-side copy
+  // of that would be a second source of truth that could hide a column for good.
+  const WIDTHS_KEY = "scrapex-grid-widths-v1-" + SOURCE;
   const materialIcon = window.ScrapeXUI.icon;
   const materialIconElement = window.ScrapeXUI.iconNode;
 
-  const FILTER_ICON = materialIcon("material-filter-list", "material-filter-icon");
-  const MENU_ICON = materialIcon("material-more-vert", "material-menu-icon");
-  const SORT_ICON = materialIcon("material-arrow-upward", "material-sort-icon");
+  // Functions, not markup: the renderer asks for a fresh node per header.
+  const FILTER_ICON = () => materialIconElement("material-filter-list", "material-filter-icon");
+  const MENU_ICON = () => materialIconElement("material-more-vert", "material-menu-icon");
+  const SORT_ICON = () => materialIconElement("material-arrow-upward", "material-sort-icon");
 
   // ---- active filters, and the line that reports them ----------------------
-  // Kept here rather than inside Tabulator so the page can SAY what is being
+  // Kept here rather than inside the renderer so the page can SAY what is being
   // filtered. A grid that quietly shows fewer rows than it has is the same
   // failure as a filter that vanishes: the reader cannot tell.
   const active = new Map();
   let table = null;
   let payload = null;
-  // Settles when the table on screen has been BUILT. new Tabulator() only
-  // queues its build on a timer, and destroying a table whose build is still
-  // queued leaves that instance to build itself into #grid anyway.
+  // Settles when the table on screen has been BUILT, which the renderer
+  // announces on the turn after it is constructed.
   let tableReady = Promise.resolve();
-  let viewportResizeTimer = null;
-  let lastViewportWidth = 0;
-  if (viewport && typeof ResizeObserver === "function") {
-    const viewportObserver = new ResizeObserver((entries) => {
-      const nextWidth = Math.round(entries[0].contentRect.width);
-      clearTimeout(viewportResizeTimer);
-      viewportResizeTimer = setTimeout(() => {
-        if (!table || nextWidth < 1 || nextWidth === lastViewportWidth) return;
-        lastViewportWidth = nextWidth;
-        try { table.redraw(true); } catch (err) { /* a destroyed grid needs no redraw */ }
-      }, 140);
-    });
-    viewportObserver.observe(viewport);
-  }
 
   // Which features are on, per SOURCE. A commodity table and a shop table do
   // not want the same shape, so one global preference would be wrong for one of
@@ -400,26 +418,22 @@
 
   function applyFilters() {
     if (!table) return;
-    // A FUNCTION filter, not Tabulator's "in". "in" compares with indexOf —
-    // strict equality — against the popup's list, and everything the popup
-    // holds is a string. So a numeric cell never matched its own value: ticking
-    // 2 in Observations (115 rows carry it) filtered the table down to nothing,
-    // and the same was true of Price, Min price and Max price. Comparing as
-    // text on both sides is what the popup already promises the reader.
+    // A FUNCTION filter, not a library's strict "in". An "in" compares with
+    // indexOf — strict equality — against the popup's list, and everything the
+    // popup holds is a string. So a numeric cell never matched its own value:
+    // ticking 2 in Observations (115 rows carry it) filtered the table down to
+    // nothing, and the same was true of Price, Min price and Max price.
+    // Comparing as text on both sides is what the popup already promises.
+    //
+    // A BRANCH is kept when any of its children match, and its children are
+    // narrowed to those that do: the renderer filters from the leaves up.
+    // Nesting builds parent rows that carry only the nested column, so every
+    // other column reads blank on them, and testing the parent alone once took
+    // 3,417 rows down to "0 of 19" with every matching row off screen.
     table.setFilter([...active].map(([field, f]) => {
       if (!f.values) return {field, type: "like", value: f.text};
       const wanted = new Set(f.values.map(asText));
-      const matches = (row) => wanted.has(readValue(field, row));
-      // A BRANCH is kept when any of its children match. Nesting builds parent
-      // rows that carry only the nested column and _children, so every other
-      // column reads blank on them — and Tabulator tests top-level rows with
-      // the same predicate as any other. Filtering Observations while nested by
-      // Unit therefore failed every parent and took its matching children down
-      // with it: 3,417 rows became "0 of 19", and the rows that DID match were
-      // never on screen to be counted. dataTreeFilter still narrows the
-      // children inside a branch that survives.
-      return {field: (row) => matches(row) ||
-        (Array.isArray(row._children) && row._children.some(matches))};
+      return {field, test: (row) => wanted.has(readValue(field, row))};
     }));
     describe();
     paintChips();
@@ -478,26 +492,15 @@
   }
 
   // ---- the filter popup: search, select all, checkboxes ---------------------
-  // The shape the owner asked for by picture. Tabulator has no set filter, so it
-  // is built here — which also means its wording and its behaviour are ours,
-  // instead of inherited from a library's defaults.
-  // Tabulator calls these with (event, component, onRendered) — NOT with the
-  // component as `this`. Relying on `this` made both the menu and the filter
-  // build nothing and fail silently, which looked exactly like an icon that
-  // does not respond.
+  // The shape the owner asked for by picture. Neither renderer this grid has
+  // had offers a set filter, so it is built here — which also means its wording
+  // and its behaviour are ours, instead of inherited from a library's defaults.
+  // The renderer calls this with (event, column) and shows what it returns; it
+  // also closes it on Escape and on a click outside it.
   function filterPopup(event, column) {
     const field = column.getField();
     const box = document.createElement("div");
     box.className = "setfilter";
-    // Escape closes it. Tabulator binds its own escape handler, but the check
-    // reads `27 == event.key` — a number against a string, which is false for
-    // every key there is, so the popup could only ever be dismissed with the
-    // mouse. Handling it here rather than patching the vendored file.
-    box.addEventListener("keydown", (event) => {
-      if (event.key !== "Escape") return;
-      event.stopPropagation();
-      dismissOpenHeaderPopups();
-    });
 
     // Every value as TEXT, blanks included and listed first under their own
     // name, so the list accounts for every row in the column rather than for
@@ -691,9 +694,9 @@
         : "Group by " + title;
     const menu = [
       {label: menuLabel("material-arrow-upward", "Sort Ascending"),
-       action: () => column.getTable().setSort(field, "asc")},
+       action: () => table.setSort(field, "asc")},
       {label: menuLabel("material-arrow-downward", "Sort Descending"),
-       action: () => column.getTable().setSort(field, "desc")},
+       action: () => table.setSort(field, "desc")},
       {separator: true},
       {label: menuLabel("material-push-pin", "Pin Column"), menu: pinMenu(field)},
       {separator: true},
@@ -728,70 +731,46 @@
 
   function setAllGroupsOpen(open) {
     if (!table) return;
-    function visit(group) {
-      const children = typeof group.getSubGroups === "function" ? group.getSubGroups() : [];
-      if (open) group.show();
-      children.forEach(visit);
-      if (!open) group.hide();
-    }
-    table.getGroups().forEach(visit);
+    table.setAllGroupsOpen(open);
   }
 
-  // Pinning is fixed at construction time. A map keeps left and right distinct;
-  // Tabulator treats frozen columns before the first normal column as left and
-  // frozen columns after it as right, so build() orders those three bands.
+  // Pinning is per session. A map keeps left and right distinct, and build()
+  // hands each pinned column its side.
   const pinned = new Map();
+  // The record of DECISIONS: a column the owner auto-fitted or dragged. A column
+  // in it is built at that width with widthGrow 0, so no layout pass may spend
+  // it; every other column shares whatever width is left.
   const widths = new Map();
+  try {
+    const saved = JSON.parse(localStorage.getItem(WIDTHS_KEY) || "null");
+    if (saved && typeof saved === "object") {
+      Object.entries(saved).forEach(([field, width]) => {
+        if (Number.isFinite(width) && width > 0) widths.set(field, width);
+      });
+    }
+  } catch (err) { /* a corrupt preference must not stop the table loading */ }
   // Carried across build()'s destroy/recreate, in initialSort's own shape.
   let sorters = [];
-  let autosizeRequest = 0;
+
+  function saveWidths() {
+    rememberChoice(WIDTHS_KEY, widths.size ? JSON.stringify(Object.fromEntries(widths)) : "");
+  }
 
   function setPinned(field, side) {
     side ? pinned.set(field, side) : pinned.delete(field);
     build();
   }
 
-  // Tabulator's fit-to-data calculation only considers the cells reliably. A
-  // short column with a long title can therefore end up with an ellipsised
-  // header after autosize. Measure the title and all of its visible controls as
-  // flex items, including the gaps and the header padding, so the result fits
-  // whichever is wider: the data or the complete header.
-  function measureHeaderWidth(column) {
-    const header = column.getElement && column.getElement();
-    if (!header) return 0;
-    const content = header.querySelector(".tabulator-col-content");
-    const titleHolder = header.querySelector(".tabulator-col-title-holder");
-    const label = header.querySelector(".grid-header-label");
-    if (!content || !titleHolder || !label) return 0;
-
-    const contentStyle = getComputedStyle(content);
-    const holderStyle = getComputedStyle(titleHolder);
-    const padding = (parseFloat(contentStyle.paddingInlineStart) || 0) +
-                    (parseFloat(contentStyle.paddingInlineEnd) || 0);
-    const gap = parseFloat(holderStyle.columnGap || holderStyle.gap) || 0;
-    const items = Array.from(titleHolder.querySelectorAll(
-      ":scope > .tabulator-col-title > *, :scope > .tabulator-col-sorter"
-    ));
-    const itemWidth = items.reduce((total, item) => {
-      if (item === label) return total + Math.max(label.scrollWidth, label.getBoundingClientRect().width);
-      return total + item.getBoundingClientRect().width;
-    }, 0);
-    return Math.ceil(padding + itemWidth + gap * Math.max(0, items.length - 1));
-  }
-
-  // Autosize must run after BOTH Tabulator and the browser have painted the
-  // stable viewport. Measuring synchronously sometimes caught the old width;
-  // fitColumns then immediately redistributed that provisional value and made
-  // the command look random. The measured number is applied again explicitly,
-  // so later fitColumns passes treat it as an owner's width rather than flex.
+  // Fit a column to whichever is wider: its data on screen or its complete
+  // header — the title and every control beside it, with their gaps and the
+  // header's padding — so an auto-fitted column never ellipsises its own title.
+  // The measured number is recorded as the owner's width, so a later layout
+  // pass treats it as a decision rather than as flex.
   function autosizeColumns(fields) {
     if (!table) return;
-    const request = ++autosizeRequest;
-    // A HIDDEN column cannot be measured. Its header carries display:none, so
-    // every rectangle measureHeaderWidth reads comes back zero and
-    // setWidth(true) has no rendered content to fit to. Measuring one anyway
-    // produced the floor — 128px — and then RECORDED that as a width the owner
-    // had chosen. So "Auto-fit all column widths" pinned the hidden AR name
+    // A HIDDEN column cannot be measured: nothing of it is drawn, so its width
+    // would come back as the floor and then be RECORDED as a width the owner
+    // had chosen. So "Auto-fit all column widths" once pinned the hidden AR name
     // column at 128 while every column beside it went to 182 and beyond, and
     // switching the language later revealed "Pr…" sitting among them: the
     // owner's report, on GPP_ENERGY, reproduced exactly. A column nobody can
@@ -803,34 +782,14 @@
              column.getDefinition().resizable !== false;
     });
     if (!measurable.length) return;
-    measurable.forEach((field) => widths.delete(field));
-    table.redraw(true);
-    // A TIMER, not requestAnimationFrame. rAF never fires while the tab is
-    // hidden or the window is occluded/throttled — the measurement was
-    // parked indefinitely and the command did nothing at all, which is the
-    // other half of "sometimes it does not work". A timer always fires,
-    // and 50ms is comfortably past the redraw it waits for.
-    setTimeout(() => {
-      if (!table || request !== autosizeRequest) return;
-      measurable.forEach((field) => {
-        const column = table.getColumn(field);
-        if (!column || !column.isVisible()) return;
-        column.setWidth(true);
-        const measured = Math.max(
-          GRID_MIN_COLUMN_WIDTH,
-          Math.ceil(column.getWidth()),
-          measureHeaderWidth(column)
-        );
-        column.setWidth(measured);
-        widths.set(field, measured);
-      });
-      // A rebuild, not a redraw: the measured widths enter the column
-      // DEFINITIONS (width + widthGrow 0), which is the only place a
-      // fitColumns layout can never override them. redraw(false) left the
-      // width as a live-table property that the next layout pass — a
-      // window resize, a toggle, new data — re-stretched at will.
-      build();
-    }, 50);
+    measurable.forEach((field) => {
+      widths.set(field, Math.max(GRID_MIN_COLUMN_WIDTH,
+                                 table.getColumn(field).measureContentWidth()));
+    });
+    saveWidths();
+    // A rebuild, not a redraw: the measured widths enter the column
+    // DEFINITIONS (width + widthGrow 0), where no layout pass can undo them.
+    build();
   }
   function autosize(field) { autosizeColumns([field]); }
   function autosizeAll() {
@@ -1259,15 +1218,17 @@
     try {
       localStorage.removeItem(GROUP_KEY);
       localStorage.removeItem(TREE_KEY);
-      localStorage.removeItem("tabulator-scrapex-" + SOURCE + "-columns");
-      localStorage.removeItem("tabulator-scrapex-" + SOURCE + "-sort");
-      localStorage.removeItem("tabulator-" + PERSISTENCE_ID + "-columns");
-      // The keys this page used before the vocabulary sweep bumped them.
-      // Left behind they are harmless but permanent — a reset that leaves
+      localStorage.removeItem(WIDTHS_KEY);
+      // The keys this page used before: the vocabulary sweep bumped some, and
+      // the previous renderer (Tabulator) kept its own column layout under the
+      // rest. Left behind they are harmless but permanent — a reset that leaves
       // orphans is not a reset.
       localStorage.removeItem("scrapex-groupby-" + SOURCE);
       localStorage.removeItem("scrapex-treeby-" + SOURCE);
+      localStorage.removeItem("tabulator-scrapex-" + SOURCE + "-columns");
+      localStorage.removeItem("tabulator-scrapex-" + SOURCE + "-sort");
       localStorage.removeItem("tabulator-scrapex-grid-v2-" + SOURCE + "-columns");
+      localStorage.removeItem("tabulator-scrapex-grid-v3-" + SOURCE + "-columns");
     } catch (err) { /* nothing to clear */ }
     fetch(BASE + "/api/fields/" + encodeURIComponent(SOURCE), {
       method: "POST", headers: {"Content-Type": "application/json"},
@@ -1569,29 +1530,23 @@
   }
 
   // A real element around the title lets CSS place the four header parts as
-  // four intentional flex items: label, sort arrow, filter, menu. Tabulator
-  // otherwise leaves the label as an anonymous text node and absolutely parks
-  // the sorter at the far edge, where it reads as detached from the label.
+  // four intentional flex items: label, sort arrow, filter, menu.
   function headerLabel(cell) {
     const label = document.createElement("span");
     label.className = "grid-header-label";
-    // Tabulator substitutes the literal string "&nbsp;" for an empty column
-    // title, to keep the header row's height. Setting that through textContent
-    // printed those six characters as the heading of the arrow column — the
-    // owner read "&nbsp;" above the link to the product. That column has no
-    // title on purpose, so an empty title stays empty.
-    const value = text(cell.getValue());
-    label.textContent = value === "&nbsp;" ? "" : value;
+    // The arrow column has no title on purpose, so an empty title stays empty.
+    label.textContent = text(cell.getValue());
     return label;
   }
 
   function build() {
+    if (!DataGrid) return;
     if (table) { widthsFromTable(); sortFromTable(); table.destroy(); table = null; }
 
     // A column can be hidden from Choose Columns while it is part of a saved
     // hierarchy. Drop only unavailable levels; the remaining levels keep their
-    // order and still form a valid group rather than making Tabulator group by
-    // a field that is no longer in the table.
+    // order and still form a valid group rather than grouping by a field that
+    // is no longer in the table.
     const availableFields = new Set(payload.columns.map((column) => column.key));
     const validGroups = groupedBy.filter((field) => availableFields.has(field));
     // treeBy went through no such filter. A renamed or absent field made
@@ -1612,19 +1567,12 @@
         field: col.key,
         headerMenu: columnMenu,
         headerMenuIcon: MENU_ICON,
-        headerFilter: false,
         headerPopup: filterPopup,
         headerPopupIcon: FILTER_ICON,
         resizable: true,
+        // Click to sort ascending, again for descending, and a third time to
+        // take the sort away: the rows return to the payload's own order.
         headerSort: true,
-        // The third click removes the sorter. With no active sorter Tabulator
-        // renders the rows in the payload's original order again.
-        headerSortTristate: true,
-        // Empties sort LAST in both directions, on every column. Without this
-        // a sparse column (Unit holds 89 values across 3,398 madar rows)
-        // floods the first screens with blanks on ascending sort — the owner
-        // read that, reasonably, as "sorting does not work".
-        sorterParams: {alignEmptyValues: "bottom"},
         // A ceiling as well as a floor: without one, fitColumns hands a short
         // column like Unit the same share as a long one like Record.
         //
@@ -1654,11 +1602,10 @@
       // list of key names, and a list of key names rots: the vocabulary sweep
       // renamed columns and any entry that stopped matching silently became a
       // text sort, putting 9 above 11 in exactly the column the entry existed
-      // to protect. Left to itself Tabulator is no safer — it guesses by
-      // sampling activeRows[0] and nothing else, so a single empty cell at the
-      // top of a column of numbers hands the whole column to the text sorter
-      // for the rest of the session. Reading the column decides it correctly
-      // whatever anything is called.
+      // to protect. A library left to itself is no safer — the previous one
+      // guessed by sampling the first row and nothing else, so a single empty
+      // cell at the top of a column of numbers handed the whole column to the
+      // text sorter. Reading the column decides it whatever anything is called.
       def.sorter = sorterFor(col.key);
       if (col.key === "product_link") {
         def.headerSort = false;
@@ -1674,7 +1621,7 @@
       // every formatter about trees keeps the count in exactly one place.
       if (col.key === treeBy) formatter = branchCount(formatter);
       if (formatter) def.formatter = formatter;
-      if (pinned.has(col.key)) def.frozen = true;
+      if (pinned.has(col.key)) def.frozen = pinned.get(col.key);
       if (widths.has(col.key)) def.width = widths.get(col.key);
       return def;
     });
@@ -1701,32 +1648,21 @@
       });
     }
 
-    // Frozen columns at the outside edges become true left/right pins in
-    // Tabulator. Keeping the History action in the middle ensures a right pin
-    // really reaches the right edge instead of stopping one column early.
-    const orderedColumns = [
-      ...columns.filter((column) => pinned.get(column.field) === "left"),
-      ...columns.filter((column) => !pinned.has(column.field)),
-      ...columns.filter((column) => pinned.get(column.field) === "right"),
-    ];
-
     // Selecting several rows was already possible and had NO affordance saying
     // so: no checkbox, no select-all, and clicking a second row looked like it
     // had replaced the first. A visible box per row (and one in the header for
     // all of them) is what makes multi-select a feature instead of a secret.
     if (features.select) {
-      orderedColumns.unshift({
+      columns.unshift({
         formatter: "rowSelection", titleFormatter: "rowSelection",
-        hozAlign: "center", headerHozAlign: "center", headerSort: false,
-        width: 44, minWidth: 44, resizable: false, download: false, frozen: true,
+        hozAlign: "center", headerSort: false,
+        width: 44, minWidth: 44, resizable: false, download: false, frozen: "left",
         cssClass: "grid-select-column",
-        headerMenu: undefined, headerPopup: undefined,
       });
     }
 
     // A compact summary belongs inside the table frame, not as another toolbar
-    // below it. Build it with DOM nodes so the counts remain text-only and the
-    // theme can style the shape without inheriting Tabulator's hardcoded skin.
+    // below it. Build it with DOM nodes so the counts remain text-only.
     const footer = document.createElement("div");
     footer.className = "grid-footer-summary";
     footer.setAttribute("role", "status");
@@ -1756,26 +1692,12 @@
 
     const options = {
       data: payload.rows,
-      columns: orderedColumns,
-      // fitColumns, not fitDataStretch: the table should fill the width it has
-      // and no more. fitDataStretch sized every column to its widest possible
-      // content and then stretched, which pushed the total past the container —
-      // a horizontal scrollbar, Curation cut off, and a wide dead gap in every
-      // header between the icons and the sort arrow.
-      layout: "fitColumns",
-      layoutColumnsOnNewData: false,
-      // fitColumns alone will shrink columns without limit to avoid overflowing,
-      // so a table with many columns became a row of unreadable slivers and no
-      // scrollbar — the width was "fitted" by destroying the content. A floor
-      // means the columns stay legible and the table overflows honestly, which
-      // is what the horizontal scrollbar below is for.
+      columns,
+      // The table fills the width it has and no more, and no column goes under
+      // this floor: a table with many columns becomes wider than its frame and
+      // scrolls sideways, honestly, instead of a row of unreadable slivers.
       columnDefaults: {minWidth: GRID_MIN_COLUMN_WIDTH, titleFormatter: headerLabel},
       headerSortElement: SORT_ICON,
-      columnHeaderSortMulti: false,
-      // Tabulator measures the full width and does not subtract the vertical
-      // scrollbar, so the last column is cut by exactly its width. Telling it
-      // the gutter exists is cheaper than fighting the layout afterwards.
-      renderVerticalBuffer: 300,
       movableColumns: true,        // drag a header to build the table you want
       height: "100%",              // the stable frame owns the visible row area
       placeholder: "No rows match these filters.",
@@ -1783,19 +1705,6 @@
       // inside the table whenever either the status bar or row selection is on.
       footerElement: (features.statusbar || features.select) ? footer : undefined,
       selectableRows: !!features.select,
-      selectableRowsPersistence: false,
-      // WIDTH only, never VISIBLE. Persisting visibility here created two
-      // sources of truth that fought each other: the server said show Country,
-      // the browser's saved layout said hide it, the browser won, and "Show
-      // every column" — which only writes to the server — could not bring it
-      // back. A column disappeared and nothing in the interface could recover
-      // it. Which columns exist and which are shown is the SERVER's answer.
-      // Loading a saved column order after orderedColumns would put a right pin
-      // back in its old middle position. Pinning is session-only already, so
-      // while it is active the in-memory widths win and persisted order waits
-      // until every column is unpinned again.
-      persistence: pinned.size ? false : {columns: ["width"]},
-      persistenceID: PERSISTENCE_ID,
     };
 
     // The sort the reader chose has to survive the rebuild. build() destroys
@@ -1803,8 +1712,7 @@
     // every switch in the features panel, and the new instance came up
     // unsorted every time — so grouping by Brand quietly threw away "sort by
     // SKU ascending", with nothing on screen to say it had. A column that is
-    // no longer in the table is dropped rather than handed to Tabulator, which
-    // would only warn and sort by nothing.
+    // no longer in the table is dropped rather than sorted by.
     const survivingSort = sorters.filter((s) => availableFields.has(s.column));
     if (survivingSort.length) options.initialSort = survivingSort;
 
@@ -1813,21 +1721,18 @@
     // the column decides what it groups by. The server used to supply a guess
     // here, which meant switching the feature on silently grouped the table by
     // a column nobody chose — the switch appeared to do two things at once.
+    // Every band starts closed.
     if (features.tree && groupedBy.length) {
       // A FUNCTION where the column reads something other than its own field,
       // for the same reason nest() does: grouping by Tax read a field that is
       // null on every row and produced one band holding the entire table.
       options.groupBy = groupedBy.map((field) =>
         DISPLAY_VALUE[field] ? (data) => readValue(field, data) : field);
-      options.groupStartOpen = false;
-      // A NODE, not a string. Tabulator renders a string group header through
-      // `element.innerHTML` and a node through `appendChild`, so returning the
-      // scraped value inside a concatenated string ran whatever markup that
-      // value happened to contain: group by Product name on a source whose
-      // name field holds `<img src=x onerror=...>` and it executes. This file
-      // already states the rule it was breaking — "a product name containing
-      // markup must render as text, never run" — and every other cell on the
-      // page obeys it. The group band is now built the same way.
+      // A NODE, never markup. The previous renderer wrote a string group header
+      // through innerHTML, so a scraped value inside one ran whatever markup it
+      // held: group by Product name on a source whose name field holds
+      // `<img src=x onerror=...>` and it executed. Every cell on this page
+      // renders scraped text as text, and the band is built the same way.
       options.groupHeader = groupedBy.map(() => (value, count) => {
         const band = document.createElement("span");
         const label = document.createElement("span");
@@ -1842,17 +1747,17 @@
     }
 
     // TREE: not grouping. There is no extra band — the parent IS a row of the
-    // table, and its children are indented inside the SAME first column behind
-    // a ⊟ toggle. Grouping answers "how many rows share this value"; a tree
-    // answers "which rows sit under this one". They are different questions, so
-    // they are different controls, and only one may be on at a time.
+    // table, and its children are indented inside the SAME column behind a
+    // toggle. Grouping answers "how many rows share this value"; a tree answers
+    // "which rows sit under this one". They are different questions, so they
+    // are different controls, and only one may be on at a time. Every branch
+    // starts closed.
     if (features.rows && treeBy) {
       const nested = nest(payload.rows, treeBy);
       if (nested.length) {
         options.data = nested;
         options.dataTree = true;
         options.dataTreeChildField = "_children";
-        options.dataTreeStartExpanded = false;
         options.dataTreeChildIndent = 14;
         // The toggle belongs on the column being nested by, not on whichever
         // column happens to be first after the owner drags the headers around.
@@ -1864,44 +1769,25 @@
     mount.classList.toggle("wrap", !!features.wrap);
     mount.classList.toggle("striped", !!features.stripe);
 
-    const built = new Tabulator(mount, options);
+    const built = new DataGrid(mount, options);
     table = built;
     table.on("tableBuilt", () => {
-      // A table replaced before its queued build ran still builds, and still
-      // fires this. It must not act on the table that replaced it.
+      // A table replaced before its build was announced still announces it. It
+      // must not act on the table that replaced it.
       if (built !== table) return;
-      guardHeaderButtons();
       wireLanguageToggle();
       applyFilters();
       describe();
       updateFooter();
-      // fitColumns divides the width measured BEFORE the vertical scrollbar
-      // exists, so the last column is cut by exactly its width — 15px, enough
-      // to add a horizontal scrollbar nobody asked for. One redraw once the
-      // rows are in remeasures against the real client width.
-      requestAnimationFrame(() => {
-        if (built !== table) return;
-        try { table.redraw(true); } catch (err) {}
-      });
     });
-    // AFTER the stack unwinds. Tabulator dispatches dataFiltered from INSIDE
-    // its filter routine, before the filtered rows become the active set, so
-    // reading getDataCount("active") in the handler reports the state BEFORE
-    // the filter — the footer was permanently one filter behind, and read
-    // "Total Rows: 0" on a table showing 3,417. describe() only escaped this
-    // because applyFilters calls it a second time once setFilter has returned.
-    // A microtask runs when the call stack empties, which is exactly when the
-    // new active set exists.
-    table.on("dataFiltered", () => {
-      queueMicrotask(() => { describe(); updateFooter(); });
-    });
+    table.on("dataFiltered", () => { describe(); updateFooter(); });
     // Dragging a column edge is the other way an owner sets a width, and it
-    // has to be recorded as one. widthsFromTable() no longer sweeps up every
+    // has to be recorded as one. widthsFromTable() does not sweep up every
     // column, so without this a dragged width would be forgotten at the next
     // rebuild and the column would spring back to whatever fitColumns wanted.
     table.on("columnResized", (column) => {
       const field = column.getField();
-      if (field) widths.set(field, Math.round(column.getWidth()));
+      if (field) { widths.set(field, Math.round(column.getWidth())); saveWidths(); }
     });
     table.on("rowSelectionChanged", (data, rows) => {
       updateFooter();
@@ -2015,9 +1901,9 @@
       //
       // ONLY BETWEEN TWO COLUMNS THE TABLE HAS, as the visibility loop above
       // asks. A pair whose other half he hid in Choose Columns has nothing to
-      // move to, and Tabulator answers a sort on a missing column by clearing
-      // the sort — which, once this ran on every rebuild (#1198), cleared his
-      // sort at every grouping, pin, feature switch and refresh.
+      // move to, and a sort on a missing column clears the sort — which, once
+      // this ran on every rebuild (#1198), cleared his sort at every grouping,
+      // pin, feature switch and refresh.
       try {
         const [current] = table.getSorters();
         if (current && current.field) {
@@ -2051,7 +1937,7 @@
   // It reloads rather than redrawing, and that is deliberate. The fold changes
   // the row COUNT and adds a column, and the fold itself is computed on the
   // server so the page, the API and the export cannot disagree about what a row
-  // means. Rebuilding a live Tabulator around a different shape is where the
+  // means. Rebuilding a live grid around a different shape is where the
   // half-updated states come from; a reload has one shape and no doubt.
   const FOLD_KEY = "scrapex-fold-variants-" + (mount.dataset.source || "");
 
@@ -2096,84 +1982,6 @@
     }
     wrap.appendChild(segments);
     host.append(wrap);
-  }
-
-  // ---- why the header's two buttons only worked SOMETIMES -------------------
-  //
-  // movableColumns arms a column DRAG on mousedown anywhere in a header and
-  // starts it 250ms later. The three-dot menu and the filter icon sit inside
-  // that header, and both Tabulator's handlers and ours stop only the CLICK.
-  // So pressing either of them a shade slowly began a column move instead: the
-  // header was re-rendered under the cursor, the very button being pressed left
-  // the document, and no click event was ever delivered. Measured on this page:
-  // a 120ms press opens the menu, a 400ms press leaves the button detached and
-  // opens nothing. That is the whole of "the table's functions work sometimes
-  // and sometimes not" — not the actions, the way in.
-  //
-  // Captured on the HEADER, so it runs before the column's own mousedown
-  // listener and the drag timer is never armed for these two buttons. Dragging
-  // a column by its title is untouched, and so is the resize handle.
-  // ---- one popup at a time --------------------------------------------------
-  //
-  // Tabulator's popup (the filter list) and its menu (the three dots) are two
-  // independent modules. Neither knows the other exists; each closes itself
-  // only when a click or a mousedown reaches document.body, where it binds a
-  // blur listener. Tabulator's own button handler calls stopPropagation on the
-  // CLICK — it has to, or pressing the button would sort the column — so the
-  // mousedown was the only event that still travelled to body, and the guard
-  // above stops that one too. Opening the filter and then the menu therefore
-  // drew both, one over the other (the owner's report).
-  //
-  // Blurring through Tabulator's OWN listener rather than deleting the element
-  // is what runs its cleanup: unbinding the six document listeners the popup
-  // left behind and clearing the module's rootPopup reference.
-  function dismissOpenHeaderPopups() {
-    const OPEN = ".tabulator-popup-container, .tabulator-menu";
-    if (!document.querySelector(OPEN)) return;
-    document.body.dispatchEvent(new MouseEvent("mousedown"));
-    document.body.dispatchEvent(new MouseEvent("click"));
-    // Tabulator binds those blur listeners on a 100ms timer AFTER the popup
-    // opens. Reaching the other button inside that window found nothing
-    // listening, so the first popup stayed. Nothing was bound in that case,
-    // which means there is no cleanup owed and removing the element is the
-    // whole of the job — and Popup.hide() null-checks parentNode, so the
-    // module's own later hide stays safe.
-    document.querySelectorAll(OPEN).forEach((node) => node.remove());
-  }
-
-  function guardHeaderButtons() {
-    const header = mount.querySelector(".tabulator-header");
-    if (!header) return;
-    header.querySelectorAll(".tabulator-header-popup-button").forEach((control) => {
-      const column = control.closest(".tabulator-col");
-      const label = column?.querySelector(".grid-header-label")
-        ?.textContent?.trim() || "column";
-      const kind = control.querySelector(".material-menu-icon")
-        ? "menu" : "filter";
-      control.setAttribute("role", "button");
-      control.setAttribute("tabindex", "0");
-      control.setAttribute("aria-label", `Open ${kind} for ${label}`);
-      if (control.dataset.keyboardReady) return;
-      control.dataset.keyboardReady = "1";
-      control.addEventListener("keydown", (event) => {
-        if (event.key !== "Enter" && event.key !== " ") return;
-        event.preventDefault();
-        control.click();
-      });
-    });
-    if (header.dataset.buttonsGuarded) return;
-    header.dataset.buttonsGuarded = "1";
-    const hold = (event) => {
-      const target = event.target;
-      if (!target || !target.closest) return;
-      if (!target.closest(".tabulator-header-popup-button")) return;
-      event.stopPropagation();
-      // Before the button's own click opens the next one. mousedown precedes
-      // click, so the outgoing popup is gone before the incoming one is built.
-      dismissOpenHeaderPopups();
-    };
-    header.addEventListener("mousedown", hold, true);
-    header.addEventListener("touchstart", hold, true);
   }
 
   // Refresh only the widths the owner ALREADY owns.
@@ -3191,10 +2999,10 @@
       else if (kind === "json") table.download("json", name + ".json");
       // Excel is the WHOLE RECORD, and it comes from the server. Two reasons.
       // The browser cannot build it: the details, the price history and the
-      // provenance are not in the grid. And it never could — this called
-      // Tabulator's xlsx writer, which needs a SheetJS library that has never
-      // been vendored here, so the button logged a console error and produced
-      // no file at all, silently, for as long as it has existed.
+      // provenance are not in the grid. And it never could — this once called
+      // the previous renderer's xlsx writer, which needs a SheetJS library that
+      // has never been vendored here, so the button logged a console error and
+      // produced no file at all, silently, for as long as it existed.
       else if (kind === "xlsx") window.location = BASE + "/export/" + encodeURIComponent(SOURCE) + ".xlsx";
     });
   }
@@ -3277,7 +3085,7 @@
       if (!current()) return undefined;
       // The rows an open record came from are going, and destroying a table
       // dispatches no deselection that would close it. An open header popup
-      // needs nothing: Tabulator closes it when build() destroys the table.
+      // needs nothing: the renderer closes it when build() destroys the table.
       if (table) closeOfferPanel();
       payload = data;
       // Before the empty-source return below. A source with no rows still has
@@ -3325,7 +3133,9 @@
               || !data.columns.every((column) => column && typeof column.key === "string")) {
             throw new Error("the answer is not a table");
           }
-          return draw(data, current);
+          // The renderer was asked for when this script started, beside the
+          // table; a renderer that never loaded fails this load, by name.
+          return rendererReady.then(() => draw(data, current));
         })
         .then(() => finish(Object.freeze({state: "drawn", payload})), (reason) => {
           if (!current()) return;

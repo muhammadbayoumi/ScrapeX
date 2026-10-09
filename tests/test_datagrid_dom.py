@@ -1641,3 +1641,18 @@ def test_a_download_saves_a_csv_file_by_the_name_given_and_a_null_is_an_empty_fi
     assert Path(saved.value.path()).read_text(encoding="utf-8") == body
     assert json.loads(body)[0] == {"Name": "b", "Note": None}
     assert page.evaluate("window.__types") == ["text/csv", "application/json"]
+
+
+def test_a_column_with_no_sorter_sorts_numbers_by_value_and_text_as_a_reader_does(page):
+    """The default compare was raw `<`: "10" before "9", and every capital
+    before every lower-case word. A caller with no sorter of its own (the
+    Datasets page) gets the numeric Arabic-and-English collation grid.js uses."""
+    build(page, """{columns: [{title: "N", field: "n"}, {title: "W", field: "w"}, {title: "X", field: "x"}],
+                    data: [{n: "9", w: "banana", x: 3}, {n: "10", w: "Apple", x: 20},
+                           {n: "100", w: "Zebra", x: 100}, {n: "2.5", w: "apple", x: 9}]}""")
+    page.evaluate("() => grid.setSort('n', 'asc')")
+    assert column_texts(page, "n") == ["2.5", "9", "10", "100"]
+    page.evaluate("() => grid.setSort('w', 'asc')")
+    assert [w.lower() for w in column_texts(page, "w")] == ["apple", "apple", "banana", "zebra"]
+    page.evaluate("() => grid.setSort('x', 'asc')")
+    assert column_texts(page, "x") == ["3", "9", "20", "100"]
