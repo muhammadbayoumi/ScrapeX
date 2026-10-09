@@ -368,12 +368,14 @@ const STATUS_LOOK = {
   completed: ["material-check-circle", "brand"],
   cancelled: ["material-block", "default"],
   // #1596, his ruling D4: a scheduled firing that found its source busy and did not run.
-  // Studio draws its own skipped step as a plain default badge with no icon
-  // (BranchManagement/ActionStatusBadge.tsx@86c813ec:18, 66-75); here every status has a
-  // glyph, so it takes Material's `next_plan` -- passed over, on to the next slot -- and
-  // the `secondary` tone, words and glyph both muted: quieter than a cancel, which is
-  // something he did, and nothing like a failure.
-  skipped: ["material-next-plan", "secondary"],
+  // THE TONE IS STUDIO'S: it draws its own skipped step as a plain `default` badge
+  // (BranchManagement/ActionStatusBadge.tsx@86c813ec:18, 79), the tone a cancel wears
+  // here -- the word in the foreground, the glyph muted, nothing like a failure. He chose
+  // this (option C, 2026-10-09, on #1596) over `secondary`, which drew a skip exactly as
+  // a running job is drawn. THE ONE DEPARTURE IS THE GLYPH: Studio's badge has none, and
+  // this page's rule is that every status has one, so it takes Material's `next_plan` --
+  // passed over, on to the next slot.
+  skipped: ["material-next-plan", "default"],
 };
 
 export function statusLook(status) {
