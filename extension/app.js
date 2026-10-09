@@ -1880,13 +1880,30 @@ function renderSourceEditor(source) {
   const price = !source.kind;
   document.querySelectorAll("#view-source-edit [data-price-only]").forEach(
     (node) => { node.hidden = !price; });
+  // AN ENGINE WITHOUT /rules (older than `source_rules`) still edits a price source
+  // the way it always did: its name, URL and robots choice through /edit, the switch
+  // through /active. What it cannot serve is not drawn -- the agent and pace, where
+  // each value comes from, Clear -- and a directory, which it saves nothing for, gets
+  // neither its robots choice nor a Save.
+  const legacy = Boolean(capabilityRefusal("source_rules"));
+  state.sourceRulesLegacy = legacy;
+  document.querySelectorAll("#view-source-edit [data-rules-only]").forEach(
+    (node) => { node.hidden = legacy; });
+  $("source-edit-robots-card").hidden = legacy && !price;
+  $("source-edit-form").hidden = legacy && !price;
   $("source-edit-identity").innerHTML = sourceIdentity(
     source, false, Number(source.observations || 0).toLocaleString());
   for (const id of ["active", "robots", "agent", "pace"]) {
-    $(`source-edit-${id}-origin`).textContent = "Reading where this comes from…";
+    $(`source-edit-${id}-origin`).textContent = legacy ? "" : "Reading where this comes from…";
   }
   document.querySelectorAll("[data-clear-rule]").forEach((button) => { button.hidden = true; });
-  loadSourceRules(state.editingRulesKey);
+  // NOTHING LEFT FROM THE LAST SOURCE OPENED: the controls /rules fills start from
+  // this source's own card, and stay held until /rules answers.
+  renderRobotsChoice(source);
+  $("source-edit-agent").value = "";
+  $("source-edit-agent").placeholder = "";
+  $("source-edit-pace").value = "";
+  $("source-edit-pace").placeholder = "";
 
   const ready = Boolean(source.implemented);
   $("source-edit-readiness").innerHTML =
@@ -1929,14 +1946,26 @@ function renderSourceEditor(source) {
   }
 
   $("source-edit-fold").checked = Boolean(source.fold_variants);
-  const active = $("source-edit-active");
-  active.checked = Boolean(source.active);
-  active.disabled = !ready;
+  $("source-edit-active").checked = Boolean(source.active);
+  holdRuleControls(!legacy);
   $("source-edit-save").disabled = !ready;
   $("source-edit-active-help").textContent = ready
     ? "Manual runs remain available when automation is off."
     : "Automation cannot be enabled until this connector is available.";
   out("source-edit-result", "");
+  // AFTER the result line is emptied, so what reading the rules says stays said.
+  if (!legacy) loadSourceRules(state.editingRulesKey);
+}
+
+// The controls /rules fills, held while its answer is not in: anything typed into
+// them would be drawn over by the answer, or saved against a value never read. The
+// switch also waits for a connector that works.
+function holdRuleControls(held) {
+  for (const id of ["robots", "robots-enforce", "robots-delay", "agent", "pace"]) {
+    $(`source-edit-${id}`).disabled = held;
+  }
+  const source = state.sources.find((item) => item.source_key === state.editingSourceKey);
+  $("source-edit-active").disabled = held || !(source && source.implemented);
 }
 
 // robots.txt, per site. Kept together so the three steps read in the order the
@@ -2068,9 +2097,11 @@ function ruleShipsOpinion(field, item) {
 function ruleOrigin(field, answer) {
   const item = answer.fields[field];
   if (item.origin === "choice") {
+    // Mid-sentence, so only its first letter drops: "Settings" names a page.
     const back = ruleShipsOpinion(field, item)
       ? `the source's: ${ruleValueText(field, item.shipped)}`
-      : `${RULE_ORIGINS.general.toLowerCase()}: ${ruleGeneralText(field, answer)}`;
+      : `${RULE_ORIGINS.general[0].toLowerCase()}${RULE_ORIGINS.general.slice(1)}: `
+        + ruleGeneralText(field, answer);
     return `${RULE_ORIGINS.choice}. Clearing it returns to ${back}.`;
   }
   if (item.origin === "source") {
@@ -2121,58 +2152,64 @@ function ruleChanges(answer, form) {
   return changes;
 }
 
-// Draw GET /rules' answer: each control's value and the sentence under it.
-function renderSourceRules(answer) {
-  state.sourceRules = answer;
-  const fields = answer.fields;
-  $("source-edit-active").checked = Boolean(fields.active.value);
-  renderRobotsChoice({robots: fields.robots.value, robots_custom: fields.robots.custom});
-  const shown = (item) => (item.origin === "general" ? "" : String(item.value ?? ""));
-  $("source-edit-agent").value = shown(fields.user_agent);
-  $("source-edit-agent").placeholder = (answer.general || {}).user_agent || "";
-  $("source-edit-pace").value = shown(fields.crawl_pace_s);
-  $("source-edit-pace").placeholder = String((answer.general || {}).crawl_pace_s ?? "");
-  for (const [field, id] of Object.entries(RULE_IDS)) {
-    $(`source-edit-${id}-origin`).textContent = ruleOrigin(field, answer);
-    const clear = document.querySelector(`[data-clear-rule="${field}"]`);
-    if (clear) clear.hidden = fields[field].origin !== "choice";
+// Draw one field of GET /rules' answer: its control and the sentence under it. One
+// field at a time, so clearing one choice leaves what he is typing into the others.
+function renderRuleField(field, answer) {
+  const item = answer.fields[field];
+  const shown = item.origin === "general" ? "" : String(item.value ?? "");
+  if (field === "active") {
+    $("source-edit-active").checked = Boolean(item.value);
+  } else if (field === "robots") {
+    renderRobotsChoice({robots: item.value, robots_custom: item.custom});
+  } else if (field === "user_agent") {
+    $("source-edit-agent").value = shown;
+    $("source-edit-agent").placeholder = (answer.general || {}).user_agent || "";
+  } else {
+    $("source-edit-pace").value = shown;
+    $("source-edit-pace").placeholder = String((answer.general || {}).crawl_pace_s ?? "");
   }
+  $(`source-edit-${RULE_IDS[field]}-origin`).textContent = ruleOrigin(field, answer);
+  document.querySelector(`[data-clear-rule="${field}"]`).hidden = item.origin !== "choice";
 }
 
+// Draw the whole answer, and let go of the controls it fills.
+function renderSourceRules(answer) {
+  state.sourceRules = answer;
+  for (const field of Object.keys(RULE_IDS)) renderRuleField(field, answer);
+  holdRuleControls(false);
+}
+
+// Read his choices for a source and draw them. Answers what it drew, or null when the
+// engine could not say -- and then the controls stay held, and Save reads again.
 async function loadSourceRules(key) {
-  // §1.6, BEFORE the request: an engine older than `source_rules` answers /rules
-  // 404, and that would reach him as "Not Found" instead of what to update.
-  const refusal = capabilityRefusal("source_rules");
-  if (refusal) {
-    out("source-edit-result", esc(refusal), "err");
-    return;
-  }
   try {
     const answer = await api("/api/sources/" + encodeURIComponent(key) + "/rules");
-    if (state.editingRulesKey !== key) return;          // moved on
+    if (state.editingRulesKey !== key) return null;     // moved on
     renderSourceRules(answer);
+    return answer;
   } catch (error) {
-    if (state.editingRulesKey !== key) return;
+    if (state.editingRulesKey !== key) return null;
+    for (const id of Object.values(RULE_IDS)) $(`source-edit-${id}-origin`).textContent = "";
     out("source-edit-result", `${icon("material-close", "sm")} Could not read how this `
-        + `source is crawled: ${esc(error.message)}`, "err icon-label");
+        + `source is crawled: ${esc(error.message)}. Its crawl choices stay locked until `
+        + "it is read; Save changes reads it again.", "err icon-label");
+    return null;
   }
 }
 
 // Clear one choice: the field returns to what the source ships with, or to his
-// general rule where it ships nothing. `robots` clears its custom rule with it.
+// general rule where it ships nothing. `robots` clears its custom rule with it. Only
+// that field is drawn again, and focus goes to it -- the button it was on is gone.
 async function clearSourceRule(field) {
   const key = state.editingRulesKey;
   if (!key) return;
-  const refusal = capabilityRefusal("source_rules");
-  if (refusal) {
-    out("source-edit-result", esc(refusal), "err");
-    return;
-  }
   out("source-edit-result", "Clearing your choice…", "muted");
   try {
     const answer = await post("/api/sources/" + encodeURIComponent(key) + "/rules",
                               {[field]: null});
-    renderSourceRules(answer);
+    state.sourceRules = answer;
+    renderRuleField(field, answer);
+    $(`source-edit-${RULE_IDS[field]}`).focus({preventScroll: true});
     const source = state.sources.find((item) => item.source_key === state.editingSourceKey);
     if (field === "active" && source) {
       source.active = answer.fields.active.value;
@@ -2202,43 +2239,95 @@ async function saveSourceEditor() {
     out("source-edit-result", "This source is no longer available.", "err");
     return;
   }
-  // The whole save, not only its /rules half: it is one button, and a save that
-  // wrote the manifest's fields and then refused his choices would succeed halfway.
-  const refusal = capabilityRefusal("source_rules");
-  if (refusal) {
-    out("source-edit-result", esc(refusal), "err");
-    return;
-  }
-  const answer = state.sourceRules;
-  if (!answer) {
-    out("source-edit-result", "Still reading how this source is crawled; try again.",
-        "muted");
-    return;
-  }
-
   const button = $("source-edit-save");
   button.disabled = true;
   out("source-edit-result", "Saving changes…", "muted");
-  try {
-    // THE MANIFEST'S FIELDS, for a price source: what the site is and how it is read.
-    // His crawl rules are NOT among them any more (#1584) -- the engine refuses them
-    // on /edit and keeps them in the warehouse, where a restart cannot lose them.
-    let changed = false;
-    if (answer.kind === "price") {
-      const edits = {
-        source_name: $("source-edit-name").value.trim(),
-        source_name_ar: $("source-edit-name-ar").value.trim(),
-        base_url: $("source-edit-url").value.trim(),
-        currency: $("source-edit-currency").value.trim(),
-        cadence: $("source-edit-cadence").value,
-        vat_mode: $("source-edit-vat").value,
-        fold_variants: $("source-edit-fold").checked,
+
+  // THE MANIFEST'S FIELDS, for a price source: what the site is and how it is read.
+  const edits = {
+    source_name: $("source-edit-name").value.trim(),
+    source_name_ar: $("source-edit-name-ar").value.trim(),
+    base_url: $("source-edit-url").value.trim(),
+    currency: $("source-edit-currency").value.trim(),
+    cadence: $("source-edit-cadence").value,
+    vat_mode: $("source-edit-vat").value,
+    fold_variants: $("source-edit-fold").checked,
+  };
+
+  if (state.sourceRulesLegacy) {
+    // AN ENGINE WITHOUT /rules, exactly as the editor saved before it (#1584): the
+    // robots choice is a manifest field there, and the switch has its own route.
+    // Only a price source reaches here -- a directory's Save is not drawn.
+    const wanted = $("source-edit-active").checked;
+    edits.robots = $("source-edit-robots").value;
+    // The custom rule rides along only when it is the chosen one.
+    if (edits.robots === "custom") {
+      const delay = $("source-edit-robots-delay").value.trim();
+      edits.robots_custom = {
+        enforce_disallow: $("source-edit-robots-enforce").checked,
+        crawl_delay_s: delay === "" ? null : ruleNumber(delay),
       };
-      changed = Object.entries(edits).some(([field, value]) =>
-        String(source[field] ?? "") !== String(value));
+    } else {
+      edits.robots_custom = null;
+    }
+    try {
+      // robots_custom is an OBJECT, compared as JSON: String() of any two objects
+      // differs, which would report a change on every save.
+      const changed = Object.entries(edits).some(([field, value]) =>
+        field === "robots_custom"
+          ? JSON.stringify(source[field] ?? null) !== JSON.stringify(value ?? null)
+          : String(source[field] ?? "") !== String(value));
       if (changed) {
         await post("/api/sources/" + encodeURIComponent(source.source_key) + "/edit", edits);
         Object.assign(source, edits);
+      }
+      const flipped = wanted !== Boolean(source.active);
+      if (flipped) {
+        await post("/api/sources/" + encodeURIComponent(source.source_key) + "/active",
+                   {active: wanted});
+        source.active = wanted;
+      }
+      if (changed || flipped) {
+        renderSites();
+        renderSourceManager();
+      }
+      renderSourceEditor(source);
+      out("source-edit-result", `${icon("material-check", "sm")} Changes saved.`,
+          "ok icon-label");
+    } catch (error) {
+      button.disabled = false;
+      out("source-edit-result", `${icon("material-close", "sm")} ${esc(error.message)}`,
+          "err icon-label");
+    }
+    return;
+  }
+
+  // His crawl rules are NOT manifest fields any more (#1584) -- the engine refuses
+  // them on /edit and keeps them in the warehouse, where a restart cannot lose them.
+  let detailsSaved = false;
+  try {
+    if (!source.kind && Object.entries(edits).some(([field, value]) =>
+      String(source[field] ?? "") !== String(value))) {
+      await post("/api/sources/" + encodeURIComponent(source.source_key) + "/edit", edits);
+      Object.assign(source, edits);
+      detailsSaved = true;
+    }
+    // NOT YET READ: the rule controls were held, so nothing in them is his to save.
+    // Read again, so the next Save can carry them.
+    let answer = state.sourceRules;
+    if (!answer) {
+      answer = await loadSourceRules(state.editingRulesKey);
+      if (!answer) {
+        if (detailsSaved) {
+          renderSites();
+          renderSourceManager();
+        }
+        button.disabled = false;
+        out("source-edit-result", `${icon("material-close", "sm")} `
+            + (detailsSaved ? "The name and details were saved. " : "")
+            + "How this source is crawled could not be read, so its crawl choices "
+            + "cannot change yet.", "err icon-label");
+        return;
       }
     }
     // HIS CHOICES FOR THE SOURCE, only what changed, in one request to the warehouse.
@@ -2249,16 +2338,23 @@ async function saveSourceEditor() {
       renderSourceRules(saved);
       if ("active" in rules) source.active = saved.fields.active.value;
     }
-    if (changed || "active" in rules) {
+    if (detailsSaved || "active" in rules) {
       renderSites();
       renderSourceManager();
     }
     button.disabled = false;
     out("source-edit-result", `${icon("material-check", "sm")} Changes saved.`, "ok icon-label");
   } catch (error) {
+    // HALF SAVED IS SAID AS HALF: the name and details went in before the crawl
+    // choices were refused, and the lists show the name he now has.
+    if (detailsSaved) {
+      renderSites();
+      renderSourceManager();
+    }
     button.disabled = false;
-    out("source-edit-result", `${icon("material-close", "sm")} ${esc(error.message)}`,
-        "err icon-label");
+    out("source-edit-result", `${icon("material-close", "sm")} `
+        + (detailsSaved ? "The name and details were saved; your crawl choices were "
+          + "not: " : "") + esc(error.message), "err icon-label");
   }
 }
 

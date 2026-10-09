@@ -3750,6 +3750,95 @@ def test_edit_source_saves_automation_without_leaving_the_extension(open_panel):
     assert not page.is_checked("#source-edit-active"), "the saved answer was not drawn"
 
 
+def test_an_engine_without_the_rules_routes_still_edits_a_source_as_before(open_panel):
+    """AN ENGINE OLDER THAN `source_rules` (#1584) edits a price source the way the
+    editor always did -- name and robots through /edit, the switch through /active --
+    and draws nothing it cannot serve: no agent or pace, no origin lines, no Clear,
+    and no "update the engine" sentence for a save it can do."""
+    page = open_panel(engine_version="0.4.53", omit_capabilities=("source_rules",))
+    page.click(SOURCES_TAB)
+    page.wait_for_timeout(250)
+    page.click('[data-edit-source="SHORT"]')
+    page.wait_for_timeout(250)
+    page.fill("#source-edit-name", "Renamed")
+    page.select_option("#source-edit-robots", "obey")
+    page.uncheck("#source-edit-active")
+    page.click("#source-edit-save")
+    page.wait_for_timeout(300)
+
+    writes = page.evaluate("() => window.__writes")
+    edits = [w["body"] for w in writes if w["path"] == "/api/sources/SHORT/edit"]
+    assert len(edits) == 1, writes
+    assert (edits[0]["source_name"], edits[0]["robots"]) == ("Renamed", "obey")
+    assert [w["body"] for w in writes if w["path"] == "/api/sources/SHORT/active"] == [
+        {"active": False}], writes
+    assert not [c for c in page.evaluate("() => window.__calls") if "/rules" in c]
+    assert "Changes saved" in text_of(page, "#source-edit-result")
+    assert not page.is_visible("#source-edit-agent")
+    assert not page.is_visible("#source-edit-pace")
+    assert page.evaluate("""() => [...document.querySelectorAll(
+        "#view-source-edit .source-edit-origin, [data-clear-rule]")]
+        .filter((node) => node.checkVisibility()).length""") == 0
+    words = page.inner_text("#view-source-edit")
+    assert "Reading where this comes from" not in words
+    assert "source_rules" not in words and "Update the engine" not in words
+
+
+def test_rules_that_cannot_be_read_say_so_and_the_name_still_saves(open_panel):
+    """What reading the rules says is not wiped by the editor drawing itself, the
+    controls it fills stay held, and Save still saves the name -- then reads again."""
+    page = open_panel()
+    page.evaluate("""() => {
+        const real = window.fetch;
+        window.__rulesReads = 0;
+        window.fetch = (url, options) => {
+            if (String(url).endsWith("/rules") && !(options && options.method === "POST")) {
+                window.__rulesReads += 1;
+                return Promise.reject(new Error("engine stopped answering"));
+            }
+            return real(url, options);
+        };
+    }""")
+    page.click(SOURCES_TAB)
+    page.wait_for_timeout(250)
+    page.click('[data-edit-source="SHORT"]')
+    page.wait_for_timeout(300)
+
+    assert "Could not read how this source is crawled" in text_of(page, "#source-edit-result")
+    assert page.is_disabled("#source-edit-pace") and page.is_disabled("#source-edit-agent")
+    assert "Reading where this comes from" not in page.inner_text("#view-source-edit")
+
+    page.fill("#source-edit-name", "Renamed")
+    page.click("#source-edit-save")
+    page.wait_for_timeout(300)
+
+    writes = page.evaluate("() => window.__writes")
+    assert [w["body"]["source_name"] for w in writes
+            if w["path"] == "/api/sources/SHORT/edit"] == ["Renamed"], writes
+    assert page.evaluate("() => window.__rulesReads") == 2
+    assert "The name and details were saved" in text_of(page, "#source-edit-result")
+
+
+def test_clearing_a_choice_keeps_focus_on_its_field(open_panel):
+    page = open_panel()
+    page.click(SOURCES_TAB)
+    page.wait_for_timeout(250)
+    page.click('[data-edit-source="SHORT"]')
+    page.wait_for_timeout(250)
+    page.fill("#source-edit-pace", "9")
+    page.click("#source-edit-save")
+    page.wait_for_timeout(250)
+    page.fill("#source-edit-agent", "typing, unsaved")
+
+    page.click('[data-clear-rule="crawl_pace_s"]')
+    page.wait_for_timeout(250)
+
+    assert page.evaluate("() => document.activeElement?.id") == "source-edit-pace"
+    assert page.input_value("#source-edit-pace") == ""
+    assert page.input_value("#source-edit-agent") == "typing, unsaved"
+    assert "Cleared" in text_of(page, "#source-edit-result")
+
+
 def test_sources_scroll_inside_the_library_card_not_the_page(open_panel):
     page = open_panel()
     page.click(SOURCES_TAB)

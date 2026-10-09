@@ -33,7 +33,8 @@ const constant = (name) => lift(new RegExp(`^const ${name} = \\{[\\s\\S]*?\\};`,
 const PURE = [constant("RULE_ORIGINS"), constant("RULE_IDS"), constant("ROBOTS_WORDS"),
               fn("ruleNumber"), fn("ruleValueText"), fn("ruleGeneralText"),
               fn("ruleShipsOpinion"), fn("ruleOrigin"), fn("ruleChanges"),
-              fn("sourceRulesForm"), fn("renderSourceRules")].join("\n");
+              fn("sourceRulesForm"), fn("renderRuleField"), fn("holdRuleControls"),
+              fn("renderSourceRules")].join("\n");
 
 function load(context, extra = "", names = "ruleOrigin, ruleChanges") {
   return vm.runInNewContext(`${PURE}\n${extra}\n({${names}});`, context);
@@ -88,7 +89,7 @@ test("his choice on a field the source is silent on returns to the general rule"
   const chosen = answer({user_agent: {value: "HisAgent/2.0", shipped: null,
                                       origin: "choice"}});
   assert.equal(ruleOrigin("user_agent", chosen),
-               "Your choice. Clearing it returns to your general rule (settings): "
+               "Your choice. Clearing it returns to your general rule (Settings): "
                + `${GENERAL.user_agent}.`);
 });
 
@@ -165,20 +166,22 @@ test("leaving custom sends the new choice and no rule", () => {
 
 function fakeDom() {
   const nodes = {};
+  const focused = [];
   const node = (id) => (nodes[id] ??= {id, value: "", checked: false, placeholder: "",
-                                       textContent: "", hidden: true});
+                                       textContent: "", hidden: true, disabled: false,
+                                       focus: () => focused.push(id)});
   const clears = Object.fromEntries(["active", "robots", "user_agent", "crawl_pace_s"]
     .map((field) => [field, {hidden: true}]));
   const document = {
     querySelector: (selector) => clears[selector.match(/data-clear-rule="([^"]+)"/)[1]],
   };
-  return {nodes, node, clears, document};
+  return {nodes, node, clears, document, focused};
 }
 
 test("the answer is drawn with each sentence, and Clear only beside his choices", () => {
   const dom = fakeDom();
   const drawnRobots = [];
-  const context = {$: dom.node, document: dom.document, state: {},
+  const context = {$: dom.node, document: dom.document, state: {sources: []},
                    renderRobotsChoice: (source) => drawnRobots.push(source)};
   const {renderSourceRules} = load(context, "", "renderSourceRules");
   const chosen = answer({crawl_pace_s: {value: 9, shipped: 3.0, origin: "choice"}});
@@ -195,27 +198,113 @@ test("the answer is drawn with each sentence, and Clear only beside his choices"
   assert.equal(dom.clears.crawl_pace_s.hidden, false);
   assert.equal(dom.clears.robots.hidden, true);
   assert.deepEqual({...drawnRobots[0]}, {robots: "obey", robots_custom: null});
+  for (const id of ["robots", "robots-enforce", "robots-delay", "agent", "pace"]) {
+    assert.equal(dom.nodes[`source-edit-${id}`].disabled, false, `${id} is still held`);
+  }
+});
+
+test("the controls the answer fills are held until it arrives, then let go", () => {
+  const dom = fakeDom();
+  const context = {$: dom.node, document: dom.document, renderRobotsChoice: () => {},
+                   state: {sources: [{source_key: "SHOP", implemented: true}],
+                           editingSourceKey: "SHOP"}};
+  const {holdRuleControls} = load(context, "", "holdRuleControls");
+
+  holdRuleControls(true);
+  for (const id of ["active", "robots", "robots-enforce", "robots-delay", "agent", "pace"]) {
+    assert.equal(dom.nodes[`source-edit-${id}`].disabled, true, `${id} was not held`);
+  }
+  holdRuleControls(false);
+  assert.equal(dom.nodes["source-edit-active"].disabled, false);
+  context.state.sources[0].implemented = false;
+  holdRuleControls(false);
+  assert.equal(dom.nodes["source-edit-active"].disabled, true,
+               "the switch of a source with no working connector was let go");
+});
+
+// ---- Clear: one field, its body null, focus kept on it ------------------------------
+
+function clearer(field, cleared) {
+  const dom = fakeDom();
+  const posts = [];
+  const said = [];
+  const drawn = {sites: 0};
+  const source = {source_key: "SHOP", active: true, implemented: true};
+  const context = {
+    $: dom.node, document: dom.document, icon: () => "", esc: (v) => String(v),
+    out: (id, html) => said.push(html), renderRobotsChoice: () => {},
+    renderSites: () => { drawn.sites += 1; }, renderSourceManager: () => {},
+    state: {sources: [source], editingSourceKey: "SHOP", editingRulesKey: "SHOP",
+            sourceRules: answer()},
+    post: async (url, body) => { posts.push([url, body]); return cleared; },
+  };
+  const {clearSourceRule} = load(context, fn("clearSourceRule"), "clearSourceRule");
+  return {clearSourceRule, dom, posts, said, drawn, source, context};
+}
+
+for (const [field, id] of [["active", "active"], ["robots", "robots"],
+                           ["user_agent", "agent"], ["crawl_pace_s", "pace"]]) {
+  test(`clearing ${field} sends {${field}: null}, redraws only it, and keeps focus there`,
+       async () => {
+    const cleared = answer();
+    const {clearSourceRule, dom, posts} = clearer(field, cleared);
+    // What he is typing elsewhere, unsaved: a Clear must not take it.
+    const others = {active: "source-edit-active", user_agent: "source-edit-agent",
+                    crawl_pace_s: "source-edit-pace"};
+    for (const [other, input] of Object.entries(others)) {
+      if (other !== field) dom.node(input).value = "typing";
+    }
+
+    await clearSourceRule(field);
+
+    assert.deepEqual(posts.map(([url, body]) => [url, {...body}]),
+                     [["/api/sources/SHOP/rules", {[field]: null}]]);
+    assert.deepEqual(dom.focused, [`source-edit-${id}`]);
+    for (const [other, input] of Object.entries(others)) {
+      if (other !== field) assert.equal(dom.nodes[input].value, "typing", `${other} was redrawn`);
+    }
+    assert.match(dom.nodes[`source-edit-${id}-origin`].textContent,
+                 /^(From the source|Your general rule)/);
+  });
+}
+
+test("clearing the switch puts the source's value on its card, and the lists are redrawn", async () => {
+  const cleared = answer();             // ships off
+  const {clearSourceRule, source, drawn} = clearer("active", cleared);
+
+  await clearSourceRule("active");
+
+  assert.equal(source.active, false);
+  assert.equal(drawn.sites, 1);
 });
 
 // ---- saving: the manifest's fields to /edit, his choices to /rules ------------------
 
-function saver(answerNow, source, form, refusal = null) {
+function saver(answerNow, source, form, {legacy = false, refuse = null,
+                                          reread = null, reply = answerNow} = {}) {
   const posts = [];
   const said = [];
+  const drawn = {sites: 0, editor: 0, reread: 0};
   const dom = fakeDom();
   Object.assign(dom.node("source-edit-name"), {value: source.source_name ?? ""});
   for (const [id, value] of Object.entries(form)) Object.assign(dom.node(id), value);
   const context = {
     $: dom.node, document: dom.document, icon: () => "", esc: (v) => String(v),
-    out: (id, html) => said.push(html), renderSites: () => {}, renderSourceManager: () => {},
-    capabilityRefusal: (key) => (key === "source_rules" ? refusal : null),
-    renderRobotsChoice: () => {},
+    out: (id, html) => said.push(html), renderSites: () => { drawn.sites += 1; },
+    renderSourceManager: () => {}, renderRobotsChoice: () => {},
+    renderSourceEditor: () => { drawn.editor += 1; },
+    loadSourceRules: async () => { drawn.reread += 1; return reread; },
     state: {sources: [source], editingSourceKey: source.source_key,
-            editingRulesKey: source.site_key || source.source_key, sourceRules: answerNow},
-    post: async (url, body) => { posts.push([url, body]); return answerNow; },
+            editingRulesKey: source.site_key || source.source_key, sourceRules: answerNow,
+            sourceRulesLegacy: legacy},
+    post: async (url, body) => {
+      posts.push([url, body]);
+      if (refuse && url.endsWith(refuse)) throw new Error("a crawl is currently writing");
+      return reply;
+    },
   };
   const {saveSourceEditor} = load(context, fn("saveSourceEditor"), "saveSourceEditor");
-  return {saveSourceEditor, posts, said};
+  return {saveSourceEditor, posts, said, drawn, source};
 }
 
 test("a price source's crawl rules go to /rules as numbers, never to /edit", async () => {
@@ -267,7 +356,24 @@ test("every field has its origin line and its Clear button, and the pace is a nu
   for (const field of ["active", "robots", "user_agent", "crawl_pace_s"]) {
     assert.match(HTML, new RegExp(`data-clear-rule="${field}"`), field);
   }
-  assert.match(HTML, /<input id="source-edit-pace" type="number"/);
+  assert.match(HTML, /<input id="source-edit-pace" type="number" min="0\.1" step="0\.1"/,
+               "the pace steps as the Settings page's general pace does");
+});
+
+test("each Clear is named with its field, and the two seconds boxes are told apart", () => {
+  const names = [...HTML.matchAll(/data-clear-rule="([^"]+)"\s+aria-label="([^"]+)"/g)];
+  assert.deepEqual(names.map(([, field]) => field).sort(),
+                   ["active", "crawl_pace_s", "robots", "user_agent"]);
+  assert.equal(new Set(names.map(([, , label]) => label)).size, 4, "two Clears share a name");
+  const label = (id) => HTML.match(new RegExp(`<label for="${id}">([^<]+)</label>`))[1];
+  assert.notEqual(label("source-edit-robots-delay"), label("source-edit-pace"));
+});
+
+test("Save sits below the last card it saves, and the Automation card is a price card's", () => {
+  const fetchCard = HTML.indexOf('aria-labelledby="source-edit-fetch-heading"');
+  const save = HTML.indexOf('id="source-edit-save"');
+  assert.ok(fetchCard > 0 && save > fetchCard, "Save is above a card it saves");
+  assert.match(HTML, /aria-labelledby="source-edit-automation-heading"\s+data-price-only/);
 });
 
 test("the price-only parts of the editor are marked, so a directory card hides them", () => {
@@ -279,39 +385,120 @@ test("the price-only parts of the editor are marked, so a directory card hides t
 });
 
 
-// ---- an engine too old for /rules is said, before anything is sent (§1.6) -----------
+// What the save compares against: a price card whose details the form holds unchanged.
+const UNCHANGED = {source_name: "Shop", source_name_ar: "", base_url: "", currency: "",
+                   cadence: "", vat_mode: "", fold_variants: false};
 
-const TOO_OLD = "«source_rules» is not deployed by this ScrapeX engine (0.4.53)";
-
-test("an engine without the rules routes refuses the whole save, sending nothing", async () => {
-  const source = {source_key: "SHOP", source_name: "Shop"};
-  const {saveSourceEditor, posts, said} = saver(answer(), source, {
-    "source-edit-pace": {value: "9"}, "source-edit-name": {value: "Renamed"},
-  }, TOO_OLD);
+test("saving the switch puts the engine's answer on the source's card, and redraws the lists",
+     async () => {
+  const source = {source_key: "SHOP", ...UNCHANGED, active: false};
+  const {saveSourceEditor, posts, drawn} = saver(answer(), source, {
+    "source-edit-active": {checked: true}, "source-edit-pace": {value: "3"},
+    "source-edit-robots": {value: "obey"},
+  }, {reply: answer({active: {value: true, shipped: false, origin: "choice"}})});
 
   await saveSourceEditor();
 
-  assert.deepEqual(posts, [], "a request reached an engine that cannot answer it");
-  assert.ok(said.some((line) => line.includes("not deployed")), said.join(" | "));
+  assert.deepEqual(posts.map(([url, body]) => [url, {...body}]),
+                   [["/api/sources/SHOP/rules", {active: true}]]);
+  assert.equal(source.active, true, "the Auto chip still reads the old value");
+  assert.equal(drawn.sites, 1);
 });
 
-test("reading and clearing ask the same question first", async () => {
-  for (const name of ["loadSourceRules", "clearSourceRule"]) {
-    const asked = [];
-    const said = [];
-    const context = {
-      $: () => ({}), document: {querySelector: () => null}, icon: () => "",
-      esc: (v) => String(v), out: (id, html) => said.push(html),
-      state: {editingRulesKey: "SHOP", sources: []},
-      capabilityRefusal: (key) => { asked.push(key); return TOO_OLD; },
-      api: async () => { throw new Error("asked an engine that cannot answer"); },
-      post: async () => { throw new Error("posted to an engine that cannot answer"); },
-    };
-    const run = vm.runInNewContext(`${fn(name)}\n${name};`, context);
-    await run(name === "loadSourceRules" ? "SHOP" : "user_agent");
-    assert.deepEqual(asked, ["source_rules"], name);
-    assert.ok(said.some((line) => line.includes("not deployed")), name);
-  }
+// ---- half saved is said as half --------------------------------------------------------
+
+test("a rename saved before his choices were refused says so, and redraws the lists",
+     async () => {
+  const source = {source_key: "SHOP", source_name: "Shop"};
+  const {saveSourceEditor, posts, said, drawn} = saver(answer(), source, {
+    "source-edit-name": {value: "Renamed"}, "source-edit-pace": {value: "9"},
+  }, {refuse: "/rules"});
+
+  await saveSourceEditor();
+
+  assert.deepEqual(posts.map(([url]) => url),
+                   ["/api/sources/SHOP/edit", "/api/sources/SHOP/rules"]);
+  assert.match(said.at(-1), /The name and details were saved; your crawl choices were not: a crawl/);
+  assert.equal(source.source_name, "Renamed");
+  assert.equal(drawn.sites, 1, "the lists kept the old name");
+});
+
+// ---- the rules could not be read: the details still save, and Save reads again ------
+
+test("unread rules do not stop the name saving, and Save reads them again", async () => {
+  const source = {source_key: "SHOP", source_name: "Shop"};
+  const {saveSourceEditor, posts, said, drawn} = saver(null, source, {
+    "source-edit-name": {value: "Renamed"},
+  });
+
+  await saveSourceEditor();
+
+  assert.deepEqual(posts.map(([url]) => url), ["/api/sources/SHOP/edit"]);
+  assert.equal(drawn.reread, 1);
+  assert.match(said.at(-1), /The name and details were saved\. How this source is crawled/);
+  assert.equal(drawn.sites, 1);
+});
+
+test("rules read again on Save let the save finish", async () => {
+  const source = {source_key: "SHOP", ...UNCHANGED};
+  const {saveSourceEditor, posts, said, drawn} = saver(null, source, {
+    "source-edit-pace": {value: "3"}, "source-edit-robots": {value: "obey"},
+  }, {reread: answer()});
+
+  await saveSourceEditor();
+
+  assert.equal(drawn.reread, 1);
+  assert.deepEqual(posts, [], "nothing changed, so nothing is sent");
+  assert.match(said.at(-1), /Changes saved/);
+});
+
+// ---- an engine without /rules edits as the editor always did (§1.6, #1584) ----------
+
+test("an engine without the rules routes saves the name and robots through /edit", async () => {
+  const source = {source_key: "SHOP", source_name: "Shop", active: false, robots: "default",
+                  robots_custom: null};
+  const {saveSourceEditor, posts, said, drawn} = saver(null, source, {
+    "source-edit-name": {value: "Renamed"}, "source-edit-robots": {value: "custom"},
+    "source-edit-robots-enforce": {checked: true}, "source-edit-robots-delay": {value: "2"},
+    "source-edit-active": {checked: true},
+  }, {legacy: true});
+
+  await saveSourceEditor();
+
+  assert.deepEqual(posts.map(([url]) => url),
+                   ["/api/sources/SHOP/edit", "/api/sources/SHOP/active"]);
+  const edit = posts[0][1];
+  assert.equal(edit.source_name, "Renamed");
+  assert.equal(edit.robots, "custom");
+  assert.deepEqual({...edit.robots_custom}, {enforce_disallow: true, crawl_delay_s: 2});
+  assert.deepEqual({...posts[1][1]}, {active: true});
+  assert.equal(source.active, true);
+  assert.equal(drawn.reread, 0, "/rules was read from an engine that has none");
+  assert.match(said.at(-1), /Changes saved/);
+  assert.ok(!said.some((line) => /source_rules|Update the engine/.test(line)), said.join(" | "));
+});
+
+test("an engine without the rules routes is sent nothing when nothing changed", async () => {
+  const source = {source_key: "SHOP", ...UNCHANGED, active: false, robots: "default",
+                  robots_custom: null};
+  const {saveSourceEditor, posts} = saver(null, source, {
+    "source-edit-robots": {value: "default"},
+  }, {legacy: true});
+
+  await saveSourceEditor();
+
+  assert.deepEqual(posts, []);
+});
+
+test("the editor asks once whether /rules exists, and reads it after emptying the result line",
+     () => {
+  const body = fn("renderSourceEditor");
+  assert.match(body, /const legacy = Boolean\(capabilityRefusal\("source_rules"\)\)/);
+  const emptied = body.lastIndexOf('out("source-edit-result", "")');
+  const read = body.indexOf("if (!legacy) loadSourceRules(state.editingRulesKey)");
+  assert.ok(emptied > 0 && read > emptied,
+            "the rules are read before the result line is emptied, which wipes what they say");
+  assert.match(body, /\[data-rules-only\][\s\S]*node\.hidden = legacy/);
 });
 
 // ---- no automation switch for a dataset or directory card (his ruling, 2026-10-09) ---
