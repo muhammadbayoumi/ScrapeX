@@ -5513,7 +5513,8 @@ async function pollJobOnce() {
     renderMiniplayer(null); renderActivity(null);
     pollFailures += 1;
     if (lastActiveRefs && lastActiveRefs.size && document.visibilityState === "visible") {
-      const wait = POLL_BACKOFF_MS[Math.min(pollFailures, POLL_BACKOFF_MS.length - 1)];
+      // `pollFailures` counts this failure already, so the first one reads index 0.
+      const wait = POLL_BACKOFF_MS[Math.min(pollFailures - 1, POLL_BACKOFF_MS.length - 1)];
       pollTimer = setTimeout(() => { pollJob(); }, wait);
     } else {
       // NOT BACKING OFF IS NOT STOPPING: with no job known to be active, the slow probe

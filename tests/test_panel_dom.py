@@ -11319,12 +11319,18 @@ def test_the_player_names_the_source_by_its_domain_on_any_page(open_panel):
         "() => (document.getElementById('mini-title').textContent || '')"
         ".includes('muqawil.org')", timeout=5000)
     assert page.text_content("#mini-title").startswith("Profile fetch · muqawil.org")
+    # AND THE LINE UNDER IT: the source the job is on now, by the same name.
+    page.wait_for_function(
+        "() => (document.getElementById('mini-sub').textContent || '')"
+        ".includes('now: muqawil.org')", timeout=5000)
+    assert "muqawil_org" not in page.text_content("#mini-sub")
 
 
 def test_a_failed_tick_tries_again_and_the_player_comes_back(open_panel):
     """A FAILED TICK USED TO END POLLING FOR GOOD: the catch hid the player and returned
     with no timer, so one timeout left it hidden until he navigated. It now backs off
-    (1.5 s, then 3 s) while there was a job to follow, and the first success redraws it."""
+    (1.5 s, then 3 s) while there was a job to follow, and the first success redraws it.
+    The schedule itself is pinned in extension/tests/the-tick-keeps-asking.test.mjs."""
     page = open_panel(jobs=HIS_JOBS)
     page.wait_for_function(
         "() => !document.getElementById('miniplayer').classList.contains('hidden')")
