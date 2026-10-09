@@ -1553,7 +1553,6 @@ async function confirmTimeZoneShared() {
 }
 
 // ---- sites -----------------------------------------------------------------
-function hostOf(url) { try { return new URL(url).host; } catch (_) { return url || ""; } }
 
 // The one rule, in jobsview.js, so a job and a source are named by the same domain.
 function sourceDomain(url) { return domainOf(url); }
