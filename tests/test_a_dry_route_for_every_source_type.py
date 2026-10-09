@@ -414,8 +414,7 @@ def test_the_route_serves_the_declared_hover_verbatim(client):
     expected = {
         DATASET: {one.key: one for one in passes.directory_passes(
             contractors.get_directory(SITE), scope=CrawlScope.LISTING_ONLY)},
-        PRICE: {one.key: one for one in passes.price_passes(entry, active=entry.active,
-                                                           last_requests=812)},
+        PRICE: {one.key: one for one in passes.price_passes(entry, last_requests=812)},
     }
     for key, declared in expected.items():
         for served in client.get(f"/api/dry/{key}").json()["passes"]:
