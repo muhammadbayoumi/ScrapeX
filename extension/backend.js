@@ -295,7 +295,7 @@ export async function sourceFor(path) {
   // PIN THE REPRESENTATION FOR THE WHOLE UPLOAD.
   //
   // `/api/bundle/archive` re-resolves "the newest zip on disk" on EVERY request
-  // (scrapex/webui/app.py:3268), and 541,531,989 bytes is ~130 requests spread
+  // (scrapex/webui/app.py:3274), and 541,531,989 bytes is ~130 requests spread
   // over minutes. A second panel window -- side panels are per window, so that
   // is a second document -- taking a backup mid-upload finishes a new build, and
   // every chunk after it comes from a DIFFERENT file. The length guard below

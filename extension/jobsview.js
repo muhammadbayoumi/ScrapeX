@@ -207,7 +207,7 @@ export function progressFraction(job) {
  *
  * THE SHAPE IS `_queued_behind`'s AND WAS ASSUMED ONCE ALREADY. This read
  * `behind.job_ref`, `current_source_key` and `source_keys` -- three fields no producer
- * emits. `_queued_behind` (`scrapex/webui/app.py:4356-4371`) returns exactly
+ * emits. `_queued_behind` (`scrapex/webui/app.py:4362-4377`) returns exactly
  * `{position, capacity, running_count, running, starting_now}`, so the branch was dead
  * against the real engine, every queued job fell through to "waiting for a worker", and
  * the guard passed only because it fabricated the payload. Same defect as reading
