@@ -641,7 +641,7 @@ def nothing_the_worker_does_goes_unnoticed(monkeypatch):
 
 @pytest.fixture
 def panel(updater, published, nothing_the_worker_does_goes_unnoticed):
-    """The update routes, mounted the way `scrapex/webui/app.py:650` mounts them.
+    """The update routes, mounted the way `scrapex/webui/app.py:656` mounts them.
 
     A FRESH ROUTER PER TEST. `create_update_router` keeps the phase, the lock and
     the one-at-a-time flag in a closure, so a shared router would carry a staged
