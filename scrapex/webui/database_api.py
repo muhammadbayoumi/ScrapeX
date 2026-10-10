@@ -3,9 +3,10 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 from ..databases import DatabaseRegistry
+from ..dbupgrade import upgrade_what_is_only_behind
 
 
 def create_database_router(
@@ -46,17 +47,24 @@ def create_database_router(
         It cannot fix the OPPOSITE fault: a database written by a NEWER build
         than the one running. Migrations only go forward, so that state needs a
         newer engine, which is what Restart engine is for.
+
+        THROUGH THE GUARDED PATH, the one `native.upgrade_database` and the CLI take
+        (#1635). This called `initialize()` bare -- no backup, no refusal over damage,
+        nothing said -- and it is the door the panel tries FIRST
+        (`upgradeDatabaseFromPanel`), so whenever the engine answered, the button
+        migrated his warehouse with no copy beside it. A refusal is a 409 carrying the
+        reason in words, which the panel shows as it shows any refusal.
         """
-        applied = current().initialize()
-        moved = {name: numbers for name, numbers in applied.items() if numbers}
+        registry = current()
+        report, outcome = upgrade_what_is_only_behind(registry, registry.ensure_ready())
+        if outcome.refused:
+            raise HTTPException(status_code=409, detail=outcome.refused)
         return {
             "ok": True,
-            "applied": applied,
-            "message": ("Both databases are already up to date."
-                        if not moved else
-                        "Applied " + ", ".join(
-                            f"{len(numbers)} migration{'s' if len(numbers) != 1 else ''} "
-                            f"to {name}" for name, numbers in moved.items()) + "."),
+            "applied": outcome.applied,
+            "databases": report.get("databases") or {},
+            "backups": [{"kind": kind, "path": where} for kind, where in outcome.backups],
+            "message": outcome.message(),
         }
 
     return router
