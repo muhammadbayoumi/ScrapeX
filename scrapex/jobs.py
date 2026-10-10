@@ -32,7 +32,7 @@ from urllib.parse import urlsplit
 from . import db as dbmod
 from .archive import backup_database
 from .capture import CaptureResult, capture_source
-from .connectors.base import CrawlBlocked, CrawlInterrupted, stopped_because
+from .connectors.base import CrawlBlocked, CrawlInterrupted, HostRefused, stopped_because
 from .ingest import canary_breach, previous_rows_seen
 from .payload import utc_now_iso
 from .vocab import (
@@ -833,6 +833,13 @@ def _run_source(run: _SourceRun, conn: sqlite3.Connection, source_key: str) -> b
                     last_heartbeat_at=utc_now_iso())
         conn.commit()
         return False
+    except HostRefused as refused:
+        # OURS, NOT THE SITE'S, AND NOT A PAUSE: a Resume would only be refused again.
+        # This source fails alone and the job carries on with the others, as any
+        # other source's failure does; the sentence names the host and its record.
+        run.errors.append(f"{source_key}: {refused}")
+        append_log(conn, run.job_id, f"failed: {refused}", level=LogLevel.ERROR,
+                   source_key=source_key)
     except CrawlBlocked as blocked:
         # THE SITE STOPPED THIS SOURCE, NOT THE OWNER -- and his ruling on #1448
         # is that it pauses rather than fails. A pause for THIS source only: the

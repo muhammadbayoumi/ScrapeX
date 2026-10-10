@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 
 import httpx
 
-from ..config import SourceEntry
+from ..config import SourceEntry, refusal, refused_host
 from ..payload import FunnelPayload, new_payload, utc_now_iso
 from ..vocab import ExtractKind, Fetcher, PayloadClient
 
@@ -307,14 +307,38 @@ class RobotsUnreachable(CrawlBlocked):
     """
 
 
+class HostRefused(CrawlBlocked):
+    """A request was about to go to a host ScrapeX never contacts (`config.REFUSED_HOSTS`).
+
+    Raised by the client's request hook, before DNS or a connection, on every hop --
+    a redirect from a harmless page included. A CrawlBlocked for the reason
+    CrawlInterrupted gives: every per-page guard re-raises one, so the run of the
+    source that led here stops at the first such request instead of trying again page
+    after page. Not a pause: Resume would only be refused again, so every runner
+    settles it as a failure (`jobs`, `directoryjob.pause_for_the_site`).
+    """
+
+
+def refuse_listed_host(request: httpx.Request) -> None:
+    """The httpx request hook that keeps every fetcher away from a refused host.
+
+    `raw_host` is the ASCII form httpx will resolve, so a Unicode spelling is checked
+    as the name it becomes.
+    """
+    entry = refused_host(request.url.raw_host.decode("ascii"))
+    if entry is not None:
+        raise HostRefused(refusal(entry))
+
+
 def stopped_because(blocked: CrawlBlocked) -> str:
     """How a job log names what stopped a site's run -- ONE spelling for every runner.
 
     AN UNREACHABLE robots.txt IS NOT A BLOCK, and "blocked by the site" over a
     refused connection would send him looking for a ban that does not exist. Its
-    own sentence already names the host, the status and RFC 9309 (ES-2).
+    own sentence already names the host, the status and RFC 9309 (ES-2). A refused
+    host is not a block by the site either: the refusal is ours, and says so.
     """
-    if isinstance(blocked, RobotsUnreachable):
+    if isinstance(blocked, (RobotsUnreachable, HostRefused)):
         return str(blocked)
     return f"blocked by the site ({blocked})"
 
@@ -479,6 +503,10 @@ class HttpFetcher:
             headers=browser_headers(user_agent, client_hints),
             timeout=timeout_s,
             follow_redirects=True,
+            # EVERY HOP, BEFORE IT LEAVES: httpx runs request hooks inside its
+            # redirect loop, so a refused host is refused as a redirect target and
+            # for its robots.txt too -- not only as the URL a connector asked for.
+            event_hooks={"request": [refuse_listed_host]},
             verify=shared_ssl_context(),   # see the note above: 1633ms -> 0.6ms
             # THE LAST THING THE REQUEST SAID ABOUT ITSELF BEFORE ITS HEADERS.
             #
@@ -966,6 +994,10 @@ class HttpFetcher:
                 # 404 is an ANSWER: the site has no file. Anything else means we
                 # never got to read one (#1413).
                 unreadable = f"HTTP {answer.status_code}"
+        except HostRefused:
+            # Not "robots.txt could not be read": nothing was sent, and the run must
+            # hear why rather than crawl on as if the site had no file.
+            raise
         except Exception as exc:
             # Classified by type in `is_unreachable`: the network's failure pauses,
             # any other (too many redirects, a body that would not decode) does not.
@@ -1297,7 +1329,16 @@ class BrowserFetcher:
 
     def get_html(self, url: str, wait_selector: str | None = None, retries: int = 2) -> str:
         """Fetch a fully-rendered page. S7: selector waits (never fixed sleeps),
-        2 retries with backoff, artifacts on final failure."""
+        2 retries with backoff, artifacts on final failure.
+
+        A REFUSED HOST IS REFUSED BEFORE THE BROWSER STARTS -- but only as the URL
+        asked for. Chromium follows redirects and loads subresources itself, outside
+        the httpx hook, so a page that leads there is NOT covered. Nothing calls this
+        fetcher today; whoever wires it in owes it a route-level refusal first.
+        """
+        entry = refused_host(url)
+        if entry is not None:
+            raise HostRefused(refusal(entry))
         from playwright.sync_api import sync_playwright
 
         last_error: Exception | None = None

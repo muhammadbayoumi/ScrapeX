@@ -20,6 +20,7 @@ from .catalog_models import (
     FieldCreate,
     SiteCreate,
 )
+from .config import refusal, refused_host
 
 
 def _json(value: dict[str, Any]) -> str:
@@ -111,6 +112,10 @@ def _field_public(row: sqlite3.Row) -> dict[str, Any]:
 def register_site(conn: sqlite3.Connection, request: SiteCreate) -> dict[str, Any]:
     """Register a site idempotently without overwriting its stable identity."""
     base_url = str(request.base_url)
+    refused = refused_host(base_url)
+    if refused is not None:
+        # A conflict, so both routers answer 409 with the sentence as it is.
+        raise CatalogConflict(refusal(refused))
     try:
         conn.execute("SELECT price_source_key FROM source_site LIMIT 0")
         general_schema = True

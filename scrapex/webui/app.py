@@ -56,7 +56,13 @@ from .. import version as engine_version
 from ..capture import capture_source, crawl_settings
 from ..catalog_models import SiteCreate
 from ..changes import change_summary, recent_changes
-from ..config import SourceEntry, load_manifest, resolve_manifest_path
+from ..config import (
+    RefusedHostError,
+    SourceEntry,
+    checked_host,
+    load_manifest,
+    resolve_manifest_path,
+)
 from ..connectors.base import CrawlBlocked, HttpFetcher, resolve_user_agent
 from ..connectors.factory import _BUILDERS, supports_history
 from ..databases import (
@@ -151,7 +157,7 @@ from ..settings import get as settings_get
 from ..settings import save as save_settings
 from ..settings import set_state as set_settings_state
 from ..snapshotcrawl import stored_under_run
-from ..sourceresolver import SourceResolver
+from ..sourceresolver import RefusedSource, SourceResolver
 from ..sources_admin import SourceKeyInUse, rename_source, source_footprint
 from ..storage import (
     FREE_SPACE_MARGIN,
@@ -2300,6 +2306,12 @@ def create_app(
         url = (body or {}).get("url", "").strip()
         if not url:
             raise HTTPException(status_code=400, detail="url is required")
+        # BEFORE THE PROBE, not inside it: `probe_url` turns every fetch error into
+        # "the site did not respond" and offers to register it anyway.
+        try:
+            checked_host(url)
+        except RefusedHostError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
         return probe_url(url).to_json()
 
     @app.post("/api/sources/{source_key}/active")
@@ -2336,6 +2348,8 @@ def create_app(
                        "its editor")
         try:
             entry = _entry_from_form(body or {})
+        except RefusedHostError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
         except (ValueError, KeyError) as exc:
             raise HTTPException(status_code=400, detail=f"invalid source: {exc}")
         try:
@@ -4768,6 +4782,8 @@ def create_app(
                 continue
             try:
                 sources.get(key)
+            except RefusedSource as exc:
+                raise HTTPException(status_code=400, detail=str(exc))
             except LookupError:
                 raise HTTPException(status_code=404, detail=f"unknown source_key {key!r}")
         # AND WHICH COLLECTOR READS IT, decided here for the same reason the key is
@@ -5443,4 +5459,7 @@ def _entry_from_form(form: dict) -> SourceEntry:
     for field in SourceEntry.model_fields:
         if field not in data and field in form:
             data[field] = form[field]
+    # The site's own address is refused HERE as well as by the model, so the panel
+    # reads the one sentence and not pydantic's report of it.
+    checked_host(data.get("base_url"))
     return SourceEntry.model_validate(data)

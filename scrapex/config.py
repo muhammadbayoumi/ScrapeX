@@ -10,9 +10,10 @@ from __future__ import annotations
 import math
 import os
 import re
-from dataclasses import fields
+from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlsplit
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -176,6 +177,89 @@ def checked_user_agent(value: object) -> str | None:
     return agent
 
 
+# ---- hosts ScrapeX never contacts --------------------------------------------------
+#
+# A host lands here when it has been found to be harmful, on the owner's word, and each
+# entry names the issue that records why. Every door that takes a URL asks
+# `refused_host`: the manifest and the panel's add, edit and probe refuse to declare
+# it, and the fetchers refuse to send a request to it -- on every redirect hop and for
+# robots.txt too, so a harmless source cannot lead the crawl into it either.
+#
+# BY NAME, NOT BY ADDRESS. A refused name and every name under it (www., shop.) match;
+# an IP literal, or another domain pointing at the same server, does not -- this is a
+# list of names somebody decided about, not a firewall.
+
+@dataclass(frozen=True)
+class RefusedHost:
+    host: str     # the registrable name, lowercase ASCII, e.g. "ahrambc.com"
+    reason: str   # what was found, in a few words
+    record: str   # the issue that records it, e.g. "#1644"
+
+
+REFUSED_HOSTS: dict[str, RefusedHost] = {entry.host: entry for entry in [
+    RefusedHost("ahrambc.com", "it served a malware page", "#1644"),
+]}
+
+_IDEOGRAPHIC_DOTS = re.compile("[。．｡]")
+
+
+def canonical_host(url: str) -> str:
+    """The host a URL names, as the resolver will look it up: lowercase ASCII, no port,
+    no user, no trailing dot.
+
+    THE SPELLINGS THAT REACH THE SAME SERVER all come out the same: `AhramBC.com.`,
+    `ahrambc。com`, full-width `ａｈｒａｍｂｃ．ｃｏｍ` -- the stdlib IDNA codec maps
+    them as a resolver does. A bare `host/path` with no scheme is read as a host, not
+    as a path, because a person typing a site into the panel types it that way.
+    """
+    text = (url or "").strip()
+    try:
+        host = urlsplit(text if "://" in text else "http://" + text).hostname or ""
+    except ValueError:
+        # Not a URL at all (an unclosed `[` of an IPv6 literal): it names no host, so
+        # none is refused -- whatever reads it next refuses it as malformed.
+        return ""
+    try:
+        host = host.encode("idna").decode("ascii")
+    except UnicodeError:
+        # Not a name IDNA can encode (an over-long label, a forbidden character): no
+        # resolver will find it either. Compare what was typed, its dots unified.
+        host = _IDEOGRAPHIC_DOTS.sub(".", host)
+    return host.lower().rstrip(".")
+
+
+def refused_host(url: str) -> RefusedHost | None:
+    """The registry entry that refuses this URL's host, or None."""
+    host = canonical_host(url)
+    labels = host.split(".")
+    for start in range(len(labels)):
+        entry = REFUSED_HOSTS.get(".".join(labels[start:]))
+        if entry is not None:
+            return entry
+    return None
+
+
+def refusal(entry: RefusedHost) -> str:
+    """The one sentence every door says when it refuses a host."""
+    return (f"ScrapeX does not contact {entry.host}: {entry.reason} ({entry.record}). "
+            f"Nothing was sent to it.")
+
+
+class RefusedHostError(ValueError):
+    """A door was handed a URL on a refused host. Its text is `refusal`, whole, so a
+    route can show it as it is rather than under "invalid source:"."""
+
+
+def checked_host(url: object) -> str:
+    """A URL whose host ScrapeX may contact, or RefusedHostError with the refusal."""
+    if url is None:
+        return url
+    entry = refused_host(str(url))
+    if entry is not None:
+        raise RefusedHostError(refusal(entry))
+    return url
+
+
 class ExtractSpec(BaseModel):
     """One extract block: exactly WHAT this source may produce (the contract)."""
 
@@ -237,6 +321,11 @@ class TaxonomyConfig(BaseModel):
     listing_path: str | None = None
     listing_path_ar: str | None = None
 
+    @field_validator("base_url")
+    @classmethod
+    def _taxonomy_host_is_not_refused(cls, v: str | None) -> str | None:
+        return checked_host(v)
+
 
 class ApiConfig(BaseModel):
     """Endpoint facts for connectors whose data API lives on a DIFFERENT host
@@ -264,6 +353,11 @@ class ApiConfig(BaseModel):
     # two facts, both true. The RATE for that label comes from the source's
     # `tax:` evidence block, where it must carry the sentence it was read from.
     configurable_prices_exclude_tax: bool = False
+
+    @field_validator("base_url")
+    @classmethod
+    def _api_host_is_not_refused(cls, v: str | None) -> str | None:
+        return checked_host(v)
 
 
 class TaxEvidence(BaseModel):
@@ -298,6 +392,11 @@ class TaxEvidence(BaseModel):
     statement_url: str | None = None
     statement_lang: str | None = None
     verified_at: str | None = None
+
+    @field_validator("statement_url")
+    @classmethod
+    def _statement_host_is_not_refused(cls, v: str | None) -> str | None:
+        return checked_host(v)
 
     @model_validator(mode="after")
     def _evidence_must_be_evidenced(self) -> TaxEvidence:
@@ -577,6 +676,11 @@ class SourceEntry(BaseModel):
     @classmethod
     def _user_agent_can_be_sent(cls, v: str | None) -> str | None:
         return checked_user_agent(v)
+
+    @field_validator("base_url")
+    @classmethod
+    def _site_host_is_not_refused(cls, v: str | None) -> str | None:
+        return checked_host(v)
 
     @field_validator("crawl_pace_s", mode="before")
     @classmethod
