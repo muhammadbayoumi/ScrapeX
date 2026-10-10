@@ -192,12 +192,12 @@ def checked_user_agent(value: object) -> str | None:
 @dataclass(frozen=True)
 class RefusedHost:
     host: str     # the registrable name, lowercase ASCII, e.g. "ahrambc.com"
-    reason: str   # what was found, in a few words
+    reason: str   # what the host did, as a predicate: "served a malware page"
     record: str   # the issue that records it, e.g. "#1644"
 
 
 REFUSED_HOSTS: dict[str, RefusedHost] = {entry.host: entry for entry in [
-    RefusedHost("ahrambc.com", "it served a malware page", "#1644"),
+    RefusedHost("ahrambc.com", "served a malware page", "#1644"),
 ]}
 
 _IDEOGRAPHIC_DOTS = re.compile("[。．｡]")
@@ -242,12 +242,14 @@ def refused_host(url: str) -> RefusedHost | None:
 def refusal(entry: RefusedHost) -> str:
     """The one sentence every door says when it refuses a host.
 
-    THE CAUSE FIRST: the Jobs row clamps its error to two lines, which at 320 px is
-    about eighty characters after the source key, so the host and why it is refused
-    come before the reassurance and the record (copywriting.mdx@86c813ec:64-87:
-    what went wrong, specifically, with no blame or apology).
+    THE HOST AND ITS CAUSE FIRST: the Jobs row clamps its error to two lines, and at
+    320 px after his longest key (`ARAMCO_FUEL_SA: `) that leaves about forty
+    characters -- measured, review of #1644 -- so they come before the rest, and the
+    record last, where a clamp costs nothing. SCRAPEX IS NAMED as the one refusing:
+    the same slot already says "Connection refused" for a site that refused us, and
+    a bare "Refused ahrambc.com" reads either way (copywriting.mdx@86c813ec:64-87).
     """
-    return f"Refused {entry.host}: {entry.reason}. Nothing was sent to it ({entry.record})."
+    return f"{entry.host} {entry.reason}, so ScrapeX sends it nothing ({entry.record})."
 
 
 class RefusedHostError(ValueError):

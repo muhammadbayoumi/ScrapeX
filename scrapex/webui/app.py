@@ -63,7 +63,7 @@ from ..config import (
     load_manifest,
     resolve_manifest_path,
 )
-from ..connectors.base import CrawlBlocked, HttpFetcher, resolve_user_agent
+from ..connectors.base import CrawlBlocked, HostRefused, HttpFetcher, resolve_user_agent
 from ..connectors.factory import _BUILDERS, supports_history
 from ..databases import (
     DatabaseKindError,
@@ -2310,9 +2310,10 @@ def create_app(
         # "the site did not respond" and offers to register it anyway.
         try:
             checked_host(url)
-        except RefusedHostError as exc:
+            return probe_url(url).to_json()
+        except (RefusedHostError, HostRefused) as exc:
+            # The typed address itself, or a site whose pages lead to a refused one.
             raise HTTPException(status_code=400, detail=str(exc))
-        return probe_url(url).to_json()
 
     @app.post("/api/sources/{source_key}/active")
     def api_set_active(source_key: str, body: dict):

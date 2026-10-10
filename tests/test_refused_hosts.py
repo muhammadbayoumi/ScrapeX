@@ -66,6 +66,14 @@ def test_every_entry_is_written_as_the_resolver_reads_it():
         assert re.fullmatch(r"#\d+", entry.record), f"{entry}: name the issue that records it"
 
 
+def test_the_sentence_is_the_one_he_confirmed():
+    """Pinned, because every other test reads it back from `refusal` and would pass
+    whatever it said. The host and its cause lead; ScrapeX is named as the one
+    refusing; the record is last (design-the-experience review of #1644)."""
+    assert SENTENCE == ("ahrambc.com served a malware page, so ScrapeX sends it nothing "
+                        "(#1644).")
+
+
 def test_checked_host_passes_a_url_through_and_refuses_with_the_sentence():
     assert checked_host("https://example.com/") == "https://example.com/"
     assert checked_host(None) is None
@@ -487,3 +495,14 @@ def test_registering_the_host_as_a_general_site_is_a_conflict(app_client):
     assert conn.execute("SELECT COUNT(*) FROM source_site WHERE source_key='ahram_site'"
                         ).fetchone()[0] == 0
     conn.close()
+
+
+def test_a_probe_of_a_site_that_redirects_into_the_host_says_so(app_client, wire):
+    """The typed address is harmless; its pages answer 302 to the refused host. The
+    probe must not read that as silence and offer to register the site (review of
+    #1644): the route answers the sentence, and only the harmless host was asked."""
+    client, _, _ = app_client
+    net = wire(_into_the_host)
+    answer = client.post("/api/probe", json={"url": "https://good.example/"})
+    assert answer.status_code == 400 and answer.json()["detail"] == SENTENCE
+    assert net.sent and all("good.example" in url for url in net.sent), net.sent

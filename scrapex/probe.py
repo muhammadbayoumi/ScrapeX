@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from urllib.parse import urlparse
 
-from .connectors.base import HttpFetcher
+from .connectors.base import HostRefused, HttpFetcher
 from .connectors.factory import _BUILDERS
 from .vocab import Cadence, ConnectorFamily, ExtractKind, ExtractScope, VatMode
 
@@ -55,6 +55,10 @@ def _try_json(fetcher, url: str, *, optional=(), **kw):
     try:
         resp = (fetcher.get_dropping(url, optional=optional, **kw)
                 if optional else fetcher.get(url, **kw))
+    except HostRefused:
+        # Not "no answer": the site led to a refused host, and a probe that read it as
+        # silence would offer to register the site that leads there.
+        raise
     except Exception:
         return None
     try:
@@ -156,5 +160,7 @@ def probe(url: str, fetcher: HttpFetcher | None = None) -> ProbeResult:
 def _get_text(fetcher, url: str) -> str | None:
     try:
         return fetcher.get(url).text
+    except HostRefused:
+        raise                      # as in `_try_json`
     except Exception:
         return None
