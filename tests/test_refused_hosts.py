@@ -66,7 +66,7 @@ def test_every_entry_is_written_as_the_resolver_reads_it():
         assert re.fullmatch(r"#\d+", entry.record), f"{entry}: name the issue that records it"
 
 
-def test_the_sentence_is_the_one_he_confirmed():
+def test_the_sentence_is_pinned():
     """Pinned, because every other test reads it back from `refusal` and would pass
     whatever it said. The host and its cause lead; ScrapeX is named as the one
     refusing; the record is last (design-the-experience review of #1644)."""
@@ -504,5 +504,92 @@ def test_a_probe_of_a_site_that_redirects_into_the_host_says_so(app_client, wire
     client, _, _ = app_client
     net = wire(_into_the_host)
     answer = client.post("/api/probe", json={"url": "https://good.example/"})
-    assert answer.status_code == 400 and answer.json()["detail"] == SENTENCE
+    assert answer.status_code == 400
+    assert answer.json()["detail"] == f"{SENTENCE} good.example redirects to it.", (
+        "the refusal must name the address he typed, which is not the refused host")
     assert net.sent and all("good.example" in url for url in net.sent), net.sent
+
+
+# ---- the directory crawl: a refusal deep inside a cell ends the crawl ----------------------
+#
+# Every layer of the listing crawl turns a fetch error into a record and goes on (the
+# walker, the witness, both sizings), which is right for a dead page and wrong for a site
+# that leads into a refused host: filed as a failed page, the walk asked for every page
+# after it and the sentence reached no screen (second design review of #1644). Each case
+# below refuses ONE fetch at one of those layers and asserts the crawl stops there.
+
+def _partition_crawl(conn, refuse_when):
+    """`crawl_partition` over the existing fake directory, with the fetch that
+    `refuse_when(url, hits)` names raising HostRefused instead of answering."""
+    from scrapex.partitioncrawl import crawl_partition
+    from tests.test_a_crawl_that_can_prove_it_read_everything import (
+        BASE,
+        Directory,
+        Partition,
+        cell,
+        register,
+    )
+
+    register(conn)
+    ids = [str(n) for n in range(1, 10)]
+    directory = Directory({"whole": list(ids), "region_id_1": list(ids)})
+    partition = Partition(directory, cells=(cell(region_id=1),))
+    hits: dict[str, int] = {}
+    asked: list[str] = []
+
+    def fetch(url: str) -> str:
+        hits[url] = hits.get(url, 0) + 1
+        asked.append(url)
+        if refuse_when(url, hits[url], directory):
+            raise HostRefused(SENTENCE)
+        return directory.fetch(url)
+
+    with pytest.raises(HostRefused):
+        crawl_partition(conn, partition, BASE, fetch=fetch, run_ref="run-1",
+                        dataset_key="rows", max_attempts=1)
+    return asked
+
+
+@pytest.fixture()
+def engine_conn(tmp_path):
+    from tests.test_a_crawl_that_can_prove_it_read_everything import conn as make
+    yield from make.__wrapped__(tmp_path)
+
+
+def test_a_page_inside_a_cell_that_leads_to_the_host_ends_the_walk(engine_conn):
+    """Page 2 is read only by the walker (sizing reads pages 1 and 3)."""
+    asked = _partition_crawl(engine_conn,
+                             lambda url, n, d: url.endswith("region_id=1&page=2"))
+    assert asked[-1].endswith("region_id=1&page=2"), (
+        f"the walk went on asking after the refusal: {asked[asked.index(next(u for u in asked if u.endswith('page=2'))):]}")
+
+
+def test_sizing_a_cell_that_leads_to_the_host_ends_the_crawl(engine_conn):
+    asked = _partition_crawl(engine_conn,
+                             lambda url, n, d: url.endswith("region_id=1&page=1") and n == 1)
+    assert asked[-1].endswith("region_id=1&page=1"), asked
+
+
+def test_a_witness_that_leads_to_the_host_ends_the_crawl(engine_conn):
+    """Page 1 is asked three times: sizing, the read, then the witness."""
+    asked = _partition_crawl(engine_conn,
+                             lambda url, n, d: url.endswith("region_id=1&page=1") and n == 3)
+    assert asked[-1].endswith("region_id=1&page=1"), asked
+    assert asked.count(asked[-1]) == 3, asked
+
+
+def test_resizing_a_short_cell_that_leads_to_the_host_ends_the_crawl(engine_conn):
+    """A cell that came up short is sized again at the end; that request refused.
+    The shortfall is made by the site dropping rows after the read began."""
+    state = {"read_done": False}
+
+    def refuse(url, n, directory):
+        if url.endswith("region_id=1&page=3") and n == 2:
+            # The read's last page: the site drops two rows, so the read comes up short.
+            directory.roll("region_id_1", [str(k) for k in range(1, 8)])
+            state["read_done"] = True
+            return False
+        # After the read and its witness, the next sizing request is the resize.
+        return state["read_done"] and url.endswith("region_id=1&page=1") and n == 4
+    asked = _partition_crawl(engine_conn, refuse)
+    assert asked[-1].endswith("region_id=1&page=1") and asked.count(asked[-1]) == 4, asked

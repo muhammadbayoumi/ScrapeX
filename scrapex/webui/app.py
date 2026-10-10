@@ -59,6 +59,7 @@ from ..changes import change_summary, recent_changes
 from ..config import (
     RefusedHostError,
     SourceEntry,
+    canonical_host,
     checked_host,
     load_manifest,
     resolve_manifest_path,
@@ -2306,14 +2307,19 @@ def create_app(
         url = (body or {}).get("url", "").strip()
         if not url:
             raise HTTPException(status_code=400, detail="url is required")
-        # BEFORE THE PROBE, not inside it: `probe_url` turns every fetch error into
-        # "the site did not respond" and offers to register it anyway.
+        # TWO REFUSALS, TOLD APART BY TYPE. The typed address itself is refused before
+        # anything is asked. A harmless address whose pages redirect to a refused host
+        # surfaces from inside the probe (`probe.py` re-raises it rather than read it as
+        # silence), and the sentence then names the address he typed, which is the one
+        # fact he can act on: he never typed the refused host.
         try:
             checked_host(url)
             return probe_url(url).to_json()
-        except (RefusedHostError, HostRefused) as exc:
-            # The typed address itself, or a site whose pages lead to a refused one.
+        except RefusedHostError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
+        except HostRefused as exc:
+            raise HTTPException(status_code=400,
+                                detail=f"{exc} {canonical_host(url)} redirects to it.")
 
     @app.post("/api/sources/{source_key}/active")
     def api_set_active(source_key: str, body: dict):

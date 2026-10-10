@@ -27,6 +27,7 @@ import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 
+from .connectors.base import HostRefused
 from .crawlscope import CrawlScope
 from .crawlscope import plan as plan_scope
 from .pagesource import (
@@ -160,6 +161,10 @@ class PageWalker:
         self._fetched_any = True
         try:
             html = self._fetch(url)
+        except HostRefused:
+            # EXCEPT A REFUSED HOST (#1644): a site whose pages lead to one is not one
+            # dead page, and filed as one the walk would ask for every page after it.
+            raise
         except Exception as exc:
             # NOT RAISED. One dead page out of a hundred thousand must not
             # discard the rest, and a crawl that stops at the first 404 of a
