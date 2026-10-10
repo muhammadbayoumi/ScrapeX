@@ -156,3 +156,68 @@ updates 9309 supersedes this entry rather than being argued with.
 
 §2.3.1.4 also says that after 30 days unreachable a crawler MAY use a cached copy or
 crawl as if there were no file. That is a MAY, not taken today; taking it is his decision.
+
+## ES-3 · A tender is kept as OCDS releases, and its current state is compiled from them
+
+**Governs:** how a tender is stored: every release kept whole and never changed, and the
+typed tables rebuilt from the releases by OCDS's merge rule.
+
+**Cited at:** `scrapex/tenderstore.py`, `db/engine/migrations/0024_tenders_kept_as_ocds_releases.sql`.
+
+### The source
+
+| source | what it contributes |
+|---|---|
+| [Open Contracting Data Standard 1.1.5, *Releases and records*](https://standard.open-contracting.org/1.1/en/primer/releases_and_records/) | A **release** is what a publisher said about a contracting process at a point in time, and is never changed. A **record** is the current state, compiled by merging the releases in date order: a field a later release states replaces the earlier value, and a field it leaves out keeps it. |
+| [OCDS 1.1.5 codelists](https://standard.open-contracting.org/1.1/en/schema/codelists/) | `releaseTag`, `tenderStatus`, `method`, `procurementCategory`, `partyRole`: the vocabularies the typed columns are held to. |
+
+### What it decides
+
+`tender_releases` keeps each release as JSON, append-only by trigger; `tenders`,
+`tender_parties`, `tender_items` and the rest are compiled from them by
+`tenderstore.compile_process`, which deletes and re-inserts them because they are derived.
+A notice read twice is one release; a notice that changed is a new release with the same
+id. Persons stay out of the releases (his ruling on #1647) so they can be removed.
+
+**Decided** by the owner on #1616 and #1647, 2026-10-10.
+
+### How to re-open this
+
+Level 4 of the precedence order: a published practice with a named author, the Open
+Contracting Partnership. **Provisional, by his ruling on #1614**: a reference is where a
+design starts, not a rule it bends to. Each departure is recorded with its reason beside
+the line that departs. 0024 records three: sectors kept in the source's own terms, a
+country kept as the source's code when it has no ISO one, and a deadline kept as a date
+and a local time because the source states no instant. OCDS 1.2, when it is released, is
+read against this entry.
+
+## ES-4 · New tables follow Supabase's Postgres style, as far as SQLite allows
+
+**Governs:** the names and shape of every table created from migration 0024 on. Tables
+created before it keep their own style, by his ruling on #1616.
+
+**Cited at:** `db/engine/migrations/0024_tenders_kept_as_ocds_releases.sql`, `tests/test_tenders_kept_as_ocds_releases.py`.
+
+### The source
+
+| source | what it contributes |
+|---|---|
+| Supabase, *Postgres SQL Style Guide*, `examples/prompts/code-format-sql.md` at the pinned commit `86c813ec` (`design/supabase.NOTICE.txt`) | snake_case; plural table names and singular column names; an `id` key on every table; a comment describing every table; a foreign key named after the singular of the table it references, with an `_id` suffix. |
+| [SQLite, *STRICT Tables*](https://www.sqlite.org/stricttables.html) | Declared types enforced on write, the nearest SQLite comes to Postgres's typing. |
+
+### What it decides
+
+An `id INTEGER PRIMARY KEY` stands in for Postgres's identity column, and a comment line
+above each `CREATE TABLE` stands in for `comment on table`, which SQLite does not have.
+#1616 adds two rules of its own: `STRICT` on every table, and an index on every foreign
+key. A second key to the same table puts its role before the singular
+(`compiled_from_tender_release_id`). `tests/test_tenders_kept_as_ocds_releases.py` holds
+every rule for the tables it lists.
+
+**Decided** by the owner on #1616, 2026-10-10.
+
+### How to re-open this
+
+Level 5 of the precedence order: a widely used tool's own convention. **Provisional, by
+his ruling on #1614.** When the pin moves, the guide is read again at the new commit, and
+any rule that changed is shown to him before a table follows it.
