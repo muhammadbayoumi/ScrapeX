@@ -1,5 +1,5 @@
 {
-  "version": "0.4.59",
+  "version": "0.4.60",
   "schema": [
     "schema.sql v17",
     "0018_a_job_may_interpret_what_a_crawl_stored.sql",
@@ -7,7 +7,8 @@
     "0020_a_profile_url_the_site_will_not_serve.sql",
     "0021_a_record_card_finds_its_changes_by_index.sql",
     "0022_his_choices_about_a_source_live_in_the_warehouse.sql",
-    "0023_a_scheduled_run_may_be_skipped.sql"
+    "0023_a_scheduled_run_may_be_skipped.sql",
+    "0024_tenders_kept_as_ocds_releases.sql"
   ],
   "protocol": "1",
   "endpoints": [
