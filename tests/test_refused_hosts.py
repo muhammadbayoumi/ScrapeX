@@ -275,32 +275,38 @@ def test_a_price_source_led_into_the_host_fails_and_is_not_offered_a_resume(
         "the Jobs row draws error_summary, and it must name the source before the sentence")
 
 
-def _page_one_then_the_host(request: httpx.Request) -> httpx.Response:
-    """A site whose first page reads and whose second redirects to the refused host."""
-    if request.url.path in ("/robots.txt", "/p1"):
-        return httpx.Response(200, text="User-agent: *\n")
-    return httpx.Response(302, headers={"Location": "https://www.ahrambc.com/verify"})
+def _pages_then_the_host(request: httpx.Request) -> httpx.Response:
+    """A site whose pages read until the last one, which redirects to the refused host."""
+    if request.url.path == "/last":
+        return httpx.Response(302, headers={"Location": "https://www.ahrambc.com/verify"})
+    return httpx.Response(200, text="User-agent: *\n")
 
 
-def test_a_price_source_refused_on_its_second_page_keeps_no_page_for_a_resume(
-        memory, journal, monkeypatch):
+@pytest.mark.parametrize("kept,said", [
+    (1, "1 page fetched before the refusal was discarded: continuing from it would "
+        "only be refused again."),
+    (2, "2 pages fetched before the refusal were discarded: continuing from them would "
+        "only be refused again."),
+])
+def test_a_price_source_refused_after_its_first_pages_keeps_none_for_a_resume(
+        memory, journal, monkeypatch, kept, said):
     """The panel draws Resume from the journal (`kept_pages`), not from the job's status.
-    Page 1 is journaled as fetched, so a refusal on page 2 used to settle the job FAILED
-    and still offer "Resume 1 page" -- a resume that would only be refused again (review
-    of #1645). The pages are discarded, and the log says how many."""
+    Each page is journaled as fetched, so a refusal on a later page used to settle the
+    job FAILED and still offer "Resume 1 page" -- a resume that would only be refused
+    again (review of #1645). The pages are discarded, and the log says how many."""
     import scrapex.capture as capmod
     from scrapex import jobs, localinbox
     from scrapex.connectors.base import ScrapedTable
     from scrapex.vocab import ExtractKind
 
-    site = _Recorder(_page_one_then_the_host)
+    site = _Recorder(_pages_then_the_host)
 
-    class TwoPages:
+    class Pages:
         def __init__(self, fetcher):
             self.fetcher = fetcher
 
         def fetch(self, entry):
-            for token in ("p1", "p2"):
+            for token in [f"p{n}" for n in range(1, kept + 1)] + ["last"]:
                 url = f"https://www.globalpetrolprices.com/{token}"
                 self.fetcher.get(url)
                 yield ScrapedTable(source_key=entry.source_key,
@@ -313,7 +319,7 @@ def test_a_price_source_refused_on_its_second_page_keeps_no_page_for_a_resume(
         _, fetcher = real(entry, rules, crawl_settings)
         fetcher._client.close()
         fetcher._client = _guarded(site)
-        return TwoPages(fetcher), fetcher
+        return Pages(fetcher), fetcher
     monkeypatch.setattr(capmod, "build_connector", cut)
     ref = jobs.create_job(memory, ["GPP_ENERGY"])
 
@@ -327,8 +333,7 @@ def test_a_price_source_refused_on_its_second_page_keeps_no_page_for_a_resume(
     messages = [line["message"] for line in jobs.job_logs(memory, ref)
                 if line["source_key"] == "GPP_ENERGY"]
     assert f"failed: {SENTENCE}" in messages, messages
-    assert ("1 page fetched before the refusal was discarded: continuing from it "
-            "would only be refused again." in messages), messages
+    assert said in messages, messages
 
 
 def test_a_directory_crawl_led_into_the_host_fails_rather_than_pauses(tmp_path,
