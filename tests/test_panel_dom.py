@@ -386,6 +386,55 @@ def test_each_destination_owns_its_scroll_and_keeps_its_heading_fixed(open_panel
     assert before and after and after["y"] == pytest.approx(before["y"], abs=.1)
 
 
+# AN ELEMENT IS UNREACHABLE when it lies below `main`'s bottom edge and no ancestor
+# between it and `main` scrolls. Leaves only, and only those with a box, so a hidden
+# subtree or a closed disclosure is not counted.
+_UNREACHABLE_PER_PAGE = """() => {
+  const main = document.querySelector('main');
+  const pages = [...document.querySelectorAll('main > section[id^="view-"]')];
+  const out = {};
+  for (const page of pages) {
+    pages.forEach((other) => other.classList.toggle('hidden', other !== page));
+    const fold = main.getBoundingClientRect().bottom;
+    const lost = [];
+    for (const el of page.querySelectorAll('*')) {
+      if (el.children.length || !el.getClientRects().length) continue;
+      const box = el.getBoundingClientRect();
+      if (!box.height || box.top < fold) continue;
+      let up = el.parentElement, reached = false;
+      while (up && up !== main) {
+        const style = getComputedStyle(up);
+        if (/(auto|scroll)/.test(style.overflowY) && up.scrollHeight > up.clientHeight
+            && up.getBoundingClientRect().top < fold) { reached = true; break; }
+        up = up.parentElement;
+      }
+      if (!reached) lost.push(`${el.tagName.toLowerCase()} ${(el.textContent || '').trim().slice(0, 40)}`);
+    }
+    out[page.id] = lost;
+  }
+  return out;
+}"""
+
+
+def test_every_page_can_be_scrolled_to_its_last_element_in_a_short_panel(open_panel):
+    """#1639: A PAGE SCROLLS BECAUSE THE FRAME SAYS SO, NOT BECAUSE IT JOINED A LIST.
+    Jobs and Console were never on the list of ids that scroll, so in a short panel
+    their rows and Console's only button sat below the edge with no way down -- as
+    Database's Backups had (#980). The pages come from the DOM, never from a list
+    here, so a page added tomorrow is held to this the day it lands."""
+    many = [dict(HIS_JOBS[i % len(HIS_JOBS)], job_ref=f"job_long_{i:03d}") for i in range(40)]
+    page = open_panel(jobs=many)
+    page.click(JOBS_TAB)
+    page.wait_for_function(
+        "() => document.querySelectorAll('#jobs-list .job-row').length === 40", timeout=5000)
+    page.set_viewport_size({"width": 400, "height": 320})
+    page.wait_for_timeout(200)
+    lost = page.evaluate(_UNREACHABLE_PER_PAGE)
+    # EVERY PAGE WAS MEASURED, or an empty answer passes for a clean one.
+    assert len(lost) >= 15 and {"view-jobs", "view-console", "view-database"} <= set(lost)
+    assert {view: found[:3] for view, found in lost.items() if found} == {}
+
+
 def test_the_icon_rail_keeps_deep_workspace_pages_in_one_grouped_menu(open_panel):
     page = open_panel()
     page.evaluate("""() => {
@@ -2973,8 +3022,17 @@ def test_where_activity_lands_reads_the_line_at_rest_not_in_passing(open_panel):
     """A LINE A SCROLL CARRIES THROUGH VIEW AND PAST IT IS NOT IN VIEW. The tests above
     read through `_where_activity_lands`, and it returned at the first frame the line
     was in view, so a scroll that carried the line through Run's scroll area to rest
-    beyond it passed (#1388's merge gate). The scroll here is the test's own -- smooth,
-    to the end of a long log -- so this holds whatever alignment the panel uses."""
+    beyond it passed (#1388's merge gate). The scroll here is the test's own, to the end
+    of a long log, so this holds whatever alignment the panel uses.
+
+    STEPPED, ONE FRAME AT A TIME, AND NEVER `behavior: "smooth"`. A smooth scroll is the
+    browser's to animate, and Chromium on Windows does not animate it when the system's
+    client-area animations are off, which is the default on Windows Server: the scroll
+    jumped to its end in one frame, the line was never in view on the way, and the
+    precondition below failed on the release runner for every tag from 0.4.38 to 0.4.59
+    (#1637). Reproduced on Windows 11 with `--disable-smooth-scrolling`, with the same
+    numbers. Half the area's height per frame is less than the area, so the line is in
+    view for at least one frame on any machine."""
     page = _open_on_run_beside_a_crawl(open_panel, 650)
     # Started a moment from now, so the wait below is watching when the line arrives.
     page.evaluate(f"""() => {{
@@ -2987,7 +3045,12 @@ def test_where_activity_lands_reads_the_line_at_rest_not_in_passing(open_panel):
         requestAnimationFrame(watch);
         setTimeout(() => {{
           const area = document.getElementById("activity").closest(".view-scroll");
-          area.scrollTo({{top: area.scrollHeight, behavior: "smooth"}});
+          const step = () => {{
+            const end = area.scrollHeight - area.clientHeight;
+            area.scrollTop = Math.min(area.scrollTop + area.clientHeight / 2, end);
+            if (area.scrollTop < end) requestAnimationFrame(step);
+          }};
+          requestAnimationFrame(step);
         }}, 300);
     }}""")
 

@@ -331,15 +331,17 @@
   /* Each task tab has one visible purpose, followed by clearly separated
      sections. The side panel is too narrow for a flat stream of unrelated
      cards: hierarchy has to come from spacing and headings, not extra chrome. */
-  #view-run, #view-source, #view-data, #view-sources, #view-source-edit,
-  #view-appearance, #view-finance, #view-settings, #view-engines,
-  /* AND #view-database, WHICH WAS IN NO ENUMERATION AND HAD NO `.view-scroll`.
-     `main` is `overflow: hidden`, so a view that does not scroll itself simply
-     ends at the fold: the owner reached this page to unpack a 625 MB backup he
-     had just fetched from Drive, and Backups -- the card the whole page exists
-     to reach -- was below the edge with no way down. Every other screen is here
-     or wraps its body; this one was missed, and nothing in the file named it. */
-  #view-database {
+  /* EVERY PAGE SCROLLS BY DEFAULT, because the frame owns the scroll, as Studio's
+     shell does: its `main` is the one scrollport and no page opts in
+     (apps/studio/components/layouts/ProjectLayout/index.tsx@86c813ec:328,
+     DefaultLayout.tsx@86c813ec:132). `main` here is `overflow: hidden`, so a page
+     that is not a bounded column ends at the fold. This was a list of ids every
+     page had to join, and three pages never did: Database (#980), then Jobs and
+     Console (#1639), whose rows and only button were below the edge with no way
+     down. Only the three screens that own a full-bleed layout opt out, below.
+     `:where` keeps this a default: any page rule overrides it. */
+  :where(main > section[id^="view-"]:not(#view-profile, #view-manage-account,
+                                       #view-engine-detail)) {
     display: flex;
     flex: 1;
     flex-direction: column;
@@ -352,28 +354,22 @@
     scrollbar-width: thin;
     scrollbar-color: var(--muted) transparent;
   }
-  :is(#view-run, #view-source, #view-data, #view-sources, #view-source-edit,
-      #view-appearance, #view-finance, #view-settings, #view-engines,
-      #view-database)::-webkit-scrollbar {
+  :where(main > section[id^="view-"])::-webkit-scrollbar {
     width: .45rem;
   }
-  :is(#view-run, #view-source, #view-data, #view-sources, #view-source-edit,
-      #view-appearance, #view-finance, #view-settings, #view-engines,
-      #view-database)::-webkit-scrollbar-track {
+  :where(main > section[id^="view-"])::-webkit-scrollbar-track {
     background: transparent;
   }
-  :is(#view-run, #view-source, #view-data, #view-sources, #view-source-edit,
-      #view-appearance, #view-finance, #view-settings, #view-engines,
-      #view-database)::-webkit-scrollbar-thumb {
+  :where(main > section[id^="view-"])::-webkit-scrollbar-thumb {
     border: 2px solid transparent;
     border-radius: var(--radius-pill);
     background: var(--muted);
     background-clip: padding-box;
   }
-  /* Run, Finance, Settings and Engine have a fixed page introduction followed
-     by one independent scrollport. The scrollbar therefore starts exactly where
-     the moving content starts, rather than beside the fixed heading. */
-  :is(#view-run, #view-finance, #view-settings, #view-engines) {
+  /* A page with a `.view-scroll` has a fixed page introduction followed by one
+     independent scrollport, and so does Engine. The scrollbar therefore starts
+     exactly where the moving content starts, rather than beside the fixed heading. */
+  :is(main > section[id^="view-"]:has(> .view-scroll), #view-engines) {
     padding-inline-end: 0;
     overflow: hidden;
     scrollbar-gutter: auto;
@@ -433,8 +429,7 @@
     overflow: hidden;
   }
   .view-heading { display: flex; flex-direction: column; gap: 2px; }
-  :is(#view-run, #view-source, #view-data, #view-sources,
-      #view-appearance, #view-finance, #view-settings, #view-engines) > .view-heading,
+  main > section[id^="view-"] > .view-heading,
   #view-source-edit > .source-edit-heading {
     position: sticky;
     z-index: 2;
