@@ -41,7 +41,7 @@ Sent 2026-07-31 as single URLs with per-site annotations.
 | 3 | <https://bnaia.com/> | market | not rated | — | Nothing fetched. |
 | 4 | <https://sphinx-store.com/> | market | not rated | — | Nothing fetched. |
 | 5 | <https://www.cmbegypt.com/> | market | **trusted** | **maybe none** | Owner: «market (maybe prices not included)». |
-| 6 | <https://ahrambc.com/> | market | not rated | — | Nothing fetched. |
+| 6 | ~~`ahrambc.com`~~ | market | **unsafe — harmful** | — | **Removed and never to be collected**, on the owner's word: «سجله انه مصدر غير امن ومضر». Not a link, so nobody opens it from here. See #1644. |
 | 7 | <https://www.ahmedelsallab.com/> | market | **trusted** | — | Nothing fetched. |
 | 8 | <https://www.sebakashop.com/> | market | not rated | — | Nothing fetched. |
 | 9 | <https://mashreqy.com/> | market | **trusted** | — | Nothing fetched. |
