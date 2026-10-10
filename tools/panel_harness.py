@@ -863,6 +863,23 @@ window.fetch = async (url, options = {{}}) => {{
     }})}};
   }}
 
+  // SAVING ONE SCHEDULE answers the saved row, as the engine does, with the EFFECTIVE
+  // `active` (#1596): what the save sent, or else what the stub's source row lists --
+  // a save without the switch leaves an off source off -- and not the schedules LIST
+  // its path prefix would match.
+  const savedSchedule = path.match(/^\\/api\\/schedules\\/([^/?]+)/);
+  if (savedSchedule && method === "POST") {{
+    const sent = JSON.parse((options && options.body) || "{{}}");
+    const savedKey = decodeURIComponent(savedSchedule[1]);
+    const listed = (ROUTES["/api/sources"].sources || []).find(
+      (s) => s.source_key === savedKey) || {{active: true}};
+    return {{ ok: true, status: 200, json: async () => ({{
+      ...sent, source_key: savedKey, schedule_id: 1,
+      enabled: 1, next_run_at: sent.frequency === "manual" ? null : "2026-08-01T06:00:00Z",
+      active: sent.active === undefined ? Boolean(listed.active) : sent.active,
+    }}) }};
+  }}
+
   // The log endpoint lives under /api/jobs too, so it must be answered BEFORE
   // the generic /api/jobs list route swallows it.
   if (/^\\/api\\/jobs\\/[^/]+\\/logs/.test(path)) {{

@@ -73,7 +73,7 @@ from enum import StrEnum
 # The release stamp. Bump it for a functional, architectural or behavioural
 # change (issue 32 section 1.1), and regenerate the baseline + CHANGELOG in the
 # same commit: python -m scrapex.cli export-version
-VERSION = "0.4.59"
+VERSION = "0.4.60"
 
 #: Whether ScrapeX has been published to anybody but its owner.
 #:
@@ -296,6 +296,22 @@ CAPABILITIES: tuple[Capability, ...] = (
         # The commit that built the skip and the panel line. A squash merge does not
         # keep it: if this lands that way, cite the merge commit instead.
         commit="68066288",
+    ),
+    Capability(
+        key="schedule_active_switch",
+        # #1596 D1 option 2: one Active switch on each Schedules row, saved through
+        # POST /api/schedules/{key} with `active` beside the schedule. An older engine
+        # ignores that field and saves the schedule alone, so the panel asks this key
+        # before it draws the switch, and keeps the old controls where it is missing.
+        since="0.3.9",
+        summary="Turn a source's scheduled runs on or off from its row on the Schedules "
+                "page, with one switch.",
+        surfaces=(Surface.PANEL, Surface.ENGINE),
+        panel_control="sched-active",
+        settings=(),
+        # The commit that built the switch. A squash merge does not keep it: if this
+        # lands that way, cite the merge commit instead.
+        commit="4cddd19a",
     ),
 )
 
