@@ -294,6 +294,75 @@ def test_a_healthy_warehouse_is_left_alone_by_the_button(warehouse, monkeypatch)
     assert not list(warehouse.parent.glob("*.pre-upgrade-*.backup.db"))
 
 
+
+# ---- the third front door: the engine's own route (#1635) --------------------------
+
+def _route(states, after=None):
+    """POST the engine's `/api/databases/upgrade` over a registry reporting `states`."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from scrapex.webui.database_api import create_database_router
+
+    registry = _FakeRegistry(states, after=after)
+    app = FastAPI()
+    app.include_router(create_database_router(lambda: registry))
+    return registry, TestClient(app).post("/api/databases/upgrade")
+
+
+def test_the_engine_route_backs_up_before_it_migrates(warehouse):
+    """THE DOOR THE PANEL TRIES FIRST. `upgradeDatabaseFromPanel` asks this route before
+    the native host, so while the engine answered, this was the path his button took,
+    and it called `initialize()` with no copy beside the warehouse."""
+    states = {"marketlens": _state("marketlens", warehouse, False, "Needs upgrade")}
+    healthy = {k: dict(v, ok=True, status="Healthy") for k, v in states.items()}
+
+    registry, response = _route(states, after=healthy)
+
+    assert response.status_code == 200, response.text
+    assert registry.initialized, "the route did not migrate at all"
+    copies = list(warehouse.parent.glob("marketlens.pre-upgrade-*.backup.db"))
+    assert len(copies) == 1 and copies[0].stat().st_size > 0, copies
+    body = response.json()
+    assert body["backups"] == [{"kind": "marketlens", "path": str(copies[0])}]
+    assert str(copies[0]) in body["message"], (
+        "the reply says nothing of where the backup is, so he cannot find it")
+
+
+def test_the_engine_route_refuses_a_damaged_database_and_says_why(warehouse):
+    states = {"marketlens": _state("marketlens", warehouse, False, "Needs upgrade"),
+              "general": _state("general", warehouse, False, "Integrity check failed")}
+
+    registry, response = _route(states)
+
+    assert response.status_code == 409, response.text
+    assert "Integrity check failed" in response.json()["detail"]
+    assert not registry.initialized, "it migrated beside a damaged database"
+    assert not list(warehouse.parent.glob("*.pre-upgrade-*.backup.db"))
+
+
+def test_the_engine_route_migrates_nothing_when_the_backup_cannot_be_made(tmp_path):
+    states = {"marketlens": _state("marketlens", tmp_path / "not-there.db", False,
+                                   "Needs upgrade")}
+
+    registry, response = _route(states)
+
+    assert response.status_code == 409, response.text
+    assert "could not be backed up" in response.json()["detail"]
+    assert not registry.initialized, "the backup failed and the route migrated anyway"
+
+
+def test_the_engine_route_leaves_a_healthy_warehouse_alone(warehouse):
+    states = {"marketlens": _state("marketlens", warehouse, True, "Healthy")}
+
+    registry, response = _route(states)
+
+    assert response.status_code == 200
+    assert "already up to date" in response.json()["message"]
+    assert not registry.initialized
+    assert not list(warehouse.parent.glob("*.pre-upgrade-*.backup.db"))
+
+
 def test_both_front_doors_hold_ONE_copy_of_the_rule():
     """THE DIVERGENCE ITSELF, and the reason it lasted.
 
@@ -308,6 +377,12 @@ def test_both_front_doors_hold_ONE_copy_of_the_rule():
     pass every behavioural assertion above.
     """
     from scrapex import cli, dbupgrade, native
+    from scrapex.webui import database_api
+
+    # THE THIRD DOOR, the engine's own route (#1635), called the registry bare.
+    api = pathlib.Path(database_api.__file__).read_text(encoding="utf-8")
+    assert "upgrade_what_is_only_behind(" in api and "current().initialize()" not in api, (
+        "the engine's upgrade route migrates without the guarded path")
 
     for module in (cli, native):
         source = pathlib.Path(module.__file__).read_text(encoding="utf-8")
