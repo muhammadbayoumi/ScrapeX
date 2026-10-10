@@ -269,7 +269,7 @@
     background: var(--muted);
     transition: transform var(--dur) var(--ease);
   }
-  button.switch[aria-checked="true"] .switch-thumb { transform: translateX(14px); background: #fff; }
+  button.switch[aria-checked="true"] .switch-thumb { transform: translateX(14px); background: var(--switch-thumb-checked); }
   @media (prefers-reduced-motion: reduce) { .switch-thumb { transition: none; } }
   /* A confirmation after a change: Sonner's toast as Supabase styles it
      (sonner.tsx@86c813ec:28-42) -- rounded-md, py-3 px-5, text-sm, border, shadow-lg. */

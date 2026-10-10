@@ -467,6 +467,9 @@
   --switch-track-off: var(--surface-container);
   --switch-thumb: var(--on-primary);
   --switch-thumb-off: var(--on-surface-variant);
+  /* Supabase's Switch thumb when checked is `bg-white` in both schemes
+     (switch.tsx@86c813ec:27); the Schedules row's Active switch reads it (#1596). */
+  --switch-thumb-checked: #ffffff;
 
   /* ---- Sign in with Google -------------------------------------------
    * THIRD-PARTY BRAND VALUES, and the only colours in this file that are not
