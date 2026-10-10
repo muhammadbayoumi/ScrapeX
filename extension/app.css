@@ -268,7 +268,10 @@
     background: var(--control-bg);
   }
   button.switch:hover:not(:disabled) { background: var(--line); }
-  button.switch[aria-checked="true"] { border-color: var(--accent); background: var(--accent); }
+  /* THE EDGE CARRIES THE STATE AT 3:1 (WCAG 2.2 SC 1.4.11). Supabase's checked track
+     is brand on white, 1.96:1; the fill stays theirs and the border takes their darker
+     brand step, --accent-ink (brand-600), which clears 3:1 on --surface in both themes. */
+  button.switch[aria-checked="true"] { border-color: var(--accent-ink); background: var(--accent); }
   button.switch:disabled { cursor: not-allowed; opacity: 0.5; }
   .switch-thumb {
     position: absolute;
@@ -284,10 +287,14 @@
   @media (prefers-reduced-motion: reduce) { .switch-thumb { transition: none; } }
   /* A confirmation after a change: Sonner's toast as Supabase styles it
      (sonner.tsx@86c813ec:28-42) -- rounded-md, py-3 px-5, text-sm, border, shadow-lg. */
+  /* INSIDE THE CONTENT COLUMN, never over the rail, and click-through: it confirms and
+     asks nothing, so it must not take a press meant for what lies under it. */
   .toast {
     position: fixed;
-    inset-inline: var(--sp-4);
+    inset-inline-start: var(--sp-4);
+    inset-inline-end: calc(var(--panel-rail-width) + var(--sp-4));
     bottom: var(--sp-4);
+    pointer-events: none;
     z-index: var(--z-modal);
     padding: var(--sp-3) var(--sp-5);
     border: 1px solid var(--line);

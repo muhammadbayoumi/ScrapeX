@@ -13,7 +13,7 @@ Integration tests run the real `db/engine/schema.sql` plus the shipped migration
 from __future__ import annotations
 
 import shutil
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -231,6 +231,92 @@ def test_without_active_the_route_saves_as_it_did(client):
     assert body["enabled"] == 0 and body["next_run_at"] is None
     assert body["active"] is True, "the effective switch, as the source ships it"
     assert _stored(client, key)[0] is None
+
+
+def test_a_save_without_the_switch_records_no_choice(client):
+    """A time-only save is not a decision about `active` (#1630 review E1): his choice
+    stays unmade, the source keeps what it ships, and nothing is registered for it."""
+    key = ACTIVE[0].source_key
+    body = client.post(f"/api/schedules/{key}",
+                       json={"frequency": "daily", "run_at": "07:15", "enabled": True}).json()
+    assert body["run_at"] == "07:15" and body["active"] is True
+    assert _stored(client, key)[0] is None
+    assert client.get(f"/api/sources/{key}/rules").json()["fields"]["active"]["origin"] \
+        == "source"
+    conn = dbmod.connect(client.db)
+    assert conn.execute("SELECT 1 FROM source_site WHERE source_key = ?",
+                        (key,)).fetchone() is None
+    conn.close()
+
+
+def _folded_client(tmp_path, monkeypatch):
+    """A paused schedule on a warehouse at 0023, migrated by the engine's own path, with
+    an app over it: the state 0024 leaves -- enabled, not manual, no slot, `active = 0`."""
+    path = tmp_path / "folded.db"
+    db, whole, at = _at_0023(path, monkeypatch)
+    entry = ACTIVE[0]
+    conn = dbmod.connect(path)
+    get_source_id(conn, entry, entry.currency)
+    upsert_schedule(conn, entry.source_key, frequency="daily", run_at="09:00",
+                    enabled=False)
+    conn.commit()
+    conn.close()
+    monkeypatch.setattr(db, "_migrations", whole)
+    assert db.initialize() == [whole[at].number]
+    manifest = tmp_path / "sources.yaml"
+    shutil.copy(MANIFEST_FILE, manifest)
+    test_client = TestClient(create_app(path, manifest_path=manifest))
+    test_client.db = path
+    return test_client, entry.source_key
+
+
+def _fires(client, key) -> bool:
+    conn = dbmod.connect(client.db)
+    try:
+        sched = conn.execute("SELECT next_run_at FROM schedule WHERE source_key = ?",
+                             (key,)).fetchone()
+        assert sched["next_run_at"], "the schedule holds no slot, so it can never fire"
+        after = datetime.strptime(sched["next_run_at"], "%Y-%m-%dT%H:%M:%SZ").replace(
+            tzinfo=UTC) + timedelta(seconds=30)
+        return len(fire_due(conn, after, manifest=MANIFEST)) == 1
+    finally:
+        conn.close()
+
+
+@pytest.mark.parametrize("route,body", [
+    ("/api/sources/{key}/active", {"active": True}),
+    ("/api/sources/{key}/rules", {"active": True}),
+    # Clearing his off where the source ships on is an activation too.
+    ("/api/sources/{key}/rules", {"active": None}),
+])
+def test_a_folded_schedule_switched_on_from_any_route_fires(tmp_path, monkeypatch,
+                                                            route, body):
+    """#1630 review E2: on, and read as on, must mean it fires."""
+    client, key = _folded_client(tmp_path, monkeypatch)
+    assert _stored(client, key)[0] is False
+    r = client.post(route.format(key=key), json=body)
+    assert r.status_code == 200, r.text
+    assert _fires(client, key)
+
+
+def test_a_switch_turned_off_arms_nothing(tmp_path, monkeypatch):
+    client, key = _folded_client(tmp_path, monkeypatch)
+    client.post(f"/api/sources/{key}/active", json={"active": False})
+    conn = dbmod.connect(client.db)
+    assert conn.execute("SELECT next_run_at FROM schedule WHERE source_key = ?",
+                        (key,)).fetchone()[0] is None
+    conn.close()
+
+
+def test_the_web_page_points_at_the_panels_switch_not_auto(client):
+    """The panel no longer says "Auto" anywhere (#1630 review P1)."""
+    off = next(e for e in MANIFEST.sources
+               if not e.active and e.family != ConnectorFamily.TBD_PROBE)
+    client.post(f"/api/schedules/{off.source_key}", json={"frequency": "daily"})
+    page = client.get("/schedules").text
+    assert "Scheduled runs are off for this source." in page
+    assert "under Settings, Jobs and scheduling" in page
+    assert "until Auto is enabled" not in page
 
 
 def test_the_panel_harness_compiles_without_a_warning():

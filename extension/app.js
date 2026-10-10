@@ -1970,7 +1970,12 @@ function renderSourceEditor(source) {
   $("source-edit-active").closest("label").hidden = linked;
   $("source-edit-active-origin").parentElement.hidden = linked || legacy;
   $("source-edit-schedule").hidden = !linked;
-  $("source-edit-schedule-link").textContent = linked ? scheduleSummary(source) : "";
+  // Schedules unread: the reason, not a nameless button.
+  const read = linked && Boolean(state.schedules);
+  $("source-edit-schedule-link").hidden = !read;
+  $("source-edit-schedule-link").textContent = read ? scheduleSummary(source) : "";
+  $("source-edit-schedule-note").textContent = linked && !read
+    ? "The schedules couldn't be read from the engine, so this one isn't shown." : "";
   out("source-edit-result", "");
   // AFTER the result line is emptied, so what reading the rules says -- or why they
   // cannot be read -- stays said. Unread, his crawl choices stay held.
@@ -6620,7 +6625,7 @@ const SOURCE_ACTIONS = [
 ];
 
 const EDIT_SCHEDULE = {action: "schedule", label: "Edit schedule",
-  why: "When this source runs automatically, and its Active switch.",
+  why: "When this source runs automatically, and the switch that turns those runs on or off.",
   route: "POST /api/schedules/{key}", proof: MANIFEST_ONLY};
 
 /**
@@ -7099,15 +7104,36 @@ function showToast(text) {
   toastTimer = setTimeout(() => { $("toast").textContent = ""; }, 4000);
 }
 
+// A Schedules row's schedule line: the one formatter's label (`scheduleLabel`), then
+// whether and when it fires. `runsOn` matters only with the switch.
+function scheduleRowLine(sched, runsOn, switchOn) {
+  const label = scheduleLabel(sched);
+  const paused = sched.schedule_id != null && !sched.enabled;
+  // The next fire, in the display zone and NAMING it (§6.8). Display only: the
+  // scheduler stores the instant in UTC, and the row's Timezone field decides WHEN.
+  const next = label === "Not scheduled" ? ""
+    : switchOn && !runsOn ? "Off"
+    : paused ? "paused"
+    : sched.next_run_at
+      ? "next " + window.ScrapeXTime.markup(sched.next_run_at, "datetime", {zone: true})
+      : "";
+  return esc(label) + (next ? " · " + next : "");
+}
+
 // Ask, then turn this source's scheduled runs on or off with the schedule as saved.
+// The row is updated where it stands, so an edit he has not saved stays in its fields.
 async function toggleScheduledRuns(source, sched, button, status) {
   const on = button.getAttribute("aria-checked") === "true";
   const site = siteName(source);
   const verb = on ? "Disable" : "Enable";
+  const label = scheduleLabel(sched);
   const yes = await askToConfirm({
     title: `${verb} scheduled runs`,
-    copy: `Are you sure you want to ${verb.toLowerCase()} scheduled runs for ${site}? `
-      + "Manual runs still work.",
+    copy: on
+      ? `Disable scheduled runs for ${site}? Its schedule is kept and stops firing until `
+        + "you enable it. Manual runs still work."
+      : `Enable scheduled runs for ${site}? It runs ${label[0].toLowerCase()}${label.slice(1)} `
+        + "from the next slot.",
     // Studio's toggle: Disable in the warning tone, Enable primary
     // (CronJobTableCell.tsx@86c813ec:210-253); his choice B, 2026-10-10 (#1596).
     keep: "Cancel", go: verb, tone: on ? "warning" : "",
@@ -7120,17 +7146,32 @@ async function toggleScheduledRuns(source, sched, button, status) {
       weekday: sched.weekday, run_mode: sched.run_mode,
       missed_run_policy: sched.missed_run_policy, overlap_policy: "skip", active: !on,
     });
+    Object.assign(sched, result);
+    source.active = result.active;
+    const runsOn = scheduledRunsOn(source, sched);
+    button.setAttribute("aria-checked", String(runsOn));
+    button.closest(".sched-row").querySelector('[data-role="next"]').innerHTML =
+      scheduleRowLine(sched, runsOn, true);
     showToast(`${result.active ? "Enabled" : "Disabled"} scheduled runs for ${site}`);
-    state.schedulesLoad = loadSchedules();
+    keepClearOfToast(button.closest(".sched-row"));
     loadSources();
-    await state.schedulesLoad;
-    // The row is drawn again; focus goes back to its switch, not to the page.
-    const again = document.querySelector(
-      `.sched-row[data-sched="${CSS.escape(source.source_key)}"] [data-role="sched-active"]`);
-    if (again) again.focus({preventScroll: true});
   } catch (e) {
-    button.disabled = false;
+    // SAID WHERE HE IS LOOKING: the row may be shut, and its status line with it.
     status.textContent = "Couldn't save: " + e.message;
+    showToast(`Couldn't change scheduled runs for ${site}: ${e.message}`);
+  } finally {
+    button.disabled = false;
+    // Disabling it while saving dropped focus to the page; it goes back to the switch.
+    if (document.activeElement === document.body) button.focus({preventScroll: true});
+  }
+}
+
+// The toast must not sit over the row it reports on: scroll that row clear of it.
+function keepClearOfToast(row) {
+  const toast = $("toast").getBoundingClientRect();
+  const box = row.getBoundingClientRect();
+  if (box.bottom > toast.top && box.top < toast.bottom) {
+    row.scrollIntoView({block: "center"});
   }
 }
 
@@ -7180,20 +7221,6 @@ async function loadSchedules() {
         ? `<button type="button" role="switch" class="switch" data-role="sched-active"
              aria-checked="${runsOn}" aria-label="Scheduled runs for ${esc(siteName(s))}">
              <span class="switch-thumb" aria-hidden="true"></span></button>` : "";
-      const summary = switchOn && freq === "manual" ? "Not scheduled"
-        : freq === "manual" ? "manual"
-        : freq + (freq === "weekly" ? " · " + WEEKDAYS[weekday] : "") + " · " + esc(runAt);
-      // The next fire, in the display zone and NAMING it (§6.8) — a schedule
-      // read four hours out is a run the owner waits for and does not get.
-      // This is display only: the scheduler still computes and stores the
-      // instant in UTC, and the row's own Timezone field below is a different
-      // thing entirely (it decides WHEN the job fires, not how it is read).
-      const next = switchOn && freq === "manual" ? ""
-        : switchOn && !runsOn ? "Off"
-        : paused ? "paused"
-        : sched.next_run_at
-          ? "next " + window.ScrapeXTime.markup(sched.next_run_at, "datetime", {zone: true})
-          : "";
       // The scheduler fires only ACTIVE sources (the Auto switch). A schedule
       // saved on an inactive one is a real record that will not fire — the
       // row says so instead of letting the owner wait for nothing.
@@ -7206,7 +7233,7 @@ async function loadSchedules() {
       return `<details class="sched-row" data-sched="${esc(s.source_key)}">
         <summary class="row sched-summary">
           ${sourceIdentity(s, true)}
-          <span class="muted" data-role="next">${esc(summary)}${next ? " · " + next : ""}</span>
+          <span class="muted" data-role="next">${scheduleRowLine(sched, runsOn, switchOn)}</span>
           ${toggle}
         </summary>
         <div class="stack sched-body">
@@ -7289,15 +7316,24 @@ async function loadSchedules() {
             // busy slot whatever this says, and an older one skips it because of it.
             overlap_policy: "skip",
           };
-          // With the switch, a save keeps what the row shows; without it, the box.
-          if (switchOn) body.active = scheduledRunsOn(site, saved.get(site.source_key));
-          else body.enabled = row.querySelector('[data-role="enabled"]').checked;
+          // THE SWITCH ALONE DECIDES `active` (#1630 review E1): a Save sends the
+          // schedule, so a time change records no choice, and a row 0024 left paused
+          // stays paused. Without the switch, the box says.
+          const stored = saved.get(site.source_key) || {};
+          body.enabled = switchOn ? Boolean(stored.enabled ?? true)
+            : row.querySelector('[data-role="enabled"]').checked;
           if (freq.value === "weekly") body.weekday = Number(weekday.value);
           const result = await post(
             "/api/schedules/" + encodeURIComponent(row.dataset.sched), body);
           // A textContent sink, so label() — the same formatter, returning the
           // plain sentence instead of markup.
-          status.textContent = switchOn && result && result.active === false ? "Saved — off."
+          if (switchOn && result) {
+            // What the switch sends next is the schedule as saved now.
+            saved.set(site.source_key, Object.assign(stored, result));
+            site.active = result.active;
+          }
+          status.textContent = switchOn && result && !scheduledRunsOn(site, result)
+            ? "Saved — off."
             : !switchOn && !body.enabled ? "Saved — paused."
             : result && result.next_run_at
               ? "Saved — next " + window.ScrapeXTime.label(result.next_run_at)

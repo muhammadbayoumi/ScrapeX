@@ -145,7 +145,7 @@ from ..reports import (
     table_payload,
     watch,
 )
-from ..scheduler import list_schedules, upsert_schedule, zone_exists
+from ..scheduler import get_schedule, list_schedules, upsert_schedule, zone_exists
 from ..settings import UnknownSettingError, get_state, public_settings
 from ..settings import get as settings_get
 from ..settings import save as save_settings
@@ -2396,7 +2396,13 @@ def create_app(
 
     def _store_choices(conn, source_key: str, shipped, changes: dict) -> None:
         """Register the source if it never was, then store his choices. No commit: the
-        caller's transaction holds it, so a schedule saved beside `active` is one write."""
+        caller's transaction holds it, so a schedule saved beside `active` is one write.
+
+        A SCHEDULE TURNED ON GETS A SLOT. Migration 0024 folded each paused schedule into
+        `active = 0` and left it `enabled` with no `next_run_at`; `fire_due` passes over
+        a NULL slot, so an activation from any route -- /active, /rules, or clearing his
+        choice where the source ships on -- would read as on and never fire. So one that
+        leaves the source active re-arms such a schedule from what it stores."""
         if conn.execute("SELECT 1 FROM source_site WHERE source_key = ?",
                         (source_key,)).fetchone() is None:
             if isinstance(shipped, SourceEntry):
@@ -2406,6 +2412,16 @@ def create_app(
                     site_key=shipped.key, display_name=shipped.display_name,
                     base_url=shipped.base_url))
         source_settings.save(conn, source_key, shipped, changes)
+        sched = get_schedule(conn, source_key)
+        if ("active" in changes and sched and sched["enabled"]
+                and sched["frequency"] != ScheduleFrequency.MANUAL.value
+                and sched["next_run_at"] is None
+                and source_settings.effective(conn, source_key, shipped).active):
+            upsert_schedule(
+                conn, source_key, frequency=sched["frequency"], run_at=sched["run_at"],
+                tz_name=sched["timezone"], weekday=sched["weekday"],
+                run_mode=sched["run_mode"], missed_run_policy=sched["missed_run_policy"],
+                overlap_policy=sched["overlap_policy"])
 
     def _save_rules(source_key: str, changes: dict) -> dict:
         """Store a partial set of his choices and answer as `GET /rules` does.

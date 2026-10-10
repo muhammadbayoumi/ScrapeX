@@ -5553,7 +5553,8 @@ def test_a_switched_off_row_reads_off_and_promises_no_next_run(open_panel):
     row = _schedule_rows(page).first
 
     words = row.locator('[data-role="next"]').inner_text()
-    assert words == "daily · 09:00 · Off", words
+    # One formatter for the schedule (`scheduleLabel`), as the card and the manager say.
+    assert words == "Daily 09:00 · Off", words
     assert row.locator('[data-role="sched-active"]').get_attribute("aria-checked") == "false"
     assert "Auto is off" not in row.inner_text()
     assert not page.js_errors
@@ -5579,8 +5580,8 @@ def test_the_switch_asks_first_and_cancel_changes_nothing(open_panel):
 
     assert text_of(page, "#confirm-title") == "Disable scheduled runs"
     assert text_of(page, "#confirm-copy") == (
-        "Are you sure you want to disable scheduled runs for madar.example.com? "
-        "Manual runs still work.")
+        "Disable scheduled runs for madar.example.com? Its schedule is kept and stops "
+        "firing until you enable it. Manual runs still work.")
     assert (text_of(page, "#confirm-keep"), text_of(page, "#confirm-go")) == (
         "Cancel", "Disable")
     # His choice B (2026-10-10, #1596): Studio's `warning` Button, not `danger` --
@@ -5619,7 +5620,135 @@ def test_disabling_saves_active_with_the_schedule_and_says_so(open_panel):
     assert "enabled" not in sent, sent
     assert text_of(page, "#toast") == "Disabled scheduled runs for madar.example.com"
     assert page.get_attribute("#toast", "role") == "status"
+    # Updated where it stands: the line says Off, and focus stays on the same switch.
+    row = page.locator(".sched-row").first
+    assert row.locator('[data-role="next"]').inner_text() == "Daily 09:00 · Off"
+    assert row.locator('[data-role="sched-active"]').get_attribute("aria-checked") == "false"
+    assert page.evaluate("document.activeElement.dataset.role") == "sched-active"
     assert not page.js_errors
+
+
+def _flip_switch(page, row):
+    row.locator('[data-role="sched-active"]').click()
+    page.wait_for_selector("#confirm-veil:not(.hidden)", timeout=2000)
+    page.click("#confirm-go")
+    page.wait_for_function("() => document.getElementById('toast').textContent", timeout=3000)
+
+
+def test_a_save_without_the_switch_sends_no_active(open_panel):
+    """#1630 review E1: a time change is not a choice about `active`, and a row 0024
+    left paused (its source never registered) stays paused."""
+    paused = {**SCHEDULE_SOON, "schedules": [
+        {**SCHEDULE_SOON["schedules"][0], "enabled": False}]}
+    page = open_panel(sources=[CLEAN_SITE], schedules=paused)
+    row = _schedule_rows(page).first
+    row.locator("summary").click(position={"x": 4, "y": 4})
+    row.locator('[data-role="time"]').fill("07:15")
+    row.locator('[data-role="save"]').click()
+    page.wait_for_timeout(300)
+
+    sent = _schedule_writes(page)[0]["body"]
+    assert "active" not in sent, sent
+    assert sent["enabled"] is False and sent["run_at"] == "07:15", sent
+    assert not page.js_errors
+
+
+def test_a_failed_switch_says_so_where_he_is_looking(open_panel):
+    """The row may be shut, so its status line is not enough: a toast carries the
+    engine's sentence, and the switch keeps the state it had."""
+    page = open_panel(sources=[CLEAN_SITE], schedules=SCHEDULE_SOON,
+                      fail_routes=("/api/schedules/",))
+    row = _schedule_rows(page).first
+    _flip_switch(page, row)
+
+    assert text_of(page, "#toast") == (
+        "Couldn't change scheduled runs for madar.example.com: the engine could not do that")
+    switch = row.locator('[data-role="sched-active"]')
+    assert switch.get_attribute("aria-checked") == "true" and switch.is_enabled()
+    assert not page.js_errors
+
+
+def test_flipping_the_switch_keeps_an_edit_not_yet_saved(open_panel):
+    page = open_panel(sources=[CLEAN_SITE], schedules=SCHEDULE_SOON)
+    row = _schedule_rows(page).first
+    row.locator("summary").click(position={"x": 4, "y": 4})
+    row.locator('[data-role="time"]').fill("07:15")
+    _flip_switch(page, row)
+
+    assert row.evaluate("(node) => node.open")
+    assert row.locator('[data-role="time"]').input_value() == "07:15"
+    # The switch saved the schedule as STORED, not the edit he has not saved.
+    assert _schedule_writes(page)[0]["body"]["run_at"] == "09:00"
+    assert not page.js_errors
+
+
+@pytest.mark.parametrize("width", [320, 400, 480])
+def test_the_toast_never_covers_the_rail_or_its_row(open_panel, width):
+    page = open_panel(sources=[CLEAN_SITE], schedules=SCHEDULE_SOON)
+    # Short enough that the row starts out where the toast appears.
+    page.set_viewport_size({"width": width, "height": 460})
+    row = _schedule_rows(page).first
+    _flip_switch(page, row)
+
+    covered = page.evaluate("""() => [...document.querySelectorAll('nav.side-rail button')]
+        .filter((b) => b.offsetParent && b.getBoundingClientRect().top >= 0
+                && b.getBoundingClientRect().bottom <= window.innerHeight)
+        .map((b) => { const r = b.getBoundingClientRect();
+                      const hit = document.elementFromPoint(r.x + r.width / 2,
+                                                            r.y + r.height / 2);
+                      return hit && hit.closest('nav.side-rail') ? null : b.dataset.view; })
+        .filter(Boolean)""")
+    assert covered == [], covered
+    assert page.evaluate("""() => [...document.querySelectorAll('nav.side-rail button')]
+        .filter((b) => b.offsetParent && b.getBoundingClientRect().top >= 0
+                && b.getBoundingClientRect().bottom <= window.innerHeight).length""") >= 3
+    toast = page.locator("#toast").bounding_box()
+    rail = page.locator("nav.side-rail").bounding_box()
+    assert toast["x"] + toast["width"] <= rail["x"], (toast, rail)
+    switch = row.locator('[data-role="sched-active"]').bounding_box()
+    assert not (switch["y"] + switch["height"] > toast["y"]
+                and switch["y"] < toast["y"] + toast["height"]), (switch, toast)
+    assert page.evaluate("getComputedStyle(document.getElementById('toast')).pointerEvents") \
+        == "none"
+
+
+def test_a_switch_that_is_on_shows_its_edge_at_three_to_one(open_panel):
+    """WCAG 2.2 SC 1.4.11: brand on white is 1.96:1, so the edge carries the state in
+    Supabase's darker brand step, --accent-ink (brand-600)."""
+    page = open_panel(sources=[CLEAN_SITE], schedules=SCHEDULE_SOON)
+    switch = _schedule_rows(page).first.locator('[data-role="sched-active"]')
+    edge, ink = page.evaluate("""(el) => {
+        const probe = document.createElement('i');
+        probe.style.color = 'var(--accent-ink)';
+        document.body.append(probe);
+        const ink = getComputedStyle(probe).color;
+        probe.remove();
+        return [getComputedStyle(el).borderTopColor, ink];
+    }""", switch.element_handle())
+    assert edge == ink, (edge, ink)
+
+    def lum(rgb):
+        parts = [int(v) / 255 for v in rgb[rgb.index("(") + 1:-1].split(",")[:3]]
+        lin = [c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in parts]
+        return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
+    surface = page.evaluate("getComputedStyle(document.querySelector('.sched-row')"
+                            ".closest('.card, .settings-item') || document.body)"
+                            ".backgroundColor")
+    surface = surface if not surface.endswith(", 0)") else "rgb(255, 255, 255)"
+    high, low = sorted((lum(edge), lum(surface)), reverse=True)
+    assert (high + 0.05) / (low + 0.05) >= 3, (edge, surface)
+
+
+def test_the_editor_says_why_when_the_schedules_cannot_be_read(open_panel):
+    page = open_panel(sources=[CLEAN_SITE], fail_routes=("/api/schedules",))
+    page.click(SOURCES_TAB)
+    page.wait_for_timeout(300)
+    page.click('[data-edit-source="MADAR"]')
+    page.wait_for_timeout(300)
+
+    assert page.is_hidden("#source-edit-schedule-link")
+    assert text_of(page, "#source-edit-schedule-note") == (
+        "The schedules couldn't be read from the engine, so this one isn't shown.")
 
 
 def test_enabling_uses_the_same_question_with_enable(open_panel):
@@ -5628,7 +5757,9 @@ def test_enabling_uses_the_same_question_with_enable(open_panel):
     page.wait_for_selector("#confirm-veil:not(.hidden)", timeout=2000)
 
     assert text_of(page, "#confirm-title") == "Enable scheduled runs"
-    assert "enable scheduled runs for madar.example.com?" in text_of(page, "#confirm-copy")
+    assert text_of(page, "#confirm-copy") == (
+        "Enable scheduled runs for madar.example.com? It runs daily 09:00 from the next "
+        "slot.")
     assert text_of(page, "#confirm-go") == "Enable"
     # Enabling harms nothing, so its confirm is primary, as Studio's toggle is.
     assert "danger" not in (page.get_attribute("#confirm-go", "class") or "")
