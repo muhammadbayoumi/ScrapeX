@@ -21,7 +21,7 @@ No new capabilities. Fixes and internal change only — an extension and an engi
 
 Minimum supported extension: `0.3.9`.
 
-- **schedule_active_switch** (pending) — Turn a source's scheduled runs on or off from its row on the Schedules page, with one switch. _Runs in: panel, engine._
+- **schedule_active_switch** (4cddd19a) — Turn a source's scheduled runs on or off from its row on the Schedules page, with one switch. _Runs in: panel, engine._
 
 ## 0.3.8
 

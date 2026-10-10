@@ -311,7 +311,7 @@ CAPABILITIES: tuple[Capability, ...] = (
         settings=(),
         # The commit that built the switch. A squash merge does not keep it: if this
         # lands that way, cite the merge commit instead.
-        commit="pending",
+        commit="4cddd19a",
     ),
 )
 
