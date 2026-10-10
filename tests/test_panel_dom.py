@@ -1974,8 +1974,9 @@ def test_dataset_action_opens_the_workspace_directly(open_panel):
         '.dataset-card:not([data-open="contractors"]) .split-button-trigger'
     ).count() == price.count(), (
         "every PRICE source card must carry exactly one actions menu")
+    # "Edit schedule" where "Pause collecting" was (#1596): the switch is on the row.
     for label in ("Update now", "Recent changes", "Source settings",
-                  "Pause collecting", "Export to Google Sheets"):
+                  "Edit schedule", "Export to Google Sheets"):
         assert page.locator(
             f'.dataset-card:not([data-open="contractors"]) '
             f'[data-split-action]:has-text("{label}")'
@@ -2193,7 +2194,7 @@ def test_a_dataset_card_offers_only_the_actions_that_work(open_panel):
         "from a terminal -- `R-81`, and `REQ-45`'s whole subject")
 
     # And the four that genuinely cannot work stay absent rather than present-and-dead.
-    for label in ("Recent changes", "Source settings",
+    for label in ("Recent changes", "Source settings", "Edit schedule",
                   "Pause collecting", "Export to Google Sheets"):
         assert card.locator(f'[data-split-action]:has-text("{label}")').count() == 0, (
             f"{label} is offered on a dataset card and its route refuses a "
@@ -3819,7 +3820,8 @@ def test_edit_source_stays_inside_the_extension(open_panel):
 
 
 def test_edit_source_saves_automation_without_leaving_the_extension(open_panel):
-    page = open_panel()
+    """An engine without `schedule_active_switch` (#1596) keeps the editor's switch."""
+    page = open_panel(engine_version="0.4.59", omit_capabilities=("schedule_active_switch",))
     page.click(SOURCES_TAB)
     page.wait_for_timeout(250)
     page.click('[data-edit-source="SHORT"]')
@@ -3845,7 +3847,8 @@ def test_an_engine_without_the_rules_routes_still_edits_a_source_as_before(open_
     editor always did -- name and robots through /edit, the switch through /active --
     and draws nothing it cannot serve: no agent or pace, no origin lines, no Clear,
     and no "update the engine" sentence for a save it can do."""
-    page = open_panel(engine_version="0.4.53", omit_capabilities=("source_rules",))
+    page = open_panel(engine_version="0.4.53",
+                      omit_capabilities=("source_rules", "schedule_active_switch"))
     page.click(SOURCES_TAB)
     page.wait_for_timeout(250)
     page.click('[data-edit-source="SHORT"]')
@@ -3903,7 +3906,8 @@ def test_an_engine_upgraded_while_the_editor_is_open_is_not_written_the_old_way(
     """Opened against 0.4.53, then the engine answers with /rules: Save redraws the
     editor for it and writes nothing, rather than sending robots to an /edit that now
     refuses them."""
-    page = open_panel(engine_version="0.4.53", omit_capabilities=("source_rules",))
+    page = open_panel(engine_version="0.4.53",
+                      omit_capabilities=("source_rules", "schedule_active_switch"))
     page.click(SOURCES_TAB)
     page.wait_for_timeout(250)
     page.click('[data-edit-source="SHORT"]')
@@ -5504,6 +5508,225 @@ def test_an_engine_whose_report_failed_is_promised_nothing(open_panel):
     note = _skip_note(page)
 
     assert note.is_hidden() and note.inner_text() == ""
+    assert not page.js_errors
+
+
+# ---- one switch for scheduled runs (#1596, D1 option 2) -------------------------
+
+OFF_SITE = {**CLEAN_SITE, "active": False}
+STRESS_SHORT = {"source_key": "SHORT", "base_url": "https://a.co", "source_name": "A",
+                "family": "shopify-json", "active": True, "implemented": True,
+                "observations": 3, "products": 1}
+
+
+def _schedule_rows(page):
+    page.click(SETTINGS_TAB)
+    page.click('[data-sect="s-sched"]')
+    page.wait_for_timeout(500)
+    return page.locator(".sched-row")
+
+
+def _schedule_writes(page):
+    return [w for w in page.evaluate("window.__writes")
+            if w["path"].startswith("/api/schedules/")]
+
+
+def test_a_schedules_row_carries_one_active_switch_named_for_its_site(open_panel):
+    page = open_panel(sources=[CLEAN_SITE], schedules=SCHEDULE_SOON)
+    row = _schedule_rows(page).first
+    switch = row.locator('[data-role="sched-active"]')
+
+    assert switch.count() == 1
+    assert switch.get_attribute("role") == "switch"
+    assert switch.get_attribute("aria-checked") == "true"
+    assert switch.get_attribute("aria-label") == "Scheduled runs for madar.example.com"
+    assert "next" in row.locator('[data-role="next"]').inner_text()
+    # The old Enabled box is gone: one switch, not two.
+    row.locator("summary").click(position={"x": 4, "y": 4})
+    assert row.locator('[data-role="enabled"]').count() == 0
+    assert not page.js_errors
+
+
+def test_a_switched_off_row_reads_off_and_promises_no_next_run(open_panel):
+    """#1611 item 1: the row said "next …" for a slot that would never fire."""
+    page = open_panel(sources=[OFF_SITE], schedules=SCHEDULE_SOON)
+    row = _schedule_rows(page).first
+
+    words = row.locator('[data-role="next"]').inner_text()
+    assert words == "daily · 09:00 · Off", words
+    assert row.locator('[data-role="sched-active"]').get_attribute("aria-checked") == "false"
+    assert "Auto is off" not in row.inner_text()
+    assert not page.js_errors
+
+
+@pytest.mark.parametrize("schedules", [None, {**SCHEDULE_SOON, "schedules": [
+    {**SCHEDULE_SOON["schedules"][0], "frequency": "manual", "next_run_at": None}]}],
+    ids=["missing", "manual"])
+def test_a_row_with_no_schedule_reads_not_scheduled_and_has_no_switch(open_panel, schedules):
+    page = open_panel(sources=[CLEAN_SITE], schedules=schedules)
+    row = _schedule_rows(page).first
+
+    assert row.locator('[data-role="next"]').inner_text() == "Not scheduled"
+    assert row.locator('[data-role="sched-active"]').count() == 0
+    assert not page.js_errors
+
+
+def test_the_switch_asks_first_and_cancel_changes_nothing(open_panel):
+    page = open_panel(sources=[CLEAN_SITE], schedules=SCHEDULE_SOON)
+    switch = _schedule_rows(page).first.locator('[data-role="sched-active"]')
+    switch.click()
+    page.wait_for_selector("#confirm-veil:not(.hidden)", timeout=2000)
+
+    assert text_of(page, "#confirm-title") == "Disable scheduled runs"
+    assert text_of(page, "#confirm-copy") == (
+        "Are you sure you want to disable scheduled runs for madar.example.com? "
+        "Manual runs still work.")
+    assert (text_of(page, "#confirm-keep"), text_of(page, "#confirm-go")) == (
+        "Cancel", "Disable")
+    # The row stayed shut: the switch does not toggle the disclosure it sits in.
+    assert not page.evaluate("document.querySelector('.sched-row').open")
+
+    page.click("#confirm-keep")
+    page.wait_for_timeout(200)
+    assert page.locator("#confirm-veil").is_hidden()
+    assert _schedule_writes(page) == []
+    assert switch.get_attribute("aria-checked") == "true"
+    assert text_of(page, "#toast") == ""
+    assert not page.js_errors
+
+
+def test_disabling_saves_active_with_the_schedule_and_says_so(open_panel):
+    page = open_panel(sources=[CLEAN_SITE], schedules=SCHEDULE_SOON)
+    _schedule_rows(page).first.locator('[data-role="sched-active"]').click()
+    page.wait_for_selector("#confirm-veil:not(.hidden)", timeout=2000)
+    page.click("#confirm-go")
+    page.wait_for_function("() => document.getElementById('toast').textContent", timeout=3000)
+
+    saves = _schedule_writes(page)
+    assert [w["path"] for w in saves] == ["/api/schedules/MADAR"], saves
+    sent = saves[0]["body"]
+    assert sent["active"] is False, sent
+    # The schedule rides along as saved, so the switch changes nothing else about it.
+    assert (sent["frequency"], sent["run_at"], sent["timezone"], sent["run_mode"]) == (
+        "daily", "09:00", "Asia/Riyadh", "update"), sent
+    assert "enabled" not in sent, sent
+    assert text_of(page, "#toast") == "Disabled scheduled runs for madar.example.com"
+    assert page.get_attribute("#toast", "role") == "status"
+    assert not page.js_errors
+
+
+def test_enabling_uses_the_same_question_with_enable(open_panel):
+    page = open_panel(sources=[OFF_SITE], schedules=SCHEDULE_SOON)
+    _schedule_rows(page).first.locator('[data-role="sched-active"]').click()
+    page.wait_for_selector("#confirm-veil:not(.hidden)", timeout=2000)
+
+    assert text_of(page, "#confirm-title") == "Enable scheduled runs"
+    assert "enable scheduled runs for madar.example.com?" in text_of(page, "#confirm-copy")
+    assert text_of(page, "#confirm-go") == "Enable"
+    # Enabling harms nothing, so its confirm is primary, as Studio's toggle is.
+    assert "danger" not in (page.get_attribute("#confirm-go", "class") or "")
+    page.click("#confirm-go")
+    page.wait_for_function("() => document.getElementById('toast').textContent", timeout=3000)
+    assert _schedule_writes(page)[0]["body"]["active"] is True
+    assert text_of(page, "#toast") == "Enabled scheduled runs for madar.example.com"
+    assert not page.js_errors
+
+
+def test_the_run_card_shows_the_schedule_as_a_link_to_its_row(open_panel):
+    page = open_panel(sources=[CLEAN_SITE], schedules=SCHEDULE_SOON)
+    _run_tab(page)
+    link = page.locator('#sites [data-sched-link="MADAR"]')
+
+    assert link.inner_text() == "Daily 09:00"
+    assert page.locator("#sites [data-auto]").count() == 0, "the Auto chip still switches"
+    link.click()
+    page.wait_for_timeout(500)
+    assert page.is_visible("#view-settings")
+    assert page.evaluate("document.querySelector('.sched-row[data-sched=\"MADAR\"]').open")
+    assert page.evaluate("document.activeElement.closest('.sched-row')?.dataset.sched") \
+        == "MADAR"
+    assert not page.js_errors
+
+
+def test_the_source_manager_and_the_editor_read_the_schedule(open_panel):
+    off = {**SCHEDULE_SOON, "schedules": SCHEDULE_SOON["schedules"] + [
+        {**SCHEDULE_SOON["schedules"][0], "source_key": "SHORT", "schedule_id": 2,
+         "frequency": "weekly", "weekday": 2, "run_at": "06:30"}]}
+    page = open_panel(sources=[CLEAN_SITE, {**STRESS_SHORT, "active": False}], schedules=off)
+    page.click(SOURCES_TAB)
+    page.wait_for_timeout(300)
+    metas = page.locator(".source-manager-card-meta")
+    assert [" ".join(metas.nth(i).inner_text().split()) for i in range(metas.count())] == [
+        "Ready · Daily 09:00", "Ready · Weekly Wednesday 06:30 · Off"]
+
+    page.click('[data-edit-source="MADAR"]')
+    page.wait_for_timeout(300)
+    assert not page.is_visible("#source-edit-active"), "the editor still switches"
+    assert text_of(page, "#source-edit-schedule-link") == "Daily 09:00"
+    page.click("#source-edit-schedule-link")
+    page.wait_for_timeout(500)
+    assert page.evaluate("document.querySelector('.sched-row[data-sched=\"MADAR\"]').open")
+    assert not page.js_errors
+
+
+def test_a_source_with_no_schedule_reads_not_scheduled_everywhere(open_panel):
+    page = open_panel(sources=[CLEAN_SITE])
+    _run_tab(page)
+    assert page.locator('#sites [data-sched-link="MADAR"]').inner_text() == "Not scheduled"
+    page.click(SOURCES_TAB)
+    page.wait_for_timeout(300)
+    assert " ".join(page.locator(".source-manager-card-meta").first.inner_text().split()) \
+        == "Ready · Not scheduled"
+
+
+def test_a_connector_less_source_keeps_its_sentence_and_a_disabled_switch(open_panel):
+    page = open_panel()
+    page.click(SOURCES_TAB)
+    page.wait_for_timeout(300)
+    page.click('[data-edit-source="NOT_READY"]')
+    page.wait_for_timeout(300)
+
+    assert text_of(page, "#source-edit-active-help") == (
+        "Automation cannot be enabled until this connector is available.")
+    assert page.is_visible("#source-edit-active")
+    assert page.is_disabled("#source-edit-active")
+    assert page.is_hidden("#source-edit-schedule")
+
+
+def test_the_datasets_menu_edits_the_schedule_instead_of_pausing(open_panel):
+    page = open_panel(schedules={**SCHEDULE_SOON, "schedules": [
+        {**SCHEDULE_SOON["schedules"][0], "source_key": "SHORT"}]})
+    page.click(DATA_TAB)
+    page.wait_for_timeout(300)
+    page.click('.dataset-card[data-open="SHORT"] .split-button-trigger')
+    page.wait_for_timeout(150)
+    page.click('.dataset-card[data-open="SHORT"] [data-split-action="schedule"]')
+    page.wait_for_timeout(500)
+
+    assert not [w for w in page.evaluate("window.__writes") if w["path"].endswith("/active")]
+    assert page.evaluate("document.querySelector('.sched-row[data-sched=\"SHORT\"]').open")
+    assert not page.js_errors
+
+
+def test_an_engine_without_the_switch_keeps_todays_controls(open_panel):
+    """An older engine ignores `active` on the schedule route, so no switch is drawn."""
+    page = open_panel(sources=[OFF_SITE], schedules=SCHEDULE_SOON, engine_version="0.4.59",
+                      omit_capabilities=("schedule_active_switch",))
+    _run_tab(page)
+    assert page.locator('#sites [data-auto="MADAR"]').inner_text() == "Auto: off"
+    assert page.locator("#sites [data-sched-link]").count() == 0
+    row = _schedule_rows(page).first
+    assert row.locator('[data-role="sched-active"]').count() == 0
+    row.locator("summary").click()
+    assert row.locator('[data-role="enabled"]').count() == 1
+    assert "Auto is off for this site" in row.inner_text()
+    row.locator('[data-role="save"]').click()
+    page.wait_for_timeout(300)
+    sent = _schedule_writes(page)[0]["body"]
+    assert "active" not in sent and sent["enabled"] is True, sent
+    page.click(SOURCES_TAB)
+    page.wait_for_timeout(300)
+    assert "Automation off" in page.locator(".source-manager-card-meta").first.inner_text()
     assert not page.js_errors
 
 

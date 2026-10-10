@@ -108,6 +108,9 @@ const state = {
   // dataset or directory card's SITE key -- `contractors` is muqawil_org's dataset,
   // and his choices are about the site. `sourceRules` is GET /rules' last answer.
   editingRulesKey: null, sourceRules: null,
+  // GET /api/schedules by source key, for the schedule labels (#1596), and the load
+  // the Schedules page is drawn by, which opening one of its rows waits for.
+  schedules: null, schedulesLoad: null,
   job: null, jobRef: null, logs: [], logSignature: null, logAtBottom: true,
   financeRates: [], financeSavedSettings: null, financeStatus: null,
   engineUp: false, engineState: "checking",
@@ -378,7 +381,7 @@ function showView(name, animate = true) {
   if (name === "finance") loadGoogleFinance();
   if (name === "settings") {
     ensureTimeZoneControl();
-    loadSchedules();
+    state.schedulesLoad = loadSchedules();
     loadStorage();
     // THE OUTPUTS LIST LIVES ON THIS SCREEN AND WAS LOADED FROM THE OTHER ONE.
     // `loadOutputs` had exactly one caller — loadRunDestination — which returns
@@ -1664,7 +1667,12 @@ function renderSites() {
       // title says exactly what the switch gates — schedules, not your hand.
       // A PRICE SOURCE ONLY: no schedule fires a dataset or directory card yet, and
       // his ruling (2026-10-09) is that no switch is drawn for it until one does.
-      const auto = ready && !s.kind ? `<button type="button" class="chip ${s.active ? "accent" : ""}"
+      // WITH THE ONE SWITCH (#1596) the chip only shows the schedule and opens its row.
+      const auto = ready && !s.kind && scheduleSwitchOn()
+        ? (state.schedules ? `<button type="button" class="chip" data-sched-link="${esc(s.source_key)}"
+            aria-label="Schedule for ${esc(siteName(s))}: ${esc(scheduleSummary(s))}"
+            >${esc(scheduleSummary(s))}</button>` : "")
+        : ready && !s.kind ? `<button type="button" class="chip ${s.active ? "accent" : ""}"
             data-auto="${esc(s.source_key)}" aria-pressed="${s.active ? "true" : "false"}"
             title="Scheduled runs fire only while this is on. Running manually from this panel always works.">Auto: ${
               s.active ? "on" : "off"}</button>` : "";
@@ -1709,6 +1717,8 @@ function renderSites() {
     box.querySelectorAll("button[data-resume]").forEach((button) =>
       button.addEventListener("click", () =>
         resumeSource(button.dataset.resume, button)));
+    box.querySelectorAll("button[data-sched-link]").forEach((button) =>
+      button.addEventListener("click", () => openScheduleRow(button.dataset.schedLink)));
     box.querySelectorAll("button[data-auto]").forEach((button) =>
       button.addEventListener("click", async () => {
         const key = button.dataset.auto;
@@ -1761,7 +1771,9 @@ function renderSourceManager() {
         <span class="source-manager-card-meta muted text-xs">
           <span class="dot ${source.implemented ? "on" : "off"}" aria-hidden="true"></span>
           <span>${status}</span>
-          ${source.kind ? "" : `<span aria-hidden="true">·</span>
+          ${source.kind ? "" : scheduleSwitchOn() ? (state.schedules
+            ? `<span aria-hidden="true">·</span><span>${esc(scheduleSummary(source))}</span>` : "")
+            : `<span aria-hidden="true">·</span>
           <span>Automation ${source.active ? "on" : "off"}</span>`}
         </span>
       </div>
@@ -1952,6 +1964,13 @@ function renderSourceEditor(source) {
   $("source-edit-active-help").textContent = ready
     ? "Manual runs remain available when automation is off."
     : "Automation cannot be enabled until this connector is available.";
+  // READ-ONLY WITH THE ONE SWITCH (#1596): the schedule, linked to its row, where the
+  // switch was. A source with no connector keeps its sentence and a disabled switch.
+  const linked = price && ready && scheduleSwitchOn();
+  $("source-edit-active").closest("label").hidden = linked;
+  $("source-edit-active-origin").parentElement.hidden = linked || legacy;
+  $("source-edit-schedule").hidden = !linked;
+  $("source-edit-schedule-link").textContent = linked ? scheduleSummary(source) : "";
   out("source-edit-result", "");
   // AFTER the result line is emptied, so what reading the rules says -- or why they
   // cannot be read -- stays said. Unread, his crawl choices stay held.
@@ -2134,7 +2153,8 @@ function ruleOrigin(field, answer) {
 // drawn -- a directory's -- so it is never sent from there.
 function sourceRulesForm(answer) {
   return {
-    active: answer.kind === "price" ? $("source-edit-active").checked : null,
+    active: answer.kind === "price" && !scheduleSwitchOn()
+      ? $("source-edit-active").checked : null,
     robots: $("source-edit-robots").value,
     enforce: $("source-edit-robots-enforce").checked,
     delay: $("source-edit-robots-delay").value.trim(),
@@ -2493,8 +2513,16 @@ async function wipeSourceData() {
 
 async function loadSources() {
   try {
-    const { sources } = await api("/api/sources");
+    const [{ sources }, schedules] = await Promise.all([
+      api("/api/sources"),
+      // Only the switch's labels read it; unread, they are not drawn rather than guessed.
+      scheduleSwitchOn() ? api("/api/schedules").catch(() => null) : null,
+    ]);
     state.sources = sources;
+    if (scheduleSwitchOn()) {
+      state.schedules = schedules
+        ? new Map(schedules.schedules.map((item) => [item.source_key, item])) : null;
+    }
     // Drop selections for sites that vanished from the manifest.
     for (const key of [...state.selected]) {
       if (!sources.some((s) => s.source_key === key)) state.selected.delete(key);
@@ -6070,7 +6098,7 @@ let confirmSettle = null;
  * stays inside, and Escape or a click on the veil answers no -- the alertdialog pattern
  * (WAI-ARIA APG). Focus goes back to whatever he pressed.
  */
-function askToConfirm({ title, named = "", copy, keep, go }) {
+function askToConfirm({ title, named = "", copy, keep, go, tone = "danger" }) {
   if (confirmSettle) confirmSettle(false);
   confirmReturnFocus = document.activeElement;
   $("confirm-title").textContent = title;
@@ -6084,6 +6112,8 @@ function askToConfirm({ title, named = "", copy, keep, go }) {
   body.append(document.createTextNode(copy));
   $("confirm-keep").textContent = keep;
   $("confirm-go").textContent = go;
+  // A confirm that harms nothing (Enable) is primary, as Studio's toggle is.
+  $("confirm-go").className = tone;
   $("confirm-veil").classList.remove("hidden");
   $("confirm-keep").focus({ preventScroll: true });
   return new Promise((resolve) => { confirmSettle = resolve; });
@@ -6589,6 +6619,10 @@ const SOURCE_ACTIONS = [
    route: "GET /api/export/{key}", proof: MANIFEST_ONLY},
 ];
 
+const EDIT_SCHEDULE = {action: "schedule", label: "Edit schedule",
+  why: "When this source runs automatically, and its Active switch.",
+  route: "POST /api/schedules/{key}", proof: MANIFEST_ONLY};
+
 /**
  * The actions this source's KIND can actually run, and nothing else.
  *
@@ -6750,7 +6784,11 @@ function sourceActions(source) {
     why: "Fetch the profile page of every contractor that has none yet.",
     route: "POST /api/jobs", proof: RESOLVES_A_SOURCE_KEY,
   }] : [];
-  return [...base, ...crawlable, ...continuable, ...interpretable, ...profiles,
+  // WITH THE ONE SWITCH (#1596) the switch lives on the Schedules row, so the menu
+  // opens it there instead of switching the source off from here.
+  const scheduled = scheduleSwitchOn()
+    ? base.map((item) => (item.action === "pause" ? EDIT_SCHEDULE : item)) : base;
+  return [...scheduled, ...crawlable, ...continuable, ...interpretable, ...profiles,
           ...covered];
 }
 
@@ -6924,6 +6962,7 @@ async function runSourceAction(action, key, siteKey = "", resumeRef = "") {
     }
     return;
   }
+  if (action === "schedule") return openScheduleRow(key);
   if (action === "pause") {
     try {
       await post(`/api/sources/${encodeURIComponent(key)}/active`, {active: false});
@@ -6998,6 +7037,101 @@ function openDataset(key) {
 const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday",
                   "Saturday", "Sunday"];   // 0=Monday, the server's convention
 
+// ---- one switch for scheduled runs (#1596, D1 option 2) ----------------------
+// Each Schedules row carries the one Active switch; the Run card, the Source manager
+// and the editor show the schedule and link to its row. An engine without
+// `schedule_active_switch` ignores `active` on POST /api/schedules, so it keeps the
+// controls it had.
+function scheduleSwitchOn() {
+  return !capabilityRefusal("schedule_active_switch");
+}
+
+// The name a sentence calls a site by, as the editor's own Edit label does.
+function siteName(source) {
+  return sourceDomain(source.base_url) || source.source_name || source.source_key;
+}
+
+// "Daily 09:00", "Weekly Monday 09:00", or "Not scheduled" for none or manual.
+function scheduleLabel(sched) {
+  const freq = (sched && sched.frequency) || "manual";
+  if (freq === "manual") return "Not scheduled";
+  const day = freq === "weekly"
+    ? " " + WEEKDAYS[sched.weekday == null ? 0 : Number(sched.weekday)] : "";
+  return (freq === "weekly" ? "Weekly" : "Daily") + day + " " + (sched.run_at || "09:00");
+}
+
+// Do this source's schedules fire? Its `active`, and its schedule's `enabled`, which
+// stays 0 only where migration 0024 had no registered source to fold it into.
+function scheduledRunsOn(source, sched) {
+  return Boolean(source.active) && !(sched && sched.schedule_id != null && !sched.enabled);
+}
+
+// What the card, the manager and the editor say: the schedule, and "Off" beside it.
+function scheduleSummary(source) {
+  if (!state.schedules) return "";
+  const sched = state.schedules.get(source.source_key);
+  const label = scheduleLabel(sched);
+  return label === "Not scheduled" || scheduledRunsOn(source, sched)
+    ? label : label + " · Off";
+}
+
+// Open this source's row on the Schedules page, expanded and focused.
+async function openScheduleRow(key) {
+  showView("settings");
+  $("s-sched").classList.remove("hidden");
+  document.querySelector('[data-sect="s-sched"]').setAttribute("aria-expanded", "true");
+  await state.schedulesLoad;
+  const row = [...document.querySelectorAll(".sched-row")]
+    .find((item) => item.dataset.sched === key);
+  if (!row) return;
+  row.open = true;
+  row.querySelector("summary").focus({preventScroll: true});
+  row.scrollIntoView({block: "nearest"});
+}
+
+let toastTimer = null;
+
+// A short confirmation in the corner, gone after Sonner's default 4 s
+// (sonner.tsx@86c813ec:9). The region stays in the page so it is announced.
+function showToast(text) {
+  $("toast").textContent = text;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { $("toast").textContent = ""; }, 4000);
+}
+
+// Ask, then turn this source's scheduled runs on or off with the schedule as saved.
+async function toggleScheduledRuns(source, sched, button, status) {
+  const on = button.getAttribute("aria-checked") === "true";
+  const site = siteName(source);
+  const verb = on ? "Disable" : "Enable";
+  const yes = await askToConfirm({
+    title: `${verb} scheduled runs`,
+    copy: `Are you sure you want to ${verb.toLowerCase()} scheduled runs for ${site}? `
+      + "Manual runs still work.",
+    keep: "Cancel", go: verb, tone: on ? "danger" : "",
+  });
+  if (!yes) return;
+  button.disabled = true;
+  try {
+    const result = await post("/api/schedules/" + encodeURIComponent(source.source_key), {
+      frequency: sched.frequency, run_at: sched.run_at, timezone: sched.timezone,
+      weekday: sched.weekday, run_mode: sched.run_mode,
+      missed_run_policy: sched.missed_run_policy, overlap_policy: "skip", active: !on,
+    });
+    showToast(`${result.active ? "Enabled" : "Disabled"} scheduled runs for ${site}`);
+    state.schedulesLoad = loadSchedules();
+    loadSources();
+    await state.schedulesLoad;
+    // The row is drawn again; focus goes back to its switch, not to the page.
+    const again = document.querySelector(
+      `.sched-row[data-sched="${CSS.escape(source.source_key)}"] [data-role="sched-active"]`);
+    if (again) again.focus({preventScroll: true});
+  } catch (e) {
+    button.disabled = false;
+    status.textContent = "Couldn't save: " + e.message;
+  }
+}
+
 async function loadSchedules() {
   // An EDITOR, not a list. The API could create schedules since spec 26 and
   // the panel could only read them — so the section said "No schedules yet"
@@ -7007,6 +7141,8 @@ async function loadSchedules() {
     const [d, src] = await Promise.all([api("/api/schedules"), api("/api/sources")]);
     $("sched-note").textContent = d.note;
     const saved = new Map(d.schedules.map((s) => [s.source_key, s]));
+    state.schedules = saved;
+    const switchOn = scheduleSwitchOn();
     const sites = src.sources.filter((s) => s.implemented);
     if (!sites.length) {
       $("schedules").innerHTML = `<span class="muted">No sites yet.</span>`;
@@ -7035,21 +7171,31 @@ async function loadSchedules() {
       const runAt = sched.run_at || "09:00";
       const weekday = sched.weekday == null ? 0 : Number(sched.weekday);
       const paused = sched.schedule_id != null && !sched.enabled;
-      const summary = freq === "manual" ? "manual"
+      // THE ONE SWITCH (#1596): drawn only on a saved schedule that can fire; off, the
+      // row says "Off" where it said "next …" for a slot that would never run (#1611).
+      const runsOn = scheduledRunsOn(s, sched);
+      const toggle = switchOn && sched.schedule_id != null && freq !== "manual"
+        ? `<button type="button" role="switch" class="switch" data-role="sched-active"
+             aria-checked="${runsOn}" aria-label="Scheduled runs for ${esc(siteName(s))}">
+             <span class="switch-thumb" aria-hidden="true"></span></button>` : "";
+      const summary = switchOn && freq === "manual" ? "Not scheduled"
+        : freq === "manual" ? "manual"
         : freq + (freq === "weekly" ? " · " + WEEKDAYS[weekday] : "") + " · " + esc(runAt);
       // The next fire, in the display zone and NAMING it (§6.8) — a schedule
       // read four hours out is a run the owner waits for and does not get.
       // This is display only: the scheduler still computes and stores the
       // instant in UTC, and the row's own Timezone field below is a different
       // thing entirely (it decides WHEN the job fires, not how it is read).
-      const next = paused ? "paused"
+      const next = switchOn && freq === "manual" ? ""
+        : switchOn && !runsOn ? "Off"
+        : paused ? "paused"
         : sched.next_run_at
           ? "next " + window.ScrapeXTime.markup(sched.next_run_at, "datetime", {zone: true})
           : "";
       // The scheduler fires only ACTIVE sources (the Auto switch). A schedule
       // saved on an inactive one is a real record that will not fire — the
       // row says so instead of letting the owner wait for nothing.
-      const gate = s.active ? "" :
+      const gate = s.active || switchOn ? "" :
         `<span class="muted"> — Auto is off for this site, so this will not fire</span>`;
       // Every knob the schedule model has, one disclosure per site so the
       // 320px panel is not wallpapered with forms. This section is THE
@@ -7059,6 +7205,7 @@ async function loadSchedules() {
         <summary class="row sched-summary">
           ${sourceIdentity(s, true)}
           <span class="muted" data-role="next">${esc(summary)}${next ? " · " + next : ""}</span>
+          ${toggle}
         </summary>
         <div class="stack sched-body">
           <div class="row sched-fields">
@@ -7098,9 +7245,9 @@ async function loadSchedules() {
             </div>
             <p class="hint" data-role="skip-note" ${skipNote(sched) ? "" : "hidden"}>${esc(skipNote(sched))}</p>
           </div>
-          <label class="check"><input type="checkbox" data-role="enabled"
+          ${switchOn ? "" : `<label class="check"><input type="checkbox" data-role="enabled"
                  ${paused ? "" : "checked"}>
-            <span>Enabled <span class="muted">— untick to pause without losing these settings</span></span></label>
+            <span>Enabled <span class="muted">— untick to pause without losing these settings</span></span></label>`}
           <div class="row">
             <button class="ghost" data-role="save">Save</button>
             <span class="hint" data-role="status" role="status" aria-live="polite">${gate}</span>
@@ -7114,6 +7261,14 @@ async function loadSchedules() {
       const weekday = row.querySelector('[data-role="weekday"]');
       const time = row.querySelector('[data-role="time"]');
       const status = row.querySelector('[data-role="status"]');
+      const site = sites.find((item) => item.source_key === row.dataset.sched);
+      const toggle = row.querySelector('[data-role="sched-active"]');
+      if (toggle) {
+        toggle.addEventListener("click", (event) => {
+          event.preventDefault();          // the switch, not the row's disclosure
+          toggleScheduledRuns(site, saved.get(site.source_key), toggle, status);
+        });
+      }
       freq.addEventListener("change", () => {
         weekday.classList.toggle("hidden", freq.value !== "weekly");
         time.disabled = freq.value === "manual";
@@ -7132,14 +7287,17 @@ async function loadSchedules() {
             // NOT A CHOICE ANY MORE (#1596): an engine with `scheduled_skips` skips a
             // busy slot whatever this says, and an older one skips it because of it.
             overlap_policy: "skip",
-            enabled: row.querySelector('[data-role="enabled"]').checked,
           };
+          // With the switch, a save keeps what the row shows; without it, the box.
+          if (switchOn) body.active = scheduledRunsOn(site, saved.get(site.source_key));
+          else body.enabled = row.querySelector('[data-role="enabled"]').checked;
           if (freq.value === "weekly") body.weekday = Number(weekday.value);
           const result = await post(
             "/api/schedules/" + encodeURIComponent(row.dataset.sched), body);
           // A textContent sink, so label() — the same formatter, returning the
           // plain sentence instead of markup.
-          status.textContent = !body.enabled ? "Saved — paused."
+          status.textContent = switchOn && result && result.active === false ? "Saved — off."
+            : !switchOn && !body.enabled ? "Saved — paused."
             : result && result.next_run_at
               ? "Saved — next " + window.ScrapeXTime.label(result.next_run_at)
               : "Saved.";
@@ -10205,6 +10363,8 @@ function wireDeferredControls() {
       document.querySelector(`[data-edit-source="${CSS.escape(sourceKey || "")}"]`)
         ?.focus({preventScroll: true}));
   });
+  $("source-edit-schedule-link").addEventListener("click", () =>
+    openScheduleRow(state.editingSourceKey));
   $("source-edit-robots-look").addEventListener("click", lookAtRobots);
   document.querySelectorAll("[data-clear-rule]").forEach((button) =>
     button.addEventListener("click", () => clearSourceRule(button.dataset.clearRule)));

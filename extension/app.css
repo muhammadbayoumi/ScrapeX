@@ -241,6 +241,52 @@
   .sched-summary { justify-content: space-between; cursor: pointer; list-style: none; }
   .sched-summary::-webkit-details-marker { display: none; }
   .sched-body { margin-top: var(--sp-2); }
+  /* The Active switch on a Schedules row (#1596): Supabase's Switch at size medium,
+     34x20 with a 16px thumb (switch.tsx@86c813ec:10-40). Checked is brand with a white
+     thumb; unchecked is the control colour with a muted thumb. */
+  button.switch {
+    flex: none;
+    position: relative;
+    width: 34px;
+    min-width: 0;
+    height: 20px;
+    min-height: 0;
+    padding: 0;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-pill);
+    background: var(--control-bg);
+  }
+  button.switch:hover:not(:disabled) { background: var(--line); }
+  button.switch[aria-checked="true"] { border-color: var(--accent); background: var(--accent); }
+  button.switch:disabled { cursor: not-allowed; opacity: 0.5; }
+  .switch-thumb {
+    position: absolute;
+    top: 1px;
+    left: 1px;
+    width: 16px;
+    height: 16px;
+    border-radius: var(--radius-pill);
+    background: var(--muted);
+    transition: transform var(--dur) var(--ease);
+  }
+  button.switch[aria-checked="true"] .switch-thumb { transform: translateX(14px); background: #fff; }
+  @media (prefers-reduced-motion: reduce) { .switch-thumb { transition: none; } }
+  /* A confirmation after a change: Sonner's toast as Supabase styles it
+     (sonner.tsx@86c813ec:28-42) -- rounded-md, py-3 px-5, text-sm, border, shadow-lg. */
+  .toast {
+    position: fixed;
+    inset-inline: var(--sp-4);
+    bottom: var(--sp-4);
+    z-index: var(--z-modal);
+    padding: var(--sp-3) var(--sp-5);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    background: var(--surface-raised);
+    color: var(--text);
+    font-size: var(--fs-sm);
+    box-shadow: var(--shadow-lg);
+  }
+  .toast:empty { display: none; }
   .sched-fields { gap: var(--sp-2); }
 
   /* Small layout primitives, declared once instead of repeated as inline styles. */

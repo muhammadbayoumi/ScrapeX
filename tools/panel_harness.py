@@ -863,6 +863,18 @@ window.fetch = async (url, options = {{}}) => {{
     }})}};
   }}
 
+  // SAVING ONE SCHEDULE answers the saved row, as the engine does, with the `active`
+  // the save sent (#1596) -- not the schedules LIST its path prefix would match.
+  const savedSchedule = path.match(/^\/api\/schedules\/([^/?]+)/);
+  if (savedSchedule && method === "POST") {{
+    const sent = JSON.parse((options && options.body) || "{{}}");
+    return {{ ok: true, status: 200, json: async () => ({{
+      ...sent, source_key: decodeURIComponent(savedSchedule[1]), schedule_id: 1,
+      enabled: 1, next_run_at: sent.frequency === "manual" ? null : "2026-08-01T06:00:00Z",
+      active: sent.active === undefined ? true : sent.active,
+    }}) }};
+  }}
+
   // The log endpoint lives under /api/jobs too, so it must be answered BEFORE
   // the generic /api/jobs list route swallows it.
   if (/^\\/api\\/jobs\\/[^/]+\\/logs/.test(path)) {{

@@ -2394,6 +2394,19 @@ def create_app(
             "agent_sent": resolve_user_agent(fields["user_agent"]["value"], crawl),
         }
 
+    def _store_choices(conn, source_key: str, shipped, changes: dict) -> None:
+        """Register the source if it never was, then store his choices. No commit: the
+        caller's transaction holds it, so a schedule saved beside `active` is one write."""
+        if conn.execute("SELECT 1 FROM source_site WHERE source_key = ?",
+                        (source_key,)).fetchone() is None:
+            if isinstance(shipped, SourceEntry):
+                get_source_id(conn, shipped, shipped.currency)
+            else:
+                catalog.register_site(conn, SiteCreate(
+                    site_key=shipped.key, display_name=shipped.display_name,
+                    base_url=shipped.base_url))
+        source_settings.save(conn, source_key, shipped, changes)
+
     def _save_rules(source_key: str, changes: dict) -> dict:
         """Store a partial set of his choices and answer as `GET /rules` does.
 
@@ -2405,15 +2418,7 @@ def create_app(
         shipped = _shipped_or_404(source_key)
 
         def write(conn):
-            if conn.execute("SELECT 1 FROM source_site WHERE source_key = ?",
-                            (source_key,)).fetchone() is None:
-                if isinstance(shipped, SourceEntry):
-                    get_source_id(conn, shipped, shipped.currency)
-                else:
-                    catalog.register_site(conn, SiteCreate(
-                        site_key=shipped.key, display_name=shipped.display_name,
-                        base_url=shipped.base_url))
-            source_settings.save(conn, source_key, shipped, changes)
+            _store_choices(conn, source_key, shipped, changes)
             conn.commit()
             moved = reconcile_active(conn, app.state.manifest)
             return dict(_rules_answer(conn, source_key, shipped),
@@ -2759,11 +2764,25 @@ def create_app(
 
     @app.post("/api/schedules/{source_key}")
     def api_set_schedule(source_key: str, body: dict):
+        """Save one source's schedule and, when `active` is sent, its Active switch.
+
+        THE SWITCH ON THE SCHEDULES ROW (#1596, D1 option 2): `active` is still
+        `source_setting.active`, checked by `source_settings.save` -- so a TBD-probe
+        source is refused with the manifest's sentence -- and written in the SAME
+        transaction as the schedule, which is then always `enabled` (migration 0024
+        folded every `enabled = 0` into `active = 0`). The answer carries the effective
+        `active`, because `next_run_at` is armed either way and only that says the slot
+        will not fire. Without `active` the route saves as it did before.
+        """
         body = body or {}
         try:
-            app.state.manifest.get(source_key)
+            entry = app.state.manifest.get(source_key)
         except KeyError:
             raise HTTPException(status_code=404, detail=f"unknown source_key {source_key!r}")
+        active = body.get("active")
+        if "active" in body and type(active) is not bool:
+            raise HTTPException(status_code=400,
+                                detail=f"active must be true or false, not {active!r}")
         frequency = body.get("frequency", ScheduleFrequency.MANUAL.value)
         if frequency not in {f.value for f in ScheduleFrequency}:
             raise HTTPException(status_code=400, detail="frequency must be "
@@ -2775,18 +2794,29 @@ def create_app(
             raise HTTPException(status_code=400,
                                 detail=f"unknown timezone {tz_name!r} — use an "
                                        "IANA name like Africa/Cairo")
-        try:
-            saved = _write(lambda c: upsert_schedule(
+
+        def write(c):
+            if active is not None:
+                _store_choices(c, source_key, entry, {"active": active})
+            saved = upsert_schedule(
                 c, source_key, frequency=frequency,
                 run_at=body.get("run_at", "09:00"), tz_name=body.get("timezone", "UTC"),
                 weekday=body.get("weekday"), run_mode=body.get("run_mode", RunMode.UPDATE.value),
                 missed_run_policy=body.get("missed_run_policy",
                                            MissedRunPolicy.RUN_WHEN_AVAILABLE.value),
                 overlap_policy=body.get("overlap_policy", OverlapPolicy.QUEUE.value),
-                enabled=bool(body.get("enabled", True))))
+                enabled=True if active is not None else bool(body.get("enabled", True)))
+            if active is not None:
+                reconcile_active(c, app.state.manifest)
+            saved["active"] = source_settings.effective(c, source_key, entry).active
+            return saved
+
+        try:
+            return _write(write)
+        except source_settings.SourceSettingError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
         except sqlite3.IntegrityError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
-        return saved
 
     # ---- columns + saved views (spec 22: hiding is never deleting) ----------
 

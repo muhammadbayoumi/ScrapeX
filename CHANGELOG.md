@@ -10,40 +10,46 @@ work predates this file, the commit that built it — evidence read out of
 `gh pr list`, `gh issue list` — and this file answers a narrower question:
 which version has it.
 
-## 0.4.59
+## 0.4.60
 
-Minimum supported extension: `0.3.8`.
+Minimum supported extension: `0.3.9`.
 
 No new capabilities. Fixes and internal change only — an extension and an engine that spoke to each other before this version still do.
 
 
+## 0.3.9
+
+Minimum supported extension: `0.3.9`.
+
+- **schedule_active_switch** (pending) — Turn a source's scheduled runs on or off from its row on the Schedules page, with one switch. _Runs in: panel, engine._
+
 ## 0.3.8
 
-Minimum supported extension: `0.3.8`.
+Minimum supported extension: `0.3.9`.
 
 - **scheduled_skips** (68066288) — A scheduled run whose source is still running, or that finds another app writing to the warehouse, is skipped and logged as a job instead of waiting in a queue. _Runs in: panel, engine._
 
 ## 0.3.7
 
-Minimum supported extension: `0.3.8`.
+Minimum supported extension: `0.3.9`.
 
 - **source_rules** (9102a10a) — See where each of a source's crawl rules comes from -- the source, your general rule or your choice -- change it for that source alone, and clear your choice to return to the source's. _Runs in: panel, engine._
 
 ## 0.3.3
 
-Minimum supported extension: `0.3.8`.
+Minimum supported extension: `0.3.9`.
 
 - **organization_enrichment** (c0cd695) — Turn any approved company or contractor dataset into a linked, progressively verified organization dataset with field-level evidence and manual review for uncertain matches. _Runs in: panel, engine._
 
 ## 0.2.2
 
-Minimum supported extension: `0.3.8`.
+Minimum supported extension: `0.3.9`.
 
 - **robots_per_source** (adf31b2) — Read what a site's robots.txt asks of a crawler, then decide per source: follow the tool default, obey that site, or write a rule for it alone. _Runs in: panel, engine._
 
 ## 0.2.0
 
-Minimum supported extension: `0.3.8`.
+Minimum supported extension: `0.3.9`.
 
 - **compatibility_notice** (7ca7a75) — Be told, rather than left to find out, when the installed extension is older than the features the engine deploys. _Runs in: panel._
 - **crawl_pace** (c63ec21) — Choose whether each site's requested crawl delay is honoured, set the minimum seconds between requests and the request timeout, and choose what the crawl calls itself. _Runs in: panel, engine._
