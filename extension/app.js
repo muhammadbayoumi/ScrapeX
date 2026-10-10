@@ -7264,10 +7264,9 @@ async function loadSchedules() {
       const site = sites.find((item) => item.source_key === row.dataset.sched);
       const toggle = row.querySelector('[data-role="sched-active"]');
       if (toggle) {
-        toggle.addEventListener("click", (event) => {
-          event.preventDefault();          // the switch, not the row's disclosure
-          toggleScheduledRuns(site, saved.get(site.source_key), toggle, status);
-        });
+        // A button is its own activation target, so a press does not open the row.
+        toggle.addEventListener("click", () =>
+          toggleScheduledRuns(site, saved.get(site.source_key), toggle, status));
       }
       freq.addEventListener("change", () => {
         weekday.classList.toggle("hidden", freq.value !== "weekly");

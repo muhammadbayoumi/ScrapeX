@@ -214,6 +214,15 @@ def test_active_must_be_a_boolean(client, active):
     assert r.status_code == 400 and "active must be true or false" in r.json()["detail"]
 
 
+def test_a_save_with_the_switch_always_enables_the_schedule(client):
+    """`active` is the one switch: a schedule saved with it is never left paused by an
+    `enabled` sent beside it, so it holds a slot to fire when the switch is on."""
+    key = ACTIVE[0].source_key
+    body = client.post(f"/api/schedules/{key}", json={
+        "frequency": "daily", "enabled": False, "active": True}).json()
+    assert body["enabled"] == 1 and body["next_run_at"], body
+
+
 def test_without_active_the_route_saves_as_it_did(client):
     """An older panel sends `enabled` and no `active`: nothing of his choice is written."""
     key = ACTIVE[0].source_key
