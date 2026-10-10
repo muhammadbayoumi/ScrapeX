@@ -2564,6 +2564,12 @@ def create_app(
             # Retry-After is reported instead of waited (`retry_after_s`), and the
             # retries stop at one timeout's budget (`cut_short`).
             read = fetcher.read_robots(shipped.base_url, answer_promptly=True)
+        except HostRefused as exc:
+            # THE SOURCE'S robots.txt REDIRECTS INTO A REFUSED HOST: said as the probe
+            # says it, naming the host he can act on, rather than a bare 500.
+            raise HTTPException(
+                status_code=400,
+                detail=f"{exc} {canonical_host(shipped.base_url)} redirects to it.")
         finally:
             fetcher.close()
 

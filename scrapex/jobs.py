@@ -837,9 +837,23 @@ def _run_source(run: _SourceRun, conn: sqlite3.Connection, source_key: str) -> b
         # OURS, NOT THE SITE'S, AND NOT A PAUSE: a Resume would only be refused again.
         # This source fails alone and the job carries on with the others, as any
         # other source's failure does; the sentence names the host and its record.
+        # THE JOURNAL GOES TOO: the panel offers Resume wherever `kept_pages` is
+        # non-zero, whatever the job's status, so a page kept here would offer the
+        # resume this failure exists to withhold.
+        from . import localinbox
+        dropped = len(localinbox.list_tokens(localinbox.JOURNAL_DIR, source_key))
+        localinbox.clear(localinbox.JOURNAL_DIR, source_key)
         run.errors.append(f"{source_key}: {refused}")
         append_log(conn, run.job_id, f"failed: {refused}", level=LogLevel.ERROR,
                    source_key=source_key)
+        if dropped:
+            append_log(conn, run.job_id,
+                       (f"{dropped} pages fetched before the refusal were discarded: "
+                        "continuing from them would only be refused again."
+                        if dropped > 1 else
+                        "1 page fetched before the refusal was discarded: continuing "
+                        "from it would only be refused again."),
+                       level=LogLevel.WARNING, source_key=source_key)
     except CrawlBlocked as blocked:
         # THE SITE STOPPED THIS SOURCE, NOT THE OWNER -- and his ruling on #1448
         # is that it pauses rather than fails. A pause for THIS source only: the

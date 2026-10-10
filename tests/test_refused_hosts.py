@@ -271,7 +271,64 @@ def test_a_price_source_led_into_the_host_fails_and_is_not_offered_a_resume(
     assert said[0]["level"] == "error" and said[0]["message"].startswith("failed:")
     assert not any("Resume" in line["message"] or "blocked by the site" in line["message"]
                    or line["message"].startswith("paused") for line in lines), lines
-    assert SENTENCE in jobs.get_job(memory, ref)["error_summary"]
+    assert jobs.get_job(memory, ref)["error_summary"] == f"GPP_ENERGY: {SENTENCE}", (
+        "the Jobs row draws error_summary, and it must name the source before the sentence")
+
+
+def _page_one_then_the_host(request: httpx.Request) -> httpx.Response:
+    """A site whose first page reads and whose second redirects to the refused host."""
+    if request.url.path in ("/robots.txt", "/p1"):
+        return httpx.Response(200, text="User-agent: *\n")
+    return httpx.Response(302, headers={"Location": "https://www.ahrambc.com/verify"})
+
+
+def test_a_price_source_refused_on_its_second_page_keeps_no_page_for_a_resume(
+        memory, journal, monkeypatch):
+    """The panel draws Resume from the journal (`kept_pages`), not from the job's status.
+    Page 1 is journaled as fetched, so a refusal on page 2 used to settle the job FAILED
+    and still offer "Resume 1 page" -- a resume that would only be refused again (review
+    of #1645). The pages are discarded, and the log says how many."""
+    import scrapex.capture as capmod
+    from scrapex import jobs, localinbox
+    from scrapex.connectors.base import ScrapedTable
+    from scrapex.vocab import ExtractKind
+
+    site = _Recorder(_page_one_then_the_host)
+
+    class TwoPages:
+        def __init__(self, fetcher):
+            self.fetcher = fetcher
+
+        def fetch(self, entry):
+            for token in ("p1", "p2"):
+                url = f"https://www.globalpetrolprices.com/{token}"
+                self.fetcher.get(url)
+                yield ScrapedTable(source_key=entry.source_key,
+                                   kind=ExtractKind.COMMODITY_PRICE, source_url=url,
+                                   header=["a"], rows=[["1"]], page_token=token)
+
+    real = capmod.build_connector
+
+    def cut(entry, rules, crawl_settings=None):
+        _, fetcher = real(entry, rules, crawl_settings)
+        fetcher._client.close()
+        fetcher._client = _guarded(site)
+        return TwoPages(fetcher), fetcher
+    monkeypatch.setattr(capmod, "build_connector", cut)
+    ref = jobs.create_job(memory, ["GPP_ENERGY"])
+
+    jobs.run_job_once(memory, ref, {"GPP_ENERGY": _price_entry()})
+
+    assert any(url.endswith("/p1") for url in site.asked), site.asked
+    assert not any("ahrambc" in url for url in site.asked), site.asked
+    assert jobs.get_job(memory, ref)["status"] == "failed"
+    assert localinbox.journal_state(localinbox.JOURNAL_DIR, "GPP_ENERGY")["pages"] == 0, (
+        "a page left in the journal draws Resume on the panel")
+    messages = [line["message"] for line in jobs.job_logs(memory, ref)
+                if line["source_key"] == "GPP_ENERGY"]
+    assert f"failed: {SENTENCE}" in messages, messages
+    assert ("1 page fetched before the refusal was discarded: continuing from it "
+            "would only be refused again." in messages), messages
 
 
 def test_a_directory_crawl_led_into_the_host_fails_rather_than_pauses(tmp_path,
@@ -299,13 +356,17 @@ def test_a_directory_crawl_led_into_the_host_fails_rather_than_pauses(tmp_path,
     try:
         directoryjob.run_directory_crawl_job_once(conn, ref)
         job = jobs.get_job(conn, ref)
-        messages = [line["message"] for line in jobs.job_logs(conn, ref)]
+        lines = jobs.job_logs(conn, ref)
     finally:
         conn.close()
+    messages = [line["message"] for line in lines]
 
     assert not any("ahrambc" in url for url in site.asked), site.asked
     assert job["status"] == "failed", (job["status"], messages)
-    assert any(m == f"failed: {SENTENCE}" for m in messages), messages
+    said = [line for line in lines if line["message"] == f"failed: {SENTENCE}"]
+    assert len(said) == 1 and said[0]["level"] == "error", lines
+    assert job["error_summary"] == SENTENCE, (
+        "the Jobs row draws error_summary; the sentence is what it must carry")
     assert not any(m.startswith("paused") for m in messages), messages
 
 
@@ -508,6 +569,50 @@ def test_a_probe_of_a_site_that_redirects_into_the_host_says_so(app_client, wire
     assert answer.json()["detail"] == f"{SENTENCE} good.example redirects to it.", (
         "the refusal must name the address he typed, which is not the refused host")
     assert net.sent and all("good.example" in url for url in net.sent), net.sent
+
+
+@pytest.mark.parametrize("path", ["/products.json", "/"])
+def test_one_probe_request_into_the_host_is_enough_to_refuse(app_client, wire, path):
+    """Each of the probe's two reads re-raises the refusal on its own: a shop whose
+    `/products.json` alone, or whose front page alone, redirects into the host is
+    refused rather than offered for registration (review of #1645)."""
+    client, _, _ = app_client
+
+    def answers(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/robots.txt":
+            return httpx.Response(200, text="User-agent: *\n")
+        if request.url.path == path:
+            return httpx.Response(302, headers={"Location": "https://www.ahrambc.com/x"})
+        if request.url.path == "/":
+            return httpx.Response(200, text="<html>a shop</html>")
+        return httpx.Response(404)
+    net = wire(answers)
+    answer = client.post("/api/probe", json={"url": "https://good.example/"})
+    assert answer.status_code == 400, answer.json()
+    assert answer.json()["detail"] == f"{SENTENCE} good.example redirects to it."
+    assert not any("ahrambc" in url for url in net.sent), net.sent
+
+
+def test_the_robots_check_of_a_source_whose_robots_redirects_into_the_host_says_so(
+        app_client, wire):
+    """`read_robots` re-raises the refusal, and the panel's robots check is its second
+    caller: it answered a bare 500 there (review of #1645). It answers the sentence as
+    a 400, naming the source's own host, and asks the refused host nothing."""
+    from scrapex.config import load_manifest
+
+    client, _, manifest = app_client
+    entry = load_manifest(manifest).sources[0]
+
+    def answers(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/robots.txt":
+            return httpx.Response(301, headers={"Location": "https://ahrambc.com/robots.txt"})
+        return httpx.Response(200)
+    net = wire(answers)
+    answer = client.get(f"/api/sources/{entry.source_key}/robots")
+    assert answer.status_code == 400, answer.text
+    assert answer.json()["detail"] == (
+        f"{SENTENCE} {canonical_host(entry.base_url)} redirects to it.")
+    assert net.sent and not any("ahrambc" in url for url in net.sent), net.sent
 
 
 # ---- the directory crawl: a refusal deep inside a cell ends the crawl ----------------------
