@@ -120,17 +120,18 @@ screen that will not exist.
   prettier copy. A sentence the engine does not produce is not shown.
 - **Every state**:
   - the normal list;
-  - filtered;
+  - filtered, and filtered to nothing: the empty list names which narrowing emptied it;
   - a menu open;
   - a dialog;
   - loading;
   - refresh in progress;
-  - a failed read;
+  - a failed read, and a press that fails or gets no answer;
   - empty;
   - engine down;
   - the longest real text;
   - each transitional status;
-  - the limit or paging case.
+  - the limit or paging case;
+  - a live tick: what he selected, typed, focused or opened survives the redraw.
 - **Numbered markers** on the elements, and **one reference sheet**: marker · element ·
   reference · class. Each image shows the three widths side by side.
 - Send the images to him, and post the sheet on the study issue.
@@ -151,18 +152,22 @@ does:
 3. **Accessibility, measured.**
    - Contrast computed from the drawn colours: 4.5:1 for text, 3:1 for icons and borders.
    - Keyboard path and focus order.
-   - Menu and dialog keyboard models.
+   - Menu and dialog keyboard models, and how each overlay closes: Escape, focus
+     leaving it, a press outside it, and a press on its own labels, which must not.
    - Live regions for changes.
    - Touch targets.
 4. **States.** Is any state from stage 4 missing?
 5. **Honesty of the data.** Does every sentence and number exist in the engine's payload?
-   Does a state claim a cause it cannot know?
+   Does a state claim a cause it cannot know? Where a shared component draws a record the
+   row only matched, each field it shows is checked for whose it is.
 6. **The repo's rules.** No control without its capability, and no control drawn for a route
    that 404s. One feature in one place. No silent failure. A plan is not an approval.
-7. **Words.** Every string against `copywriting.mdx@86c813ec`.
+7. **Words.** Every string against `copywriting.mdx@86c813ec`, and every count at 0, 1
+   and many.
 8. **Narrow width and Arabic.** Nothing that identifies a row is cut at 320 px. Bidi holds.
 9. **Cost.** Requests added to the engine, polling, and anything that needs an engine change
-   or a `VERSION` bump.
+   or a `VERSION` bump. A live page is also measured in the browser: what each tick
+   redraws, and the longest task it costs at the largest real list.
 10. **Collisions.** Open PRs and issues on the same files or the same decision.
 
 Every *must fix* and *should fix* returns the proposal to the stage it came from.
@@ -183,6 +188,9 @@ reviews the answer.
 
 ### 7 · Building it
 
+- Size the build before the first edit. Over the `review` skill's 1,000 lines it is split
+  into parts he approves, each a PR that merges on its own: assets and rules first, then
+  the page, then what narrows it.
 - Tests first, which fail on today's code:
   - DOM tests through the same harness, at the three widths;
   - the contrast of every state colour;
