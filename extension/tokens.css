@@ -170,6 +170,10 @@
      departure look necessary. */
   --amber-ink: #080503;
   --amber-weak: #fff4d5;      /* warning-300 light     PUBLISHED */
+  /* A `warning` Button's fill and its hover (Button.tsx@86c813ec:85-100): warning-300
+     then warning-400 in light, warning-400 then warning/50 in dark. */
+  --warning-button: var(--amber-weak);
+  --warning-button-hover: #ffe3a2; /* warning-400 light   PUBLISHED */
   /* A WARNING GLYPH'S COLOUR, NOT A TEXT COLOUR (#1542). Their warning-600 is 3.05:1 on
      --surface: enough for an icon (WCAG 2.2 SC 1.4.11, 3:1), not for 12 px words (SC
      1.4.3, 4.5:1). So a warning status draws its glyph in this and its words in --text,
@@ -469,7 +473,7 @@
   --switch-thumb-off: var(--on-surface-variant);
   /* Supabase's Switch thumb when checked is `bg-white` in both schemes
      (switch.tsx@86c813ec:27); the Schedules row's Active switch reads it (#1596). */
-  --switch-thumb-checked: #ffffff;
+  --switch-thumb-checked: #ffffff; /* --colors-white      PUBLISHED */
 
   /* ---- Sign in with Google -------------------------------------------
    * THIRD-PARTY BRAND VALUES, and the only colours in this file that are not
@@ -540,6 +544,8 @@
   --amber: #f2af48;           /* --warning dark        derived */
   --amber-ink: #080503;       /* --warning-foreground  derived   */
   --amber-weak: #341c00;      /* warning-300 dark      PUBLISHED */
+  --warning-button: #4a2900;  /* warning-400 dark      PUBLISHED */
+  --warning-button-hover: color-mix(in srgb, var(--amber) 50%, transparent);
   --warning-600: #db8e00;     /* warning-600 dark      PUBLISHED */
   --red: #fa8880;             /* --destructive dark    derived */
   --red-hover: #fda49d;
@@ -596,6 +602,8 @@
     --amber: #f2af48;
     --amber-ink: #080503;
     --amber-weak: #341c00;
+    --warning-button: #4a2900;  /* warning-400 dark      PUBLISHED */
+    --warning-button-hover: color-mix(in srgb, var(--amber) 50%, transparent);
     --warning-600: #db8e00;
     --red: #fa8880;
     --red-hover: #fda49d;

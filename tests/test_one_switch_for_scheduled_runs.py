@@ -231,3 +231,16 @@ def test_without_active_the_route_saves_as_it_did(client):
     assert body["enabled"] == 0 and body["next_run_at"] is None
     assert body["active"] is True, "the effective switch, as the source ships it"
     assert _stored(client, key)[0] is None
+
+
+def test_the_panel_harness_compiles_without_a_warning():
+    """Its routes are JavaScript inside a Python f-string, so a `\\/` written once where
+    `\\\\/` was meant is a SyntaxWarning on every import (#1630 review) -- and a regex
+    that only works because Python passes an unknown escape through."""
+    import warnings
+    from pathlib import Path
+
+    harness = Path(__file__).resolve().parents[1] / "tools" / "panel_harness.py"
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        compile(harness.read_text(encoding="utf-8"), str(harness), "exec")

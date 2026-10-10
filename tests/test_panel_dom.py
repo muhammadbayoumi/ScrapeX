@@ -5583,6 +5583,13 @@ def test_the_switch_asks_first_and_cancel_changes_nothing(open_panel):
         "Manual runs still work.")
     assert (text_of(page, "#confirm-keep"), text_of(page, "#confirm-go")) == (
         "Cancel", "Disable")
+    # His choice B (2026-10-10, #1596): Studio's `warning` Button, not `danger` --
+    # foreground text on warning-300, the light theme's #fff4d5.
+    assert page.get_attribute("#confirm-go", "class") == "warning"
+    assert page.evaluate("""() => {
+        const s = getComputedStyle(document.getElementById('confirm-go'));
+        return [s.backgroundColor, s.color === getComputedStyle(document.body).color];
+    }""") == ["rgb(255, 244, 213)", True]
     # The row stayed shut: the switch does not toggle the disclosure it sits in.
     assert not page.evaluate("document.querySelector('.sched-row').open")
 
@@ -5705,6 +5712,33 @@ def test_the_datasets_menu_edits_the_schedule_instead_of_pausing(open_panel):
 
     assert not [w for w in page.evaluate("window.__writes") if w["path"].endswith("/active")]
     assert page.evaluate("document.querySelector('.sched-row[data-sched=\"SHORT\"]').open")
+    assert not page.js_errors
+
+
+LONG_HOST = {**CLEAN_SITE, "source_key": "LONG_AR",
+             "base_url": "https://very-long-subdomain.example-store-name.com.sa"}
+
+
+@pytest.mark.parametrize("width", [320, 400, 480])
+def test_a_schedules_row_keeps_its_site_name_and_switch_on_one_line(open_panel, width):
+    """Nothing that identifies a row is cut at narrow widths: the name and the switch
+    share the first line, and the schedule's long "next …" goes under them."""
+    weekly = {**SCHEDULE_SOON["schedules"][0], "frequency": "weekly", "weekday": 2}
+    schedules = {**SCHEDULE_SOON, "schedules": [
+        weekly, {**weekly, "source_key": "LONG_AR", "schedule_id": 2}]}
+    page = open_panel(sources=[OFF_SITE, LONG_HOST], schedules=schedules)
+    page.set_viewport_size({"width": width, "height": 900})
+    rows = _schedule_rows(page)
+    assert rows.count() == 2
+    for i in range(2):
+        row = rows.nth(i)
+        name = row.locator(".source-identity-domain").bounding_box()
+        switch = row.locator('[data-role="sched-active"]').bounding_box()
+        assert name and name["width"] > 40, (width, i, name)
+        assert switch, (width, i)
+        # The switch sits beside the name, not on a line of its own.
+        assert switch["y"] < name["y"] + name["height"], (width, i, name, switch)
+        assert switch["x"] > name["x"] + name["width"] - 1, (width, i, name, switch)
     assert not page.js_errors
 
 

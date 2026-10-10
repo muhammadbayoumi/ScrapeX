@@ -6112,7 +6112,7 @@ function askToConfirm({ title, named = "", copy, keep, go, tone = "danger" }) {
   body.append(document.createTextNode(copy));
   $("confirm-keep").textContent = keep;
   $("confirm-go").textContent = go;
-  // A confirm that harms nothing (Enable) is primary, as Studio's toggle is.
+  // danger, warning, or "" for primary: the button variant the question needs.
   $("confirm-go").className = tone;
   $("confirm-veil").classList.remove("hidden");
   $("confirm-keep").focus({ preventScroll: true });
@@ -7108,7 +7108,9 @@ async function toggleScheduledRuns(source, sched, button, status) {
     title: `${verb} scheduled runs`,
     copy: `Are you sure you want to ${verb.toLowerCase()} scheduled runs for ${site}? `
       + "Manual runs still work.",
-    keep: "Cancel", go: verb, tone: on ? "danger" : "",
+    // Studio's toggle: Disable in the warning tone, Enable primary
+    // (CronJobTableCell.tsx@86c813ec:210-253); his choice B, 2026-10-10 (#1596).
+    keep: "Cancel", go: verb, tone: on ? "warning" : "",
   });
   if (!yes) return;
   button.disabled = true;

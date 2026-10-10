@@ -232,13 +232,24 @@
                      font-size: var(--fs-xs); color: var(--text); }
   .dataset-identity-line { min-width: 0; }
   .dataset-card .source-identity { margin-bottom: var(--sp-2); }
-  .sched-summary .source-identity { flex: 1; }
-  .sched-summary [data-role="next"] { flex: none; text-align: end; }
+  /* THE SITE'S NAME KEEPS ITS LINE (#1596): the name and the switch share the first
+     row and the schedule takes its own line under them, so a long "next …" can no
+     longer squeeze the name to nothing at 320-480 px. */
+  .sched-summary .source-identity { grid-column: 1; grid-row: 1; }
+  .sched-summary [data-role="next"] { grid-column: 1 / -1; grid-row: 2; }
+  .sched-summary .switch { grid-column: 2; grid-row: 1; }
   .toolbar { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;
              font-size: var(--fs-xs); }
   .toolbar .spacer { flex: 1; }
   .sched-row { padding: var(--sp-2) 0; border-bottom: 1px solid var(--line); }
-  .sched-summary { justify-content: space-between; cursor: pointer; list-style: none; }
+  .sched-summary {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--sp-1) var(--sp-3);
+    cursor: pointer;
+    list-style: none;
+  }
   .sched-summary::-webkit-details-marker { display: none; }
   .sched-body { margin-top: var(--sp-2); }
   /* The Active switch on a Schedules row (#1596): Supabase's Switch at size medium,

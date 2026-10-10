@@ -492,6 +492,23 @@ button.danger:hover:not(:disabled),
   color: var(--danger-contrast);
 }
 
+/* Supabase's `warning` Button (Button.tsx@86c813ec:85-100): foreground text on the pale
+   warning fill, the warning colour at 30% for its border (--border-warning). Studio
+   confirms a switch being turned off with it (CronJobTableCell.tsx@86c813ec:210-253). */
+button.warning,
+.button.warning {
+  border-color: color-mix(in srgb, var(--amber) 30%, transparent);
+  background: var(--warning-button);
+  color: var(--text);
+}
+
+button.warning:hover:not(:disabled),
+.button.warning:hover:not([aria-disabled="true"]) {
+  border-color: var(--amber);
+  background: var(--warning-button-hover);
+  color: var(--text);
+}
+
 button.link,
 .button.link {
   width: auto;

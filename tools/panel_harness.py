@@ -865,7 +865,7 @@ window.fetch = async (url, options = {{}}) => {{
 
   // SAVING ONE SCHEDULE answers the saved row, as the engine does, with the `active`
   // the save sent (#1596) -- not the schedules LIST its path prefix would match.
-  const savedSchedule = path.match(/^\/api\/schedules\/([^/?]+)/);
+  const savedSchedule = path.match(/^\\/api\\/schedules\\/([^/?]+)/);
   if (savedSchedule && method === "POST") {{
     const sent = JSON.parse((options && options.body) || "{{}}");
     return {{ ok: true, status: 200, json: async () => ({{
