@@ -1,12 +1,22 @@
 """Q2/T2: the ONE shared parser — exact-value assertions, error paths included."""
 from __future__ import annotations
 
+from datetime import UTC, date, datetime, time
 from decimal import Decimal
 
 import pytest
 
 from scrapex.normalize import (
-    fold_digits, option_fingerprint, parse_money, record_hash, selling_unit_from)
+    fold_digits,
+    option_fingerprint,
+    parse_clock,
+    parse_date,
+    parse_instant,
+    parse_money,
+    parse_money_with_currency,
+    record_hash,
+    selling_unit_from,
+)
 
 
 # ---- fold_digits -------------------------------------------------------------
@@ -225,3 +235,179 @@ def test_every_connector_shares_one_stripper():
         assert "strip_markup" in body, f"{name} must use the shared stripper"
         assert 're.sub(r"<[^>]+>"' not in body, (
             f"{name} strips tags on its own again — that is the copy that drifts")
+
+
+# ---- dates, instants, clock times and coded amounts (#1647 §6.1) --------------
+# Every input below is a value the World Bank wrote, taken from the study's saved
+# responses; the comment names the field it came from.
+
+_WRITTEN_DATES = [
+    ("07-Oct-2026", "DD-Mon-YYYY", date(2026, 10, 7)),             # procnotices noticedate
+    ("19-May-2022", "DD-Mon-YYYY", date(2022, 5, 19)),             # Finances One API
+    ("22-Sep-2026", "DD-Mon-YYYY", date(2026, 9, 22)),             # contractdata no-objection
+    ("2026-11-05T00:00:00Z", "YYYY-MM-DDT00:00:00Z", date(2026, 11, 5)),  # the deadline
+    ("10/08/2026", "MM/DD/YYYY", date(2026, 10, 8)),               # the bulk CSV: 8 October
+    ("12/1/2025 12:00:00 AM", "M/D/YYYY 12:00:00 AM", date(2025, 12, 1)),  # closingdate
+    ("2024-06-24 00:00:00.0", "YYYY-MM-DD 00:00:00.0", date(2024, 6, 24)),  # p2a_updated_date
+    ("2024/07/01", "YYYY/MM/DD", date(2024, 7, 1)),                # an award text
+]
+
+
+@pytest.mark.parametrize(("raw", "layout", "expected"), _WRITTEN_DATES)
+def test_each_layout_reads_the_date_the_source_wrote(raw, layout, expected):
+    assert parse_date(raw, layout) == expected
+
+
+@pytest.mark.parametrize("layout", sorted({layout for _, layout, _ in _WRITTEN_DATES}))
+def test_every_layout_refuses_the_shapes_of_the_others(layout):
+    """A layout is an assertion, not a hint: text in any other shape raises."""
+    for raw, other, _ in _WRITTEN_DATES:
+        if other != layout:
+            with pytest.raises(ValueError, match="is not in the layout"):
+                parse_date(raw, layout)
+
+
+def test_the_same_digits_are_read_the_way_the_layout_says_never_guessed():
+    """'10/08/2026' is 8 October in the Bank's CSV and 10 August under DD/MM. The
+    layout decides; a day above 12 in the month's place raises instead of being
+    quietly swapped into a date the source never wrote."""
+    assert parse_date("10/08/2026", "MM/DD/YYYY") == date(2026, 10, 8)
+    with pytest.raises(ValueError, match="no real day"):
+        parse_date("13/08/2026", "MM/DD/YYYY")
+
+
+def test_a_date_layout_refuses_an_instant_rather_than_truncating_it():
+    """The search APIs carry a DATE as midnight UTC. Any other time of day would
+    be an instant, and dropping its time would store a day the source never
+    meant."""
+    with pytest.raises(ValueError, match="is not in the layout"):
+        parse_date("2026-10-07T13:45:00Z", "YYYY-MM-DDT00:00:00Z")
+    with pytest.raises(ValueError, match="is not in the layout"):
+        parse_date("12/1/2025 3:00:00 PM", "M/D/YYYY 12:00:00 AM")
+
+
+def test_trailing_text_is_a_different_shape_not_a_date():
+    with pytest.raises(ValueError, match="is not in the layout"):
+        parse_date("07-Oct-2026 10:00", "DD-Mon-YYYY")
+
+
+@pytest.mark.parametrize(("raw", "layout"), [
+    ("31-Feb-2026", "DD-Mon-YYYY"),
+    ("2026-02-30T00:00:00Z", "YYYY-MM-DDT00:00:00Z"),
+    ("00/10/2026", "MM/DD/YYYY"),
+])
+def test_a_day_that_does_not_exist_fails_loud(raw, layout):
+    with pytest.raises(ValueError, match="no real day"):
+        parse_date(raw, layout)
+
+
+def test_an_unknown_month_name_fails_loud():
+    with pytest.raises(ValueError, match="names no month"):
+        parse_date("07-Okt-2026", "DD-Mon-YYYY")
+
+
+def test_a_month_name_is_read_in_any_case():
+    assert parse_date("07-OCT-2026", "DD-Mon-YYYY") == date(2026, 10, 7)
+
+
+def test_arabic_indic_digits_in_a_date_fold_first():
+    assert parse_date("٠٧-Oct-٢٠٢٦", "DD-Mon-YYYY") == date(2026, 10, 7)
+
+
+def test_an_unknown_layout_fails_loud_even_when_no_date_was_written():
+    """A misspelt layout is the caller's defect; it must not hide behind a field
+    that happens to be empty on the first rows read."""
+    with pytest.raises(ValueError, match="unknown date layout"):
+        parse_date(None, "auto")
+
+
+@pytest.mark.parametrize("raw", [None, "", "   "])
+def test_no_date_written_is_none(raw):
+    assert parse_date(raw, "DD-Mon-YYYY") is None
+
+
+def test_an_instant_is_utc_and_keeps_its_time():
+    """`api_modified_date`: the Bank's own change stamp, which an incremental pass
+    compares."""
+    assert parse_instant("2026-10-09T16:07:56Z") == datetime(2026, 10, 9, 16, 7, 56, tzinfo=UTC)
+
+
+@pytest.mark.parametrize("raw", [
+    "2026-10-09T16:07:56",        # no zone: a local time, not an instant
+    "2026-10-09 16:07:56Z",       # a space where the T goes
+    "2026-10-09T16:07Z",          # no seconds
+    "09-Oct-2026",                # a date
+])
+def test_an_instant_in_another_shape_fails_loud(raw):
+    with pytest.raises(ValueError, match="not an instant"):
+        parse_instant(raw)
+
+
+def test_an_instant_that_does_not_exist_fails_loud():
+    with pytest.raises(ValueError, match="no real moment"):
+        parse_instant("2026-10-09T24:00:00Z")
+
+
+@pytest.mark.parametrize("raw", [None, "", "   "])
+def test_no_instant_written_is_none(raw):
+    assert parse_instant(raw) is None
+
+
+@pytest.mark.parametrize(("raw", "expected"), [
+    ("14:00", time(14, 0)),       # submission_deadline_time
+    ("9:05", time(9, 5)),
+    ("00:00", time(0, 0)),
+    ("23:45", time(23, 45)),
+])
+def test_a_clock_time_is_read_as_written(raw, expected):
+    assert parse_clock(raw) == expected
+
+
+def test_a_clock_time_carries_no_zone_because_the_source_states_none():
+    """The deadline's zone is unknown (#1647 §8 Q6). This module must not assume
+    one; the caller records it as unknown."""
+    assert parse_clock("14:00").tzinfo is None
+
+
+@pytest.mark.parametrize("raw", ["24:00", "12:60", "2 PM", "14:00:00", "14h00"])
+def test_a_clock_time_in_another_shape_fails_loud(raw):
+    with pytest.raises(ValueError, match="clock time"):
+        parse_clock(raw)
+
+
+@pytest.mark.parametrize("raw", [None, "", "   "])
+def test_no_clock_time_written_is_none(raw):
+    assert parse_clock(raw) is None
+
+
+@pytest.mark.parametrize(("raw", "expected"), [
+    ("EGP 292182.000", (Decimal("292182.000"), "EGP")),   # a signed contract price
+    ("USD 799673.00", (Decimal("799673.00"), "USD")),
+    ("EUR 1,234.50", (Decimal("1234.50"), "EUR")),
+    ("  DJF 178024  ", (Decimal("178024"), "DJF")),
+])
+def test_an_amount_keeps_the_currency_written_before_it(raw, expected):
+    assert parse_money_with_currency(raw) == expected
+
+
+def test_the_number_beside_the_code_is_the_one_parse_money_reads():
+    """One parser for the number: the coded form must never disagree with it."""
+    for raw in ("EGP 292182.000", "EUR 1,234.50", "USD 1.234,56"):
+        assert parse_money_with_currency(raw)[0] == parse_money(raw.split(maxsplit=1)[1])
+
+
+@pytest.mark.parametrize("raw", [
+    "292182.000",         # no currency: parse_money's job, not this one's
+    "EGP",                # a currency with no amount
+    "egp 5",              # not a currency code's shape
+    "EGP 5 USD",          # two currencies
+    "Egyptian Pounds 5",  # a currency's name, not its code
+])
+def test_an_amount_without_one_coded_currency_fails_loud(raw):
+    with pytest.raises(ValueError, match="currency code and an amount"):
+        parse_money_with_currency(raw)
+
+
+@pytest.mark.parametrize("raw", [None, "", "   "])
+def test_no_amount_written_is_none(raw):
+    assert parse_money_with_currency(raw) is None

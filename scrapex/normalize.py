@@ -1,6 +1,6 @@
 """THE shared parsing module (ENGINEERING.md Q2).
 
-Money/digits/units normalization lives here and ONLY here. A connector that
+Money/digits/units/dates normalization lives here and ONLY here. A connector that
 parses prices locally fails review by definition — this is the producer-side
 mirror of the add-in's SmartConverter lesson: one parser, or producers and
 consumers drift.
@@ -15,6 +15,7 @@ import hashlib
 import html as html_module
 import json
 import re
+from datetime import UTC, date, datetime, time
 from decimal import Decimal, InvalidOperation
 
 # Arabic-Indic (٠-٩) and Eastern Arabic-Indic (۰-۹) digit folding.
@@ -87,6 +88,143 @@ def parse_money(raw: str | None) -> Decimal | None:
         return Decimal(text)
     except InvalidOperation as exc:
         raise ValueError(f"unparseable price string {raw!r} -> {text!r}") from exc
+
+
+# 'EGP 292182.000': an ISO 4217-shaped code, then the amount. STEP's award texts
+# state a contract's own currency only this way (#1647 §5.2).
+_CODED_AMOUNT = re.compile(r"(?P<code>[A-Z]{3})\s+(?P<amount>[0-9][0-9.,]*)")
+
+
+def parse_money_with_currency(raw: str | None) -> tuple[Decimal, str] | None:
+    """'EGP 292182.000' -> (Decimal('292182.000'), 'EGP'), or None when absent.
+
+    `parse_money` reads the number and drops the currency, which is right for a
+    shop that prices in one currency and wrong for a source whose structured
+    fields all say USD while the contract was signed in pounds. The number still
+    goes through `parse_money`, so the two can never disagree about it.
+
+    Raises ValueError unless the text is exactly one code and one amount.
+    """
+    if raw is None:
+        return None
+    text = fold_digits(raw).strip()
+    if not text:
+        return None
+    found = _CODED_AMOUNT.fullmatch(text)
+    if not found:
+        raise ValueError(f"{raw!r} is not a currency code and an amount")
+    return parse_money(found.group("amount")), found.group("code")
+
+
+# ---- dates, as a site writes them --------------------------------------------
+#
+# A LAYOUT names one written shape, and the caller says which shape a field uses.
+# There is no "auto": the same digits are two dates under two layouts. The World
+# Bank's bulk CSV writes 8 October as '10/08/2026' (#1647 §6.1), which a DD/MM
+# reading turns into 10 August, a wrong value that looks right.
+#
+# Each layout was measured against #1647's saved responses before it was written,
+# and reads every value of the fields its comment names.
+
+_MONTHS = {name: number for number, name in enumerate(
+    ("JAN", "FEB", "MAR", "APR", "MAY", "JUN",
+     "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"), start=1)}
+
+_DATE_LAYOUTS = {
+    # procnotices' noticedate, the Finances One API, contractdata's dates
+    "DD-Mon-YYYY": re.compile(r"(?P<d>\d{1,2})-(?P<mon>[A-Za-z]{3})-(?P<y>\d{4})"),
+    # a DATE the search APIs carry as midnight UTC: the deadline, the publication
+    # date. Any other time of day is an instant, refused rather than truncated.
+    "YYYY-MM-DDT00:00:00Z": re.compile(r"(?P<y>\d{4})-(?P<m>\d{2})-(?P<d>\d{2})T00:00:00Z"),
+    # the Finances One bulk CSV
+    "MM/DD/YYYY": re.compile(r"(?P<m>\d{2})/(?P<d>\d{2})/(?P<y>\d{4})"),
+    # the projects API's closingdate
+    "M/D/YYYY 12:00:00 AM": re.compile(
+        r"(?P<m>\d{1,2})/(?P<d>\d{1,2})/(?P<y>\d{4}) 12:00:00 AM"),
+    # the projects API's p2a_updated_date
+    "YYYY-MM-DD 00:00:00.0": re.compile(r"(?P<y>\d{4})-(?P<m>\d{2})-(?P<d>\d{2}) 00:00:00\.0"),
+    # STEP's award texts, which print the layout beside the value themselves
+    "YYYY/MM/DD": re.compile(r"(?P<y>\d{4})/(?P<m>\d{2})/(?P<d>\d{2})"),
+}
+
+
+def parse_date(raw: str | None, layout: str) -> date | None:
+    """A date as a site writes it -> a `date`, or None when it wrote none.
+
+    Raises ValueError on an unknown layout, on text that is not the layout's
+    shape, and on a day that does not exist ('31-Feb-2026'). Every parse asserts
+    its shape, so a site that changes how it writes a date fails here instead of
+    storing a wrong one (CLAUDE.md).
+    """
+    pattern = _DATE_LAYOUTS.get(layout)
+    if pattern is None:
+        raise ValueError(f"unknown date layout {layout!r}; known: {sorted(_DATE_LAYOUTS)}")
+    if raw is None:
+        return None
+    text = fold_digits(raw).strip()
+    if not text:
+        return None
+    found = pattern.fullmatch(text)
+    if not found:
+        raise ValueError(f"date {raw!r} is not in the layout {layout!r}")
+    parts = found.groupdict()
+    month = _MONTHS.get(parts["mon"].upper()) if "mon" in parts else int(parts["m"])
+    if month is None:
+        raise ValueError(f"date {raw!r} names no month")
+    try:
+        return date(int(parts["y"]), month, int(parts["d"]))
+    except ValueError as exc:
+        raise ValueError(f"date {raw!r} names no real day") from exc
+
+
+_INSTANT = re.compile(
+    r"(?P<y>\d{4})-(?P<m>\d{2})-(?P<d>\d{2})T(?P<H>\d{2}):(?P<M>\d{2}):(?P<S>\d{2})Z")
+
+
+def parse_instant(raw: str | None) -> datetime | None:
+    """'2026-10-09T16:07:56Z' -> an aware UTC datetime, or None when absent.
+
+    One shape: the one the World Bank writes its own change stamp in
+    (`api_modified_date`, #1647). Raises ValueError on any other shape, and on
+    a moment that does not exist.
+    """
+    if raw is None:
+        return None
+    text = fold_digits(raw).strip()
+    if not text:
+        return None
+    found = _INSTANT.fullmatch(text)
+    if not found:
+        raise ValueError(f"{raw!r} is not an instant written as YYYY-MM-DDTHH:MM:SSZ")
+    try:
+        return datetime(*(int(found.group(k)) for k in ("y", "m", "d", "H", "M", "S")),
+                        tzinfo=UTC)
+    except ValueError as exc:
+        raise ValueError(f"{raw!r} names no real moment") from exc
+
+
+_CLOCK = re.compile(r"(?P<H>\d{1,2}):(?P<M>\d{2})")
+
+
+def parse_clock(raw: str | None) -> time | None:
+    """'14:00' -> time(14, 0), a 24-hour time of day, or None when absent.
+
+    It carries no zone because the source states none: the World Bank writes a
+    deadline as a date plus a local 'HH:MM' (#1647 §6.1). The caller records the
+    zone as unknown; assuming one is not this module's to do.
+    """
+    if raw is None:
+        return None
+    text = fold_digits(raw).strip()
+    if not text:
+        return None
+    found = _CLOCK.fullmatch(text)
+    if not found:
+        raise ValueError(f"{raw!r} is not a clock time written as HH:MM")
+    try:
+        return time(int(found.group("H")), int(found.group("M")))
+    except ValueError as exc:
+        raise ValueError(f"{raw!r} is not a clock time: no such hour or minute") from exc
 
 
 # "50كجم" / "50 kg" in a product's NAME: the site stating what one price buys.
