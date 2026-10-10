@@ -270,8 +270,8 @@ mistake for a fact about those sites.
 
 ### Queue A, by the system the owner designated
 
-**Designated price capture — 10.** `bulk.khamato.com` · `bnaia.com` · `sphinx-store.com` ·
-`cmbegypt.com` · `ahrambc.com` · `ahmedelsallab.com` · `sebakashop.com` · `mashreqy.com` ·
+**Designated price capture — 9.** `bulk.khamato.com` · `bnaia.com` · `sphinx-store.com` ·
+`cmbegypt.com` · `ahmedelsallab.com` · `sebakashop.com` · `mashreqy.com` ·
 `polygroup-eg.com` · `cementegypt.com`
 → *Cheapest outcome:* a probe lands on `salla-html`, `zid-html`, `shopify-json` or
 `woocommerce-storeapi` — a manifest entry and a crawl, no new code, because those four are
@@ -282,7 +282,7 @@ historically a new source has arrived needing new code far more often than not.*
 history, not a forecast: the four platform families now in the tree did not exist when the
 first source on each arrived, so a queue of shops has a better chance than the record
 suggests. It is still the wrong direction to plan optimistically in.
-Three of these ten (`cmbegypt`, `polygroup-eg`, plus `nile-cement` below) carry the owner's
+Three of these nine (`cmbegypt`, `polygroup-eg`, plus `nile-cement` below) carry the owner's
 *"maybe prices not included"* caveat and join the nine of **Q-F** above.
 
 **Designated General — 3.** `darbuildgroup.com` · `readymixconcreteguide.com` ·

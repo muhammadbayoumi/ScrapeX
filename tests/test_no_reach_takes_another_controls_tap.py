@@ -82,7 +82,7 @@ _WEB_TALLER_THAN_SUPABASE = {
     **dict.fromkeys([
         "#settings-collection-tab", "#settings-connections-tab", "#settings-governance-tab",
         "#settings-workspace-tab"], (52, _A_ROW)),
-    **dict.fromkeys([f"#schedule-source-{i}" for i in range(1, 13)], (73.5, _A_ROW)),
+    **dict.fromkeys([f"#schedule-source-{i}" for i in range(1, 12)], (73.5, _A_ROW)),
     "#schedule-source-0": (76, _A_ROW),
     "button.schedule-filter": (44, _KEEPS_THE_FLOOR),
 }

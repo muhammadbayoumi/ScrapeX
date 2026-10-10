@@ -50,7 +50,7 @@ A FROZEN BUILD ANSWERS `None`, NEVER `False`. A PyInstaller one-file `.exe` has 
 per-run temp directory that says nothing about whether newer code exists. So the
 honest answer is *unknown*, and it is reported as unknown. `/api/health`'s own
 worker block already set this precedent in this repository
-(`scrapex/webui/app.py:1527`, `{"alive": None, ...}` — *"Unknown is now said as
+(`scrapex/webui/app.py:1534`, `{"alive": None, ...}` — *"Unknown is now said as
 unknown, and the reason for not knowing travels with it"*). A guessed `False` here
 would be the defect, not the fix: it would tell the owner his engine is current on
 the one build where we cannot know.
@@ -168,7 +168,7 @@ def _read_head(git_dir: Path) -> str | None:
     NO SUBPROCESS, DELIBERATELY. This is called from `/api/health`, which the panel
     polls behind a 2,500 ms deadline — and that deadline has already been blown once
     in this product's history by an endpoint doing more work than a poll can afford
-    (`scrapex/webui/app.py:1484`: it *"answered in 3.8 s, the deadline expired, and
+    (`scrapex/webui/app.py:1491`: it *"answered in 3.8 s, the deadline expired, and
     the panel reported the engine as 'Not detected'"*). Three small file reads cannot
     do that. Neither can they fail on a machine with no git on PATH, which is the
     owner's machine for `python` already (`docs/LESSONS.md` §1).
@@ -370,7 +370,7 @@ def report() -> dict:
 
     Never raises. This is reached from `/api/health`, which the panel polls on a
     timer and which already carries a comment about why it must survive the thing it
-    reports on (`scrapex/webui/app.py:1427`).
+    reports on (`scrapex/webui/app.py:1434`).
     """
     try:
         return _report()
@@ -469,7 +469,7 @@ def summary() -> dict:
     the size of the divergence, and the panel's answer is the same for one module as
     for forty. The full block including it is on `/api/version`, which is fetched
     once — the same split `/api/health` already makes for the capability ledger
-    (`scrapex/webui/app.py:1536`).
+    (`scrapex/webui/app.py:1543`).
     """
     full = report()
     return {key: full[key] for key in

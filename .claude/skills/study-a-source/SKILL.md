@@ -51,7 +51,7 @@ Record the user-agent you used and whether it mattered.
 
 ## Pass 1 · Identity
 
-`scrapex/probe.py:66` answers one question — which of the ten families in
+`scrapex/probe.py:70` answers one question — which of the ten families in
 `scrapex/connectors/factory.py:34` this is, or `TBD-probe` (`scrapex/vocab.py:420`) when it
 is none of them. **Run it, then distrust it**: it reads a homepage for markers and stops.
 Say in the report what it would answer and where it would be wrong.
@@ -90,7 +90,7 @@ been found before, and a `no` is a finding as much as a `yes`.
    layout drops.
 4. **The platform's own open endpoints**, whether or not the page uses them:
    `/products.json`, `/wp-json/wc/store/products`, `/graphql`, `?format=json`, a `.json`
-   suffix on a detail URL, `/api/…`. `scrapex/probe.py:66` tries four of these; try the
+   suffix on a detail URL, `/api/…`. `scrapex/probe.py:70` tries four of these; try the
    rest by hand.
 5. **Parameters that widen the response**: `fields=`, `include=`, `expand=`, `with=`,
    `per_page=`, `limit=`, `lang=`. A REST surface that answers one shape often answers a
@@ -211,7 +211,7 @@ the host and what the study settled, and containing, in this order:
 Then the source moves in the registry, not in prose: a manifest row at
 `family: TBD-probe`, `active: false` is the only way a registry says "on the list, no
 collector yet" (`scrapex/vocab.py:420`, `scrapex/sourceboard.py:56`), and validation
-refuses to make it active before it is probed (`scrapex/config.py:446`).
+refuses to make it active before it is probed (`scrapex/config.py:552`).
 
 ## Done means
 

@@ -17,6 +17,7 @@ from urllib.robotparser import RobotFileParser
 import httpx
 from bs4 import BeautifulSoup
 
+from ...config import checked_host
 from ..matching import (
     email_domain,
     host_of,
@@ -186,6 +187,10 @@ def _fetch_with_client(
     current = url
     original_domain = registrable_domain(url)
     for _ in range(6):
+        # FIRST, before its robots.txt or a DNS lookup: a refused host is asked for
+        # nothing (config.REFUSED_HOSTS), and a redirect into one is refused here too,
+        # because every hop comes back round this loop.
+        checked_host(current)
         if policy is not None and not policy(current):
             raise PermissionError("robots.txt disallows organization enrichment")
         parsed = urlsplit(current)
