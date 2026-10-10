@@ -240,9 +240,14 @@ def refused_host(url: str) -> RefusedHost | None:
 
 
 def refusal(entry: RefusedHost) -> str:
-    """The one sentence every door says when it refuses a host."""
-    return (f"ScrapeX does not contact {entry.host}: {entry.reason} ({entry.record}). "
-            f"Nothing was sent to it.")
+    """The one sentence every door says when it refuses a host.
+
+    THE CAUSE FIRST: the Jobs row clamps its error to two lines, which at 320 px is
+    about eighty characters after the source key, so the host and why it is refused
+    come before the reassurance and the record (copywriting.mdx@86c813ec:64-87:
+    what went wrong, specifically, with no blame or apology).
+    """
+    return f"Refused {entry.host}: {entry.reason}. Nothing was sent to it ({entry.record})."
 
 
 class RefusedHostError(ValueError):
