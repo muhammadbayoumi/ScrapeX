@@ -2972,8 +2972,17 @@ def test_where_activity_lands_reads_the_line_at_rest_not_in_passing(open_panel):
     """A LINE A SCROLL CARRIES THROUGH VIEW AND PAST IT IS NOT IN VIEW. The tests above
     read through `_where_activity_lands`, and it returned at the first frame the line
     was in view, so a scroll that carried the line through Run's scroll area to rest
-    beyond it passed (#1388's merge gate). The scroll here is the test's own -- smooth,
-    to the end of a long log -- so this holds whatever alignment the panel uses."""
+    beyond it passed (#1388's merge gate). The scroll here is the test's own, to the end
+    of a long log, so this holds whatever alignment the panel uses.
+
+    STEPPED, ONE FRAME AT A TIME, AND NEVER `behavior: "smooth"`. A smooth scroll is the
+    browser's to animate, and Chromium on Windows does not animate it when the system's
+    client-area animations are off, which is the default on Windows Server: the scroll
+    jumped to its end in one frame, the line was never in view on the way, and the
+    precondition below failed on the release runner for every tag from 0.4.38 to 0.4.59
+    (#1637). Reproduced on Windows 11 with `--disable-smooth-scrolling`, with the same
+    numbers. Half the area's height per frame is less than the area, so the line is in
+    view for at least one frame on any machine."""
     page = _open_on_run_beside_a_crawl(open_panel, 650)
     # Started a moment from now, so the wait below is watching when the line arrives.
     page.evaluate(f"""() => {{
@@ -2986,7 +2995,12 @@ def test_where_activity_lands_reads_the_line_at_rest_not_in_passing(open_panel):
         requestAnimationFrame(watch);
         setTimeout(() => {{
           const area = document.getElementById("activity").closest(".view-scroll");
-          area.scrollTo({{top: area.scrollHeight, behavior: "smooth"}});
+          const step = () => {{
+            const end = area.scrollHeight - area.clientHeight;
+            area.scrollTop = Math.min(area.scrollTop + area.clientHeight / 2, end);
+            if (area.scrollTop < end) requestAnimationFrame(step);
+          }};
+          requestAnimationFrame(step);
         }}, 300);
     }}""")
 
