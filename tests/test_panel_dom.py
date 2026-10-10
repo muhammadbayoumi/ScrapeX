@@ -5685,9 +5685,20 @@ def test_flipping_the_switch_keeps_an_edit_not_yet_saved(open_panel):
 @pytest.mark.parametrize("width", [320, 400, 480])
 def test_the_toast_never_covers_the_rail_or_its_row(open_panel, width):
     page = open_panel(sources=[CLEAN_SITE], schedules=SCHEDULE_SOON)
-    # Short enough that the row starts out where the toast appears.
     page.set_viewport_size({"width": width, "height": 460})
     row = _schedule_rows(page).first
+    # The switch starts out exactly where the toast will appear.
+    page.evaluate("""(el) => {
+        const box = el.getBoundingClientRect();
+        let node = el.parentElement;
+        while (node && !(node.scrollHeight > node.clientHeight
+                         && /auto|scroll/.test(getComputedStyle(node).overflowY))) {
+            node = node.parentElement;
+        }
+        (node || document.scrollingElement).scrollBy(0, box.top - (innerHeight - 55));
+    }""", row.locator('[data-role="sched-active"]').element_handle())
+    before = row.locator('[data-role="sched-active"]').bounding_box()
+    assert before["y"] > 460 - 90, ("the switch is not where the toast appears", before)
     _flip_switch(page, row)
 
     covered = page.evaluate("""() => [...document.querySelectorAll('nav.side-rail button')]
