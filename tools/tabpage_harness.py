@@ -326,6 +326,12 @@ class _QuietHandler(SimpleHTTPRequestHandler):
 
 class _Server(ThreadingHTTPServer):
     daemon_threads = True
+    # The grid's page imports 85 modules, and Chromium opens six connections to one
+    # host at once. While the accept thread falls behind, Windows REFUSES the
+    # connection that finds the backlog full, where Linux drops the SYN and the
+    # client retries. socketserver's default of five passed on ubuntu CI and failed
+    # the Windows release runner with ERR_CONNECTION_REFUSED on one module.
+    request_queue_size = 128
 
     def handle_error(self, request, client_address):
         # A test closes its page while a file is still streaming, and the socket goes
