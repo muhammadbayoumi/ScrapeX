@@ -5653,6 +5653,30 @@ def test_a_save_without_the_switch_sends_no_active(open_panel):
     assert not page.js_errors
 
 
+def test_saving_a_row_whose_switch_is_off_says_off_and_promises_no_run(open_panel):
+    """#1630 review: a Save on an off row arms a slot the engine will not fire, so the
+    status must say Off -- never "Saved." alone, and never #1611's "Saved — next …"."""
+    page = open_panel(sources=[OFF_SITE], schedules=SCHEDULE_SOON)
+    row = _schedule_rows(page).first
+    row.locator("summary").click(position={"x": 4, "y": 4})
+    row.locator('[data-role="time"]').fill("07:15")
+    row.locator('[data-role="save"]').click()
+    status = row.locator('[data-role="status"]')
+    page.wait_for_function(
+        "() => document.querySelector('.sched-row [data-role=\"status\"]')"
+        ".textContent.startsWith('Saved')", timeout=3000)
+
+    words = status.inner_text()
+    assert words == "Saved — off.", words
+    assert "next" not in words.lower(), words
+    sent = _schedule_writes(page)[0]["body"]
+    assert "active" not in sent and sent["run_at"] == "07:15", sent
+    # The switch still reads off: the save did not turn it on.
+    assert row.locator('[data-role="sched-active"]').get_attribute("aria-checked") \
+        == "false"
+    assert not page.js_errors
+
+
 def test_a_failed_switch_says_so_where_he_is_looking(open_panel):
     """The row may be shut, so its status line is not enough: a toast carries the
     engine's sentence, and the switch keeps the state it had."""

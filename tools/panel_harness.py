@@ -863,15 +863,20 @@ window.fetch = async (url, options = {{}}) => {{
     }})}};
   }}
 
-  // SAVING ONE SCHEDULE answers the saved row, as the engine does, with the `active`
-  // the save sent (#1596) -- not the schedules LIST its path prefix would match.
+  // SAVING ONE SCHEDULE answers the saved row, as the engine does, with the EFFECTIVE
+  // `active` (#1596): what the save sent, or else what the stub's source row lists --
+  // a save without the switch leaves an off source off -- and not the schedules LIST
+  // its path prefix would match.
   const savedSchedule = path.match(/^\\/api\\/schedules\\/([^/?]+)/);
   if (savedSchedule && method === "POST") {{
     const sent = JSON.parse((options && options.body) || "{{}}");
+    const savedKey = decodeURIComponent(savedSchedule[1]);
+    const listed = (ROUTES["/api/sources"].sources || []).find(
+      (s) => s.source_key === savedKey) || {{active: true}};
     return {{ ok: true, status: 200, json: async () => ({{
-      ...sent, source_key: decodeURIComponent(savedSchedule[1]), schedule_id: 1,
+      ...sent, source_key: savedKey, schedule_id: 1,
       enabled: 1, next_run_at: sent.frequency === "manual" ? null : "2026-08-01T06:00:00Z",
-      active: sent.active === undefined ? true : sent.active,
+      active: sent.active === undefined ? Boolean(listed.active) : sent.active,
     }}) }};
   }}
 
