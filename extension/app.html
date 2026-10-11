@@ -184,6 +184,10 @@
         <div class="run-action">
           <button id="run" class="block">Start update</button>
           <div id="run-blocked" class="muted hint"></div>
+          <!-- What the engine said when it refused a press on this page. Its own element,
+               because `run-blocked` is rewritten from the selection on every poll tick;
+               and the live region, because nothing else here announces a refusal. -->
+          <div id="run-refused" class="hint err" role="status" aria-live="polite"></div>
           <!-- The five facts and the one action, when the engine cannot be
                run against at all. Empty and hidden the rest of the time. -->
           <div id="run-refusal" class="card warn hidden"></div>
@@ -2660,9 +2664,10 @@
     </div>
   </div>
 
-  <!-- THE ONE QUESTION BEFORE AN IRREVERSIBLE PRESS, asked in the panel and not in the
-       browser's confirm(), whose "Cancel" meant KEEP on the one control named Cancel.
-       Supabase's ConfirmationModal (variant="destructive", cancelLabel/confirmLabel,
+  <!-- THE ONE QUESTION BEFORE A PRESS THAT CANNOT BE UNDONE OR THAT COSTS, asked in the
+       panel and not in the browser's confirm(), whose "Cancel" meant KEEP on the one
+       control named Cancel. Supabase's ConfirmationModal (variant destructive or default,
+       cancelLabel/confirmLabel,
        ConfirmationModal.tsx@86c813ec:27-62); an alertdialog with focus on the choice that
        changes nothing (WAI-ARIA APG). `askToConfirm` in app.js fills and opens it. -->
   <!-- A short confirmation after a change (#1596). Empty is hidden; always present,
@@ -2673,7 +2678,7 @@
     <div class="modal-card" role="alertdialog" aria-modal="true"
          aria-labelledby="confirm-title" aria-describedby="confirm-copy"
          id="confirm-dialog">
-      <h2 class="modal-title" id="confirm-title"></h2>
+      <h2 class="modal-title" id="confirm-title" tabindex="-1"></h2>
       <div class="modal-copy" id="confirm-copy"></div>
       <div class="modal-actions">
         <button class="ghost" type="button" id="confirm-keep"></button>

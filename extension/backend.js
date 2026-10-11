@@ -156,8 +156,12 @@ async function request(path, options = {}) {
   );
   if (!res.ok && throwOnHttpError) {
     let detail = res.statusText;
-    try { detail = (await res.json()).detail || detail; } catch (_) {}
-    throw Object.assign(new Error(detail), {status: res.status, kind: "http"});
+    // THE BODY TRAVELS WITH THE ERROR. A refusal can carry more than its sentence: a run
+    // that would read a source whole answers 409 with its cost, and the caller asks him
+    // with the engine's numbers rather than with a second copy of them.
+    let body = null;
+    try { body = await res.json(); detail = body.detail || detail; } catch (_) {}
+    throw Object.assign(new Error(detail), {status: res.status, kind: "http", body});
   }
   return res;
 }
