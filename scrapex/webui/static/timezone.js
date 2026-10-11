@@ -73,6 +73,9 @@
             hour12: true},
   });
 
+  const WALL_SHAPE = Object.freeze({weekday: "short", day: "numeric", month: "short",
+                                    hour: "2-digit", minute: "2-digit", hourCycle: "h23"});
+
   const listeners = new Set();
   let remoteBase = "";
   let pollTimer = null;
@@ -250,6 +253,22 @@
       // Unreachable through resolution() — but a formatter on a display-only
       // path must never be the reason a page fails to render.
       return String(value);
+    }
+  }
+
+  /** An instant as the clock reads IN `wallZone`, not in his display zone: a schedule's
+   *  next slot in the schedule's own zone and 24-hour clock, "Sun 11 Oct, 09:00", so it
+   *  reads against "Daily 09:00 · Asia/Riyadh" (#1631; ECMA-402 `timeZone`). "" for a
+   *  zone the browser does not know: the display-zone instant beside it still says when. */
+  function wallClock(value, wallZone) {
+    if (!isInstant(value)) return "";
+    try {
+      const parts = formatterFor("wall", WALL_SHAPE, wallZone)
+        .formatToParts(new Date(Date.parse(value.trim())));
+      const get = (type) => (parts.find((part) => part.type === type) || {}).value || "";
+      return `${get("weekday")} ${get("day")} ${get("month")}, ${get("hour")}:${get("minute")}`;
+    } catch (error) {
+      return "";
     }
   }
 
@@ -509,6 +528,7 @@
     detected,
     isInstant,
     format,
+    wallClock,
     label,
     markup,
     node,

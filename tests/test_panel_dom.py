@@ -455,9 +455,10 @@ def test_the_icon_rail_keeps_deep_workspace_pages_in_one_grouped_menu(open_panel
     # the rail holds the pages the panel itself owns, and everything deeper
     # stays behind one grouped menu. The count is here so a page cannot be added
     # to the rail without someone deciding it belongs there -- which is exactly
-    # what happened each time, so the number moves and the rule does not.
-    assert page.locator("nav.side-rail button[data-view]").count() == 12
-    assert page.locator("nav.side-rail button.rail-item").count() == 13
+    # what happened each time, so the number moves and the rule does not. 12 -> 13 and
+    # 13 -> 14 on 2026-10-11 for the Schedules page, below Jobs (#1631, option C).
+    assert page.locator("nav.side-rail button[data-view]").count() == 13
+    assert page.locator("nav.side-rail button.rail-item").count() == 14
     workspace = page.locator("#workspace-links [data-workspace-path]")
     # One per workspace destination the rail does not own as its own view.
     # Rolled 10 -> 11 when Data Model joined System: the panel mirrors the
@@ -5582,6 +5583,17 @@ STRESS_SHORT = {"source_key": "SHORT", "base_url": "https://a.co", "source_name"
                 "observations": 3, "products": 1}
 
 
+def _lands_on_its_schedules_row(page, key):
+    """Every "open its schedule" link lands on the Schedules page (#1631), on that
+    source's row, with focus on the row's identity."""
+    page.wait_for_selector("#view-schedules", state="visible")
+    page.wait_for_function("""(key) => {
+        const row = document.querySelector(
+            `#view-schedules .schedule-row[data-sched="${key}"]`);
+        return row && document.activeElement === row.querySelector('[data-role="runs"]');
+    }""", arg=key, timeout=5_000)
+
+
 def _schedule_rows(page):
     page.click(SETTINGS_TAB)
     page.click('[data-sect="s-sched"]')
@@ -5876,11 +5888,7 @@ def test_the_run_card_shows_the_schedule_as_a_link_to_its_row(open_panel):
     assert link.inner_text() == "Daily 09:00"
     assert page.locator("#sites [data-auto]").count() == 0, "the Auto chip still switches"
     link.click()
-    page.wait_for_timeout(500)
-    assert page.is_visible("#view-settings")
-    assert page.evaluate("document.querySelector('.sched-row[data-sched=\"MADAR\"]').open")
-    assert page.evaluate("document.activeElement.closest('.sched-row')?.dataset.sched") \
-        == "MADAR"
+    _lands_on_its_schedules_row(page, "MADAR")
     assert not page.js_errors
 
 
@@ -5900,8 +5908,7 @@ def test_the_source_manager_and_the_editor_read_the_schedule(open_panel):
     assert not page.is_visible("#source-edit-active"), "the editor still switches"
     assert text_of(page, "#source-edit-schedule-link") == "Daily 09:00"
     page.click("#source-edit-schedule-link")
-    page.wait_for_timeout(500)
-    assert page.evaluate("document.querySelector('.sched-row[data-sched=\"MADAR\"]').open")
+    _lands_on_its_schedules_row(page, "MADAR")
     assert not page.js_errors
 
 
@@ -5937,10 +5944,9 @@ def test_the_datasets_menu_edits_the_schedule_instead_of_pausing(open_panel):
     page.click('.dataset-card[data-open="SHORT"] .split-button-trigger')
     page.wait_for_timeout(150)
     page.click('.dataset-card[data-open="SHORT"] [data-split-action="schedule"]')
-    page.wait_for_timeout(500)
+    _lands_on_its_schedules_row(page, "SHORT")
 
     assert not [w for w in page.evaluate("window.__writes") if w["path"].endswith("/active")]
-    assert page.evaluate("document.querySelector('.sched-row[data-sched=\"SHORT\"]').open")
     assert not page.js_errors
 
 
@@ -6196,7 +6202,10 @@ def test_the_rail_groups_say_which_pages_need_an_engine(open_panel):
     # the grouping -- it reads `GET /api/jobs` and shows nothing at all without an
     # engine, which is precisely what the second group means -- so the only open
     # question was the order inside it, and he answered it.
-    assert groups[1] == ["source", "jobs", "run", "data", "finance"], "the engine's pages"
+    # SCHEDULES SITS BELOW JOBS, BY HIS RULING ON #1631 (option C): it reads
+    # `GET /api/schedules` and shows nothing without an engine.
+    assert groups[1] == ["source", "jobs", "schedules", "run", "data", "finance"], \
+        "the engine's pages"
     assert groups[2] == ["appearance", "sources", "console", "settings"]
 
     # A group has to READ as one. The hairline it replaced said "something
@@ -6579,6 +6588,9 @@ PLURAL_PAGE_NAMES_ALLOWED = {
             "both kinds, and the difference has to mean something. This page is a "
             "list of 163 rows whose whole purpose is to be one; `Job` would name a "
             "page about a single job, which is the Run screen",
+    "Schedules": "he approved option C on #1631 as drawn, titled `Schedules` after "
+                 "Supabase's Cron Jobs: a list, beside Jobs, for Jobs' reason above -- "
+                 "`Schedule` would name one source's schedule, which is a row on it",
 }
 
 
@@ -8686,8 +8698,8 @@ _TALLER_THAN_SUPABASE = {
         "#source-edit-vat", "#source-manager-filter"], (44, _NO_BEFORE)),
     **dict.fromkeys([
         "#tab-appearance", "#tab-console", "#tab-data", "#tab-database", "#tab-engines",
-        "#tab-finance", "#tab-jobs", "#tab-profile", "#tab-run", "#tab-settings", "#tab-source",
-        "#tab-sources", "#workspace-toggle", "button.sx-select-option", "#runtime-restart",
+        "#tab-finance", "#tab-jobs", "#tab-profile", "#tab-run", "#tab-schedules",
+        "#tab-settings", "#tab-source", "#tab-sources", "#workspace-toggle", "button.sx-select-option", "#runtime-restart",
         "#engine-diagnostics", "#engine-setup-guide"], (48, _TOUCH_TARGET)),
     ".appearance-scheme-picker > button": (48, SCHEME_PICKER),
     "#engine-copy-details": (48.5, _TOUCH_TARGET),
