@@ -282,7 +282,8 @@ def pause_for_the_site(conn: sqlite3.Connection, job: dict, job_ref: str,
     site saying "not now", and the owner ruled that a pause, never a failure. Both
     directory runners fell through to `except Exception` and settled it FAILED, and the
     profile sweep never saw it at all. `resume` is the runner's own sentence for what
-    its Resume skips: each knows its own unit.
+    its Resume skips: each knows its own unit. A `HostRefused` is the one CrawlBlocked
+    that is NOT the site's: ScrapeX refused the host itself, so it settles FAILED.
 
     THE ROW OUTRANKS THE EXCEPTION, as it does at every other stop here: a job something
     else already settled is not re-settled, and a Cancel already pending is honoured as
@@ -303,6 +304,11 @@ def pause_for_the_site(conn: sqlite3.Connection, job: dict, job_ref: str,
                         "cancelled rather than paused",
                         level=LogLevel.WARNING, source_key=source_key)
         jobs._finish(conn, job["job_id"], JobStatus.CANCELLED, None)
+    elif isinstance(blocked, connectors_base.HostRefused):
+        # NOT A PAUSE: the refusal is ours and a Resume would meet it again.
+        jobs.append_log(conn, job["job_id"], f"failed: {said}",
+                        level=LogLevel.ERROR, source_key=source_key)
+        jobs._finish(conn, job["job_id"], JobStatus.FAILED, said)
     else:
         jobs._update(conn, job["job_id"], status=JobStatus.PAUSED.value,
                      control=JobControl.NONE.value, stage=None,
