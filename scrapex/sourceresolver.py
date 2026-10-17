@@ -35,9 +35,16 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass
 
+from .config import refusal, refused_host
+
 
 class UnknownSource(LookupError):
     """No registry knows this key, so no job can be queued for it."""
+
+
+class RefusedSource(UnknownSource):
+    """The registry knows this key, but its site is a refused host
+    (`config.REFUSED_HOSTS`): no job is queued for it. Its text is the refusal."""
 
 
 @dataclass(frozen=True)
@@ -108,6 +115,11 @@ class SourceResolver:
             conn.close()
         if found is None:
             raise UnknownSource(f"unknown source_key {source_key!r}")
+        # A ROW LEFT BEHIND by a source removed for its host (#1644) still names that
+        # host; resolving it would queue a job only the fetcher's refusal stops.
+        refused = refused_host(found.base_url)
+        if refused is not None:
+            raise RefusedSource(refusal(refused))
         return found
 
     def resolve_by_url(self, url: str):
