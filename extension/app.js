@@ -112,6 +112,8 @@ const state = {
   // the Schedules page is drawn by, which opening one of its rows waits for.
   schedules: null, schedulesLoad: null,
   job: null, jobRef: null, logs: [], logSignature: null, logAtBottom: true,
+  // A Start press the engine has not answered yet (`startRun`).
+  starting: false,
   // EVERY JOB NOT SETTLED, from the same tick `job` was adopted from. `job` is the one
   // doing the work; a queued or paused job of a selected source is in here only.
   activeJobs: [],
@@ -5545,7 +5547,10 @@ function refreshRunButton() {
   }
   // The refusal disables the button as well as explaining it. A pressable
   // button that always fails is the dead panel with an extra click in it.
-  $("run").disabled = Boolean(refusal) || !n;
+  // A PRESS IN FLIGHT KEEPS IT DISABLED. This runs on every tick, and it re-enabled Start
+  // while the engine was still answering the last press: a second press posted a second
+  // job, and one behind an open cost question took its focus.
+  $("run").disabled = Boolean(refusal) || !n || state.starting;
   $("run-blocked").textContent = blocked;
   // A REFUSAL OUTLIVES THE POLL AND NOT THE QUESTION IT ANSWERED. This runs on every tick,
   // so it clears the engine's last refusal only once the selection or the mode it refused
@@ -5570,7 +5575,9 @@ function showRunRefused(text) {
  * Every number is the engine's 409 answer (`cost`). The panel multiplies requests by the
  * pace and says "at least": the pace is a floor, and download time is not in it. */
 function costQuestion(cost, mode, before = null) {
-  const seconds = cost.requests * cost.pace_s;
+  // THE PANEL'S OWN ARITHMETIC, on the engine's two figures: N requests at a pace wait
+  // (N - 1) paces between them. A floor, since download time is not in it.
+  const seconds = Math.max(0, cost.requests - 1) * cost.pace_s;
   const minutes = Math.floor(seconds / 60);
   // A FLOOR AT EVERY SIZE. "Under a minute" would be a ceiling the pace cannot promise.
   const whole = Math.floor(seconds);
@@ -5582,7 +5589,7 @@ function costQuestion(cost, mode, before = null) {
     // TWO SENTENCES, BOTH THE ENGINE'S: what the run reads, and what the figures rest on.
     // The figures go in rows; a long value squeezes a `.kv` label to a letter a line.
     // A RE-ASK SAYS WHY IT IS BACK: the figure moved while he read the first one.
-    copy: `${before ? `The figure changed from about ${fmtCount(before.requests)} requests. `
+    copy: `${before ? `The figure changed from about ${requestCount(before.requests)}. `
       : ""}${cost.reads} ${cost.basis}`,
     facts: [
       ["Requests", `about ${fmtCount(cost.requests)}`],
@@ -5592,6 +5599,11 @@ function costQuestion(cost, mode, before = null) {
     ],
     keep: "Cancel", go: `Start ${MODES[mode][0].toLowerCase()}`, tone: "",
   };
+}
+
+/** `537 requests`, `1 request`. */
+function requestCount(n) {
+  return `${fmtCount(n)} request${n === 1 ? "" : "s"}`;
 }
 
 /** `2026-10-10` as `10 Oct 2026`: a day the source was counted, so the year stays. */
@@ -5622,6 +5634,7 @@ async function startRun() {
       discarding.map((s) => `  ${s.source_key} — ${pageCount(keptPages(s))}`).join("\n") +
       "\n\nResume, on the site's own row, continues from them instead and " +
       "re-fetches none of them.\n\nDiscard them and start from the top?")) return;
+  state.starting = true;
   $("run").disabled = true;
   showRunRefused("");
   const body = { source_keys: keys, run_mode: mode };
@@ -5641,11 +5654,19 @@ async function startRun() {
       } catch (e) {
         const cost = e.status === 409 && e.body && e.body.question === "cost" && e.body.cost;
         if (!cost) throw e;
+        // EVERY PARSE ASSERTS ITS SHAPE: a question missing a figure would draw
+        // "undefined", so it is refused with what it lacks instead.
+        const lacks = ["source", "reads", "basis", "counted_at"]
+          .filter((k) => typeof cost[k] !== "string" || !cost[k])
+          .concat(["requests", "pace_s"].filter((k) => !Number.isFinite(cost[k])));
+        if (lacks.length) {
+          throw new Error(`the engine's cost question has no usable ${lacks.join(", ")}.`);
+        }
         // THE SAME FIGURE ASKED AGAIN IS A REFUSAL, not a question: re-asking would trap him
         // in a dialog that returns whatever he answers.
         if (accepted && accepted.requests === cost.requests) {
-          throw new Error(`the engine asked again about the ${fmtCount(cost.requests)} `
-            + "requests already accepted.");
+          throw new Error(`the engine asked again about the ${requestCount(cost.requests)} `
+            + "already accepted.");
         }
         if (!(await askToConfirm(costQuestion(cost, mode, accepted)))) return;
         accepted = { requests: cost.requests };
@@ -5656,14 +5677,17 @@ async function startRun() {
   } catch (e) {
     refused = "Couldn't start: " + e.message;
   } finally {
+    state.starting = false;
     refreshRunButton();
     // AFTER THE REFRESH, which used to erase it in the same task (#1332, #1656).
     if (refused) showRunRefused(refused);
     // FOCUS GOES BACK TO START. Disabling it for the request dropped focus to the body, so
     // the confirmation had nothing to return it to; and its own button, hidden with it,
-    // still holds focus here until the browser blurs it after this task.
+    // still holds focus here until the browser blurs it after this task. NEVER OUT OF AN
+    // OPEN QUESTION: another one asked since owns the focus it holds.
     const at = document.activeElement;
-    if (!at || at === document.body || at.closest("#confirm-veil")) {
+    const asking = !$("confirm-veil").classList.contains("hidden");
+    if (!asking && (!at || at === document.body || at.closest("#confirm-veil"))) {
       $("run").focus({ preventScroll: true });
     }
   }
@@ -6281,19 +6305,25 @@ function askToConfirm({ title, named = "", copy, facts = [], keep, go, tone = "d
     body.append(who, document.createElement("br"));
   }
   body.append(document.createTextNode(copy));
-  // THE FIGURES AS LABELLED ROWS, the way Studio lays out an estimate (a label and its
-  // value, `PipelineCostDialog.tsx@86c813ec:213-228`), in the panel's `.kv` row.
+  // THE FIGURES AS LABELLED PAIRS, the way Studio lays out an estimate (a label and its
+  // value, `PipelineCostDialog.tsx@86c813ec:213-228`), in a list of their own AFTER the
+  // sentences. Not in `#confirm-copy`, the dialog's description: a screen reader reads a
+  // description as one string, and the APG Dialog (Modal) pattern keeps structured
+  // content out of it, as Supabase's atom does (`ConfirmationModal.tsx@86c813ec:110`).
+  const list = $("confirm-facts");
+  list.textContent = "";
   for (const [label, value] of facts) {
     const row = document.createElement("div");
     row.className = "kv";
-    const name = document.createElement("span");
+    const name = document.createElement("dt");
     name.textContent = label;
-    const figure = document.createElement("span");
+    const figure = document.createElement("dd");
     figure.className = "tech";
     figure.textContent = value;
     row.append(name, figure);
-    body.append(row);
+    list.append(row);
   }
+  list.hidden = !facts.length;
   $("confirm-keep").textContent = keep;
   $("confirm-go").textContent = go;
   // danger, warning, or "" for primary: the button variant the question needs.

@@ -1,4 +1,4 @@
-"""DRAFT TOOL, NOT FOR MERGE: the tender control's mock-up (milestone 51, part 2), sixth draft.
+"""DRAFT TOOL, NOT FOR MERGE: the tender control's mock-up (milestone 51, part 2), seventh draft.
 
 It renders the panel through tools/panel_harness.py with the part 3b engine stubbed as the
 study's contract describes it. The study, its reference sheet and the review rounds are on
@@ -130,9 +130,10 @@ RUNNING = job("running", stage=f"reading {CURRENT}", requests=DONE_REQUESTS,
               expected=EXPECTED, done=DONE, total=AREAS, notices=DONE_NOTICES)
 # THE LONGEST NAME THE BANK PUBLISHES, from the facet, not a long name chosen by hand.
 LONGEST_NAME = max((v["name"] for v in areas), key=len)
+LONGEST_AT = next(i for i, v in enumerate(areas) if v["name"] == LONGEST_NAME)
 LONGEST = job("running", stage=f"reading {LONGEST_NAME}",
-              requests=DONE_REQUESTS, expected=EXPECTED, done=DONE, total=AREAS,
-              notices=DONE_NOTICES)
+              requests=1 + sum(pages[:LONGEST_AT]), expected=EXPECTED, done=LONGEST_AT,
+              total=AREAS, notices=sum(v["count"] for v in areas[:LONGEST_AT]))
 STARTING = job("running", stage="counting notices")
 PAUSED = job("paused", stage=f"reading {CURRENT}", requests=DONE_REQUESTS,
              expected=EXPECTED, done=DONE, total=AREAS, notices=DONE_NOTICES)
@@ -159,7 +160,7 @@ PRICE_RUNNING = {"job_ref": "job_6be2c94a07f1", "job_kind": "crawl", "status": "
 UPDATE_READ = 12
 UPDATE_AREAS = job("running", stage=f"reading {areas[DONE + UPDATE_READ]['name']}",
                    requests=1 + sum(pages[DONE:DONE + UPDATE_READ]),
-                   expected=LEFT_REQUESTS, done=DONE + UPDATE_READ, total=AREAS,
+                   expected=LEFT_REQUESTS, done=UPDATE_READ, total=AREAS - DONE,
                    notices=sum(v["count"] for v in areas[DONE:DONE + UPDATE_READ]))
 # THE SAME UPDATE AFTER EVERY AREA, 3 pages into the notices changed since.
 CHANGES = (1_000, 1_000, 412)
@@ -186,8 +187,9 @@ HISTORY = [
         finished=iso(datetime(2026, 10, 13, 8, 0, 1, tzinfo=timezone.utc)
                      + timedelta(seconds=math.ceil(2.5 * (HISTORY_DONE - 1)) + 3))),
     job("completed_with_errors", ref="job_51d0aa7e3c22",
-        requests=LEFT_REQUESTS - MISSED_PAGES, expected=LEFT_REQUESTS, done=AREAS - 2,
-        total=AREAS, notices=LEFT_NOTICES - MISSED_NOTICES, errors=2,
+        requests=LEFT_REQUESTS - MISSED_PAGES, expected=LEFT_REQUESTS,
+        done=AREAS - DONE - 2, total=AREAS - DONE, notices=LEFT_NOTICES - MISSED_NOTICES,
+        errors=2,
         summary=f"2 areas not read; an update reads them first. {MISSED[0]['name']}: HTTP 503 "
                 f"after 3 tries. {MISSED[1]['name']}: response cut off at 1,204,111 bytes.",
         started="2026-10-12T08:00:02Z", finished="2026-10-12T08:17:40Z"),
@@ -207,6 +209,7 @@ LOGS = [
                                  f"{EXPECTED:,} requests"},
     *(area_line(v) for v in areas[:DONE]),
 ]
+LOGS_LONGEST = LOGS[:1] + [area_line(v) for v in areas[:LONGEST_AT]]
 LOGS_UPDATE_AREAS = [
     {"level": "info", "message": f"{AREAS - DONE} areas not read yet: "
                                  f"{LEFT_REQUESTS:,} requests"},
@@ -270,6 +273,16 @@ def wait(ms):
 
 
 TICK_WB = click('input[data-key="worldbank_org"]')
+# START FROM THE KEYBOARD, so the focus the question opens with is drawn.
+PRESS_RUN = ("press", "#run", "Enter")
+# THE RULES ANSWER PART 3B SENDS FOR THE SOURCE: robots.txt obeyed (his ruling on Q2) and
+# 2.5 s between requests (the pace #1647's Q2 put to him), both from the source.
+SHIPS_OBEY = ("js", """window.__rules = {worldbank_org: {
+  active: {value: false, shipped: false, origin: "source"},
+  robots: {value: "obey", custom: null, shipped: "obey", shipped_custom: null,
+           origin: "source"},
+  user_agent: {value: null, shipped: null, origin: "general"},
+  crawl_pace_s: {value: 2.5, shipped: 2.5, origin: "source"}}};""")
 TICK_SHORT = click('input[data-key="SHORT"]')
 ROW_WB = '#sites input[data-key="worldbank_org"] ~ .source-identity'
 WB_ROW = '#sites .srow:has(input[data-key="worldbank_org"])'
@@ -283,9 +296,10 @@ STATES = {
                             (6, "#selected .card .kv:nth-of-type(3)")]),
     "03-confirm-first-crawl": (dict(sources=SOURCES),
                                [click("#tab-run"), TICK_WB, engine_jobs(cost=COST_FIRST),
-                                click("#run"), wait(250)],
+                                PRESS_RUN, wait(250)],
                                [(7, "#confirm-title"), (8, "#confirm-copy"),
-                                (9, "#confirm-keep"), (10, "#confirm-go")]),
+                                (8, "#confirm-facts"), (9, "#confirm-keep"),
+                                (10, "#confirm-go")]),
     "03b-after-confirming": (dict(sources=SOURCES),
                              [click("#tab-run"), TICK_WB,
                               engine_jobs(cost=COST_FIRST, started=STARTING),
@@ -308,8 +322,9 @@ STATES = {
                                    [(13, WB_ROW + " .source-row-kept"), (12, "#mode-help")]),
     "07-confirm-the-rest": (dict(sources=SOURCES_PARTIAL),
                             [click("#tab-run"), TICK_WB, engine_jobs(cost=COST_LEFT),
-                             click("#run"), wait(250)],
-                            [(7, "#confirm-title"), (8, "#confirm-copy")]),
+                             PRESS_RUN, wait(250)],
+                            [(7, "#confirm-title"), (8, "#confirm-copy"),
+                             (8, "#confirm-facts")]),
     "08-run-mixed-refused": (dict(sources=SOURCES),
                              [click("#tab-run"), TICK_WB, TICK_SHORT,
                               engine_jobs(cost=COST_FIRST, mixed=True), click("#run"),
@@ -350,7 +365,7 @@ STATES = {
                             [(17, "#act-state"), (18, "#act-progress-label"),
                              (19, "#act-counters .kv:nth-child(1)"),
                              (20, "#act-counters .kv:nth-child(4)"), (21, "#logbox")]),
-    "13a-update-reads-the-rest": (dict(sources=SOURCES_PARTIAL, jobs=[UPDATE_AREAS],
+    "13a-update-reads-the-rest": (dict(sources=SOURCES_CRAWLING, jobs=[UPDATE_AREAS],
                                        logs=LOGS_UPDATE_AREAS),
                                   [click("#tab-run"), wait(400), scroll("#activity")],
                                   [(17, "#act-state"), (18, "#act-progress-label"),
@@ -360,7 +375,8 @@ STATES = {
                                  [click("#tab-run"), wait(400), scroll("#activity")],
                                  [(17, "#act-state"), (18, "#act-progress-label"),
                                   (19, "#act-counters .kv:nth-child(1)")]),
-    "14-activity-longest-name": (dict(sources=SOURCES_CRAWLING, jobs=[LONGEST], logs=LOGS),
+    "14-activity-longest-name": (dict(sources=SOURCES_CRAWLING, jobs=[LONGEST],
+                                      logs=LOGS_LONGEST),
                                  [click("#tab-run"), wait(400), scroll("#activity")],
                                  [(17, "#act-state")]),
     "15-activity-paused": (dict(sources=SOURCES_CRAWLING, jobs=[PAUSED], logs=LOGS),
@@ -384,9 +400,21 @@ STATES = {
                     scroll('[data-edit-source="worldbank_org"]', "center")],
                    [(27, '[data-edit-source="worldbank_org"]')]),
     "20b-library-editor": (dict(sources=SOURCES_DATA),
-                           [click("#tab-sources"), wait(300),
-                            click('[data-edit-source="worldbank_org"]'), wait(600)],
-                           [(29, "#view-source-edit h1")]),
+                           [click("#tab-sources"), wait(300), SHIPS_OBEY,
+                            click('[data-edit-source="worldbank_org"]'), wait(600),
+                            scroll("#source-edit-robots-card", "start")],
+                           [(29, "#source-edit-robots"), (29, "#source-edit-robots-origin")]),
+    "20c-library-editor-his-choice": (dict(sources=SOURCES_DATA),
+                                      [click("#tab-sources"), wait(300), SHIPS_OBEY,
+                                       click('[data-edit-source="worldbank_org"]'), wait(600),
+                                       ("js", "const s = document.getElementById("
+                                              "'source-edit-robots'); s.value = 'default'; "
+                                              "s.dispatchEvent(new Event('change', "
+                                              "{bubbles: true}))"),
+                                       click("#source-edit-save"), wait(600),
+                                       scroll("#source-edit-robots-card", "start")],
+                                      [(29, "#source-edit-robots"),
+                                       (29, "#source-edit-robots-origin")]),
     "21-engine-down": (dict(sources=SOURCES, engine_up=False), [click("#tab-run")],
                        [(28, "#setup")]),
 }
@@ -396,17 +424,19 @@ SHORT = {
                                 [(5, "#run")]),
     "23-confirm-320-high": (dict(sources=SOURCES),
                             [click("#tab-run"), TICK_WB, engine_jobs(cost=COST_FIRST),
-                             click("#run"), wait(250)],
-                            [(7, "#confirm-title"), (9, "#confirm-keep")]),
+                             PRESS_RUN, wait(250)],
+                            # NO MARKER ON THE TITLE: its box would cover the focus ring
+                            # this state and 23s compare. Row 7 is marked in 03.
+                            [(9, "#confirm-keep")]),
     # D2, SUPABASE'S SIDE: ConfirmationModal sets no initial focus, so Radix focuses the
     # first tabbable element, Cancel, with `preventScroll: true`
     # (@radix-ui/react-focus-scope@1.1.7, `focus()`). Drawn by doing exactly that.
     "23s-confirm-320-high-supabase": (dict(sources=SOURCES),
                                       [click("#tab-run"), TICK_WB,
-                                       engine_jobs(cost=COST_FIRST), click("#run"), wait(250),
+                                       engine_jobs(cost=COST_FIRST), PRESS_RUN, wait(250),
                                        ("js", "document.getElementById('confirm-keep')"
                                               ".focus({preventScroll: true})")],
-                                      [(7, "#confirm-title"), (9, "#confirm-keep")]),
+                                      [(9, "#confirm-keep")]),
 }
 
 MARK = (214, 40, 160)
@@ -423,6 +453,9 @@ def drive(page, steps):
             page.eval_on_selector(step[1], "(e, b) => e.scrollIntoView({block: b})", step[2])
         elif kind == "js":
             page.evaluate(step[1])
+        elif kind == "press":
+            page.focus(step[1])
+            page.keyboard.press(step[2])
         elif kind == "wait":
             page.wait_for_timeout(step[1])
         page.wait_for_timeout(120)
@@ -485,8 +518,9 @@ def draw_marks(img, found):
         left, top, right, bottom = rect
         if bottom < 0 or top > img.height:
             continue
+        left, top, right, bottom = left - 3, top - 3, right + 3, bottom + 3
         d.rectangle([left, top, right, bottom], outline=MARK, width=2)
-        cx, cy = max(10, min(img.width - 10, right - 2)), max(10, min(img.height - 10, top))
+        cx, cy = max(10, min(img.width - 10, right + 6)), max(10, min(img.height - 10, top - 6))
         d.ellipse([cx - 10, cy - 10, cx + 10, cy + 10], fill=MARK)
         text = str(number)
         w = d.textlength(text, font=font)

@@ -2578,6 +2578,13 @@
   .modal-copy strong {
     color: var(--text);
   }
+  /* A question's figures (`#confirm-facts`): `.kv` rows of a <dl>. The label is muted
+     and the value in the text colour, as Studio draws an estimate
+     (`PipelineCostDialog.tsx@86c813ec:216-217`). */
+  /* The card's own gap (`.modal-card`) spaces it from the sentences above. */
+  .modal-facts { margin: 0; }
+  .modal-facts dt { color: var(--muted); }
+  .modal-facts dd { margin: 0; text-align: right; }
   .modal-actions {
     display: flex;
     flex-wrap: wrap;
