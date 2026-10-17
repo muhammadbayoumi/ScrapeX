@@ -211,7 +211,7 @@ def test_splitting_a_bilingual_brand_leaves_the_price_key_untouched():
                       # AN ARABIC TOKEN THAT DOES NOT START WITH AN ARABIC LETTER.
                       # Every string above it did, which is the one case where
                       # `search` and `match` agree — so `search` -> `match` at
-                      # normalize.py:286 passed this loop and the whole suite,
+                      # normalize.py:424 passed this loop and the whole suite,
                       # while `ALSWEED/السويد` came back ('', '') and the brand
                       # vanished from the price key (#968).
                       "(الشركة السعودية) SCC",        # opens with a bracket

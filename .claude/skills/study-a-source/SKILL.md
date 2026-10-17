@@ -164,7 +164,7 @@ enough to find fields; a ruling needs counts from the census.
   do not.** Never pick one silently, and never let a derived value pass as stated.
 
 Nothing is parsed locally. Money, units and Arabic-Indic digits go through
-`scrapex/normalize.py:42`, `:98` and `:37`, and a change there proves itself against the
+`scrapex/normalize.py:43`, `:236` and `:38`, and a change there proves itself against the
 frozen corpora (`scrapex/contract.py:94`).
 
 ## Pass 6 · Where every field lands
