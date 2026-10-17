@@ -109,8 +109,10 @@ def open_panel(browser, tmp_path):
         stub.setdefault("schedules", sched(PRICE + ORPHAN))
         page_file = harness.build_page(tmp_path, harness.stub(**stub),
                                        name=f"schedules{len(pages)}.html")
+        # His display zone is the browser's, so it is pinned: CI runs in UTC and his
+        # machine does not, and a Next run asserted in "his zone" must mean one zone.
         page = browser.new_page(viewport={"width": width, "height": TALL},
-                                color_scheme=scheme)
+                                color_scheme=scheme, timezone_id="UTC")
         # A missing control fails in seconds, by name, not after Playwright's 30 s.
         page.set_default_timeout(5_000)
         errors: list[str] = []
@@ -375,6 +377,112 @@ def test_an_engine_without_the_switch_says_so_and_draws_none(open_panel):
         "0.4.60 or newer. Until then, use Enabled in Edit schedule, and Auto on the Run "
         "page.")
     assert page.locator(f'{VIEW} [data-role="sched-active"]').count() == 0
+    assert not page.js_errors
+
+
+def switches(page):
+    return page.locator(f'{VIEW} [data-role="sched-active"]')
+
+
+def old_note(page):
+    return page.locator('#sched-state [data-role="old"]')
+
+
+def engine_lacks_the_switch(page, version):
+    """The engine the panel meets after a downgrade: it reports, at `version`, without
+    `schedule_active_switch`. Then the panel checks it again, as Check again does."""
+    answer(page, "/api/health", f"body.version = {version!r};")
+    answer(page, "/api/version", "body.capabilities = body.capabilities.filter("
+                                 "(c) => c.key !== 'schedule_active_switch');")
+    page.evaluate("updateEngineState()")
+
+
+def test_an_engine_whose_version_is_unknown_is_not_called_old(open_panel):
+    """A version report that times out (its deadline is 2.5 s, the page's reads 5 s)
+    proves nothing about the engine: no "needs engine 0.4.60" note, and no switch the
+    panel cannot confirm. When a check answers, the rows gain their switches in place."""
+    page = open_panel(blackhole_routes=("/api/version",))
+    show_schedules(page)
+    assert page.evaluate("state.versionStatus") == "timeout"
+    assert row(page, "MADAR").count() == 1
+    assert old_note(page).count() == 0
+    assert switches(page).count() == 0
+
+    page.evaluate("BLACKHOLE_ROUTES.length = 0")
+    before = len(calls(page, "/api/schedules"))
+    page.evaluate("updateEngineState()")
+    page.wait_for_function(f"""() => document.querySelectorAll(
+        '{VIEW} [data-role="sched-active"]').length === 3""")
+    assert old_note(page).count() == 0
+    # Drawn from what the page already held: the engine's answer costs no read.
+    assert len(calls(page, "/api/schedules")) == before
+    flip(page, "MADAR")
+    page.click("#confirm-go")
+    wait_toast(page, "Disabled scheduled runs for madar.com")
+    assert writes(page)[-1]["body"]["active"] is False
+    assert not page.js_errors
+
+
+def test_an_engine_too_old_to_report_is_known_to_have_no_switch(open_panel):
+    """A 404 on /api/version is an engine from before version reporting: that is known,
+    so the note is drawn, in the version its health check gave."""
+    page = open_panel(engine_version="0.1.9", version_reporting=False)
+    show_schedules(page)
+    assert page.evaluate("state.versionStatus") == "unsupported"
+    assert "This engine is 0.1.9." in old_note(page).inner_text()
+    assert switches(page).count() == 0
+    assert not page.js_errors
+
+
+def test_the_switches_and_the_note_follow_the_engine_after_the_page_is_drawn(open_panel):
+    """A downgrade takes the switches away and draws the note in this engine's version;
+    the next engine's version rewrites it; an upgrade takes it away and brings the
+    switches back. Focus on a switch that leaves stays in its row."""
+    page = open_panel()
+    show_schedules(page)
+    full = page.evaluate("JSON.parse(JSON.stringify(ROUTES['/api/version']))")
+    assert switches(page).count() == 3
+    row(page, "MADAR").locator('[data-role="sched-active"]').focus()
+
+    engine_lacks_the_switch(page, "0.4.58")
+    old_note(page).wait_for()
+    assert switches(page).count() == 0
+    assert "This engine is 0.4.58." in old_note(page).inner_text()
+    assert page.evaluate("document.activeElement.dataset.role") == "runs"
+    assert page.evaluate("document.activeElement.closest('.schedule-row').dataset.sched") \
+        == "MADAR"
+    # Paused needs an engine without the switch; an Off source still reads Off.
+    assert row(page, "ALSWEED").locator('[data-fact="next"]').inner_text() == "Off"
+
+    engine_lacks_the_switch(page, "0.4.59")
+    page.wait_for_function("""() => document.querySelector('#sched-state [data-role="old"]')
+        .textContent.includes('This engine is 0.4.59.')""")
+    assert old_note(page).count() == 1
+
+    page.evaluate("(report) => { ROUTES['/api/version'] = report; }", full)
+    page.evaluate("updateEngineState()")
+    old_note(page).wait_for(state="detached")
+    assert switches(page).count() == 3
+    assert row(page, "MADAR").locator('[data-role="sched-active"]') \
+        .get_attribute("aria-checked") == "true"
+    assert writes(page) == []
+    assert not page.js_errors
+
+
+def test_a_switch_confirmed_after_the_engine_lost_it_sends_nothing(open_panel):
+    """The question was asked while the engine had the switch, and answered after a
+    check found it gone: that engine would save the schedule, ignore `active` and answer
+    200, so a press would toast a change that never happened."""
+    page = open_panel()
+    show_schedules(page)
+    flip(page, "MADAR")
+    engine_lacks_the_switch(page, "0.4.58")
+    old_note(page).wait_for()
+    page.click("#confirm-go")
+    page.wait_for_selector("#confirm-veil.hidden", state="attached")
+    page.wait_for_timeout(300)
+    assert writes(page) == []
+    assert "scheduled runs" not in text(page, "#toast")
     assert not page.js_errors
 
 

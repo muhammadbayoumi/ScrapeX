@@ -938,6 +938,9 @@ async function updateEngineState() {
   setStatus(engine);
   await loadVersions(engine, current);
   if (!current()) return {cancelled: true};
+  // The Schedules page's switches and its old-engine note follow this answer, from what
+  // the page last read: no read of its own.
+  if (currentViewName() === "schedules" && schedulesPage.saved) drawSchedules();
   markStartup("engine-check-finish", {
     state: state.engineState, reachable: Boolean(engine.reachable),
   });
@@ -7067,6 +7070,14 @@ function scheduleSwitchOn() {
   return !capabilityRefusal("schedule_active_switch");
 }
 
+// An engine KNOWN not to deploy `key`: its report lacks the key, or it is too old to
+// report. Nothing known -- no report yet, one that timed out, a stopped engine -- is not
+// this, so what it would say is not said rather than guessed.
+function engineKnownWithout(key) {
+  const deployed = deployedFrom(state.versionReport);
+  return Boolean(deployed && !deployed[key]) || state.versionStatus === "unsupported";
+}
+
 // The name a sentence calls a site by, as the editor's own Edit label does.
 function siteName(source) {
   return sourceDomain(source.base_url) || source.source_name || source.source_key;
@@ -7230,8 +7241,7 @@ async function loadSchedules() {
     // extension's version -- says nothing rather than tell him to update an engine.
     const deployed = deployedFrom(state.versionReport);
     const engineSkips = Boolean(deployed && deployed.scheduled_skips);
-    const engineIsOlder = (deployed && !deployed.scheduled_skips)
-      || state.versionStatus === "unsupported";
+    const engineIsOlder = engineKnownWithout("scheduled_skips");
     const skipNote = (sched) => engineSkips
       ? "If this site's previous run is still going, ScrapeX skips the slot and lists it on the Jobs page."
       : !engineIsOlder ? ""
@@ -9076,7 +9086,6 @@ function drawSchedules() {
     drawScheduleBanner(box);
     return;
   }
-  const switchOn = scheduleSwitchOn();
   const scheduled = schedulableSources().filter((source) => scheduleStatus(source) !== "Not scheduled");
   const lost = scheduleOrphans();
   const total = scheduled.length + lost.length;
@@ -9096,9 +9105,13 @@ function drawSchedules() {
   }) can't be scheduled yet. Run them from the Run page.` : "";
   $("sched-engine-note").textContent = page.note;
   drawScheduleBanner(box);
+  // ONLY AN ENGINE KNOWN TO LACK THE SWITCH is told so, in its version as of this draw,
+  // and the node is rewritten only when its words change (drawScheduleBanner's rule).
   const old = box.querySelector('[data-role="old"]');
-  if (!switchOn && !old) box.append(scheduleOldEngineNote());
-  if (switchOn && old) old.remove();
+  const note = engineKnownWithout("schedule_active_switch") ? scheduleOldEngineNote() : null;
+  if (!note) old?.remove();
+  else if (!old) box.append(note);
+  else if (old.textContent !== note.textContent) old.replaceWith(note);
 
   if (!total) {
     const hadFocus = [...page.rows.values()].some((row) => row.contains(document.activeElement));
@@ -9198,17 +9211,25 @@ function scheduleIdentity(source) {
     icon("material-chevron-right", "inline-icon")}</span>` + identity.slice(end);
 }
 
+// THE ROW'S SWITCH, "" on an engine the panel cannot confirm has it. Asked on every
+// draw (patchScheduleRow), so a report that lands late, an upgrade or a downgrade adds
+// or removes it on a row already built.
+function scheduleSwitchHtml(source) {
+  const sched = schedulesPage.saved.get(source.source_key) || {};
+  return scheduleSwitchOn() && sched.schedule_id != null
+    ? `<button type="button" role="switch" class="switch" data-role="sched-active"
+        aria-checked="${scheduleStatus(source) === "On"}" aria-label="Scheduled runs for ${
+        esc(siteName(source))}">
+        <span class="switch-thumb" aria-hidden="true"></span></button>` : "";
+}
+
 function scheduleRowHtml(source) {
   const sched = schedulesPage.saved.get(source.source_key) || {};
   const name = esc(siteName(source));
-  const toggle = scheduleSwitchOn() && sched.schedule_id != null
-    ? `<button type="button" role="switch" class="switch" data-role="sched-active"
-        aria-checked="${scheduleStatus(source) === "On"}" aria-label="Scheduled runs for ${name}">
-        <span class="switch-thumb" aria-hidden="true"></span></button>` : "";
   return `<div class="job-row schedule-row" data-sched="${esc(source.source_key)}">
     <span class="schedule-id"><button type="button" class="schedule-open" data-role="runs"
       aria-label="Runs of ${name} on Jobs">${scheduleIdentity(source)}</button></span>
-    ${toggle}
+    ${scheduleSwitchHtml(source)}
     <span class="job-kebab">
       <button type="button" class="ghost icon-button" aria-haspopup="menu" aria-expanded="false"
               aria-label="Actions for ${name}" data-role="kebab">${icon("material-more-vert", "sm")}</button>
@@ -9243,7 +9264,20 @@ function patchScheduleRow(row, source) {
     facts.replaceWith(template.content.firstElementChild);
   }
   const busy = row.dataset.busy === "true";
-  const toggle = row.querySelector('[data-role="sched-active"]');
+  let toggle = row.querySelector('[data-role="sched-active"]');
+  const wanted = scheduleSwitchHtml(source);
+  if (wanted && !toggle) {
+    const template = document.createElement("template");
+    template.innerHTML = wanted.trim();
+    toggle = template.content.firstElementChild;
+    row.querySelector(".job-kebab").before(toggle);
+  } else if (!wanted && toggle) {
+    // Focus on a switch that leaves stays in its row, never on <body> (WCAG 2.2 SC 2.4.3).
+    const hadFocus = toggle === document.activeElement;
+    toggle.remove();
+    toggle = null;
+    if (hadFocus) row.querySelector('[data-role="runs"]').focus({ preventScroll: true });
+  }
   if (toggle && !busy) toggle.setAttribute("aria-checked", String(scheduleStatus(source) === "On"));
   // A READ AFTER A PRESS IS THE ENGINE'S ANSWER: what an earlier press left on the row is
   // cleared by the next good read, unless a press is in flight or the line is that read's.
@@ -9291,7 +9325,11 @@ async function toggleScheduleRow(row) {
   if (!source || !sched || scheduleGated(row)) return;
   const on = button.getAttribute("aria-checked") === "true";
   const name = siteName(source);
-  if (!(await askToSwitchScheduledRuns(source, sched, on)) || scheduleGated(row)) return;
+  // AN ENGINE THAT LOST THE SWITCH WHILE HE ANSWERED (a downgrade, a report that landed)
+  // would save the schedule, ignore `active` and answer 200: nothing is sent, and the
+  // redraw that took the switch away has put the note in its place.
+  if (!(await askToSwitchScheduledRuns(source, sched, on)) || scheduleGated(row)
+      || !scheduleSwitchOn()) return;
   const pressedAt = Date.now();
   setScheduleRowBusy(row, true);
   button.setAttribute("aria-busy", "true");
@@ -9484,7 +9522,10 @@ function bindScheduleRow(row) {
   const source = schedulesSources().find((item) => item.source_key === key);
   row.querySelector(".schedule-facts").dataset.html =
     scheduleFacts(source, schedulesPage.saved.get(key) || {});
-  row.querySelector('[data-role="sched-active"]')?.addEventListener("click", () => toggleScheduleRow(row));
+  // On the row, not the switch: patchScheduleRow adds and removes the switch.
+  row.addEventListener("click", (event) => {
+    if (event.target.closest('[data-role="sched-active"]')) toggleScheduleRow(row);
+  });
   row.querySelector('[data-role="runs"]').addEventListener("click", () => {
     showView("jobs");
     jobsSetNarrowing({ term: key, statuses: new Set() });
