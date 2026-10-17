@@ -91,6 +91,17 @@ def test_a_draft_is_dated_by_the_banks_own_change_stamp():
     assert wb.release_from_notice(draft).payload["date"] == draft["api_modified_date"]
 
 
+def test_a_publication_date_is_stored_as_parsed_never_as_written():
+    """#1653's gate, QA6: the date was parsed and then the raw text stored, so padding
+    reached the release, and a blank date became the release's date."""
+    padded = notice(OPEN_REOI)
+    padded["submission_date"] = f"  {padded['submission_date']} "
+    assert wb.release_from_notice(padded).payload["date"] == NOTICES[OPEN_REOI]["submission_date"]
+    blank = notice(OPEN_REOI)
+    blank["submission_date"] = "   "
+    assert wb.release_from_notice(blank).payload["date"] == blank["api_modified_date"]
+
+
 def test_the_deadline_is_a_date_and_a_local_time_with_no_zone():
     period = wb.release_from_notice(notice(OPEN_REOI)).payload["tender"]["tenderPeriod"]
     assert period == {"endDateLocal": "2026-11-05", "endTimeLocal": "14:00",

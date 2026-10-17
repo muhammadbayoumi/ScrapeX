@@ -132,8 +132,9 @@ def release_from_notice(notice: dict[str, Any]) -> Release:
 
     # A draft has no publication date (6 of Egypt's 1,448); the Bank's own change stamp is
     # then the date the information was first recorded, which is what OCDS `date` means.
-    published = notice.get("submission_date")
-    parse_date(published, "YYYY-MM-DDT00:00:00Z")
+    # The date is stored as parsed, never as written: a blank or padded value would
+    # otherwise become the release's date and sort out of place.
+    published = parse_date(notice.get("submission_date"), "YYYY-MM-DDT00:00:00Z")
     stage = _TAGS[notice_type]
     tag = _REVISED_TAG[stage] if notice_status == "Revised" else stage
     key = process_key(notice)
@@ -197,8 +198,9 @@ def release_from_notice(notice: dict[str, Any]) -> Release:
         tender["items"] = items
 
     payload: dict[str, Any] = {
-        "ocid": ocid, "id": notice_id, "date": published or modified.strftime(
-            "%Y-%m-%dT%H:%M:%SZ"),
+        "ocid": ocid, "id": notice_id,
+        "date": (f"{published.isoformat()}T00:00:00Z" if published is not None
+                 else modified.strftime("%Y-%m-%dT%H:%M:%SZ")),
         "tag": [tag], "initiationType": "tender",
         "language": notice.get("notice_lang_code", "").lower() or None,
         "parties": parties,
