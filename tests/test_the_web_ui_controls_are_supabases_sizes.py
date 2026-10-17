@@ -35,6 +35,11 @@ OFF_SIZE = {
     ".schedule-filter": "a filter in the Schedules page's 2x2 grid, at its own padding",
 }
 
+#: A COLUMN'S FILTER AND MENU ARE SUPABASE'S COLUMN MENU TRIGGER (his ruling on #1466): their
+#: grid header's Button at padding 3px (ColumnMenu.tsx@86c813ec:225-234), 1 + 3 + 14 + 3 + 1
+#: wide and tiny's 26px tall, as (width, height, icon).
+_COLUMN_MENU = (22, 26, 14)
+
 
 def test_every_button_is_26px_and_every_field_34px_tall_on_every_page(webui):
     controls: list[dict] = []
@@ -75,9 +80,16 @@ def test_every_button_is_26px_and_every_field_34px_tall_on_every_page(webui):
         "named in OFF_SIZE and matching no control off its size, so take it out: "
         f"{sorted(set(OFF_SIZE) - off)}")
 
-    # Every icon-only Button is Supabase's 36x26 around its 14px icon (#1430; his ruling on
-    # #1457): the source list's icon link at this width.
-    icon_only = [c for c in controls if c["iconOnly"] and c["known"] is None]
+    # A column's filter and menu are Supabase's column menu trigger, 22x26 around its 14px
+    # icon (his ruling on #1466; design/grid-theme.css), and on the source page there are some.
+    header = [c for c in controls if c["name"].startswith("button.dg-header-button")]
+    assert {c["page"] for c in header} == {"/source/ELSEWEDYSHOP"}, header
+    assert {(c["width"], c["height"], c["icon"], c["iconOnly"]) for c in header} == {
+        (*_COLUMN_MENU, True)}, header
+
+    # Every other icon-only Button is Supabase's 36x26 around its 14px icon (#1430; his ruling
+    # on #1457): the source list's icon link at this width.
+    icon_only = [c for c in controls if c["iconOnly"] and c["known"] is None and c not in header]
     assert "a.dataset-icon-button.touch-reach" in {c["name"] for c in icon_only}, icon_only
     boxes = sorted({f"{c['page']} {c['name']}: {c['width']}x{c['height']}, its icon {c['icon']}px"
                     for c in icon_only if (c["width"], c["height"], c["icon"]) != _ICON_ONLY})

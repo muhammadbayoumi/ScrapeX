@@ -38,15 +38,21 @@ import json
 import re
 import sqlite3
 import sys
+import threading
 import time
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 
-from . import catalog, runs, taxonomy
+from . import catalog, runs, source_settings, taxonomy
 from . import validators as validator_store
 from .catalog_models import SiteCreate
-from .connectors.base import HttpFetcher, declare_frontier
+from .connectors.base import (
+    CrawlBlocked,
+    RobotsDisallowed,
+    declare_frontier,
+    source_fetcher,
+)
 from .crawlscope import CrawlScope
 from .databases import DatabaseRegistry
 from .databases.registry import DATABASE_ROOT
@@ -82,6 +88,7 @@ from .sightings import (
 from .sites.muqawil import MuqawilPageSource
 from .snapshotbody import decode, label_for
 from .snapshotcrawl import already_stored, read_scope
+from .source_settings import SourceRules
 from .vocab import RunStatus
 
 # THE FOUR CONSTANTS THAT USED TO BE HERE were `BASE`, `DATASET`, `SITE_NAME` and
@@ -199,7 +206,7 @@ def open_engine():
     return registry.engine.connect()
 
 
-def make_fetch(pace_s: float):
+def make_fetch(crawl_settings: dict | None, rules: SourceRules):
     """One fetcher, and PACING LIVES HERE AND NOWHERE ELSE.
 
     `HttpFetcher` rate-limits with jitter, replays ETags so an unchanged page
@@ -207,8 +214,19 @@ def make_fetch(pace_s: float):
     after five refusals. `partitioncrawl` therefore adds no pace of its own: two
     layers would each charge for the wait, and a second per request over ~2,000
     requests is thirty-three minutes nobody chose to spend.
+
+    BUILT BY THE SAME CHAIN A PRICE SOURCE'S IS (#1414). This was
+    `HttpFetcher(min_interval_s=pace_s)`, so the panel's pace, timeout, agent and
+    robots switches never reached a directory. The jobs pass
+    `capture.crawl_settings(conn)`; the command line passes its `--pace` alone,
+    and every key it leaves out reads as the shipped default.
+
+    AND HIS CHOICES FOR THIS DIRECTORY (#1414 stage 2, #1584): `rules` is
+    `source_settings.effective(conn, key, directory)` -- the directory being what it
+    ships with -- so its robots choice, custom rule, agent and pace reach the fetcher by
+    the same function a price source's do.
     """
-    fetcher = HttpFetcher(min_interval_s=pace_s)
+    fetcher = source_fetcher(rules, crawl_settings)
 
     def fetch(url: str) -> str:
         return fetcher.get(url).text
@@ -903,28 +921,50 @@ def details(conn, directory: Directory, fetch, fetcher, run_ref: str,
     # ONE PAGE, WHOLE, AND THE SAME CODE WHATEVER THE WORKER COUNT. The single-worker
     # path used to be this loop body inline; keeping one function means a fix to the
     # failure handling cannot apply to one path and miss the other.
-    def one(number: int, url: str, writer) -> tuple[bool, str]:
-        """`(stored, note)` — a note is a line to print, empty when there is nothing."""
+    def one(number: int, url: str, writer) -> tuple[bool, str, str]:
+        """`(stored, note, refusal)` — a note is a line to print, empty when there is
+        nothing; `refusal` is robots.txt's reason when it refused the page, else empty."""
         try:
             html = fetch(url)
+        except CrawlBlocked:
+            # EXCEPT THE SITE'S OWN STOP, which is not one dead page: the breaker
+            # (#1448) or an unreachable robots.txt (ES-2). Filed as a failed page, the
+            # sweep went on asking for every remaining profile of a site that had said
+            # no -- a request each for the breaker, nothing at all stored for robots.
+            # The job settles it as a pause; the loop below closes the run first.
+            raise
+        except RobotsDisallowed as exc:
+            # STILL ONE PAGE, AND STILL NOT RAISED: a Disallow on some paths leaves the
+            # rest of the sweep worth running. But TOLD APART BY ITS TYPE, never by its
+            # text, because a sweep every page of which was refused did not complete
+            # (#1580) -- that is settled after the loop, once every page is counted.
+            return (False,
+                    f"  [{number}/{len(todo)}] {url}: {type(exc).__name__}: {exc}",
+                    str(exc) or type(exc).__name__)
         except Exception as exc:
             # NOT RAISED. One dead profile out of thirty-four thousand must not discard
             # the rest — the walker's own rule — and a crawl that stops at the first
             # 404 of a seventeen-hour run is a crawl nobody can finish.
-            return False, f"  [{number}/{len(todo)}] {url}: {type(exc).__name__}: {exc}"
+            return (False,
+                    f"  [{number}/{len(todo)}] {url}: {type(exc).__name__}: {exc}", "")
         try:
             service.save_snapshot(writer, SnapshotCreate(
                 source_url=url, html_content=html, crawl_run_ref=run_ref,
                 run_id=run_id,
                 body_class=label_for(url, PageKind.DETAIL)))
             writer.commit()
-            return True, ""
+            return True, "", ""
         except Exception as exc:
             writer.rollback()
             return False, (f"  [{number}/{len(todo)}] storing {url}: "
-                           f"{type(exc).__name__}: {exc}")
+                           f"{type(exc).__name__}: {exc}"), ""
 
     stored = failed = 0
+    #: Pages robots.txt refused -- a subset of `failed` -- and the first one's reason,
+    #: which names the rule that refused (the tool default, this source's own choice,
+    #: or a custom rule): the switch the owner would change.
+    refused = 0
+    refusal = ""
     notes: list[str] = []
     #: Set when `between_pages` asked to stop. It decides the run's CLOSING STATUS, which
     #: is the point of tracking it: a sweep the owner paused read part of its frontier,
@@ -937,52 +977,129 @@ def details(conn, directory: Directory, fetch, fetcher, run_ref: str,
             "threads and ThreadPoolExecutor runs queued tasks after a stop is decided, "
             "so a pause would be honoured late or not at all. Ask for one worker, or "
             "give the pool the stopping event partitioncrawl carries")
-    if workers > 1 and connect is not None:
-        # A CONNECTION PER WORKER, opened and closed by the worker that uses it.
-        # `sqlite3` refuses one across threads; every connection sets WAL and
-        # `busy_timeout`, so two writers wait for each other instead of failing.
-        def run(number: int, url: str) -> tuple[int, bool, str]:
-            writer = connect()
-            try:
-                did, note = one(number, url, writer)
-            finally:
-                writer.close()
-            return number, did, note
+    #: Set by the first worker the site stops. `ThreadPoolExecutor.__exit__` runs every
+    #: queued task after `future.result()` raises -- the reason `between_pages` is
+    #: refused above -- so each queued task asks this before it fetches, and a block
+    #: costs at most the requests already in flight rather than the whole frontier.
+    halted = threading.Event()
+    try:
+        if workers > 1 and connect is not None:
+            # A CONNECTION PER WORKER, opened and closed by the worker that uses it.
+            # `sqlite3` refuses one across threads; every connection sets WAL and
+            # `busy_timeout`, so two writers wait for each other instead of failing.
+            def run(number: int, url: str) -> tuple[int, bool | None, str, str]:
+                if halted.is_set():
+                    # `None`, NOT `False`: this page was never asked for, so it is
+                    # neither stored nor failed, and the run row must not say so.
+                    return number, None, "", ""
+                writer = connect()
+                try:
+                    did, note, why = one(number, url, writer)
+                except CrawlBlocked:
+                    halted.set()
+                    raise
+                finally:
+                    writer.close()
+                return number, did, note, why
 
-        with ThreadPoolExecutor(max_workers=workers,
-                                thread_name_prefix="detail") as pool:
-            futures = [pool.submit(run, number, url)
-                       for number, url in enumerate(todo, start=1)]
-            # ORDERED BY THE FRONTIER, not by which worker finished first, so two runs
-            # of the same frontier print the same report. `as_completed` would make the
-            # output depend on scheduling, which makes a diff between two runs useless.
-            for future in futures:
-                _, did, note = future.result()
+            #: The site's stop, if a worker met one. HELD UNTIL EVERY FUTURE IS READ:
+            #: raising at the first one dropped the pages later futures had already
+            #: stored and their notes, so the run row closed `rows_seen=0` over
+            #: snapshots that were on disk.
+            blocked: CrawlBlocked | None = None
+            #: Any other failure a worker raised -- a connection that would not open.
+            #: Read on past it too, for the same account; raised after the loop, and
+            #: a block outranks it, so the site's stop is never lost behind it.
+            failure: Exception | None = None
+            with ThreadPoolExecutor(max_workers=workers,
+                                    thread_name_prefix="detail") as pool:
+                futures = [pool.submit(run, number, url)
+                           for number, url in enumerate(todo, start=1)]
+                # ORDERED BY THE FRONTIER, not by which worker finished first, so two
+                # runs of the same frontier print the same report. `as_completed` would
+                # make the output depend on scheduling, which makes a diff between two
+                # runs useless.
+                for future in futures:
+                    try:
+                        _, did, note, why = future.result()
+                    except CrawlBlocked as stop:
+                        blocked = blocked or stop
+                        continue
+                    except Exception as other:
+                        failure = failure or other
+                        notes.append(f"  a worker failed: {type(other).__name__}: "
+                                     f"{other}")
+                        continue
+                    if did is None:
+                        continue
+                    stored += did
+                    failed += not did
+                    if why:
+                        refused += 1
+                        refusal = refusal or why
+                    if note:
+                        notes.append(note)
+            if blocked is not None:
+                raise blocked
+            if failure is not None:
+                raise failure
+        else:
+            for number, url in enumerate(todo, start=1):
+                # BEFORE THE FETCH, so a stop costs no request. Asked with the index of
+                # the page about to be read, which is what a progress figure counts up
+                # to.
+                if between_pages is not None and between_pages(number - 1, len(todo)):
+                    stopped_early = True
+                    say(f"  stopped at {number - 1:,} of {len(todo):,}. The pages "
+                        f"already stored under {run_ref} are kept, and running again "
+                        "under the same run reference continues from here")
+                    break
+                did, note, why = one(number, url, conn)
                 stored += did
                 failed += not did
+                if why:
+                    refused += 1
+                    refusal = refusal or why
                 if note:
                     notes.append(note)
-    else:
-        for number, url in enumerate(todo, start=1):
-            # BEFORE THE FETCH, so a stop costs no request. Asked with the index of the
-            # page about to be read, which is what a progress figure counts up to.
-            if between_pages is not None and between_pages(number - 1, len(todo)):
-                stopped_early = True
-                say(f"  stopped at {number - 1:,} of {len(todo):,}. The pages already "
-                    f"stored under {run_ref} are kept, and running again under the same "
-                    "run reference continues from here")
-                break
-            did, note = one(number, url, conn)
-            stored += did
-            failed += not did
-            if note:
-                notes.append(note)
-            if number % 200 == 0:
-                say(f"  [{number:,}/{len(todo):,}] stored {stored:,}, "
-                    f"failed {failed}")
+                if number % 200 == 0:
+                    say(f"  [{number:,}/{len(todo):,}] stored {stored:,}, "
+                        f"failed {failed}")
+    except BaseException:
+        # THE RUN IS CLOSED ON EVERY WAY OUT, for `crawl`'s reason (issue 535) and with
+        # `crawl`'s clause: a row left `running` is permanent, since no sweep settles
+        # `crawl_run`. The site's stop is the way out this was written for; a worker
+        # that failed for another reason was the one it missed, leaving the row open
+        # and the notes unsaid. PARTIAL, as `crawl` closes it: what was stored is kept
+        # and a resume skips it. And the record may not destroy the outcome -- a
+        # locked database here must not turn the site's stop into a failure -- so a
+        # failed `close_run` write, the one write this clause makes, is said and the
+        # exception still travels.
+        for note in notes:
+            say(note)
+        try:
+            runs.close_run(conn, run_id, status=RunStatus.PARTIAL, rows_seen=stored,
+                           errors=failed,
+                           requests=int(getattr(fetcher, "requests_count", 0) or 0))
+            conn.commit()
+        except Exception as recording:
+            say(f"could not close this run's row: {type(recording).__name__}: "
+                f"{recording}. It stays 'running' and no sweep will settle it (535)")
+        raise
     for note in notes:
         say(note)
     say("")
+    # EVERY PAGE IT TRIED, REFUSED BY ROBOTS.TXT: FAILED, AS THE LISTING CRAWL ENDS
+    # under the same switch (#1580, his ruling). No request went out and nothing was
+    # stored, so `completed` would claim a sweep that never happened. A sweep with one
+    # page stored, or one page failed for any other reason, is not this case and closes
+    # as before; nor is a sweep the owner stopped, whose job is already settled, nor an
+    # empty frontier, which tried nothing; nor a RESUMED sweep, whose run reference
+    # already holds pages an earlier pass stored -- that run collected something, and
+    # "nothing was stored" would be false of it. A refusal is only ever a failed page,
+    # so `refused == failed` with nothing stored is the whole of "every page refused".
+    all_refused = (bool(refused) and stored == 0 and refused == failed
+                   and not resumed and not stopped_early)
     # CLOSED WITH WHAT ACTUALLY HAPPENED, and `partial` is a real status rather than a
     # kindness: a ceiling stopped this sweep short, so a later reader must not take it
     # as "the site was fully read on this run". The State column's whole worth is that
@@ -992,13 +1109,26 @@ def details(conn, directory: Directory, fetch, fetcher, run_ref: str,
         # A CEILING OR A STOP, and both make the same claim false. The condition read
         # only `len(todo) < len(frontier)` -- the ceiling -- so a sweep the owner paused
         # after nine of eight hundred pages closed as SUCCESS.
-        status=(RunStatus.PARTIAL
+        # FAILED, NOT PARTIAL, when robots.txt refused it all: `crawl`'s rule for
+        # PARTIAL is that part of the work is on disk, and here none is.
+        status=(RunStatus.FAILED if all_refused
+                else RunStatus.PARTIAL
                 if stopped_early or len(todo) < len(frontier)
                 else RunStatus.SUCCESS),
         rows_seen=stored, errors=failed,
         requests=int(getattr(fetcher, "requests_count", 0) or 0))
     conn.commit()
     say(f"profiles stored {stored:,}, failed {failed}, resumed {resumed:,}")
+    if all_refused:
+        # RAISED AS THE LISTING'S OWN `RobotsDisallowed`, so `profilejob` settles it on
+        # the path the listing's refusal takes: `failed: <reason>` in the log at ERROR,
+        # the reason on the job's outcome. The first refusal names which rule refused.
+        raise RobotsDisallowed(
+            f"robots.txt refused every one of the {refused:,} profile page(s) this "
+            f"sweep tried, so none was asked of the site and nothing was stored "
+            f"({refusal}). Fetching them needs Settings > \"Obey robots.txt Disallow "
+            f"by default\" (crawl_obey_disallow) off, or this source's own robots "
+            f"choice set not to obey")
     if len(todo) + resumed < len(frontier):
         # SAME RULE, BEFORE IT CAN REACH HIM. This is inside the profile fetch loop,
         # which no job kind drives today -- so it is console-only until the profile half
@@ -1991,7 +2121,9 @@ def run(args: argparse.Namespace) -> int:
     directory = get_directory(getattr(args, "source", None))
     started = time.monotonic()
     if args.plan:
-        _, fetch = make_fetch(args.pace)
+        # No warehouse is opened for a plan, so it is sized as a source that said
+        # nothing; its requests are counted, not paced by anything he chose.
+        _, fetch = make_fetch({"min_interval_s": args.pace}, source_settings.NO_OPINION)
         plan(directory, fetch, started)
         return 0
 
@@ -1999,7 +2131,9 @@ def run(args: argparse.Namespace) -> int:
     try:
         named = _named_ids(args.ids) if args.ids is not None else ()
         if args.crawl:
-            fetcher, fetch = make_fetch(args.pace)
+            # His choices for this directory, from the warehouse this run opened.
+            rules = source_settings.effective(conn, directory.key, directory)
+            fetcher, fetch = make_fetch({"min_interval_s": args.pace}, rules)
             # THE FACTORY, NOT A CONNECTION: `sqlite3` refuses one across
             # threads, so each worker opens its own. Only passed when it is
             # actually needed, so a single-worker crawl keeps using `conn`.
@@ -2014,7 +2148,8 @@ def run(args: argparse.Namespace) -> int:
                   heavy_attempts=args.heavy_attempts,
                   workers=args.workers, connect=factory)
         if args.details:
-            fetcher, fetch = make_fetch(args.pace)
+            rules = source_settings.effective(conn, directory.key, directory)
+            fetcher, fetch = make_fetch({"min_interval_s": args.pace}, rules)
             # SAME FACTORY, SAME REASON as --crawl above: one connection per
             # worker, opened only when more than one is asked for. 34,834 pages at
             # 9.03 s each is 87 hours single-threaded and about 14 with six.

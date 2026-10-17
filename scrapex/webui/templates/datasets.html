@@ -1,14 +1,12 @@
 {% extends "base.html" %}
 {% block title %}Generic datasets · ScrapeX{% endblock %}
 {% block head %}
-{# Tabulator is served from OUR origin, never a CDN. ScrapeX has to work on a
-   machine with no internet, and a page that quietly fetches a library would
-   fail exactly when the owner is offline. See static/vendor/README.md. #}
-  <link rel="stylesheet" href="/static/vendor/tabulator.min.css">
-  {# Loaded AFTER the library so the project's own table appearance wins. #}
-  <link rel="stylesheet" href="/static/grid-theme.css?v=design-system-46">
+{# The grid's libraries are served from OUR origin, never a CDN. ScrapeX has to
+   work on a machine with no internet, and a page that quietly fetches a library
+   would fail exactly when the owner is offline. See static/vendor/README.md.
+   The records grid below imports /static/datagrid.js, which imports them. #}
+  <link rel="stylesheet" href="/static/grid-theme.css?v=design-system-49">
   <link rel="stylesheet" href="/static/pages/datasets.css">
-  <script src="/static/vendor/tabulator.min.js" defer></script>
 {% endblock %}
 {% block content %}
 
@@ -425,7 +423,13 @@
   //
   // The priced Data page deliberately does NOT use this: there the URL is
   // the question, and a grid holding its state in memory would trade that away.
+  //
+  // The renderer is the Data page's own (datagrid.js, an ES module), asked for
+  // once; a renderer that does not load is said in the records' own state line.
   let recordsGrid = null;
+  const dataGridReady = import("/static/datagrid.js?v=design-system-49")
+    .then((module) => module.DataGrid);
+  dataGridReady.catch(() => {});
 
   function columnsFor(fields) {
     return fields.map(field => ({
@@ -445,7 +449,7 @@
     }));
   }
 
-  function renderRecords(payload) {
+  async function renderRecords(payload) {
     recordsContext.textContent = `${payload.dataset.label} · ${payload.dataset.site_display_name} · ${payload.dataset.record_count} total records`;
     if (!payload.records.length) {
       if (recordsGrid) { recordsGrid.destroy(); recordsGrid = null; }
@@ -455,19 +459,28 @@
     }
     hideState(recordsState);
     const rows = payload.records.map(record => ({ ...record.data }));
+    let DataGrid;
+    try {
+      DataGrid = await dataGridReady;
+    } catch (error) {
+      setState(recordsState, "failure", `The grid's library did not load (${error.message}). Reload the page.`);
+      return;
+    }
 
     // Rebuilt rather than updated when the SHAPE changes: a different dataset
     // has different fields, and reusing the grid would keep the old columns.
     if (recordsGrid) { recordsGrid.destroy(); recordsGrid = null; }
     recordsTable.replaceChildren();
-    recordsGrid = new Tabulator(recordsTable, {
+    recordsGrid = new DataGrid(recordsTable, {
       data: rows,
       columns: columnsFor(payload.fields),
-      layout: "fitDataStretch",
+      columnDefaults: {minWidth: 128},
+      // The sorted column shows its arrow, as on the Data page (grid.js SORT_ICON).
+      headerSortElement: () => window.ScrapeXUI.iconNode("material-arrow-upward", "material-sort-icon"),
       movableColumns: true,           // drag to reorder
       // Paging stays SERVER-side: the page is already bounded to 50 rows by the
       // API, and loading everything to sort it in the browser is the unbounded
-      // read the spec forbids. Tabulator sorts and filters within the page it
+      // read the spec forbids. The grid sorts and filters within the page it
       // was given, and Previous/Next still fetch from the server.
       height: "28rem",
       placeholder: "No records on this page.",
@@ -485,7 +498,7 @@
     try {
       const payload = await requestJson(`/api/general/extract/datasets/${selectedDatasetId}/records?after_id=${after}&limit=50`);
       recordNext = payload.next_after_id;
-      renderRecords(payload);
+      await renderRecords(payload);
       previousRecords.disabled = recordCursors.length === 1;
       nextRecords.disabled = recordNext === null;
     } catch (error) {

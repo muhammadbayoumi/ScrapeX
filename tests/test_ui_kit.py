@@ -57,7 +57,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 #: `test_generated_design_assets_are_current` asserts `sync(check=True) == []` over
 #: `tools/sync_design_assets.py`'s ASSETS map. This line named `tests/test_vendor.py`
 #: until 2026-08-22, which does not check it: the only byte-equality assertion in
-#: that file compares the two vendored copies of Tabulator. So the claim above was
+#: that file compares the two vendored copies of the grid's library. So the claim above was
 #: true and its stated evidence was the wrong file -- a reader checking it would have
 #: found nothing and could reasonably have concluded the copies were unguarded.
 #: LESSONS §13 is about this class; it is the instance that is a FILE reference

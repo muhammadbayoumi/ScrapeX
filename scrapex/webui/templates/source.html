@@ -4,14 +4,12 @@
 {% from "_time.html" import stamp %}
 {% block title %}{{ source_key }} — ScrapeX{% endblock %}
 {% block head %}
-{# The grid is served from OUR origin, never a CDN: this tool must work with no
-   internet, and a page that quietly fetched a library would fail exactly when
-   the owner is offline. See static/vendor/README.md. #}
-  <link rel="stylesheet" href="/static/vendor/tabulator.min.css">
-  {# Loaded AFTER the library so the project's own table appearance wins. #}
-  <link rel="stylesheet" href="/static/grid-theme.css?v=design-system-46">
+{# The grid's libraries are served from OUR origin, never a CDN: this tool must
+   work with no internet, and a page that quietly fetched a library would fail
+   exactly when the owner is offline. See static/vendor/README.md. grid.js
+   imports its renderer, datagrid.js, which imports them. #}
+  <link rel="stylesheet" href="/static/grid-theme.css?v=design-system-49">
   <link rel="stylesheet" href="/static/pages/data-workspace.css?v=source-ui-9">
-  <script src="/static/vendor/tabulator.min.js" defer></script>
   <script src="/static/datasets-browser.js?v=source-ui-8" defer></script>
 {# The shared split-button behaviour, before grid.js which calls it. Deferred,
    like grid.js, so both run after the DOM is parsed and in source order. #}
@@ -19,7 +17,7 @@
 {# StaticFiles supplies validators but no Cache-Control policy. A new URL is
    therefore intentional when grid behaviour changes: an already-cached script
    must not keep the old sorting persistence or header controls after update. #}
-  <script src="/static/grid.js?v=design-system-48" defer></script>
+  <script src="/static/grid.js?v=design-system-49" defer></script>
 {% endblock %}
 {% block content %}
 {# Interface language is English only (spec 1). Scraped values are DATA: they
@@ -125,7 +123,7 @@
       <a href="{{ query(sort=key, direction=nextdir) }}">{{ label }}{%
         if sort == key %} {{ icon("material-arrow-upward" if direction == "asc" else "material-arrow-downward", "inline-icon") }}{% endif %}</a>
     {% endmacro %}
-    {# The grid. Tabulator, served from our own origin — see static/vendor.
+    {# The grid. TanStack underneath, served from our own origin — see static/vendor.
 
        Every column carries a three-dot menu: pick values, type a match, hide
        it, or move it. Columns resize by dragging their edge and reorder by
@@ -140,7 +138,7 @@
        the page can SAY what is being filtered: a grid that quietly shows fewer
        rows than it holds is the same failure as a filter that vanishes — the
        reader cannot tell. #}
-    {# Reserve the final grid frame before Tabulator measures its columns. #}
+    {# Reserve the final grid frame before the grid measures its columns. #}
     <section class="data-grid-frame" aria-label="Dataset grid">
       <header class="data-grid-frame-head">
         <div class="data-grid-heading">

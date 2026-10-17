@@ -13,8 +13,10 @@ import { capabilityProblem, deployedFrom, installedVersion, CAPABILITY_REPORTING
 import { PROTOCOL_VERSION } from "./transport.js";
 import { ENGINE_CANDIDATES, latestEngineRelease } from "./releases.js";
 import {
-  jobLabel, liveJob, observeRate, progressFraction, progressLine, recentRate, rowsFrom,
-  statusWords, summariseJobs,
+  jobsCountLine, jobsNoun, domainOf, filterOptions, isSettled, jobLabel, jobLead, jobMatches,
+  jobWaitingLine, liveJob, menuControls, noResultsLine, observeRate, othersLine,
+  primaryControl, progressFraction, progressLine, recentRate, refusalLine, sourceOf,
+  sourceMatches, sourceTitle, statusLook, statusWords, summaryClass, timeLine,
 } from "./jobsview.js";
 import { getToken, accountFor, authorize, forgetToken, revokeToken } from "./identity.js";
 import {
@@ -102,6 +104,13 @@ async function probeEngine() {
 const state = {
   sources: [], selected: new Set(), filter: "", sourceFilter: "",
   editingSourceKey: null,
+  // THE KEY HIS CHOICES ARE FILED UNDER (#1584): a price source's own key, or a
+  // dataset or directory card's SITE key -- `contractors` is muqawil_org's dataset,
+  // and his choices are about the site. `sourceRules` is GET /rules' last answer.
+  editingRulesKey: null, sourceRules: null,
+  // GET /api/schedules by source key, for the schedule labels (#1596), and the load
+  // the Schedules page is drawn by, which opening one of its rows waits for.
+  schedules: null, schedulesLoad: null,
   job: null, jobRef: null, logs: [], logSignature: null, logAtBottom: true,
   financeRates: [], financeSavedSettings: null, financeStatus: null,
   engineUp: false, engineState: "checking",
@@ -372,7 +381,7 @@ function showView(name, animate = true) {
   if (name === "finance") loadGoogleFinance();
   if (name === "settings") {
     ensureTimeZoneControl();
-    loadSchedules();
+    state.schedulesLoad = loadSchedules();
     loadStorage();
     // THE OUTPUTS LIST LIVES ON THIS SCREEN AND WAS LOADED FROM THE OTHER ONE.
     // `loadOutputs` had exactly one caller — loadRunDestination — which returns
@@ -1553,14 +1562,12 @@ async function confirmTimeZoneShared() {
 }
 
 // ---- sites -----------------------------------------------------------------
-function hostOf(url) { try { return new URL(url).host; } catch (_) { return url || ""; } }
 
-function sourceDomain(url) {
-  const host = hostOf(url).replace(/\.$/, "");
-  return host.toLowerCase().startsWith("www.") ? host.slice(4) : host;
-}
+// The one rule, in jobsview.js, so a job and a source are named by the same domain.
+function sourceDomain(url) { return domainOf(url); }
 
-function sourceIdentity(source, compact = false, metricValue = null, metricLabel = "Row") {
+function sourceIdentity(source, compact = false, metricValue = null, metricLabel = "Row",
+  { wrap = false } = {}) {
   const key = source.source_key || "";
   // The unmarked name is English and is required; _ar is the site's own
   // Arabic name and may be absent. English leads, as it always did.
@@ -1569,7 +1576,9 @@ function sourceIdentity(source, compact = false, metricValue = null, metricLabel
   const arabic = source.source_name_ar && source.source_name_ar !== name
     ? `<span class="source-identity-name" dir="auto">${esc(source.source_name_ar)}</span>` : "";
   return `<span class="source-identity${compact ? " source-identity-compact" : ""}">
-    <strong class="source-identity-domain" dir="${domain ? "ltr" : "auto"}">${esc(domain || name)}</strong>
+    <strong class="source-identity-domain" dir="${domain ? "ltr" : "auto"}">${
+      // WRAP (Jobs only, his choice D): a break after each dot, never inside a label.
+      wrap ? (domain || name).split(".").map(esc).join(".<wbr>") : esc(domain || name)}</strong>
     ${domain || arabic ? `<span class="source-identity-names"><span class="source-identity-name-en" dir="ltr">${esc(name)}</span>${
       arabic ? '<span class="source-identity-separator" aria-hidden="true">·</span>' : ""
     }${arabic}</span>` : ""}
@@ -1656,7 +1665,14 @@ function renderSites() {
         `<span class="chip off" title="No connector has shipped for this platform yet">Not supported yet</span>`;
       // The automation switch. Words carry the state, never colour alone; the
       // title says exactly what the switch gates — schedules, not your hand.
-      const auto = ready ? `<button type="button" class="chip ${s.active ? "accent" : ""}"
+      // A PRICE SOURCE ONLY: no schedule fires a dataset or directory card yet, and
+      // his ruling (2026-10-09) is that no switch is drawn for it until one does.
+      // WITH THE ONE SWITCH (#1596) the chip only shows the schedule and opens its row.
+      const auto = ready && !s.kind && scheduleSwitchOn()
+        ? (state.schedules ? `<button type="button" class="chip" data-sched-link="${esc(s.source_key)}"
+            aria-label="Schedule for ${esc(siteName(s))}: ${esc(scheduleSummary(s))}"
+            >${esc(scheduleSummary(s))}</button>` : "")
+        : ready && !s.kind ? `<button type="button" class="chip ${s.active ? "accent" : ""}"
             data-auto="${esc(s.source_key)}" aria-pressed="${s.active ? "true" : "false"}"
             title="Scheduled runs fire only while this is on. Running manually from this panel always works.">Auto: ${
               s.active ? "on" : "off"}</button>` : "";
@@ -1701,6 +1717,8 @@ function renderSites() {
     box.querySelectorAll("button[data-resume]").forEach((button) =>
       button.addEventListener("click", () =>
         resumeSource(button.dataset.resume, button)));
+    box.querySelectorAll("button[data-sched-link]").forEach((button) =>
+      button.addEventListener("click", () => openScheduleRow(button.dataset.schedLink)));
     box.querySelectorAll("button[data-auto]").forEach((button) =>
       button.addEventListener("click", async () => {
         const key = button.dataset.auto;
@@ -1725,11 +1743,7 @@ function renderSites() {
 function renderSourceManager() {
   const box = $("source-manager-list");
   const term = state.sourceFilter.trim().toLowerCase();
-  const shown = state.sources.filter((source) =>
-    !term || (source.source_name || "").toLowerCase().includes(term) ||
-    (source.source_name_ar || "").toLowerCase().includes(term) ||
-    (source.source_key || "").toLowerCase().includes(term) ||
-    sourceDomain(source.base_url).includes(term));
+  const shown = state.sources.filter((source) => sourceMatches(source, term));
 
   $("source-manager-count").textContent = state.sources.length
     ? `${shown.length} of ${state.sources.length}`
@@ -1757,8 +1771,10 @@ function renderSourceManager() {
         <span class="source-manager-card-meta muted text-xs">
           <span class="dot ${source.implemented ? "on" : "off"}" aria-hidden="true"></span>
           <span>${status}</span>
-          <span aria-hidden="true">·</span>
-          <span>Automation ${source.active ? "on" : "off"}</span>
+          ${source.kind ? "" : scheduleSwitchOn() ? (state.schedules
+            ? `<span aria-hidden="true">·</span><span>${esc(scheduleSummary(source))}</span>` : "")
+            : `<span aria-hidden="true">·</span>
+          <span>Automation ${source.active ? "on" : "off"}</span>`}
         </span>
       </div>
       <button type="button" class="ghost source-manager-edit"
@@ -1866,10 +1882,40 @@ function wireSourceColumns() {
 
 function renderSourceEditor(source) {
   state.editingSourceKey = source.source_key;
+  state.editingRulesKey = source.site_key || source.source_key;
+  state.sourceRules = null;
+  // A PRICE SOURCE IS A MANIFEST ENTRY; a dataset or directory card has a `kind`.
+  // Its name, URL, key, columns and the remove/erase actions are price-path routes
+  // that answer 404 for it, and a control that cannot work is not drawn.
+  const price = !source.kind;
+  document.querySelectorAll("#view-source-edit [data-price-only]").forEach(
+    (node) => { node.hidden = !price; });
+  // AN ENGINE WITHOUT /rules (older than `source_rules`) still edits a price source
+  // the way it always did: its name, URL and robots choice through /edit, the switch
+  // through /active. What it cannot serve is not drawn -- the agent and pace, where
+  // each value comes from, Clear -- and a directory, which it saves nothing for, gets
+  // neither its robots choice nor a Save.
+  const mode = sourceRulesMode();
+  state.sourceRulesMode = mode;
+  const legacy = mode === "legacy";
+  document.querySelectorAll("#view-source-edit [data-rules-only]").forEach(
+    (node) => { node.hidden = legacy; });
+  $("source-edit-robots-card").hidden = legacy && !price;
+  $("source-edit-form").hidden = legacy && !price;
   $("source-edit-identity").innerHTML = sourceIdentity(
     source, false, Number(source.observations || 0).toLocaleString());
-
+  for (const id of ["active", "robots", "agent", "pace"]) {
+    $(`source-edit-${id}-origin`).textContent =
+      mode === "rules" ? "Reading where this comes from…" : "";
+  }
+  document.querySelectorAll("[data-clear-rule]").forEach((button) => { button.hidden = true; });
+  // NOTHING LEFT FROM THE LAST SOURCE OPENED: the controls /rules fills start from
+  // this source's own card, and stay held until /rules answers.
   renderRobotsChoice(source);
+  $("source-edit-agent").value = "";
+  $("source-edit-agent").placeholder = "";
+  $("source-edit-pace").value = "";
+  $("source-edit-pace").placeholder = "";
 
   const ready = Boolean(source.implemented);
   $("source-edit-readiness").innerHTML =
@@ -1888,33 +1934,82 @@ function renderSourceEditor(source) {
   if ($("source-edit-vat")) $("source-edit-vat").value = source.vat_mode || "incl";
   out("source-edit-rename-result", "");
   out("source-edit-danger-result", "");
-  $("source-edit-holds").textContent = "…";
-  loadSourceColumns(source.source_key);
   $("source-edit-wipe-scope").textContent = "";
-  // What it HOLDS, fetched rather than guessed: a destructive button that says
-  // how much it is about to erase is the difference between a choice and a
-  // guess. Failure here must not block the editor, so it degrades to a dash.
-  api("/api/sources/" + encodeURIComponent(source.source_key)).then((detail) => {
-    if (state.editingSourceKey !== source.source_key) return;   // moved on
-    const holds = detail.holds || {};
-    const parts = [];
-    if (holds.products) parts.push(`${holds.products.toLocaleString()} products`);
-    if (holds.observations) parts.push(`${holds.observations.toLocaleString()} prices`);
-    if (holds.details) parts.push(`${holds.details.toLocaleString()} details`);
-    $("source-edit-holds").textContent = parts.length ? parts.join(" · ") : "nothing yet";
-    $("source-edit-wipe-scope").textContent = parts.length
-      ? `This would erase ${parts.join(", ")}.` : "";
-  }).catch(() => { $("source-edit-holds").textContent = "—"; });
+  if (!price) {
+    // What a card holds is on the card itself; this route is the manifest's.
+    $("source-edit-holds").textContent = "—";
+  } else {
+    $("source-edit-holds").textContent = "…";
+    loadSourceColumns(source.source_key);
+    // What it HOLDS, fetched rather than guessed: a destructive button that says
+    // how much it is about to erase is the difference between a choice and a
+    // guess. Failure here must not block the editor, so it degrades to a dash.
+    api("/api/sources/" + encodeURIComponent(source.source_key)).then((detail) => {
+      if (state.editingSourceKey !== source.source_key) return;   // moved on
+      const holds = detail.holds || {};
+      const parts = [];
+      if (holds.products) parts.push(`${holds.products.toLocaleString()} products`);
+      if (holds.observations) parts.push(`${holds.observations.toLocaleString()} prices`);
+      if (holds.details) parts.push(`${holds.details.toLocaleString()} details`);
+      $("source-edit-holds").textContent = parts.length ? parts.join(" · ") : "nothing yet";
+      $("source-edit-wipe-scope").textContent = parts.length
+        ? `This would erase ${parts.join(", ")}.` : "";
+    }).catch(() => { $("source-edit-holds").textContent = "—"; });
+  }
 
   $("source-edit-fold").checked = Boolean(source.fold_variants);
-  const active = $("source-edit-active");
-  active.checked = Boolean(source.active);
-  active.disabled = !ready;
+  $("source-edit-active").checked = Boolean(source.active);
+  holdRuleControls(!legacy);
   $("source-edit-save").disabled = !ready;
   $("source-edit-active-help").textContent = ready
     ? "Manual runs remain available when automation is off."
     : "Automation cannot be enabled until this connector is available.";
+  // READ-ONLY WITH THE ONE SWITCH (#1596): the schedule, linked to its row, where the
+  // switch was. A source with no connector keeps its sentence and a disabled switch.
+  const linked = price && ready && scheduleSwitchOn();
+  $("source-edit-active").closest("label").hidden = linked;
+  $("source-edit-active-origin").parentElement.hidden = linked || legacy;
+  $("source-edit-schedule").hidden = !linked;
+  // Schedules unread: the reason, not a nameless button.
+  const read = linked && Boolean(state.schedules);
+  $("source-edit-schedule-link").hidden = !read;
+  $("source-edit-schedule-link").textContent = read ? scheduleSummary(source) : "";
+  $("source-edit-schedule-note").textContent = linked && !read
+    ? "The schedules couldn't be read from the engine, so this one isn't shown." : "";
   out("source-edit-result", "");
+  // AFTER the result line is emptied, so what reading the rules says -- or why they
+  // cannot be read -- stays said. Unread, his crawl choices stay held.
+  if (mode === "rules") loadSourceRules(state.editingRulesKey);
+  if (mode === "refused") {
+    out("source-edit-result", esc(capabilityRefusal("source_rules")), "err");
+  }
+}
+
+// WHICH EDITOR THIS ENGINE GETS (§1.6, #1584). `rules`: it deploys /rules. `legacy`:
+// it is KNOWN not to -- its version report lists no `source_rules`, or it is too old
+// to report at all (404) -- so the editor saves as it did before /rules. `refused`:
+// nothing can be known -- the report failed or timed out, this extension is older than
+// the capability, or Chrome did not say its version -- so the refusal is said and his
+// crawl choices are held. Guessing `legacy` there sends robots to an /edit that, on a
+// new engine, refuses them.
+function sourceRulesMode() {
+  if (!capabilityRefusal("source_rules")) return "rules";
+  const deployed = deployedFrom(state.versionReport);
+  if ((deployed && !deployed.source_rules) || state.versionStatus === "unsupported") {
+    return "legacy";
+  }
+  return "refused";
+}
+
+// The controls /rules fills, held while its answer is not in: anything typed into
+// them would be drawn over by the answer, or saved against a value never read. The
+// switch also waits for a connector that works.
+function holdRuleControls(held) {
+  for (const id of ["robots", "robots-enforce", "robots-delay", "agent", "pace"]) {
+    $(`source-edit-${id}`).disabled = held;
+  }
+  const source = state.sources.find((item) => item.source_key === state.editingSourceKey);
+  $("source-edit-active").disabled = held || !(source && source.implemented);
 }
 
 // robots.txt, per site. Kept together so the three steps read in the order the
@@ -1930,9 +2025,12 @@ function renderRobotsChoice(source) {
   $("source-edit-robots-custom").classList.toggle("hidden", choice !== "custom");
   // The consequence, in the same breath as the choice. A dropdown that does not
   // say what it will do is asking the owner to guess.
+  const general = state.sourceRules && state.sourceRules.general;
   const says = {
-    default: "Whatever the Settings page says. Today that is: disallowed paths "
-           + "are crawled and the run says so.",
+    default: "Whatever the Settings page says. Today that is: "
+           + (general && general.obey_disallow
+             ? "disallowed paths are not fetched."
+             : "disallowed paths are crawled and the run says so."),
     obey: "Disallowed paths are NOT fetched, and the site's own delay is used. "
         + "On a site that disallows this source's pages, that means it collects "
         + "nothing — check the site first.",
@@ -1942,7 +2040,8 @@ function renderRobotsChoice(source) {
 }
 
 async function lookAtRobots() {
-  const key = state.editingSourceKey;
+  // The SITE's key: a directory card's robots.txt is its site's (#1584).
+  const key = state.editingRulesKey;
   if (!key) return;
   const box = $("source-edit-robots-report");
   const button = $("source-edit-robots-look");
@@ -1958,15 +2057,215 @@ async function lookAtRobots() {
       // THE ONE THAT CHANGES THE ANSWER, said plainly and not as a footnote.
       lines.push("Obeying would leave this source with nothing to collect.");
     }
-    if (report.on_a_disallowed_path && report.on_a_disallowed_path.reason) {
+    // AN UNREACHABLE robots.txt PAUSES EVERY CRAWL OF THE SITE (#1585, RFC 9309),
+    // not only a disallowed path, so the summary -- which already says so -- is the
+    // whole answer. The disallowed-path line would repeat it under a heading that
+    // suggests the other paths are fine.
+    // NOR FOR A BROWSER SOURCE (`crawl_reads_robots` false): its crawl reads no
+    // robots.txt, the summary already says so, and the line would say it again.
+    if (!report.unreachable && report.crawl_reads_robots !== false
+        && report.on_a_disallowed_path && report.on_a_disallowed_path.reason) {
       lines.push("On a disallowed path today: " + report.on_a_disallowed_path.reason);
     }
     box.textContent = lines.join(" ");
-    box.classList.toggle("warn", Boolean(report.would_block_everything));
+    box.classList.toggle("warn",
+      Boolean(report.would_block_everything || report.unreachable));
   } catch (error) {
     box.textContent = "Could not read it: " + (error && error.message ? error.message : error);
   } finally {
     button.disabled = false;
+  }
+}
+
+// ---- his choices for one source, and where each value comes from (#1584) -------
+//
+// His rulings: one system -- general rules on the Settings page, overridden per
+// source; clearing a choice returns the field to what the source ships with; and the
+// panel says where each value comes from. GET /api/sources/{key}/rules answers each
+// field's value, its `origin` -- `choice` (his), `source` (its sources.yaml entry or
+// its directory) or `general` (the Settings page) -- and the value it ships with.
+
+//: Where a value comes from, in the words he reads.
+const RULE_ORIGINS = {
+  choice: "Your choice",
+  source: "From the source",
+  general: "Your general rule (Settings)",
+};
+
+//: The element ids each field is drawn in, under `source-edit-…`.
+const RULE_IDS = {active: "active", robots: "robots", user_agent: "agent",
+                  crawl_pace_s: "pace"};
+
+const ROBOTS_WORDS = {
+  default: "the tool default",
+  obey: "obey this site's robots.txt",
+  custom: "a custom rule for this site",
+};
+
+// A number typed into the panel, sent AS a number (#1584: the robots box sent the
+// delay as text, which the engine refuses). What is not a finite number is sent as
+// typed, so the engine's sentence says what is wrong rather than JSON turning NaN
+// into null -- which would read as "clear my choice".
+function ruleNumber(text) {
+  const number = Number(text);
+  return Number.isFinite(number) ? number : text;
+}
+
+// One value, in words: what the field does with it.
+function ruleValueText(field, value) {
+  if (field === "active") return value ? "on" : "off";
+  if (field === "robots") return ROBOTS_WORDS[value] || String(value);
+  if (field === "crawl_pace_s") return `${value} s between requests`;
+  return String(value);
+}
+
+// What a field follows when nothing is chosen and the source ships nothing: the
+// general rule, said with its value.
+function ruleGeneralText(field, answer) {
+  const general = answer.general || {};
+  if (field === "user_agent") return general.user_agent || "the browser's own";
+  if (field === "crawl_pace_s") return ruleValueText(field, general.crawl_pace_s);
+  return general.obey_disallow ? "disallowed paths are not fetched"
+    : "disallowed paths are crawled and the run says so";
+}
+
+// Whether the source ships an opinion on the field, and so what clearing returns to.
+function ruleShipsOpinion(field, item) {
+  if (field === "active") return true;
+  if (field === "robots") return item.shipped !== "default";
+  return item.shipped !== null && item.shipped !== undefined;
+}
+
+// The sentence under a field: where its value comes from, and -- for his choice --
+// what clearing it returns to.
+function ruleOrigin(field, answer) {
+  const item = answer.fields[field];
+  if (item.origin === "choice") {
+    // Mid-sentence, so only its first letter drops: "Settings" names a page.
+    const back = ruleShipsOpinion(field, item)
+      ? `the source's: ${ruleValueText(field, item.shipped)}`
+      : `${RULE_ORIGINS.general[0].toLowerCase()}${RULE_ORIGINS.general.slice(1)}: `
+        + ruleGeneralText(field, answer);
+    return `${RULE_ORIGINS.choice}. Clearing it returns to ${back}.`;
+  }
+  if (item.origin === "source") {
+    return `${RULE_ORIGINS.source}: ${ruleValueText(field, item.value)}.`;
+  }
+  return `${RULE_ORIGINS.general}: ${ruleGeneralText(field, answer)}.`;
+}
+
+// What the editor's controls hold, read once. `active` is null where no switch is
+// drawn -- a directory's -- so it is never sent from there.
+function sourceRulesForm(answer) {
+  return {
+    active: answer.kind === "price" && !scheduleSwitchOn()
+      ? $("source-edit-active").checked : null,
+    robots: $("source-edit-robots").value,
+    enforce: $("source-edit-robots-enforce").checked,
+    delay: $("source-edit-robots-delay").value.trim(),
+    agent: $("source-edit-agent").value.trim(),
+    pace: $("source-edit-pace").value.trim(),
+  };
+}
+
+// ONLY WHAT CHANGED, so a save that touched the pace never records a choice for the
+// agent the field merely displayed. An emptied agent or pace is sent as null, which
+// clears his choice; a field following its source or general rule is drawn empty, so
+// leaving it empty sends nothing.
+function ruleChanges(answer, form) {
+  const fields = answer.fields;
+  const changes = {};
+  if (form.active !== null && form.active !== fields.active.value) {
+    changes.active = form.active;
+  }
+  const custom = form.robots === "custom"
+    ? {enforce_disallow: form.enforce,
+       crawl_delay_s: form.delay === "" ? null : ruleNumber(form.delay)}
+    : null;
+  if (form.robots !== fields.robots.value
+      || JSON.stringify(custom) !== JSON.stringify(fields.robots.custom)) {
+    changes.robots = form.robots;
+    if (custom) changes.robots_custom = custom;
+  }
+  const shown = (item) => (item.origin === "general" ? "" : String(item.value ?? ""));
+  if (form.agent !== shown(fields.user_agent)) {
+    changes.user_agent = form.agent === "" ? null : form.agent;
+  }
+  if (form.pace !== shown(fields.crawl_pace_s)) {
+    changes.crawl_pace_s = form.pace === "" ? null : ruleNumber(form.pace);
+  }
+  return changes;
+}
+
+// Draw one field of GET /rules' answer: its control and the sentence under it. One
+// field at a time, so clearing one choice leaves what he is typing into the others.
+function renderRuleField(field, answer) {
+  const item = answer.fields[field];
+  const shown = item.origin === "general" ? "" : String(item.value ?? "");
+  if (field === "active") {
+    $("source-edit-active").checked = Boolean(item.value);
+  } else if (field === "robots") {
+    renderRobotsChoice({robots: item.value, robots_custom: item.custom});
+  } else if (field === "user_agent") {
+    $("source-edit-agent").value = shown;
+    $("source-edit-agent").placeholder = (answer.general || {}).user_agent || "";
+  } else {
+    $("source-edit-pace").value = shown;
+    $("source-edit-pace").placeholder = String((answer.general || {}).crawl_pace_s ?? "");
+  }
+  $(`source-edit-${RULE_IDS[field]}-origin`).textContent = ruleOrigin(field, answer);
+  document.querySelector(`[data-clear-rule="${field}"]`).hidden = item.origin !== "choice";
+}
+
+// Draw the whole answer, and let go of the controls it fills.
+function renderSourceRules(answer) {
+  state.sourceRules = answer;
+  for (const field of Object.keys(RULE_IDS)) renderRuleField(field, answer);
+  holdRuleControls(false);
+}
+
+// Read his choices for a source and draw them. Answers what it drew, or null when the
+// engine could not say -- and then the controls stay held, and Save reads again.
+async function loadSourceRules(key) {
+  try {
+    const answer = await api("/api/sources/" + encodeURIComponent(key) + "/rules");
+    if (state.editingRulesKey !== key) return null;     // moved on
+    renderSourceRules(answer);
+    return answer;
+  } catch (error) {
+    if (state.editingRulesKey !== key) return null;
+    for (const id of Object.values(RULE_IDS)) $(`source-edit-${id}-origin`).textContent = "";
+    out("source-edit-result", `${icon("material-close", "sm")} Could not read how this `
+        + `source is crawled: ${esc(error.message)}. Its crawl choices stay locked until `
+        + "it is read; Save changes reads it again.", "err icon-label");
+    return null;
+  }
+}
+
+// Clear one choice: the field returns to what the source ships with, or to his
+// general rule where it ships nothing. `robots` clears its custom rule with it. Only
+// that field is drawn again, and focus goes to it -- the button it was on is gone.
+async function clearSourceRule(field) {
+  const key = state.editingRulesKey;
+  if (!key) return;
+  out("source-edit-result", "Clearing your choice…", "muted");
+  try {
+    const answer = await post("/api/sources/" + encodeURIComponent(key) + "/rules",
+                              {[field]: null});
+    state.sourceRules = answer;
+    renderRuleField(field, answer);
+    $(`source-edit-${RULE_IDS[field]}`).focus({preventScroll: true});
+    const source = state.sources.find((item) => item.source_key === state.editingSourceKey);
+    if (field === "active" && source) {
+      source.active = answer.fields.active.value;
+      renderSites();
+      renderSourceManager();
+    }
+    out("source-edit-result", `${icon("material-check", "sm")} Cleared. `
+        + esc(ruleOrigin(field, answer)), "ok icon-label");
+  } catch (error) {
+    out("source-edit-result", `${icon("material-close", "sm")} ${esc(error.message)}`,
+        "err icon-label");
   }
 }
 
@@ -1985,63 +2284,144 @@ async function saveSourceEditor() {
     out("source-edit-result", "This source is no longer available.", "err");
     return;
   }
-
+  // ASKED AGAIN, not trusted from when the editor opened: an engine upgraded or
+  // restarted since answers the other route's request with a 400 or a 404. Redrawn
+  // for the engine now answering, and nothing written.
+  if (sourceRulesMode() !== state.sourceRulesMode) {
+    renderSourceEditor(source);
+    out("source-edit-result", `${icon("material-close", "sm")} The engine changed `
+        + "while this was open, so nothing was saved. The editor now shows what it "
+        + "supports; check your changes and save again.", "err icon-label");
+    return;
+  }
   const button = $("source-edit-save");
-  const wanted = $("source-edit-active").checked;
   button.disabled = true;
-  out("source-edit-result", "Saving…", "muted");
-  try {
-    // The manifest fields first, then the active flag. Order matters: the
-    // active flip reloads the manifest, so saving fields afterwards would
-    // write onto a copy the engine had already replaced.
-    const edits = {
-      source_name: $("source-edit-name").value.trim(),
-      source_name_ar: $("source-edit-name-ar").value.trim(),
-      base_url: $("source-edit-url").value.trim(),
-      currency: $("source-edit-currency").value.trim(),
-      cadence: $("source-edit-cadence").value,
-      vat_mode: $("source-edit-vat").value,
-      fold_variants: $("source-edit-fold").checked,
-      robots: $("source-edit-robots").value,
-    };
-    // The custom rule rides along only when it is the chosen one. Sending it
-    // otherwise would leave a rule stored behind a choice that ignores it,
-    // which reads as "this site is customised" on every later open.
+  out("source-edit-result", "Saving changes…", "muted");
+
+  // THE MANIFEST'S FIELDS, for a price source: what the site is and how it is read.
+  const edits = {
+    source_name: $("source-edit-name").value.trim(),
+    source_name_ar: $("source-edit-name-ar").value.trim(),
+    base_url: $("source-edit-url").value.trim(),
+    currency: $("source-edit-currency").value.trim(),
+    cadence: $("source-edit-cadence").value,
+    vat_mode: $("source-edit-vat").value,
+    fold_variants: $("source-edit-fold").checked,
+  };
+
+  if (state.sourceRulesMode === "legacy") {
+    // AN ENGINE WITHOUT /rules, exactly as the editor saved before it (#1584): the
+    // robots choice is a manifest field there, and the switch has its own route.
+    // Only a price source reaches here -- a directory's Save is not drawn.
+    const wanted = $("source-edit-active").checked;
+    edits.robots = $("source-edit-robots").value;
+    // The custom rule rides along only when it is the chosen one.
     if (edits.robots === "custom") {
       const delay = $("source-edit-robots-delay").value.trim();
       edits.robots_custom = {
         enforce_disallow: $("source-edit-robots-enforce").checked,
-        crawl_delay_s: delay === "" ? null : Number(delay),
+        crawl_delay_s: delay === "" ? null : ruleNumber(delay),
       };
     } else {
       edits.robots_custom = null;
     }
-    const changed = Object.entries(edits).some(([field, value]) =>
-      // robots_custom is an OBJECT. `String({}) !== String(null)` is true for
-      // every pair of objects, so comparing it the same way as the text fields
-      // would report a change on every save and POST for nothing.
-      (value !== null && typeof value === "object") || field === "robots_custom"
-        ? JSON.stringify(source[field] ?? null) !== JSON.stringify(value ?? null)
-        : String(source[field] ?? "") !== String(value));
-    if (changed) {
+    try {
+      // robots_custom is an OBJECT, compared as JSON: String() of any two objects
+      // differs, which would report a change on every save.
+      const changed = Object.entries(edits).some(([field, value]) =>
+        field === "robots_custom"
+          ? JSON.stringify(source[field] ?? null) !== JSON.stringify(value ?? null)
+          : String(source[field] ?? "") !== String(value));
+      if (changed) {
+        await post("/api/sources/" + encodeURIComponent(source.source_key) + "/edit", edits);
+        Object.assign(source, edits);
+      }
+      const flipped = wanted !== Boolean(source.active);
+      if (flipped) {
+        await post("/api/sources/" + encodeURIComponent(source.source_key) + "/active",
+                   {active: wanted});
+        source.active = wanted;
+      }
+      if (changed || flipped) {
+        renderSites();
+        renderSourceManager();
+      }
+      renderSourceEditor(source);
+      out("source-edit-result", `${icon("material-check", "sm")} Changes saved.`,
+          "ok icon-label");
+    } catch (error) {
+      button.disabled = false;
+      out("source-edit-result", `${icon("material-close", "sm")} ${esc(error.message)}`,
+          "err icon-label");
+    }
+    return;
+  }
+
+  // His crawl rules are NOT manifest fields any more (#1584) -- the engine refuses
+  // them on /edit and keeps them in the warehouse, where a restart cannot lose them.
+  let detailsSaved = false;
+  try {
+    if (!source.kind && Object.entries(edits).some(([field, value]) =>
+      String(source[field] ?? "") !== String(value))) {
       await post("/api/sources/" + encodeURIComponent(source.source_key) + "/edit", edits);
       Object.assign(source, edits);
+      detailsSaved = true;
     }
-    if (wanted !== Boolean(source.active)) {
-      await post("/api/sources/" + encodeURIComponent(source.source_key) + "/active",
-                 {active: wanted});
-      source.active = wanted;
+    // AN ENGINE THAT CANNOT SAY whether it has /rules: the details are saved, his
+    // crawl choices were held, and the refusal says what to do.
+    if (state.sourceRulesMode === "refused") {
+      if (detailsSaved) {
+        renderSites();
+        renderSourceManager();
+      }
+      button.disabled = false;
+      out("source-edit-result", (detailsSaved ? "The name and details were saved. " : "")
+          + esc(capabilityRefusal("source_rules")), "err");
+      return;
     }
-    if (changed || wanted !== Boolean(source.active)) {
+    // NOT YET READ: the rule controls were held, so nothing in them is his to save.
+    // Read again, so the next Save can carry them.
+    let answer = state.sourceRules;
+    if (!answer) {
+      answer = await loadSourceRules(state.editingRulesKey);
+      if (!answer) {
+        if (detailsSaved) {
+          renderSites();
+          renderSourceManager();
+        }
+        button.disabled = false;
+        out("source-edit-result", `${icon("material-close", "sm")} `
+            + (detailsSaved ? "The name and details were saved. " : "")
+            + "How this source is crawled could not be read, so its crawl choices "
+            + "cannot change yet.", "err icon-label");
+        return;
+      }
+    }
+    // HIS CHOICES FOR THE SOURCE, only what changed, in one request to the warehouse.
+    const rules = ruleChanges(answer, sourceRulesForm(answer));
+    if (Object.keys(rules).length) {
+      const saved = await post(
+        "/api/sources/" + encodeURIComponent(state.editingRulesKey) + "/rules", rules);
+      renderSourceRules(saved);
+      if ("active" in rules) source.active = saved.fields.active.value;
+    }
+    if (detailsSaved || "active" in rules) {
       renderSites();
       renderSourceManager();
     }
-    renderSourceEditor(source);
+    button.disabled = false;
     out("source-edit-result", `${icon("material-check", "sm")} Changes saved.`, "ok icon-label");
   } catch (error) {
+    // HALF SAVED IS SAID AS HALF: the name and details went in before the crawl
+    // choices were refused, and the lists show the name he now has.
+    if (detailsSaved) {
+      renderSites();
+      renderSourceManager();
+    }
     button.disabled = false;
-    out("source-edit-result", `${icon("material-close", "sm")} ${esc(error.message)}`,
-        "err icon-label");
+    out("source-edit-result", `${icon("material-close", "sm")} `
+        + (detailsSaved ? "The name and details were saved; your crawl choices were "
+          + "not: " : "") + esc(error.message), "err icon-label");
   }
 }
 
@@ -2138,8 +2518,16 @@ async function wipeSourceData() {
 
 async function loadSources() {
   try {
-    const { sources } = await api("/api/sources");
+    const [{ sources }, schedules] = await Promise.all([
+      api("/api/sources"),
+      // Only the switch's labels read it; unread, they are not drawn rather than guessed.
+      scheduleSwitchOn() ? api("/api/schedules").catch(() => null) : null,
+    ]);
     state.sources = sources;
+    if (scheduleSwitchOn()) {
+      state.schedules = schedules
+        ? new Map(schedules.schedules.map((item) => [item.source_key, item])) : null;
+    }
     // Drop selections for sites that vanished from the manifest.
     for (const key of [...state.selected]) {
       if (!sources.some((s) => s.source_key === key)) state.selected.delete(key);
@@ -5143,6 +5531,38 @@ const POLL_MS = 1500;   // throttled: aggregated progress, never per-record even
 let pollTimer = null;
 let pollPromise = null;
 
+// THE ONE READ OF WHAT IS RUNNING (#1542, the read model). Every page reads the same
+// thing on the same tick -- `active_only` up to the Jobs page's own bound, never the
+// newest five -- so the player adopts the same job and counts the same queue wherever he
+// is, and the Jobs page learns from it when a job starts or ends.
+//
+// A FAILED TICK RE-ARMS. It used to stop polling for good (the catch returned without a
+// timer), so one timeout left the player hidden until he navigated. It now backs off,
+// and only while there was something active to follow: against an engine that is down
+// the cadence is volume, not waiting -- a stopped local engine refuses at once.
+const POLL_BACKOFF_MS = [POLL_MS, 3000, 6000, 12000, 30000];
+let pollFailures = 0;
+// The `job_ref`s of the last SUCCESSFUL tick. A failed tick leaves it alone, so a
+// failure never reads as every job leaving.
+let lastActiveRefs = null;
+
+// WHILE NOTHING RUNS, one small read every 30 s (his choice, 2026-10-09: about two
+// requests a minute), so a job the scheduler starts appears without a press.
+const IDLE_PROBE_MS = 30000;
+let idleTimer = null;
+
+// A JOB IS NAMED FROM THE SOURCES PAYLOAD (`jobLabel`), which was read only when Run or
+// Sources opened -- so on any other page the player and the rows fell back to the key.
+// A live job reads it once when the panel holds none -- ONCE per panel, not once per
+// tick: a warehouse with no sources, or an engine that refuses the read, would otherwise
+// add a request to every 1.5 s tick. Run and Sources still read it on entry.
+let sourcesForNames = null;
+function sourcesForJobNames() {
+  if (state.sources.length) return Promise.resolve();
+  sourcesForNames ||= loadSources();
+  return sourcesForNames;
+}
+
 // ---- ONE formatter each (the DRY the owner asked for) ----------------------
 // A count with thousands separators. Every number the panel shows goes through
 // here, so 1030 reads as "1,030" everywhere and never as a bare 1030 in one
@@ -5418,8 +5838,9 @@ function renderMiniplayer(job, queued) {
   // at 0 about two milliseconds later, against a 1500 ms poll -- and with no kind in
   // the line there is nothing to read but "the crawl went back to the beginning".
   // Issue 778 is the same sentence about a different pair of jobs.
-  const scope = job.source_keys.length > 1 ? `${job.source_keys.length} sites` : job.source_keys[0];
-  const named = job.source_keys.length > 1 ? scope : jobLabel(job);
+  // ONE NAME FOR ONE JOB (#1542): the same `jobLabel` the Jobs row and the cancel
+  // question use, from the Sources identity -- "3 sites" named none of them.
+  const named = jobLabel(job, state.sources);
   $("mini-title").textContent = `${named} — ${job.status.replace(/_/g, " ")}`;
   const prog = miniProgress(job);
   $("mini-pct").textContent = prog.text;
@@ -5427,7 +5848,7 @@ function renderMiniplayer(job, queued) {
   $("mini-bar").classList.toggle("indeterminate", prog.indeterminate);
   const c = job.counters || {};
   const bits = [];
-  if (job.current_source_key) bits.push(`now: ${job.current_source_key}`);
+  if (job.current_source_key) bits.push(`now: ${sourceTitle(job.current_source_key, state.sources)}`);
   if (c.observations != null) bits.push(`${fmtCount(c.observations)} new data rows`);
   if (queued > 0) bits.push(`${queued} queued`);
   $("mini-sub").textContent = bits.join(" · ") || "starting…";
@@ -5436,13 +5857,63 @@ function renderMiniplayer(job, queued) {
   $("mini-pause").dataset.control = paused ? "resume" : "pause";
 }
 
+function armIdleProbe() {
+  clearTimeout(idleTimer);
+  idleTimer = setTimeout(async () => {
+    idleTimer = null;
+    if (document.visibilityState === "hidden") return;
+    // A STOPPED ENGINE IS ASKED AGAIN LATER, not never: its coming back up starts no
+    // poll of its own (`setStatus`), so a probe that gave up here stayed given up.
+    if (!state.engineUp) { armIdleProbe(); return; }
+    let found = [];
+    try { found = (await api("/api/jobs?active_only=true&limit=1")).jobs || []; }
+    catch (_) { found = []; }
+    if (found.length) pollJob(); else armIdleProbe();
+  }, IDLE_PROBE_MS);
+}
+
+/** The tick's answer changed which jobs are active: the Jobs page re-reads its history,
+ *  so a job that started appears and one that ended shows how it ended. Only while
+ *  that page is on screen -- it reads its history on entry anyway. */
+function noticeActiveSet(jobs) {
+  const refs = new Set(jobs.map((job) => job.job_ref));
+  const before = lastActiveRefs;
+  lastActiveRefs = refs;
+  if (!before) return;
+  const changed = refs.size !== before.size || [...refs].some((ref) => !before.has(ref));
+  if (changed && currentViewName() === "jobs") loadJobs();
+}
+
 async function pollJobOnce() {
   clearTimeout(pollTimer);
   pollTimer = null;
+  clearTimeout(idleTimer);
+  idleTimer = null;
   if (document.visibilityState === "hidden") return;
   let jobs = [];
-  try { jobs = (await api("/api/jobs?active_only=true&limit=5")).jobs; }
-  catch (_) { renderMiniplayer(null); renderActivity(null); return; }
+  const order = ++jobsReadOrder;
+  try { jobs = (await api(`/api/jobs?active_only=true&limit=${JOBS_LIMIT}`)).jobs || []; }
+  catch (error) {
+    renderMiniplayer(null); renderActivity(null);
+    if (jobsPage.loaded) jobsFailed("tick", error);
+    pollFailures += 1;
+    if (lastActiveRefs && lastActiveRefs.size && document.visibilityState === "visible") {
+      // `pollFailures` counts this failure already, so the first one reads index 0.
+      const wait = POLL_BACKOFF_MS[Math.min(pollFailures - 1, POLL_BACKOFF_MS.length - 1)];
+      pollTimer = setTimeout(() => { pollJob(); }, wait);
+    } else {
+      // NOT BACKING OFF IS NOT STOPPING: with no job known to be active, the slow probe
+      // is what notices one starting, and a failed tick had left no timer at all.
+      armIdleProbe();
+    }
+    return;
+  }
+  pollFailures = 0;
+  // `active_only` is the engine's not-terminal set; filtered here too, once, so the
+  // adopted job and "N queued" are counted from the same list on every page.
+  jobs = jobs.filter((job) => job && !isSettled(job));
+  jobsTick(jobs, order);
+  noticeActiveSet(jobs);
 
   // ISSUE 778. This was `jobs[0]`, and the list comes back newest first -- so a job
   // entered eighteen seconds after the one doing the work was drawn instead of it.
@@ -5451,6 +5922,7 @@ async function pollJobOnce() {
   const job = liveJob(jobs);
   state.job = job;
   if (job) {
+    await sourcesForJobNames();
     // A HANDOFF IS NOT A CONTINUATION, and until a crawl queued its own interpretation
     // this branch never had to know the difference: the adopted job was always the one
     // he had started, so repointing at it lost nothing.
@@ -5507,6 +5979,7 @@ async function pollJobOnce() {
     await redrawWhatTheJobChanged();
   }
   refreshRunButton();
+  if (document.visibilityState === "visible") armIdleProbe();
 }
 
 /** Redraw what a finished job changed — BOTH surfaces, not only the one on Run.
@@ -5524,11 +5997,17 @@ async function redrawWhatTheJobChanged() {
   if (currentViewName() === "data") await loadDatasets();
 }
 
-async function pollJob() {
+/** `fresh`: a NEW read issued after the caller's own change, never one already in
+ *  flight -- a press that resolves during a tick would otherwise be answered by a read
+ *  taken before the press, and the player would keep the job's old status. */
+async function pollJob({ fresh = false } = {}) {
   clearTimeout(pollTimer);
   pollTimer = null;
   if (document.visibilityState === "hidden") return null;
-  if (pollPromise) return pollPromise;
+  if (pollPromise) {
+    if (!fresh) return pollPromise;
+    await pollPromise;
+  }
   pollPromise = pollJobOnce().finally(() => { pollPromise = null; });
   return pollPromise;
 }
@@ -5537,6 +6016,9 @@ function handlePanelVisibility() {
   if (document.visibilityState === "hidden") {
     clearTimeout(pollTimer);
     pollTimer = null;
+    clearTimeout(idleTimer);
+    idleTimer = null;
+    pollFailures = 0;
     return;
   }
   // The shared appearance/timezone modules perform their own immediate refresh
@@ -5591,17 +6073,99 @@ async function reattachToRunningJob() {
  * ref, which line reports the refusal, what happens after -- so only the question is
  * shared, not the handler.
  */
-function confirmedControl(control) {
+async function confirmedControl(control, label) {
   if (control !== "cancel") return true;
-  return confirm("Cancel this job? Work already saved is kept.");
+  // ONE SENTENCE, TRUE FOR EVERY KIND AND STATUS (#1542). A held job settles at its next
+  // safe boundary and a queued or paused one at once (`set_control`, jobs.py:166-219);
+  // nothing already stored is rolled back, and only a price crawl cancelled mid-fetch
+  // drops its unsaved journal (jobs.py:795-806) -- which is not in the warehouse. The
+  // sentence this replaced, "Work already saved is kept.", was true; the one before the
+  // design study said pages "stay", which a cancelled crawl's journal does not.
+  return askToConfirm({
+    title: "Cancel this job?",
+    named: label,
+    copy: "Cancelling stops it for good. What it already stored stays in the warehouse.",
+    keep: "Keep job",
+    go: "Cancel job",
+  });
+}
+
+// ---- the panel's own confirmation ---------------------------------------------
+
+let confirmReturnFocus = null;
+let confirmSettle = null;
+
+/**
+ * Ask one irreversible question in `#confirm-veil` and resolve to his answer.
+ *
+ * NOT `window.confirm`, whose two buttons are the browser's: on the one control named
+ * Cancel its "Cancel" meant KEEP. Focus opens on the choice that changes nothing, Tab
+ * stays inside, and Escape or a click on the veil answers no -- the alertdialog pattern
+ * (WAI-ARIA APG). Focus goes back to whatever he pressed.
+ */
+function askToConfirm({ title, named = "", copy, keep, go, tone = "danger" }) {
+  if (confirmSettle) confirmSettle(false);
+  confirmReturnFocus = document.activeElement;
+  $("confirm-title").textContent = title;
+  const body = $("confirm-copy");
+  body.textContent = "";
+  if (named) {
+    const who = document.createElement("strong");
+    who.textContent = named;
+    body.append(who, document.createElement("br"));
+  }
+  body.append(document.createTextNode(copy));
+  $("confirm-keep").textContent = keep;
+  $("confirm-go").textContent = go;
+  // danger, warning, or "" for primary: the button variant the question needs.
+  $("confirm-go").className = tone;
+  $("confirm-veil").classList.remove("hidden");
+  $("confirm-keep").focus({ preventScroll: true });
+  return new Promise((resolve) => { confirmSettle = resolve; });
+}
+
+function answerConfirm(yes) {
+  const veil = $("confirm-veil");
+  if (!veil || veil.classList.contains("hidden")) return;
+  veil.classList.add("hidden");
+  const settle = confirmSettle;
+  confirmSettle = null;
+  if (confirmReturnFocus && confirmReturnFocus.isConnected) {
+    confirmReturnFocus.focus({ preventScroll: true });
+  }
+  confirmReturnFocus = null;
+  if (settle) settle(yes);
+  // A Jobs redraw waits while the question is open; it happens now.
+  if (jobsPage.held) renderJobs();
+}
+
+function confirmIsOpen() {
+  const veil = $("confirm-veil");
+  return Boolean(veil) && !veil.classList.contains("hidden");
+}
+
+/** Keep Tab inside the question while it is open. */
+function trapConfirmFocus(event) {
+  if (event.key !== "Tab" || !confirmIsOpen()) return;
+  const choices = [$("confirm-keep"), $("confirm-go")];
+  const at = choices.indexOf(document.activeElement);
+  event.preventDefault();
+  const next = event.shiftKey ? (at <= 0 ? choices.length - 1 : at - 1)
+    : (at + 1) % choices.length;
+  choices[next].focus({ preventScroll: true });
 }
 
 async function controlJob(control) {
-  if (!state.jobRef) return;
-  if (!confirmedControl(control)) return;
-  try { await post(`/api/jobs/${state.jobRef}/control`, { control }); }
+  // THE JOB IS FIXED BEFORE THE QUESTION. The question is awaited and the poll keeps
+  // running under it, so `state.jobRef` can move to another job (a crawl handing off to
+  // its interpretation) or to null before he answers; the press goes to the job the
+  // question named, whatever the player shows by then.
+  const jobRef = state.jobRef;
+  if (!jobRef) return;
+  if (!(await confirmedControl(control, state.job ? jobLabel(state.job, state.sources) : ""))) return;
+  try { await post(`/api/jobs/${jobRef}/control`, { control }); }
   catch (e) { $("run-blocked").textContent = e.message; }
-  await pollJob();
+  await pollJob({ fresh: true });
 }
 
 // ---- browse data -----------------------------------------------------------
@@ -6060,6 +6624,10 @@ const SOURCE_ACTIONS = [
    route: "GET /api/export/{key}", proof: MANIFEST_ONLY},
 ];
 
+const EDIT_SCHEDULE = {action: "schedule", label: "Edit schedule",
+  why: "When this source runs automatically, and the switch that turns those runs on or off.",
+  route: "POST /api/schedules/{key}", proof: MANIFEST_ONLY};
+
 /**
  * The actions this source's KIND can actually run, and nothing else.
  *
@@ -6221,7 +6789,11 @@ function sourceActions(source) {
     why: "Fetch the profile page of every contractor that has none yet.",
     route: "POST /api/jobs", proof: RESOLVES_A_SOURCE_KEY,
   }] : [];
-  return [...base, ...crawlable, ...continuable, ...interpretable, ...profiles,
+  // WITH THE ONE SWITCH (#1596) the switch lives on the Schedules row, so the menu
+  // opens it there instead of switching the source off from here.
+  const scheduled = scheduleSwitchOn()
+    ? base.map((item) => (item.action === "pause" ? EDIT_SCHEDULE : item)) : base;
+  return [...scheduled, ...crawlable, ...continuable, ...interpretable, ...profiles,
           ...covered];
 }
 
@@ -6395,6 +6967,7 @@ async function runSourceAction(action, key, siteKey = "", resumeRef = "") {
     }
     return;
   }
+  if (action === "schedule") return openScheduleRow(key);
   if (action === "pause") {
     try {
       await post(`/api/sources/${encodeURIComponent(key)}/active`, {active: false});
@@ -6469,6 +7042,139 @@ function openDataset(key) {
 const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday",
                   "Saturday", "Sunday"];   // 0=Monday, the server's convention
 
+// ---- one switch for scheduled runs (#1596, D1 option 2) ----------------------
+// Each Schedules row carries the one Active switch; the Run card, the Source manager
+// and the editor show the schedule and link to its row. An engine without
+// `schedule_active_switch` ignores `active` on POST /api/schedules, so it keeps the
+// controls it had.
+function scheduleSwitchOn() {
+  return !capabilityRefusal("schedule_active_switch");
+}
+
+// The name a sentence calls a site by, as the editor's own Edit label does.
+function siteName(source) {
+  return sourceDomain(source.base_url) || source.source_name || source.source_key;
+}
+
+// "Daily 09:00", "Weekly Monday 09:00", or "Not scheduled" for none or manual.
+function scheduleLabel(sched) {
+  const freq = (sched && sched.frequency) || "manual";
+  if (freq === "manual") return "Not scheduled";
+  const day = freq === "weekly"
+    ? " " + WEEKDAYS[sched.weekday == null ? 0 : Number(sched.weekday)] : "";
+  return (freq === "weekly" ? "Weekly" : "Daily") + day + " " + (sched.run_at || "09:00");
+}
+
+// Do this source's schedules fire? Its `active`, and its schedule's `enabled`, which
+// stays 0 only where migration 0024 had no registered source to fold it into.
+function scheduledRunsOn(source, sched) {
+  return Boolean(source.active) && !(sched && sched.schedule_id != null && !sched.enabled);
+}
+
+// What the card, the manager and the editor say: the schedule, and "Off" beside it.
+function scheduleSummary(source) {
+  if (!state.schedules) return "";
+  const sched = state.schedules.get(source.source_key);
+  const label = scheduleLabel(sched);
+  return label === "Not scheduled" || scheduledRunsOn(source, sched)
+    ? label : label + " · Off";
+}
+
+// Open this source's row on the Schedules page, expanded and focused.
+async function openScheduleRow(key) {
+  showView("settings");
+  $("s-sched").classList.remove("hidden");
+  document.querySelector('[data-sect="s-sched"]').setAttribute("aria-expanded", "true");
+  await state.schedulesLoad;
+  const row = [...document.querySelectorAll(".sched-row")]
+    .find((item) => item.dataset.sched === key);
+  if (!row) return;
+  row.open = true;
+  row.querySelector("summary").focus({preventScroll: true});
+  row.scrollIntoView({block: "nearest"});
+}
+
+let toastTimer = null;
+
+// A short confirmation in the corner, gone after Sonner's default 4 s
+// (sonner.tsx@86c813ec:9). The region stays in the page so it is announced.
+function showToast(text) {
+  $("toast").textContent = text;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { $("toast").textContent = ""; }, 4000);
+}
+
+// A Schedules row's schedule line: the one formatter's label (`scheduleLabel`), then
+// whether and when it fires. `runsOn` matters only with the switch.
+function scheduleRowLine(sched, runsOn, switchOn) {
+  const label = scheduleLabel(sched);
+  const paused = sched.schedule_id != null && !sched.enabled;
+  // The next fire, in the display zone and NAMING it (§6.8). Display only: the
+  // scheduler stores the instant in UTC, and the row's Timezone field decides WHEN.
+  const next = label === "Not scheduled" ? ""
+    : switchOn && !runsOn ? "Off"
+    : paused ? "paused"
+    : sched.next_run_at
+      ? "next " + window.ScrapeXTime.markup(sched.next_run_at, "datetime", {zone: true})
+      : "";
+  return esc(label) + (next ? " · " + next : "");
+}
+
+// Ask, then turn this source's scheduled runs on or off with the schedule as saved.
+// The row is updated where it stands, so an edit he has not saved stays in its fields.
+async function toggleScheduledRuns(source, sched, button, status) {
+  const on = button.getAttribute("aria-checked") === "true";
+  const site = siteName(source);
+  const verb = on ? "Disable" : "Enable";
+  const label = scheduleLabel(sched);
+  const yes = await askToConfirm({
+    title: `${verb} scheduled runs`,
+    copy: on
+      ? `Disable scheduled runs for ${site}? Its schedule is kept and stops firing until `
+        + "you enable it. Manual runs still work."
+      : `Enable scheduled runs for ${site}? It runs ${label[0].toLowerCase()}${label.slice(1)} `
+        + "from the next slot.",
+    // Studio's toggle: Disable in the warning tone, Enable primary
+    // (CronJobTableCell.tsx@86c813ec:210-253); his choice B, 2026-10-10 (#1596).
+    keep: "Cancel", go: verb, tone: on ? "warning" : "",
+  });
+  if (!yes) return;
+  button.disabled = true;
+  try {
+    const result = await post("/api/schedules/" + encodeURIComponent(source.source_key), {
+      frequency: sched.frequency, run_at: sched.run_at, timezone: sched.timezone,
+      weekday: sched.weekday, run_mode: sched.run_mode,
+      missed_run_policy: sched.missed_run_policy, overlap_policy: "skip", active: !on,
+    });
+    Object.assign(sched, result);
+    source.active = result.active;
+    const runsOn = scheduledRunsOn(source, sched);
+    button.setAttribute("aria-checked", String(runsOn));
+    button.closest(".sched-row").querySelector('[data-role="next"]').innerHTML =
+      scheduleRowLine(sched, runsOn, true);
+    showToast(`${result.active ? "Enabled" : "Disabled"} scheduled runs for ${site}`);
+    keepClearOfToast(button.closest(".sched-row"));
+    loadSources();
+  } catch (e) {
+    // SAID WHERE HE IS LOOKING: the row may be shut, and its status line with it.
+    status.textContent = "Couldn't save: " + e.message;
+    showToast(`Couldn't change scheduled runs for ${site}: ${e.message}`);
+  } finally {
+    button.disabled = false;
+    // Disabling it while saving dropped focus to the page; it goes back to the switch.
+    if (document.activeElement === document.body) button.focus({preventScroll: true});
+  }
+}
+
+// The toast must not sit over the row it reports on: scroll that row clear of it.
+function keepClearOfToast(row) {
+  const toast = $("toast").getBoundingClientRect();
+  const box = row.getBoundingClientRect();
+  if (box.bottom > toast.top && box.top < toast.bottom) {
+    row.scrollIntoView({block: "center"});
+  }
+}
+
 async function loadSchedules() {
   // An EDITOR, not a list. The API could create schedules since spec 26 and
   // the panel could only read them — so the section said "No schedules yet"
@@ -6478,33 +7184,47 @@ async function loadSchedules() {
     const [d, src] = await Promise.all([api("/api/schedules"), api("/api/sources")]);
     $("sched-note").textContent = d.note;
     const saved = new Map(d.schedules.map((s) => [s.source_key, s]));
+    state.schedules = saved;
+    const switchOn = scheduleSwitchOn();
     const sites = src.sources.filter((s) => s.implemented);
     if (!sites.length) {
       $("schedules").innerHTML = `<span class="muted">No sites yet.</span>`;
       return;
     }
     const zone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+    // WHAT A BUSY SLOT DOES DEPENDS ON THE ENGINE, SO THE LINE ASKS ITS REPORT (#1596).
+    // One that deploys `scheduled_skips` skips and lists it. One KNOWN not to -- its
+    // report lacks the key, or it is too old to report -- still reads the row's stored
+    // policy: `skip` re-arms with no row, `queue` (every row saved before this change)
+    // starts a second run. Nothing known -- no report yet, or Chrome did not say this
+    // extension's version -- says nothing rather than tell him to update an engine.
+    const deployed = deployedFrom(state.versionReport);
+    const engineSkips = Boolean(deployed && deployed.scheduled_skips);
+    const engineIsOlder = (deployed && !deployed.scheduled_skips)
+      || state.versionStatus === "unsupported";
+    const skipNote = (sched) => engineSkips
+      ? "If this site's previous run is still going, ScrapeX skips the slot and lists it on the Jobs page."
+      : !engineIsOlder ? ""
+        : sched.overlap_policy === "skip"
+          ? "If this site's previous run is still going, ScrapeX skips the slot. Update the engine to see skipped slots on the Jobs page."
+          : "This engine still starts a second run if this site's previous run is still going. Save this schedule to skip the slot instead, and update the engine to see skipped slots on the Jobs page.";
     $("schedules").innerHTML = sites.map((s) => {
       const sched = saved.get(s.source_key) || {};
       const freq = sched.frequency || "manual";
       const runAt = sched.run_at || "09:00";
       const weekday = sched.weekday == null ? 0 : Number(sched.weekday);
       const paused = sched.schedule_id != null && !sched.enabled;
-      const summary = freq === "manual" ? "manual"
-        : freq + (freq === "weekly" ? " · " + WEEKDAYS[weekday] : "") + " · " + esc(runAt);
-      // The next fire, in the display zone and NAMING it (§6.8) — a schedule
-      // read four hours out is a run the owner waits for and does not get.
-      // This is display only: the scheduler still computes and stores the
-      // instant in UTC, and the row's own Timezone field below is a different
-      // thing entirely (it decides WHEN the job fires, not how it is read).
-      const next = paused ? "paused"
-        : sched.next_run_at
-          ? "next " + window.ScrapeXTime.markup(sched.next_run_at, "datetime", {zone: true})
-          : "";
+      // THE ONE SWITCH (#1596): drawn only on a saved schedule that can fire; off, the
+      // row says "Off" where it said "next …" for a slot that would never run (#1611).
+      const runsOn = scheduledRunsOn(s, sched);
+      const toggle = switchOn && sched.schedule_id != null && freq !== "manual"
+        ? `<button type="button" role="switch" class="switch" data-role="sched-active"
+             aria-checked="${runsOn}" aria-label="Scheduled runs for ${esc(siteName(s))}">
+             <span class="switch-thumb" aria-hidden="true"></span></button>` : "";
       // The scheduler fires only ACTIVE sources (the Auto switch). A schedule
       // saved on an inactive one is a real record that will not fire — the
       // row says so instead of letting the owner wait for nothing.
-      const gate = s.active ? "" :
+      const gate = s.active || switchOn ? "" :
         `<span class="muted"> — Auto is off for this site, so this will not fire</span>`;
       // Every knob the schedule model has, one disclosure per site so the
       // 320px panel is not wallpapered with forms. This section is THE
@@ -6513,7 +7233,8 @@ async function loadSchedules() {
       return `<details class="sched-row" data-sched="${esc(s.source_key)}">
         <summary class="row sched-summary">
           ${sourceIdentity(s, true)}
-          <span class="muted" data-role="next">${esc(summary)}${next ? " · " + next : ""}</span>
+          <span class="muted" data-role="next">${scheduleRowLine(sched, runsOn, switchOn)}</span>
+          ${toggle}
         </summary>
         <div class="stack sched-body">
           <div class="row sched-fields">
@@ -6551,17 +7272,11 @@ async function loadSchedules() {
                 <option value="skip" ${sched.missed_run_policy === "skip" ? "selected" : ""}>Skip that slot</option>
               </select>
             </div>
-            <div class="fieldset">
-              <label>If the previous run is still going</label>
-              <select data-role="overlap" aria-label="Overlap policy">
-                <option value="queue" ${(sched.overlap_policy || "queue") === "queue" ? "selected" : ""}>Queue behind it</option>
-                <option value="skip" ${sched.overlap_policy === "skip" ? "selected" : ""}>Skip this one</option>
-              </select>
-            </div>
+            <p class="hint" data-role="skip-note" ${skipNote(sched) ? "" : "hidden"}>${esc(skipNote(sched))}</p>
           </div>
-          <label class="check"><input type="checkbox" data-role="enabled"
+          ${switchOn ? "" : `<label class="check"><input type="checkbox" data-role="enabled"
                  ${paused ? "" : "checked"}>
-            <span>Enabled <span class="muted">— untick to pause without losing these settings</span></span></label>
+            <span>Enabled <span class="muted">— untick to pause without losing these settings</span></span></label>`}
           <div class="row">
             <button class="ghost" data-role="save">Save</button>
             <span class="hint" data-role="status" role="status" aria-live="polite">${gate}</span>
@@ -6575,6 +7290,13 @@ async function loadSchedules() {
       const weekday = row.querySelector('[data-role="weekday"]');
       const time = row.querySelector('[data-role="time"]');
       const status = row.querySelector('[data-role="status"]');
+      const site = sites.find((item) => item.source_key === row.dataset.sched);
+      const toggle = row.querySelector('[data-role="sched-active"]');
+      if (toggle) {
+        // A button is its own activation target, so a press does not open the row.
+        toggle.addEventListener("click", () =>
+          toggleScheduledRuns(site, saved.get(site.source_key), toggle, status));
+      }
       freq.addEventListener("change", () => {
         weekday.classList.toggle("hidden", freq.value !== "weekly");
         time.disabled = freq.value === "manual";
@@ -6590,15 +7312,29 @@ async function loadSchedules() {
             timezone: row.querySelector('[data-role="tz"]').value.trim() || "UTC",
             run_mode: row.querySelector('[data-role="mode"]').value,
             missed_run_policy: row.querySelector('[data-role="missed"]').value,
-            overlap_policy: row.querySelector('[data-role="overlap"]').value,
-            enabled: row.querySelector('[data-role="enabled"]').checked,
+            // NOT A CHOICE ANY MORE (#1596): an engine with `scheduled_skips` skips a
+            // busy slot whatever this says, and an older one skips it because of it.
+            overlap_policy: "skip",
           };
+          // THE SWITCH ALONE DECIDES `active` (#1630 review E1): a Save sends the
+          // schedule, so a time change records no choice, and a row 0024 left paused
+          // stays paused. Without the switch, the box says.
+          const stored = saved.get(site.source_key) || {};
+          body.enabled = switchOn ? Boolean(stored.enabled ?? true)
+            : row.querySelector('[data-role="enabled"]').checked;
           if (freq.value === "weekly") body.weekday = Number(weekday.value);
           const result = await post(
             "/api/schedules/" + encodeURIComponent(row.dataset.sched), body);
           // A textContent sink, so label() — the same formatter, returning the
           // plain sentence instead of markup.
-          status.textContent = !body.enabled ? "Saved — paused."
+          if (switchOn && result) {
+            // What the switch sends next is the schedule as saved now.
+            saved.set(site.source_key, Object.assign(stored, result));
+            site.active = result.active;
+          }
+          status.textContent = switchOn && result && !scheduledRunsOn(site, result)
+            ? "Saved — off."
+            : !switchOn && !body.enabled ? "Saved — paused."
             : result && result.next_run_at
               ? "Saved — next " + window.ScrapeXTime.label(result.next_run_at)
               : "Saved.";
@@ -7182,281 +7918,783 @@ async function restoreSnapshot() {
     confirm.textContent = "Restore this copy";
   }
 }
-//: HOW MANY JOBS THE PAGE ASKS FOR. His warehouse held 163 the day he asked for this
-//: page, so 200 shows every one of them today -- and the page SAYS when it stopped at
-//: the bound rather than presenting a prefix as the whole, which is the failure the
-//: bound exists to prevent.
+//: HOW MANY JOBS THE PAGE SHOWS. His warehouse held 163 the day he asked for this page,
+//: so 200 shows every one of them today. One more is ASKED for, so the page can say
+//: "older jobs are not listed" only when one exists -- at exactly 200 that was false.
 const JOBS_LIMIT = 200;
 
 //: WHAT AN UNFINISHED LOG READ LOOKS LIKE. Named because two places must agree on it:
 //: `openJobLog` writes it, and a redraw must not mistake it for a log worth keeping.
 const LOG_PLACEHOLDER = "Reading…";
 
-/** A line that is there when it has something to say and gone when it does not.
- *  `data.js` has the same three lines as `show` (`data.js:47`); kept local rather than
- *  shared because that file is a TAB page and this one is the panel -- two documents,
- *  and nothing about one changes when the other does. */
-function sayOn(id, text) {
-  const node = $(id);
-  node.textContent = text || "";
-  node.classList.toggle("hidden", !text);
+/**
+ * The Jobs page (#1542): every job this warehouse has run, newest first, live.
+ *
+ * HIS REQUEST OF 2026-09-07, redesigned through design-the-experience and confirmed by
+ * him on 2026-10-09 (the design, its review rounds and his choices are on #1542).
+ *
+ * WHAT IT HOLDS, AND WHY IN ONE PLACE. Two reads feed it -- its own history and the
+ * panel's one tick -- and a row takes, field by field, the answer ISSUED later
+ * (`seq`), so a slow history answer never draws a finished job as running and a tick
+ * never overwrites a newer history. Rows are updated IN PLACE, keyed by `job_ref`: an
+ * open menu, the filter, focus, scroll and a text selection survive every read, and
+ * while a menu, the filter or a question is open nothing is redrawn at all (`held`).
+ */
+const jobsPage = {
+  order: [],               // job_refs, newest first, as the history answered
+  jobs: new Map(),         // job_ref -> {job, seq}
+  rows: new Map(),         // job_ref -> the row element
+  loaded: false,
+  bounded: false,
+  readAt: null,            // when the last read that drew the list answered
+  failure: null,           // {from: "history"|"tick", http: bool, message}
+  term: "",
+  statuses: new Set(),     // the filter he saved
+  kept: new Set(),         // rows he acted on, shown until his next search or filter
+  pressing: new Map(),     // job_ref -> control in flight
+  notes: new Map(),        // job_ref -> a refusal or failure sentence for that row
+  openLogs: new Set(),
+  logs: new Map(),         // job_ref -> log text, so a redraw never re-reads it
+  menuFor: null,           // job_ref whose ⋮ menu is open
+  held: false,             // a redraw waits until the menu, filter or question closes
+  starting: false,         // Start engine pressed from this page, still in flight
+};
+
+const jobsRowInputs = new WeakMap();  // row -> what it was last filled from (renderJobs)
+let jobsReadOrder = 0;     // one counter for both reads: later-issued wins, per row
+let jobsReadSeq = 0;       // the latest history read issued; only it may draw
+
+function jobsAnnounce(text) {
+  const node = $("jobs-announce");
+  node.textContent = "";
+  // A fresh text node each time, so the same sentence twice is still spoken twice.
+  setTimeout(() => { node.textContent = text; }, 30);
+}
+
+function jobsHolding() {
+  return Boolean(jobsPage.menuFor) || !$("jobs-filter").classList.contains("hidden")
+    || confirmIsOpen();
+}
+
+/** Take one read's jobs into the page, per row, where this read is the newer one. A
+ *  status a row already had and no longer has is announced once. */
+function jobsTake(jobs, seq, { history = false } = {}) {
+  const changed = [];
+  for (const job of jobs || []) {
+    if (!job || !job.job_ref) continue;
+    const held = jobsPage.jobs.get(job.job_ref);
+    if (held && held.seq > seq) continue;
+    if (held && held.job.status !== job.status) {
+      if (jobsPage.loaded) changed.push(job);
+      // A NOTE ABOUT A PRESS DESCRIBES THE STATUS IT WAS PRESSED IN. A press with no
+      // answer may still have reached the engine; once the job moves, the note is stale.
+      jobsPage.notes.delete(job.job_ref);
+    }
+    jobsPage.jobs.set(job.job_ref, { job, seq });
+  }
+  if (history) {
+    jobsPage.order = (jobs || []).filter((job) => job && job.job_ref).map((job) => job.job_ref);
+    for (const ref of [...jobsPage.jobs.keys()]) {
+      if (!jobsPage.order.includes(ref)) jobsPage.jobs.delete(ref);
+    }
+  }
+  for (const job of changed) {
+    jobsAnnounce(`${jobLabel(job, state.sources)}: ${statusWords(job.status)}`);
+  }
 }
 
 /**
- * The Jobs page: every job this warehouse has run.
+ * The page's own read: the newest JOBS_LIMIT jobs, plus one to know whether more exist.
  *
- * HIS REQUEST OF 2026-09-07, and the four things it makes visible are the four that
- * were not: a sweep at 620/938 hidden behind a blocked one showing 0/938, a duplicate
- * sweep he could not see was a second job, a cancelled job that ran to completion, and
- * a paused interpretation at 300/909.
- *
- * THE ENGINE NEEDED NO CHANGE. `GET /api/jobs?limit=N` already answers every status
- * with the full per-job view; the panel asked it once, with `active_only=true`, and
- * then read `jobs[0]`.
- *
- * `keepNotice` IS FOR THE CALLER THAT JUST WROTE ONE. A refusal is written by
- * `pressJobControl` and this function cleared it on the very next line it ran, so the
- * 409 the panel exists to report lived for one round trip -- a caught error erased by
- * the reload the same handler triggers is a silent failure with extra steps.
+ * Numbered, and only the latest one issued may draw: two can be in flight at once
+ * (entry and a change in the active set, or a press and one), and an older answer
+ * landing last would draw a finished job as still running.
  */
-async function loadJobs({keepNotice = false} = {}) {
-  const list = $("jobs-list");
+async function loadJobs() {
+  const seq = ++jobsReadSeq;
+  const order = ++jobsReadOrder;
+  if (!jobsPage.loaded) renderJobs();
   let payload;
   try {
-    payload = await api(`/api/jobs?limit=${JOBS_LIMIT}`);
+    payload = await api(`/api/jobs?limit=${JOBS_LIMIT + 1}`);
   } catch (error) {
-    // THE PAGE SAYS WHY IT IS EMPTY. A blank list and a stopped engine look identical,
-    // and that confusion is the shape of every complaint this page answers. This
-    // overwrites a kept notice on purpose: an engine that cannot answer outranks a
-    // refusal from the one that could.
-    list.replaceChildren();
-    $("jobs-summary").textContent = "";
-    sayOn("jobs-bounded", "");
-    sayOn("jobs-blocked", `The engine did not answer: ${error.message}. Start it from `
-      + "the Run screen.");
+    if (seq !== jobsReadSeq) return;
+    jobsFailed("history", error);
     return;
   }
-  if (!keepNotice) sayOn("jobs-blocked", "");
-  const rows = rowsFrom(payload);
-  $("jobs-summary").textContent = summariseJobs(payload);
-  sayOn("jobs-bounded", rows.length >= JOBS_LIMIT
-    ? `Showing the newest ${JOBS_LIMIT} jobs. This is a PREFIX of the list, not the `
-      + "whole of it."
-    : "");
-
-  // WHAT HE WAS LOOKING AT SURVIVES THE REDRAW. The controls sit INSIDE the row, so a
-  // blind `replaceChildren` shut the row he had just pressed a button in and threw away
-  // the log it had fetched -- undoing the interaction this page was designed around. The
-  // FOCUS half of that is restored by `pressJobControl` and deliberately not here: that
-  // handler disables the button on its first line, and disabling a focused element moves
-  // focus to <body>, so by the time this runs there is nothing left to read.
-  const wasOpen = new Map();
-  for (const previous of list.querySelectorAll("details.job-row[open]")) {
-    const had = previous.querySelector(".job-log")?.textContent || "";
-    // A ROW REFRESHED MID-FETCH CARRIES THE PLACEHOLDER, NOT A LOG. Restoring that would
-    // satisfy the `toggle` listener's `!log.textContent` test for ever and the row would
-    // read "Reading…" until he closed it. Stored empty, it re-opens and re-fetches.
-    wasOpen.set(previous.dataset.job, had === LOG_PLACEHOLDER ? "" : had);
-  }
-  list.replaceChildren(...rows.map((row) => {
-    const box = drawJobRow(row);
-    if (!wasOpen.has(row.job_ref)) return box;
-    box.open = true;
-    // Restored rather than re-fetched: the row's own `toggle` listener only reads when
-    // the log is empty, so putting the text back is also what stops a second request.
-    box.querySelector(".job-log").textContent = wasOpen.get(row.job_ref);
-    return box;
-  }));
+  if (seq !== jobsReadSeq) return;
+  await sourcesForJobNames();
+  if (seq !== jobsReadSeq) return;
+  const jobs = payload.jobs || [];
+  jobsPage.bounded = jobs.length > JOBS_LIMIT;
+  jobsTake(jobs.slice(0, JOBS_LIMIT), order, { history: true });
+  jobsPage.loaded = true;
+  jobsPage.readAt = new Date().toISOString();
+  // AN ANSWER IS AN ANSWER: the engine replied, so whichever read last failed -- the
+  // history's own or the tick's -- no longer describes it. "Try again" reads the history,
+  // and it would otherwise leave a tick's "did not answer" up for up to 30 s.
+  jobsPage.failure = null;
+  renderJobs();
 }
 
-/**
- * One job as a row that opens.
- *
- * `<details>` RATHER THAN A CLICK HANDLER AND A CLASS TOGGLE: it is keyboard-operable
- * and announced by a screen reader without a line of script, and the log is fetched the
- * first time a row opens rather than two hundred times on load.
- */
-function drawJobRow(row) {
-  const box = document.createElement("details");
-  box.className = "card job-row";
-  box.dataset.job = row.job_ref;
-  const head = document.createElement("summary");
-  head.className = "job-summary";
-  // WHY A JOB IS NOT MOVING GOES IN THE PART THAT IS ALWAYS VISIBLE. It is the one
-  // sentence this page exists to say: a closed row showed `preparing` and nothing else,
-  // which is exactly the screen he read as "nothing is working". The log, the controls
-  // and the timestamps open on demand; this does not.
-  const top = document.createElement("span");
-  top.className = "job-head";
-  // THE STATUS IS A BADGE, AND `statusTone` OWNS WHICH ONE -- the kit has `ok`, `off` and
-  // `danger`, and any other class renders as plain grey, which `renderEngineDetail`
-  // already records as a mistake made once and `failed` repeated with `err`.
-  // UN-UNDERSCORED, like every other status this panel shows: `renderActivity`,
-  // `renderMiniplayer` and the summary line directly above this list all do it, and a
-  // badge reading `completed_with_errors` under a summary reading `completed with errors`
-  // spells one status two ways on one screen.
-  const badge = document.createElement("span");
-  badge.className = `badge ${row.tone}`;
-  badge.textContent = statusWords(row.status);
-  const label = document.createElement("span");
-  label.className = "job-label";
-  label.textContent = row.label;
-  top.append(badge, label);
-  if (row.progress) {
-    const progress = document.createElement("span");
-    progress.className = "muted text-xs";
-    progress.textContent = row.progress;
-    top.append(progress);
-  }
-  if (row.live) {
-    // `moving` AND NOT `running`, because `row.live` is now `isMoving` and that set holds
-    // `resuming` too. It said "running" over a `preparing` job for as long as the dot was
-    // drawn from "holds a worker".
-    const dot = document.createElement("span");
-    dot.className = "job-live";
-    dot.setAttribute("aria-label", "moving");
-    top.append(dot);
-  }
-  head.append(top);
-  if (row.waiting) {
-    const why = document.createElement("span");
-    why.className = "job-waiting muted text-xs";
-    why.textContent = row.waiting;
-    head.append(why);
-  }
-  box.append(head);
+/** The tick answered (`pollJobOnce`), on any page: rows of the jobs it carries take its
+ *  answer where it is the newer one. Drawn only while the page is on screen. */
+function jobsTick(jobs, order) {
+  if (!jobsPage.loaded) return;
+  jobsTake(jobs, order);
+  if (jobsPage.failure && jobsPage.failure.from === "tick") jobsPage.failure = null;
+  if (currentViewName() === "jobs") renderJobs();
+}
 
-  const when = document.createElement("p");
-  when.className = "muted text-xs";
-  const started = window.ScrapeXTime.markup(row.created_at, "datetime", {zone: true});
-  when.innerHTML = row.finished_at
-    ? `${started} &rarr; ${window.ScrapeXTime.markup(row.finished_at, "datetime", {zone: true})}`
-    : started;
-  box.append(when);
+/** A read failed. An HTTP answer is the engine speaking (`kind: "http"`, backend.js);
+ *  anything else is no answer, and "not running" is said only once the probe agrees. */
+function jobsFailed(from, error) {
+  const http = Boolean(error && error.kind === "http");
+  // A FAILED START STAYS SAID until something answers. The reads that follow it fail
+  // too, with the engine still down, and each would otherwise put "Start the engine"
+  // back over "The engine did not start" within a tick (#1608's second gate pass).
+  const startFailed = Boolean(error && error.startFailed)
+    || Boolean(!http && jobsPage.failure && jobsPage.failure.startFailed);
+  jobsPage.failure = { from, http, message: (error && error.message) || "no answer",
+    startFailed };
+  if (currentViewName() === "jobs") renderJobs();
+}
 
-  if (row.fraction !== null) {
-    const bar = document.createElement("div");
-    bar.className = "job-bar";
-    bar.setAttribute("role", "progressbar");
-    // THE VALUE IS ON THE ELEMENT, not only in the width. Issue 725 is this exact
-    // omission on the crawl bar: a screen reader was told there was a bar and never
-    // what it read.
-    bar.setAttribute("aria-valuenow", String(Math.round(row.fraction * 100)));
-    bar.setAttribute("aria-valuemin", "0");
-    bar.setAttribute("aria-valuemax", "100");
-    const fill = document.createElement("span");
-    fill.style.width = `${Math.round(row.fraction * 100)}%`;
-    bar.append(fill);
-    box.append(bar);
-  }
-  if (row.error_summary) {
-    const failed = document.createElement("p");
-    failed.className = "hint err text-xs";
-    failed.textContent = row.error_summary;
-    box.append(failed);
-  }
-  if (row.controls.length) {
-    const actions = document.createElement("div");
-    actions.className = "row job-actions";
-    for (const control of row.controls) {
-      const button = document.createElement("button");
-      button.className = "ghost";
-      button.type = "button";
-      button.textContent = control[0].toUpperCase() + control.slice(1);
-      button.addEventListener("click", (event) => {
-        event.preventDefault();
-        pressJobControl(row.job_ref, control, button);
-      });
-      actions.append(button);
+function jobsLive() {
+  return [...jobsPage.jobs.values()].some(({ job }) => !isSettled(job)
+    && ["queued", "preparing", "running", "resuming", "pausing", "cancelling"].includes(job.status));
+}
+
+/** The rows to draw: in the history's order, narrowed by his search and filter, and
+ *  every row he acted on since his last change of either. */
+function jobsShown() {
+  const all = jobsPage.order.map((ref) => jobsPage.jobs.get(ref)?.job).filter(Boolean);
+  const narrowed = (job) => (!jobsPage.statuses.size || jobsPage.statuses.has(job.status))
+    && jobMatches(job, jobsPage.term, state.sources);
+  const shown = all.filter((job) => jobsPage.kept.has(job.job_ref) || narrowed(job));
+  const kept = shown.filter((job) => !narrowed(job)).length;
+  return { all, shown, kept };
+}
+
+function renderJobs() {
+  if (jobsHolding()) { jobsPage.held = true; return; }
+  jobsPage.held = false;
+  const list = $("jobs-list");
+  const stateBox = $("jobs-state");
+  const fmt = (value, mode) => window.ScrapeXTime.format(value, mode);
+  const failure = jobsPage.failure;
+  const down = failure && !failure.http;
+
+  if (!jobsPage.loaded) {
+    if (failure) {
+      jobsState(stateBox, failure, false);
+      $("jobs-count").textContent = "";
+      list.classList.add("hidden");
+      return;
     }
-    box.append(actions);
+    jobsState(stateBox, null);
+    $("jobs-count").textContent = "Loading jobs…";
+    list.classList.remove("hidden");
+    list.replaceChildren(...Array.from({ length: 4 }, () => {
+      const one = document.createElement("div");
+      one.className = "job-skeleton";
+      one.append(document.createElement("div"), document.createElement("div"));
+      one.querySelectorAll("div").forEach((bar) => bar.classList.add("skeleton"));
+      return one;
+    }));
+    return;
   }
 
-  const log = document.createElement("pre");
-  // `text-xs` IS A CLASS THIS PANEL HAS. It was a `var(--text-xs, 11px)` read, and a
-  // token nothing declares is a declaration the browser drops in silence.
-  log.className = "job-log text-xs";
-  box.append(log);
-  box.addEventListener("toggle", () => {
-    if (box.open && !log.textContent) openJobLog(row.job_ref, log);
-  });
+  const { all, shown, kept } = jobsShown();
+  const live = !failure && jobsLive();
+  $("jobs-count").textContent = jobsCountLine({ shown: shown.length, total: all.length, live,
+    seconds: POLL_MS / 1000, readAt: jobsPage.readAt, bounded: jobsPage.bounded, kept }, fmt);
+  jobsState(stateBox, failure, true, !all.length ? "jobs" : !shown.length ? "results" : "");
+  // A row no longer shown leaves the DOM before any empty state returns, or a hidden
+  // list would still hold it.
+  const wanted = shown.map((job) => job.job_ref);
+  for (const [ref, row] of jobsPage.rows) {
+    if (!wanted.includes(ref)) { row.remove(); jobsPage.rows.delete(ref); }
+  }
+
+  if (!shown.length) {
+    list.classList.add("hidden");
+    return;
+  }
+  list.classList.remove("hidden");
+  list.querySelectorAll(".job-skeleton").forEach((one) => one.remove());
+  let before = null;
+  // The zone a row's times were drawn in is one of its inputs: a change of zone redraws it.
+  const zoneNow = window.ScrapeXTime.zone();
+  for (const job of shown) {
+    let row = jobsPage.rows.get(job.job_ref);
+    if (!row) { row = buildJobRow(job.job_ref); jobsPage.rows.set(job.job_ref, row); }
+    // FILLED ONLY WHEN SOMETHING IT DRAWS CHANGED. A tick carries the few live jobs; refilling
+    // all 200 rows on each one was a 0.5-1 s long task every 1.5 s (#1608's gate). These
+    // are every input fillJobRow reads, compared by identity: a read hands over new job
+    // objects only for the jobs it carries.
+    const ref = job.job_ref;
+    const inputs = [job, down, jobsPage.pressing.get(ref), jobsPage.notes.get(ref),
+      jobsPage.openLogs.has(ref), jobsPage.logs.get(ref), state.sources, zoneNow];
+    const drawn = jobsRowInputs.get(row);
+    if (!drawn || inputs.some((value, i) => value !== drawn[i])) {
+      fillJobRow(row, job, { down });
+      jobsRowInputs.set(row, inputs);
+    }
+    // MOVED ONLY WHEN OUT OF PLACE: moving a node blurs whatever inside it had focus.
+    const expected = before ? before.nextElementSibling : list.firstElementChild;
+    if (expected !== row) list.insertBefore(row, expected);
+    before = row;
+  }
+}
+
+function jobsBanner(failure, listShown) {
+  const box = document.createElement("div");
+  const title = document.createElement("strong");
+  title.className = "text-sm";
+  const copy = document.createElement("p");
+  copy.className = "text-xs muted";
+  const read = jobsPage.readAt ? window.ScrapeXTime.format(jobsPage.readAt, "time") : "";
+  let action = null;
+  if (failure.http) {
+    box.className = listShown ? "banner" : "banner danger";
+    title.textContent = listShown ? "Unable to refresh data" : "Unable to read jobs";
+    copy.textContent = listShown
+      ? `Showing the jobs as read at ${read}. The engine answered: ${failure.message}`
+      : failure.message;
+    if (!listShown) action = ["Try again", () => loadJobs()];
+  } else if (!state.engineUp) {
+    box.className = "banner";
+    title.textContent = listShown ? "Engine stopped answering" : "Engine not running";
+    const shown = listShown ? `Showing the jobs as read at ${read}. ` : "";
+    if (failure.startFailed) {
+      // The reason is drawn where the engine is started from, the Run page: send him
+      // there rather than copying another page's sentence into this one.
+      copy.textContent = `${shown}The engine did not start. Open Run to see why.`;
+      action = ["Open Run", () => showView("run")];
+    } else {
+      copy.textContent = listShown
+        ? `${shown}Their controls return when the engine answers. Start the engine to `
+          + "read them again."
+        : "Start the engine to read jobs.";
+      action = [jobsPage.starting ? "Starting…" : "Start engine", async () => {
+        if (jobsPage.starting) return;
+        jobsPage.starting = true;
+        renderJobs();
+        try { await startEngineFromPanel(); } finally { jobsPage.starting = false; }
+        if (!state.engineUp) jobsFailed(failure.from, { startFailed: true });
+        else { jobsPage.failure = null; loadJobs(); pollJob({ fresh: true }); }
+      }, jobsPage.starting];
+    }
+  } else {
+    // NO ANSWER, BUT THE ENGINE IS UP: a timeout or a dropped connection, not a stopped
+    // engine -- so no Start button for an engine that is running.
+    box.className = "banner";
+    title.textContent = "The engine did not answer";
+    copy.textContent = listShown
+      ? `Showing the jobs as read at ${read}. Try again in a moment.`
+      : "Try again in a moment.";
+    action = ["Try again", () => loadJobs()];
+  }
+  box.setAttribute("role", "alert");
+  box.append(title, copy);
+  if (action) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "ghost";
+    button.textContent = action[0];
+    if (action[2]) button.setAttribute("aria-disabled", "true");
+    button.addEventListener("click", action[1]);
+    box.append(button);
+  }
   return box;
 }
 
 /**
- * One job's log, into its own row.
- *
- * DRAWN AS TEXT, and that is not a shortcut: every line was written by a crawl of
- * somebody else's website. The Run screen keeps `renderLogs` for the LIVE job, which is
- * a different question -- a streaming log that repolls and scrolls itself -- so this is
- * not a second copy of one renderer.
- *
- * THE STAMP GOES THROUGH `ScrapeXTime`, WHICH IS THE RULE AND WAS BEING BROKEN HERE.
- * `logged_at` is stored UTC, and printing it raw put a `...Z` under a row header rendered
- * in his own zone -- two zones on one screen, which is the defect that module exists to
- * remove. `format()` and not `node()` because this stays ONE text node: the log is a
- * snapshot that never repolls, and keeping it text is also what lets a redraw carry an
- * open row's log across without re-fetching it. The cost is that an open log's stamps do
- * not follow a zone change until the row is opened again; the header's `<time>` nodes do.
+ * What #jobs-state shows: a failure's banner, and an empty state -- "No jobs yet" for a
+ * warehouse with none (`empty` "jobs"), "No results found" when his search or filter
+ * emptied the list (`empty` "results"). REDRAWN ONLY WHEN THAT CHANGES: the banner is
+ * role="alert", so a fresh node on every 1.5 s tick was announced again each time and
+ * took the focus off its own button.
  */
-async function openJobLog(jobRef, into) {
-  into.textContent = LOG_PLACEHOLDER;
-  try {
-    const log = await api(`/api/jobs/${encodeURIComponent(jobRef)}/logs`);
-    const entries = log.entries || [];
-    into.textContent = entries.length
-      ? entries.map((entry) =>
-          `${window.ScrapeXTime.format(entry.logged_at, "short")}  `
-          + `${entry.level || ""}  ${entry.message || ""}`).join("\n")
-      : "This job wrote no log.";
-  } catch (error) {
-    into.textContent = `The log could not be read: ${error.message}`;
+function jobsState(box, failure, listShown = false, empty = "") {
+  // The zone too: the banner says when the list was read, in the zone he reads it in.
+  // And the narrowing, which "No results found" names.
+  const narrowed = empty === "results"
+    ? noResultsLine({ term: jobsPage.term, statuses: jobsPage.statuses.size }) : "";
+  const drawn = JSON.stringify([failure, listShown, empty, narrowed, state.engineUp,
+    jobsPage.readAt, jobsPage.starting, window.ScrapeXTime.zone()]);
+  if (box.dataset.drawn === drawn) return;
+  box.dataset.drawn = drawn;
+  // A REDRAW HE CAUSED -- Start engine becoming Starting… -- replaces the button he
+  // pressed; focus goes to the new banner's button rather than to <body>.
+  const hadFocus = box.contains(document.activeElement);
+  const parts = failure ? [jobsBanner(failure, listShown)] : [];
+  if (empty) {
+    const [title, line, label, act] = empty === "results"
+      ? ["No results found", narrowed, "Reset filter",
+        () => jobsSetNarrowing({ term: "", statuses: new Set() })]
+      : ["No jobs yet", "Start one from the Run screen.", "Open Run", () => showView("run")];
+    const card = document.createElement("div");
+    card.className = "card empty";
+    const head = document.createElement("p");
+    head.className = "text-sm";
+    head.textContent = title;
+    const copy = document.createElement("p");
+    copy.className = "text-xs";
+    copy.textContent = line;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "ghost";
+    button.textContent = label;
+    button.addEventListener("click", act);
+    card.append(head, copy, button);
+    parts.push(card);
+  }
+  box.replaceChildren(...parts);
+  if (hadFocus) box.querySelector("button")?.focus();
+}
+
+/** His search or filter changed: the rows he acted on stop being kept, and the result
+ *  is announced once. */
+function jobsSetNarrowing({ term = jobsPage.term, statuses = jobsPage.statuses } = {}) {
+  jobsPage.term = term;
+  jobsPage.statuses = statuses;
+  jobsPage.kept.clear();
+  if ($("jobs-search").value !== term) $("jobs-search").value = term;
+  const count = statuses.size;
+  $("jobs-status-label").textContent = count ? `Status: ${count}` : "Status";
+  $("jobs-status").classList.toggle("dashed", !count);
+  renderJobs();
+  const { all, shown } = jobsShown();
+  jobsAnnounce(shown.length === all.length ? jobsNoun(all.length)
+    : `${shown.length.toLocaleString()} of ${jobsNoun(all.length)}`);
+}
+
+// ---- one row ---------------------------------------------------------------------
+
+function jobsSvg(id) {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("class", "sx-icon sm");
+  svg.setAttribute("aria-hidden", "true");
+  const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+  use.setAttribute("href", iconHref(id));
+  svg.append(use);
+  return svg;
+}
+
+function jobsPart(row, part) {
+  return row.querySelector(`[data-part="${part}"]`);
+}
+
+/** The row's fixed frame, built once per job. DOM order is the reading order
+ *  (table.mdx@86c813ec:193, 201): identity, status line, the one action, ⋮ and its
+ *  menu, then the detail lines. CSS alone puts ⋮ in the corner (his choice A). */
+function buildJobRow(ref) {
+  const row = document.createElement("div");
+  row.className = "job-row";
+  row.dataset.job = ref;
+  row.innerHTML = `
+    <span class="job-identity" data-part="identity"></span>
+    <div class="job-line job-status-line text-xs" data-part="statusline"></div>
+    <span class="job-primary" data-part="primary"><button type="button" class="ghost"></button></span>
+    <span class="job-kebab">
+      <button type="button" class="ghost icon-button" aria-haspopup="menu" aria-expanded="false"
+              data-part="kebab">${icon("material-more-vert", "sm")}</button>
+      <div class="account-menu job-menu hidden" role="menu" data-part="menu"></div>
+    </span>
+    <p class="job-line text-xs muted" data-part="time"></p>
+    <div class="job-barline hidden" data-part="barline">
+      <div class="job-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100"><span></span></div>
+      <span class="text-xs muted" data-part="progress"></span>
+    </div>
+    <p class="job-full text-xs muted hidden" data-part="note"></p>
+    <div class="job-full text-xs hidden" data-part="failure">
+      <span class="err job-clamp" data-part="error"></span>
+      <button type="button" class="link text-xs" aria-expanded="false" data-part="logtoggle">View log</button>
+    </div>
+    <pre class="job-log text-xs job-full hidden" data-part="log"></pre>
+    <div class="job-full text-xs hidden" data-part="logclose">
+      <button type="button" class="link text-xs" aria-expanded="true">Hide log</button>
+    </div>
+    <p class="job-full text-xs err hidden" role="alert" data-part="refusal"></p>`;
+  const job = () => jobsPage.jobs.get(ref)?.job;
+  jobsPart(row, "primary").firstElementChild.addEventListener("click", (event) => {
+    const button = event.currentTarget;
+    if (button.getAttribute("aria-disabled") === "true") return;
+    pressJobControl(job(), button.dataset.control, button);
+  });
+  const kebab = jobsPart(row, "kebab");
+  kebab.addEventListener("click", () => {
+    if (kebab.getAttribute("aria-disabled") === "true") return;
+    if (jobsPage.menuFor === ref) jobsCloseMenu(true); else jobsOpenMenu(ref, 0);
+  });
+  kebab.addEventListener("keydown", (event) => {
+    if (kebab.getAttribute("aria-disabled") === "true") return;
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      jobsOpenMenu(ref, event.key === "ArrowUp" ? -1 : 0);
+    }
+  });
+  jobsPart(row, "menu").addEventListener("keydown", (event) => jobsMenuKeys(event, ref));
+  const toggle = jobsPart(row, "logtoggle");
+  toggle.addEventListener("click", () => {
+    // aria-disabled while the engine is down: it can take focus, and must not act.
+    if (toggle.getAttribute("aria-disabled") === "true") return;
+    jobsToggleLog(ref);
+  });
+  jobsPart(row, "logclose").firstElementChild.addEventListener("click", () => jobsToggleLog(ref));
+  return row;
+}
+
+/** A row's text is written only when it changed: a read rewriting the same words would
+ *  clear a selection he made in them, and copying a failure is what he opens it for. */
+function jobsText(node, text) {
+  if (node.textContent !== text) node.textContent = text;
+}
+
+function fillJobRow(row, job, { down = false } = {}) {
+  const ref = job.job_ref;
+  const sources = state.sources;
+  // IDENTITY: the panel's one source identity (sourceIdentity, components.css:779-860).
+  // Several sources name the one it leads with and count the rest.
+  const identity = jobsPart(row, "identity");
+  const lead = jobLead(job);
+  const source = sourceOf(lead, sources);
+  const more = othersLine(job);
+  const drawnAs = JSON.stringify([lead, job.source_keys || [], source?.base_url,
+    source?.source_name, source?.source_name_ar]);
+  if (identity.dataset.drawn !== drawnAs) {
+    identity.dataset.drawn = drawnAs;
+    // THE PANEL'S ONE SOURCE IDENTITY, the same builder every page uses; a key Sources
+    // does not list stands as its own name. Several sources: the lead, and the count.
+    identity.innerHTML = sourceIdentity(source || { source_key: lead }, false, null, "Row",
+      { wrap: true });
+    // THE JOB'S OWN KEYS, as his choice D drew them, for every job (#1624): the footer
+    // would name the matched Sources entry, a dataset key where `sourceOf` matched a
+    // `site_key`. Several sources also count the others above the footer.
+    identity.querySelector(".source-identity-key").textContent =
+      (job.source_keys || []).join(", ");
+    if (more) {
+      const others = document.createElement("span");
+      others.className = "job-more text-xs muted";
+      others.textContent = more;
+      identity.querySelector(".source-identity-footer").before(others);
+    }
+  }
+
+  // STATUS: the engine's word, its glyph and tone; then the kind.
+  const look = statusLook(job.status);
+  const line = jobsPart(row, "statusline");
+  if (line.dataset.drawn !== `${job.status} ${job.job_kind}`) {
+    line.dataset.drawn = `${job.status} ${job.job_kind}`;
+    const status = document.createElement("span");
+    status.className = `job-status job-tone-${look.tone}`;
+    status.append(jobsSvg(look.glyph), document.createTextNode(look.word));
+    const sep = document.createElement("span");
+    sep.className = "muted";
+    sep.textContent = " ·";
+    const lead2 = document.createElement("span");
+    lead2.append(status, sep);
+    const kind = document.createElement("span");
+    kind.className = "muted";
+    kind.textContent = jobLabel({ job_kind: job.job_kind });
+    line.replaceChildren(lead2, kind);
+  }
+
+  // THE ONE ACTION, AND ITS STATE IN FLIGHT: aria-disabled, so focus stays on it.
+  const label = jobLabel(job, sources);
+  const when = timeLine(job, (v, m) => window.ScrapeXTime.format(v, m));
+  const named = `${label}, ${when}`;
+  const control = primaryControl(job);
+  const pressing = jobsPage.pressing.get(ref);
+  const primary = jobsPart(row, "primary");
+  const button = primary.firstElementChild;
+  primary.classList.toggle("hidden", !control && !pressing);
+  // A JOB THAT ENDS UNDER HIS FOCUS: the action he was on is hidden, and a hidden element
+  // drops focus to <body>. It goes to the row's ⋮, as after a press that changed the verb.
+  if (primary.classList.contains("hidden") && primary.contains(document.activeElement)) {
+    jobsPart(row, "kebab").focus();
+  }
+  const verb = pressing || control;
+  if (verb) {
+    const word = verb[0].toUpperCase() + verb.slice(1);
+    const busy = Boolean(pressing);
+    button.dataset.control = verb;
+    button.textContent = busy ? `${word === "Pause" ? "Pausing" : word === "Resume" ? "Resuming" : "Cancelling"}…` : word;
+    button.setAttribute("aria-label", `${button.textContent} ${named}`);
+    if (busy || down) button.setAttribute("aria-disabled", "true");
+    else button.removeAttribute("aria-disabled");
+    if (busy) button.setAttribute("aria-busy", "true"); else button.removeAttribute("aria-busy");
+  }
+  const kebab = jobsPart(row, "kebab");
+  kebab.setAttribute("aria-label", `More actions for ${named}`);
+  if (down) kebab.setAttribute("aria-disabled", "true"); else kebab.removeAttribute("aria-disabled");
+  jobsPart(row, "menu").setAttribute("aria-label", `Actions for ${named}`);
+
+  jobsText(jobsPart(row, "time"), when);
+
+  const fraction = progressFraction(job);
+  const barline = jobsPart(row, "barline");
+  barline.classList.toggle("hidden", fraction === null);
+  if (fraction !== null) {
+    const bar = barline.querySelector(".job-bar");
+    bar.setAttribute("aria-valuenow", String(Math.round(fraction * 100)));
+    bar.firstElementChild.style.width = `${Math.round(fraction * 100)}%`;
+    jobsText(jobsPart(row, "progress"), progressLine(job));
+  }
+  const note = jobsPart(row, "note");
+  const waiting = jobWaitingLine(job);
+  jobsText(note, waiting);
+  note.classList.toggle("hidden", !waiting);
+
+  // THE FAILURE: two lines, then View log (his choice B). Its toggle opens the log here.
+  const failure = jobsPart(row, "failure");
+  failure.classList.toggle("hidden", !job.error_summary);
+  const error = jobsPart(row, "error");
+  jobsText(error, job.error_summary || "");
+  // A SKIP'S REASON IS NOT AN ERROR (#1596): drawn muted, where a failure's is red.
+  error.className = `${summaryClass(job.status)} job-clamp`;
+  const open = jobsPage.openLogs.has(ref);
+  const toggle = jobsPart(row, "logtoggle");
+  toggle.textContent = open ? "Hide log" : "View log";
+  toggle.setAttribute("aria-expanded", String(open));
+  if (down) toggle.setAttribute("aria-disabled", "true"); else toggle.removeAttribute("aria-disabled");
+  const log = jobsPart(row, "log");
+  log.classList.toggle("hidden", !open);
+  if (open) jobsText(log, jobsPage.logs.get(ref) || LOG_PLACEHOLDER);
+  // A LOG OPENED FROM ⋮ ON A ROW WITH NO FAILURE HAS ITS OWN WAY BACK.
+  jobsPart(row, "logclose").classList.toggle("hidden", !(open && !job.error_summary));
+  const said = jobsPage.notes.get(ref) || "";
+  const refusal = jobsPart(row, "refusal");
+  jobsText(refusal, said);
+  refusal.classList.toggle("hidden", !said);
+}
+
+// ---- the row's menu, the WAI-ARIA APG menu button ---------------------------------
+
+function jobsOpenMenu(ref, at) {
+  if (jobsPage.menuFor && jobsPage.menuFor !== ref) jobsCloseMenu(false);
+  const row = jobsPage.rows.get(ref);
+  const job = jobsPage.jobs.get(ref)?.job;
+  if (!row || !job) return;
+  const menu = jobsPart(row, "menu");
+  const items = menuControls(job).map((control) => {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "account-menu-item" + (control === "cancel" ? " is-destructive" : "");
+    item.setAttribute("role", "menuitem");
+    item.tabIndex = -1;
+    const open = jobsPage.openLogs.has(ref);
+    item.append(jobsSvg(control === "cancel" ? "material-block" : "material-description"),
+      document.createTextNode(control === "cancel" ? "Cancel job…"
+        : open ? "Hide log" : "View log"));
+    item.addEventListener("click", () => {
+      jobsCloseMenu(true);
+      if (control === "cancel") pressJobControl(job, "cancel", jobsPart(row, "kebab"));
+      else jobsToggleLog(ref);
+    });
+    return item;
+  });
+  menu.replaceChildren(...items);
+  menu.classList.remove("hidden");
+  jobsPart(row, "kebab").setAttribute("aria-expanded", "true");
+  jobsPage.menuFor = ref;
+  items[at < 0 ? items.length - 1 : 0]?.focus();
+}
+
+function jobsCloseMenu(returnFocus) {
+  const ref = jobsPage.menuFor;
+  if (!ref) return;
+  jobsPage.menuFor = null;
+  const row = jobsPage.rows.get(ref);
+  if (row) {
+    jobsPart(row, "menu").classList.add("hidden");
+    const kebab = jobsPart(row, "kebab");
+    kebab.setAttribute("aria-expanded", "false");
+    if (returnFocus) kebab.focus();
+  }
+  if (jobsPage.held) renderJobs();
+}
+
+function jobsMenuKeys(event, ref) {
+  const row = jobsPage.rows.get(ref);
+  const items = [...jobsPart(row, "menu").querySelectorAll('[role="menuitem"]')];
+  const at = items.indexOf(document.activeElement);
+  const go = (i) => { event.preventDefault(); items[(i + items.length) % items.length].focus(); };
+  if (event.key === "ArrowDown") go(at + 1);
+  else if (event.key === "ArrowUp") go(at - 1);
+  else if (event.key === "Home") go(0);
+  else if (event.key === "End") go(items.length - 1);
+  else if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); jobsCloseMenu(true); }
+  else if (event.key === "Tab") jobsCloseMenu(false);
+}
+
+// ---- the status filter, FilterPopover (FilterPopover.tsx@86c813ec:180-295) ---------
+
+function jobsOpenFilter() {
+  const options = filterOptions(jobsPage.order.map((ref) => jobsPage.jobs.get(ref)?.job)
+    .filter(Boolean), jobsPage.statuses);
+  const box = $("jobs-filter-options");
+  box.replaceChildren(...options.map((status) => {
+    const label = document.createElement("label");
+    label.className = "text-sm";
+    const check = document.createElement("input");
+    check.type = "checkbox";
+    check.value = status;
+    check.checked = jobsPage.statuses.has(status);
+    label.append(check, document.createTextNode(statusLook(status).word));
+    return label;
+  }));
+  $("jobs-filter").classList.remove("hidden");
+  $("jobs-status").setAttribute("aria-expanded", "true");
+  (box.querySelector("input") || $("jobs-filter-save")).focus();
+}
+
+/** Close the status filter. `apply` is Save (true), Clear ("clear") or neither (false).
+ *  FOCUS RETURNS TO THE TRIGGER unless he moved it elsewhere himself (`refocus` false):
+ *  Tab out of it, or another page, takes focus where he sent it. */
+function jobsCloseFilter(apply, { refocus = true } = {}) {
+  if ($("jobs-filter").classList.contains("hidden")) return;
+  const picked = new Set([...$("jobs-filter-options").querySelectorAll("input:checked")]
+    .map((one) => one.value));
+  $("jobs-filter").classList.add("hidden");
+  $("jobs-status").setAttribute("aria-expanded", "false");
+  if (refocus) $("jobs-status").focus();
+  if (apply) jobsSetNarrowing({ statuses: apply === "clear" ? new Set() : picked });
+  else if (jobsPage.held) renderJobs();
+}
+
+function wireJobsPage() {
+  $("jobs-search").addEventListener("input", (event) => {
+    jobsSetNarrowing({ term: event.target.value });
+  });
+  $("jobs-status").addEventListener("click", () => {
+    if ($("jobs-filter").classList.contains("hidden")) jobsOpenFilter(); else jobsCloseFilter(false);
+  });
+  $("jobs-filter-save").addEventListener("click", () => jobsCloseFilter(true));
+  $("jobs-filter-clear").addEventListener("click", () => jobsCloseFilter("clear"));
+  $("jobs-filter").addEventListener("keydown", (event) => {
+    if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); jobsCloseFilter(false); }
+  });
+  // FOCUS LEAVING THE FILTER CLOSES IT, without applying, as Radix's non-modal Popover
+  // (FilterPopover) and the row's own menu do on Tab: left open, it held every redraw
+  // while his search announced a result the screen did not show (#1623's gate).
+  $("jobs-filter").closest(".jobs-filter-anchor").addEventListener("focusout", (event) => {
+    if (!event.currentTarget.contains(event.relatedTarget)) {
+      jobsCloseFilter(false, { refocus: false });
+    }
+  });
+  // A press outside the open menu or filter closes it, without applying anything.
+  document.addEventListener("pointerdown", (event) => {
+    if (jobsPage.menuFor && !event.target.closest(".job-kebab")) jobsCloseMenu(false);
+    if (!$("jobs-filter").classList.contains("hidden")
+        && !event.target.closest(".jobs-filter-anchor")) jobsCloseFilter(false);
+  });
+}
+
+// ---- the log ----------------------------------------------------------------------
+
+function jobsToggleLog(ref) {
+  const row = jobsPage.rows.get(ref);
+  // READ EACH TIME IT OPENS, and forgotten when it closes: a log is the job's record
+  // so far, and the line that explains a later failure is written after the first look.
+  // A redraw while it is open never reads it again (fillJobRow keeps the text).
+  jobsPage.logs.delete(ref);
+  if (jobsPage.openLogs.has(ref)) jobsPage.openLogs.delete(ref);
+  else {
+    jobsPage.openLogs.add(ref);
+    openJobLog(ref);
+  }
+  renderJobs();
+  // Focus stays on the control he used, or comes to the row's toggle.
+  if (row && !row.contains(document.activeElement)) {
+    const job = jobsPage.jobs.get(ref)?.job;
+    (job && job.error_summary ? jobsPart(row, "logtoggle")
+      : jobsPage.openLogs.has(ref) ? jobsPart(row, "logclose").firstElementChild
+        : jobsPart(row, "kebab"))?.focus();
   }
 }
 
 /**
- * Pause, resume or cancel -- from the row of the job it belongs to.
+ * One job's log, read when its row opens it and kept while it stays open.
  *
- * THE CONTROLS ARE ON THE JOB AND NOT ONLY ON WHICHEVER ONE THE MINI-PLAYER ADOPTED,
- * which is half of what this page is for: on 2026-09-07 the job he wanted to stop was
- * not the job the panel was drawing.
+ * DRAWN AS TEXT, and that is not a shortcut: every line was written by a crawl of
+ * somebody else's website. Each stamp goes through ScrapeXTime, and a line one source
+ * wrote names it, because a job of several sources otherwise reads "failed" with no
+ * source at all (#1542).
  */
-async function pressJobControl(jobRef, control, button) {
-  if (!confirmedControl(control)) return;
-  const was = button.textContent;
-  button.disabled = true;
-  button.textContent = "\u2026";
+async function openJobLog(ref) {
+  try {
+    const log = await api(`/api/jobs/${encodeURIComponent(ref)}/logs`);
+    if (!jobsPage.openLogs.has(ref)) return;  // closed while it was being read
+    const entries = log.entries || [];
+    jobsPage.logs.set(ref, entries.length
+      ? entries.map((entry) => [window.ScrapeXTime.format(entry.logged_at, "short"),
+        entry.level || "", entry.source_key || "", entry.message || ""]
+        .filter(Boolean).join("  ")).join("\n")
+      : "This job wrote no log.");
+  } catch (error) {
+    if (!jobsPage.openLogs.has(ref)) return;
+    jobsPage.logs.set(ref, `The log could not be read: ${error.message}`);
+  }
+  renderJobs();
+}
+
+/**
+ * Pause, resume or cancel, from the row of the job it belongs to.
+ *
+ * THE BUTTON STAYS FOCUSABLE IN FLIGHT (aria-disabled, "Pausing…"): `disabled` dropped
+ * focus to <body>. THE ROW STAYS DRAWN until his next search or filter change, even if
+ * its new status leaves the filter, so focus has somewhere to stay. A REFUSAL is said in
+ * that row, from the status the reloaded row reached -- the 409 carries only a sentence
+ * (webui/app.py:4779-4780); any other answer says its own detail; no answer is the
+ * engine-lost path. Then the list is re-read, and the player is given a fresh read.
+ */
+async function pressJobControl(job, control, button) {
+  if (!job) return;
+  const ref = job.job_ref;
+  const label = jobLabel(job, state.sources);
+  if (!(await confirmedControl(control, label))) return;
+  jobsPage.kept.add(ref);
+  jobsPage.notes.delete(ref);
+  jobsPage.pressing.set(ref, control);
+  renderJobs();
   let refused = false;
   try {
-    await post(`/api/jobs/${encodeURIComponent(jobRef)}/control`, {control});
+    await post(`/api/jobs/${encodeURIComponent(ref)}/control`, { control });
   } catch (error) {
-    // 409 IS AN ANSWER AND NOT A CRASH: the job settled between the draw and the press,
-    // which a long list of jobs makes likely rather than rare.
-    refused = true;
-    sayOn("jobs-blocked", `${control} was refused: ${error.message}`);
+    const verb = control[0].toUpperCase() + control.slice(1);
+    if (error && error.status === 409) refused = true;
+    else if (error && error.kind === "http") {
+      jobsPage.notes.set(ref, `${verb} failed: ${error.message}`);
+    } else {
+      // NO ANSWER IS SAID WHERE HE PRESSED. A page failure was cleared by the very next
+      // read that answered, so the press failed with nothing on screen saying so.
+      jobsPage.notes.set(ref, `${verb} got no answer from the engine. Try again once it answers.`);
+    }
   } finally {
-    button.disabled = false;
-    button.textContent = was;
+    jobsPage.pressing.delete(ref);
   }
-  // THE LIST IS RELOADED EVEN ON A REFUSAL, because a 409 means the job settled and the
-  // row on screen is the stale one that offered the button. `keepNotice` is what stops
-  // that reload erasing the sentence explaining why.
-  await loadJobs({keepNotice: refused});
-
-  // AND FOCUS COMES BACK TO THE BUTTON HE PRESSED, which `loadJobs` cannot do for
-  // itself: `button.disabled = true` above moves focus to <body> immediately, so by the
-  // time the redraw runs there is nothing to read back. The element is gone either way
-  // -- what is restored is its replacement, found by job and by label. If the press
-  // changed the job's status the label may no longer be offered, and then the row's own
-  // summary takes focus so it stays where he left it rather than on <body>.
-  // Matched on `dataset.job` rather than a built selector, so a job ref never has to be
-  // escaped into one.
-  const row = [...$("jobs-list").querySelectorAll("details.job-row")]
-    .find((one) => one.dataset.job === jobRef);
+  await loadJobs();
+  pollJob({ fresh: true });
+  if (refused) {
+    const now = jobsPage.jobs.get(ref)?.job;
+    jobsPage.notes.set(ref, refusalLine(control, label, now ? now.status : "finished"));
+    renderJobs();
+  }
+  // FOCUS: on the control he pressed while it still offers the same action; on the
+  // row's ⋮ once it does not (a change of verb counts as gone -- Pause on a queued job
+  // settles it at once, and a second Enter must not resume it).
+  const row = jobsPage.rows.get(ref);
   if (!row) return;
-  const again = [...row.querySelectorAll("button")]
-    .find((one) => one.textContent === was);
-  (again || row.querySelector("summary"))?.focus();
+  const again = jobsPart(row, "primary").firstElementChild;
+  const still = !jobsPart(row, "primary").classList.contains("hidden")
+    && again.dataset.control === control;
+  if (button === again && still) again.focus();
+  else if (row.contains(button) || document.activeElement === document.body) {
+    jobsPart(row, "kebab").focus();
+  }
 }
 
 async function loadDatabase() {
@@ -8484,6 +9722,11 @@ function wireStartupShell() {
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") return;
     // Innermost first. The dialog is modal, so nothing behind it may answer.
+    if (confirmIsOpen()) {
+      event.stopPropagation();
+      answerConfirm(false);
+      return;
+    }
     if (restoreDialogIsOpen()) {
       event.stopPropagation();
       closeRestoreDialog();
@@ -8541,6 +9784,14 @@ function wireStartupShell() {
     if (event.target === $("disconnect-veil")) closeDisconnectDialog();
   });
   document.addEventListener("keydown", trapDisconnectFocus, true);
+
+  $("confirm-keep").addEventListener("click", () => answerConfirm(false));
+  $("confirm-go").addEventListener("click", () => answerConfirm(true));
+  // The veil, not the card: a click on the question must not answer it.
+  $("confirm-veil").addEventListener("click", (event) => {
+    if (event.target === $("confirm-veil")) answerConfirm(false);
+  });
+  document.addEventListener("keydown", trapConfirmFocus, true);
 
   setGoogleButtonScheme();
   window.addEventListener("scrapexappearancechange", () => {
@@ -9176,13 +10427,18 @@ function wireDeferredControls() {
       document.querySelector(`[data-edit-source="${CSS.escape(sourceKey || "")}"]`)
         ?.focus({preventScroll: true}));
   });
+  $("source-edit-schedule-link").addEventListener("click", () =>
+    openScheduleRow(state.editingSourceKey));
   $("source-edit-robots-look").addEventListener("click", lookAtRobots);
+  document.querySelectorAll("[data-clear-rule]").forEach((button) =>
+    button.addEventListener("click", () => clearSourceRule(button.dataset.clearRule)));
   $("source-edit-robots").addEventListener("change", () => {
     const choice = $("source-edit-robots").value;
     $("source-edit-robots-custom").classList.toggle("hidden", choice !== "custom");
+    const delay = $("source-edit-robots-delay").value.trim();
     renderRobotsChoice({robots: choice, robots_custom: {
       enforce_disallow: $("source-edit-robots-enforce").checked,
-      crawl_delay_s: $("source-edit-robots-delay").value.trim() || null,
+      crawl_delay_s: delay === "" ? null : ruleNumber(delay),
     }});
   });
   $("source-edit-form").addEventListener("submit", async (event) => {
@@ -9224,12 +10480,8 @@ function wireDeferredControls() {
     .addEventListener("click", loadCurrentPage);
   $("url").addEventListener("keydown", (e) => { if (e.key === "Enter") probe(); });
 
-  // THE JOBS PAGE HAS NO POLL, SO THIS BUTTON IS ITS ONLY REFRESH -- and it shipped
-  // drawn and unwired, which is worse than not drawing it. The list is a snapshot from
-  // the moment the view was entered while the mini-player above it repolls every 1.5s,
-  // so without this he watched a live player sit on a frozen list and had to leave the
-  // rail and come back. `test_panel_dom.py` presses it and counts the second request.
-  $("jobs-reload").addEventListener("click", () => loadJobs());
+  // THE JOBS PAGE IS LIVE, so it has no Refresh: the panel's one tick feeds it (#1542).
+  wireJobsPage();
 
   runModeSelectUi = setupRunModeSelect();
   $("run-mode").addEventListener("change", refreshMode);

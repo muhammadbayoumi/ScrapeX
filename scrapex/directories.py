@@ -86,6 +86,12 @@ class Directory:
     #: `contractors.mark_departures` finds a firm that changed key by the number it
     #: kept, instead of recording it as gone (#1333).
     registration_field: str | None = None
+    #: WHAT THE RELEASE SAYS ABOUT WHETHER THIS DIRECTORY IS ON -- its shipped answer
+    #: to `active`, as `sources.yaml` gives a price source's (#1584). A directory in this
+    #: registry is built, so it ships on; his choice in the warehouse overrides it, and
+    #: clearing that choice returns here (his ruling, 2026-10-08). It ships no robots,
+    #: agent or pace of its own: those fall to his general settings.
+    active: bool = True
 
     def partition(self) -> Any:
         return self.partition_factory()

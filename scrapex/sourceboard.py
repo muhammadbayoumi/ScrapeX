@@ -78,30 +78,40 @@ class Source:
                 f"{self.collector:<26} {self.registry}")
 
 
-def _manifest_state(entry) -> str:
+def _manifest_state(entry, active: bool) -> str:
     """`family: TBD-probe` is the only way any registry can say "no collector yet".
 
     It is not a placeholder that happens to be useful: `SourceEntry` validation
     refuses `active: true` while the family is TBD-probe -- *"A source that has not
     been probed cannot be active"* -- so the manifest genuinely cannot mark such a
     source runnable, which is exactly the guarantee his request asks for.
+
+    `active` is the EFFECTIVE one (#1584): his choice for the source when a warehouse
+    is at hand, else what the entry ships with.
     """
     if entry.family == ConnectorFamily.TBD_PROBE:
         return "registered"
-    return "active" if entry.active else "built"
+    return "active" if active else "built"
 
 
-def from_manifest(manifest_file: Path | str = MANIFEST_FILE) -> tuple[Source, ...]:
-    """The products side. Reads the contract, touches no database."""
+def from_manifest(manifest_file: Path | str = MANIFEST_FILE,
+                  conn: sqlite3.Connection | None = None) -> tuple[Source, ...]:
+    """The products side. Reads the contract, and his per-source choices from `conn`
+    when one is given -- a fresh installation has no warehouse, and then each source
+    reads as it ships."""
+    from . import source_settings
+
     found = []
     for entry in load_manifest(manifest_file).sources:
+        chosen = source_settings.read(conn, entry.source_key) if conn is not None else {}
+        active = source_settings.layered(chosen, entry.source_key, entry).active
         found.append(Source(
             key=entry.source_key,
             category=getattr(entry, "category", SourceCategory.PRODUCTS),
             name=entry.source_name or entry.source_key,
             base_url=entry.base_url,
             collector=entry.family.value,
-            state=_manifest_state(entry),
+            state=_manifest_state(entry, active),
             registry="manifest"))
     return tuple(found)
 
@@ -192,7 +202,7 @@ def board(conn: sqlite3.Connection | None = None,
     `conn` is optional ON PURPOSE -- see the module docstring: a fresh
     installation has no warehouse, and the products half is a file.
     """
-    found = list(from_manifest(manifest_file))
+    found = list(from_manifest(manifest_file, conn))
     if conn is not None:
         found.extend(from_warehouse(conn))
     # THE CODE REGISTRY LAST, AND ONLY FOR WHAT THE WAREHOUSE HAS NOT SEEN. Once a

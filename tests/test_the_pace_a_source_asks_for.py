@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import pytest
 
+from scrapex import source_settings
 from scrapex.config import ExtractSpec, SourceEntry
 from scrapex.connectors.base import resolve_fetcher
 from scrapex.vocab import ExtractKind, ExtractScope
@@ -41,7 +42,9 @@ def entry(**over) -> SourceEntry:
 
 
 def pace(source, **settings) -> float:
-    fetcher = resolve_fetcher(source, {"min_interval_s": 1.0, **settings})
+    # As the source SHIPPED: no warehouse here, so no choice of his (#1584).
+    rules = source_settings.layered({}, source.source_key, source)
+    fetcher = resolve_fetcher(source, rules, {"min_interval_s": 1.0, **settings})
     return fetcher._min_interval_s
 
 

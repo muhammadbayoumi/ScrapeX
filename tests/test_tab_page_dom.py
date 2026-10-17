@@ -67,7 +67,7 @@ def browser():
 #: What a page looks like once its first load has come to something.
 SETTLED = """() => {
   const note = document.getElementById('grid-note');
-  return document.querySelector('.tabulator-row')
+  return document.querySelector('#grid .dg-body .dg-row')
     || document.getElementById('data-blocked').textContent.trim()
     || (note && !note.hidden && !/Loading/.test(note.textContent));
 }"""
@@ -93,7 +93,7 @@ def open_data(browser, tmp_path):
         fenced: list[str] = []
 
         def fence(route):
-            if route.request.url.startswith("file:"):
+            if route.request.url.startswith(base + "/"):
                 route.continue_()
             else:
                 fenced.append(route.request.url)
@@ -101,8 +101,9 @@ def open_data(browser, tmp_path):
 
         page.route("**/*", fence)
         # The source rides in the address, exactly as it does when the panel
-        # opens this page. A file:// URL carries a query string fine.
-        page.goto(page_file.as_uri() + (f"?source={source}" if source else "") + query)
+        # opens this page. The page is SERVED: the grid's renderer is a module,
+        # and file:// refuses modules.
+        page.goto(f"{base}/{page_file.name}" + (f"?source={source}" if source else "") + query)
         # SETTLED, NOT TIMED: a drawn row, the page's own red line, or the grid's
         # note once it says more than that it is loading. The taxonomy is asked
         # beside the table, so its answer is given the same chance to land.
@@ -113,11 +114,12 @@ def open_data(browser, tmp_path):
         pages.append(page)
         return page
 
-    try:
-        yield opener
-    finally:
-        for page in pages:
-            page.close()
+    with harness.serve(tmp_path) as base:
+        try:
+            yield opener
+        finally:
+            for page in pages:
+                page.close()
 
 
 def test_the_first_load_paints(open_data):
@@ -128,7 +130,7 @@ def test_the_first_load_paints(open_data):
     against will always abort itself, and only a rendered page can tell."""
     page = open_data()
 
-    assert page.locator(".tabulator-row").count() == 2, (
+    assert page.locator("#grid .dg-body .dg-row").count() == 2, (
         "the page never got past its own freshness guard — this is the defect "
         "of 2026-08-15, where the generation was read before backendBase() had "
         "resolved the address that creates it")
@@ -144,7 +146,7 @@ def test_it_draws_the_payload_it_was_given(open_data):
     # Inside the closed Grid Features menu, so read as text rather than as seen.
     assert page.locator("#data-features-scope").text_content() == "Saved for SAMEHGABRIEL"
     # The grid's own row-selection column comes first, and has no title.
-    assert [h.strip() for h in page.locator(".tabulator-col-title").all_inner_texts()] \
+    assert [h.strip() for h in page.locator("#grid .dg-col").all_inner_texts()] \
         == ["", "Product name (AR)", "Price", "Currency"]
     # Nothing narrowed this table, so the status line has nothing to say; the row
     # count is in the grid's own footer.
@@ -181,21 +183,21 @@ def test_it_draws_a_dataset_and_not_only_a_price_table(open_data):
     as a 404, one step further along.
 
     THE ROW SHAPE IS THE RISK, and it is why a price payload could not have caught
-    this. `data.js` hands Tabulator `index: "offer_id"`, and a dataset row has no
-    `offer_id` at all — every row would share the same undefined index. It draws,
-    measured; if a future grid option starts requiring that index, this is where it
-    goes red instead of on his screen.
+    this. A grid keyed on `offer_id` would give every dataset row the same undefined
+    key, because a dataset row has no `offer_id` at all. It draws, measured; if a
+    future grid option starts requiring that key, this is where it goes red instead
+    of on his screen.
     """
     page = open_data(DATASET_PAYLOAD, source="contractors")
 
     assert page.js_errors == [], f"the page threw on a dataset: {page.js_errors}"
     assert page.locator("#data-source").inner_text() == "contractors"
-    assert page.locator(".tabulator-row").count() == 2, (
+    assert page.locator("#grid .dg-body .dg-row").count() == 2, (
         "the dataset's rows did not reach the grid")
-    assert [h.strip() for h in page.locator(".tabulator-col-title").all_inner_texts()] \
+    assert [h.strip() for h in page.locator("#grid .dg-col").all_inner_texts()] \
         == ["", "Contractor id", "Company name", "Membership level"]
     # The Arabic value arrives as text, in a grid whose column labels are English.
-    names = page.locator(".tabulator-cell[tabulator-field=company_name]").all_inner_texts()
+    names = page.locator(".dg-cell[data-field=company_name]").all_inner_texts()
     assert "شركة المقاولات" in names[0], names
 
 
@@ -206,7 +208,7 @@ def test_scraped_text_reaches_the_screen_as_TEXT(open_data):
         {"offer_id": 1, "product_name_ar": "<img src=x onerror=alert(1)>",
          "price": "1", "currency": "EGP"}]}
     page = open_data(hostile)
-    cell = page.locator(".tabulator-cell[tabulator-field=product_name_ar]").first
+    cell = page.locator(".dg-cell[data-field=product_name_ar]").first
 
     assert cell.locator("img").count() == 0, (
         "a product name became an element — the grid is interpreting markup")
@@ -220,7 +222,7 @@ def test_arabic_keeps_its_own_direction(open_data):
     it reaches the rendered cell."""
     page = open_data(DATASET_PAYLOAD, source="contractors")
     direction = page.evaluate(
-        "getComputedStyle(document.querySelector('.tabulator-cell[tabulator-field=company_name]'))"
+        "getComputedStyle(document.querySelector('.dg-cell[data-field=company_name]'))"
         ".unicodeBidi")
     assert direction == "plaintext", f"cells render as {direction!r}"
 
@@ -484,7 +486,7 @@ def test_a_refresh_that_fails_keeps_the_rows_and_says_so(open_data):
     said = page.locator("#data-summary").inner_text()
     assert said.startswith("Could not filter: The engine did not answer"), said
     assert said.endswith("The rows below are the last answer drawn."), said
-    assert page.locator(".tabulator-row").count() == 2, "the failed refresh emptied the table"
+    assert page.locator("#grid .dg-body .dg-row").count() == 2, "the failed refresh emptied the table"
     assert page.js_errors == [], page.js_errors
 
 
@@ -510,7 +512,7 @@ def test_reload_asks_the_engine_again_in_place(open_data):
                            timeout=2_000)
     page.wait_for_function("!document.querySelector('[data-grid-viewport]').hasAttribute('aria-busy')",
                            timeout=2_000)
-    assert page.locator(".tabulator-row").count() == 2
+    assert page.locator("#grid .dg-body .dg-row").count() == 2
     assert page.locator("#data-summary").inner_text() == ""
 
 
@@ -650,7 +652,7 @@ def test_a_refresh_with_no_table_on_screen_claims_no_rows(open_data):
     page.wait_for_function(
         "!document.querySelector('[data-grid-viewport]').hasAttribute('aria-busy')", timeout=5_000)
 
-    assert page.locator(".tabulator-row").count() == 0
+    assert page.locator("#grid .dg-body .dg-row").count() == 0
     assert page.locator("#data-summary").inner_text() == "", (
         page.locator("#data-summary").inner_text())
     assert page.locator("#grid-note").inner_text().startswith("Could not load the table: ")
@@ -693,12 +695,33 @@ def test_a_grid_script_that_does_not_load_is_named(open_data):
     assert not page.locator("#grid-note").is_visible()
 
 
+#: grid.js's renderer, pointed at a module the page does not carry.
+_LOSE_RENDERER = r"""(() => {
+  const RealURL = window.URL;
+  window.URL = class extends RealURL {
+    constructor(url, base) {
+      super(/^datagrid\.js/.test(String(url)) ? 'no-such-datagrid.js' : url, base);
+    }
+  };
+})();"""
+
+
+def test_a_renderer_that_does_not_load_is_named_in_the_tables_note(open_data):
+    """If this fails, a grid.js whose renderer module is missing says "Loading the
+    table…" for ever, the silent first load #194 was, one file further along."""
+    page = open_data(before=_LOSE_RENDERER)
+
+    note = page.locator("#grid-note").inner_text()
+    assert note.startswith("Could not load the table: the grid's library did not load"), note
+    assert page.locator("#grid .dg-body .dg-row").count() == 0
+
+
 def test_a_grid_that_runs_without_starting_is_named(open_data):
-    """If this fails, a grid.js that returns before it starts (it does so silently when
-    it finds no Tabulator it can call) leaves the page saying nothing."""
-    not_a_function = ("Object.defineProperty(window, 'Tabulator', "
-                      "{get() { return {}; }, set() {}, configurable: true});")
-    page = open_data(before=not_a_function)
+    """If this fails, a grid.js that runs and never connects to its host (here it is
+    handed a host with nothing in it) leaves the page saying nothing."""
+    no_host = ("Object.defineProperty(window, 'ScrapeXGridHost', "
+               "{get() { return {}; }, set() {}, configurable: true});")
+    page = open_data(before=no_host)
 
     assert page.locator("#data-blocked").inner_text() == (
         "The table's script ran but the grid did not start.")
@@ -721,7 +744,7 @@ def test_the_first_load_paints_when_storage_answers_slowly(open_data):
     the only thing between the first load and "the engine's address changed"."""
     page = open_data(before=_SLOW_STORAGE)
 
-    assert page.locator(".tabulator-row").count() == 2, page.locator("#grid-note").inner_text()
+    assert page.locator("#grid .dg-body .dg-row").count() == 2, page.locator("#grid-note").inner_text()
     assert page.locator("#data-blocked").inner_text() == ""
 
 
@@ -729,7 +752,7 @@ def test_selecting_a_row_opens_its_record_from_the_engine(open_data):
     """If this fails, the record panel, which grid.js skips without a word when its
     markup is missing, is gone from the Data page."""
     page = open_data(offer={"offer_id": 1, "product_name_ar": "سلك"})
-    page.locator(".tabulator-row").first.locator("input[type=checkbox]").check()
+    page.locator("#grid .dg-body .dg-row").first.locator("input[type=checkbox]").check()
     page.wait_for_function("!document.getElementById('offer-panel').hidden", timeout=5_000)
 
     assert harness.BACKEND + "/api/offer/SAMEHGABRIEL/1" in page.evaluate("window.__ASKED__")
@@ -773,8 +796,9 @@ def test_data_html_offers_the_engine_pages_switches_and_planned_list():
 
 
 def test_the_stylesheets_load_in_the_engine_pages_order():
-    """If this fails, the grid's theme may load before the library it overrides, or the
-    page shell after the grid's sheets, and the table stops looking like the engine's."""
+    """If this fails, the grid's theme may load before the shared table sheet it builds
+    on, or the page shell after the grid's sheets, and the table stops looking like the
+    engine's."""
     def order(html):
         return [Path(href).name for href in re.findall(r'<link\s+rel="stylesheet"\s+href="([^"?]+)', html)]
 
@@ -783,7 +807,7 @@ def test_the_stylesheets_load_in_the_engine_pages_order():
     # data.css stands where the engine page loads webui.css.
     ours = ["webui.css" if name == "data.css" else name for name in order(_DATA_HTML)]
     shared = [name for name in engine if name in ours]
-    assert len(shared) >= 7, shared
+    assert len(shared) >= 6, shared
     assert [name for name in ours if name in shared] == shared, (ours, engine)
 
 #: Every table request after the first is HELD until the test releases it, oldest
@@ -899,11 +923,9 @@ SHEET_EFFECTS = {
     "components.css":
         "getComputedStyle(document.getElementById('data-blocked')).display === 'none'",
     "data.css":
-        "getComputedStyle(document.querySelector('.tabulator-cell')).unicodeBidi === 'plaintext'",
+        "getComputedStyle(document.querySelector('.dg-cell')).unicodeBidi === 'plaintext'",
     "table-theme.css":
         "getComputedStyle(document.documentElement).getPropertyValue('--table-radius').trim() !== ''",
-    "vendor/tabulator.min.css":
-        "getComputedStyle(document.querySelector('.tabulator')).position === 'relative'",
     "grid-theme.css":
         "getComputedStyle(document.querySelector('.data-grid-frame'))"
         ".getPropertyValue('--data-grid-height').trim() !== ''",

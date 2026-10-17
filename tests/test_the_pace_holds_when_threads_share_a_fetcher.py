@@ -27,9 +27,10 @@ import threading
 import time
 from itertools import pairwise
 
+import httpx
 import pytest
 
-from scrapex.connectors.base import HttpFetcher
+from scrapex.connectors.base import HttpFetcher, RobotsUnreachable
 
 #: Short enough to keep the suite quick, long enough that a breach is unambiguous
 #: against the ~15.6 ms resolution of this platform's monotonic clock.
@@ -177,3 +178,102 @@ def test_the_slot_is_serialised_and_not_the_request(fetcher):
     assert span < serial * 0.8, (
         f"{span:.2f}s is close to the serial {serial:.2f}s — the requests are not "
         "overlapping, so the lock is being held across the fetch")
+
+
+# ---- robots.txt is read once per host, however many threads share the fetcher ---
+# #1572, measured before the fix: six workers sharing one fetcher fetched robots.txt
+# six times -- every worker whose first request left before the first answer
+# arrived found no cached answer and asked itself, outside the pacer. The directory
+# crawl starts three by default.
+
+ROBOTS_WORKERS = 6
+#: Long enough that every worker reaches the robots check while the first fetch is
+#: still out; the unfixed fetcher then asks once per worker.
+ROBOTS_LATENCY_S = 0.2
+
+
+def _robots_crowd(robots: httpx.Response | Exception, **fetcher_kwargs):
+    """ROBOTS_WORKERS threads, released together, each asking one page.
+
+    `robots` is the answer robots.txt gives, or the exception its read raises."""
+    asked: list[str] = []
+    guard = threading.Lock()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        with guard:
+            asked.append(request.url.path)
+        if request.url.path == "/robots.txt":
+            time.sleep(ROBOTS_LATENCY_S)
+            if isinstance(robots, Exception):
+                raise robots
+            return robots
+        return httpx.Response(200, text="ok")
+
+    one = HttpFetcher(min_interval_s=0.0, jitter=0.0, **fetcher_kwargs)
+    one._client = httpx.Client(transport=httpx.MockTransport(handler))
+    start = threading.Barrier(ROBOTS_WORKERS)
+    outcomes: list[object] = []
+
+    def worker(n: int) -> None:
+        start.wait()
+        try:
+            outcomes.append(one.get(f"https://site.test/p/{n}").status_code)
+        except (ValueError, RobotsUnreachable) as refused:
+            outcomes.append(refused)
+
+    threads = [threading.Thread(target=worker, args=(n,))
+               for n in range(ROBOTS_WORKERS)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    one.close()
+    return one, asked, outcomes
+
+
+def test_robots_txt_is_fetched_once_however_many_threads_ask():
+    _, asked, outcomes = _robots_crowd(
+        httpx.Response(200, text="User-agent: *\nDisallow: /private/\n"))
+
+    assert asked.count("/robots.txt") == 1, asked
+    assert outcomes == [200] * ROBOTS_WORKERS
+
+
+def test_an_unreadable_robots_txt_is_fetched_and_written_down_once_under_threads():
+    """A 4xx (RFC 9309 §2.3.1.3): crawled under the tool's own rules, said once. This
+    was a 503 until #1585 made a 5xx a pause -- the test below."""
+    one, asked, outcomes = _robots_crowd(httpx.Response(403))
+
+    assert asked.count("/robots.txt") == 1, asked
+    unreadable = [w for w in one.degradations if "could not be read" in w]
+    assert len(unreadable) == 1, one.degradations
+    assert outcomes == [200] * ROBOTS_WORKERS
+
+
+@pytest.mark.parametrize("robots", [
+    pytest.param(httpx.Response(503), id="503"),
+    pytest.param(httpx.ConnectError("connection refused"), id="exception"),
+])
+def test_an_unreachable_robots_txt_pauses_every_thread_from_one_fetch(robots):
+    """#1585: a 5xx or no answer pauses the site (ES-2). Every worker sharing the
+    fetcher is paused, the file was asked for ONCE, and no page went out -- the
+    workers that waited on the lock re-raise the cached answer instead of asking --
+    including while the first one backed off between its attempts."""
+    one, asked, outcomes = _robots_crowd(robots)
+
+    # ONE READ: its attempts, retried like a page, and no worker's own.
+    assert asked == ["/robots.txt"] * one._max_attempts, asked
+    assert len(outcomes) == ROBOTS_WORKERS
+    assert all(isinstance(o, RobotsUnreachable) for o in outcomes), outcomes
+
+
+def test_a_refused_source_is_refused_on_every_thread_from_one_fetch():
+    """A `custom` choice with no stored rule, on a site that asks for a delay: every
+    worker is refused, no page goes out, and the file was read once."""
+    _, asked, outcomes = _robots_crowd(
+        httpx.Response(200, text="User-agent: *\nCrawl-delay: 10\n"),
+        robots_choice="custom", robots_custom=None)
+
+    assert asked == ["/robots.txt"], asked
+    assert len(outcomes) == ROBOTS_WORKERS
+    assert all(isinstance(o, ValueError) for o in outcomes), outcomes

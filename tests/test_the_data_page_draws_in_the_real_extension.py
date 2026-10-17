@@ -237,7 +237,7 @@ def open_data(extension, key: str):
     page.wait_for_function(
         """() => {
           const note = document.getElementById('grid-note');
-          return document.querySelector('.tabulator-row')
+          return document.querySelector('#grid .dg-body .dg-row')
             || document.getElementById('data-blocked').textContent.trim()
             || (note && !note.hidden && !/Loading/.test(note.textContent));
         }""",
@@ -291,24 +291,29 @@ def test_the_page_draws_every_row_the_engine_serves(extension, engine, key):
     try:
         assert page.locator("#data-blocked").inner_text() == ""
         assert page.locator("#data-source").inner_text() == key
-        # Tabulator draws only the rows its viewport shows, so a row count read off
+        # The grid draws only the rows near its viewport, so a row count read off
         # the page means "every row" only while the seed fits in it; the page says
         # how many fit.
         holds = page.evaluate("""() => {
-            const holder = document.querySelector('.tabulator-tableholder');
-            const row = document.querySelector('.tabulator-row');
+            const holder = document.querySelector('#grid .dg-scroller');
+            const row = document.querySelector('#grid .dg-body .dg-row');
             return Math.floor(holder.clientHeight / row.offsetHeight);
         }""")
         assert len(answer["rows"]) <= holds, (
             f"the seed gave {key} {len(answer['rows'])} rows and the viewport draws {holds}")
-        assert page.locator(".tabulator-row").count() == len(answer["rows"])
-        # Every column the engine sent, in its order, titled as the engine titled
-        # it, after the grid's own row-selection column, which has no field.
-        fields = page.evaluate("""() => [...document.querySelectorAll('.tabulator-col')]
-            .map((column) => column.getAttribute('tabulator-field'))""")
-        headers = [h.strip() for h in page.locator(".tabulator-col-title").all_inner_texts()]
-        assert fields == [None] + [c["key"] for c in answer["columns"]], fields
-        assert headers == [""] + [c.get("label") or c["key"] for c in answer["columns"]], headers
+        assert page.locator("#grid .dg-body .dg-row").count() == len(answer["rows"])
+        # Every column the engine sent, in its order, after the grid's own
+        # row-selection column, which is not a field. The AR|EN switch hides one
+        # half of each bilingual pair, and a hidden column is not drawn, so the
+        # columns are read from the grid and the titles from the headers on screen.
+        columns = page.evaluate("""() => ScrapeXDataGrid.find('#grid').getColumns()
+            .map((column) => [column.getField(), column.isVisible()])""")
+        assert [field for field, _ in columns] == (
+            ["__select"] + [c["key"] for c in answer["columns"]]), columns
+        titles = {c["key"]: c.get("label") or c["key"] for c in answer["columns"]}
+        headers = [h.strip() for h in page.locator("#grid .dg-col").all_inner_texts()]
+        assert headers == [""] + [titles[field] for field, shown in columns[1:] if shown], (
+            headers)
     finally:
         page.close()
 

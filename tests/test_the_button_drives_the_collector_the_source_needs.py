@@ -388,7 +388,7 @@ def _run_the_job(conn, monkeypatch, *, cells: int = 3, control: str | None = Non
     monkeypatch.setattr(contractors, "crawl_partition", partition)
     monkeypatch.setattr(contractors, "coverage", lambda *a, **k: "coverage")
     monkeypatch.setattr(contractors, "make_fetch",
-                        lambda pace: (_QuietFetcher(), lambda url: ""))
+                        lambda pace, rules: (_QuietFetcher(), lambda url: ""))
     job_ref = jobs.create_job(conn, ["muqawil_org"], RunMode.UPDATE,
                               job_kind=directoryjob.JOB_KIND)
     if control is not None:
@@ -435,7 +435,7 @@ def test_the_run_ref_is_the_jobs_own_so_a_resume_skips_its_pages(conn, monkeypat
     monkeypatch.setattr(contractors, "crawl_partition", _CellByCell(cells=1))
     monkeypatch.setattr(contractors, "coverage", lambda *a, **k: "coverage")
     monkeypatch.setattr(contractors, "make_fetch",
-                        lambda pace: (_QuietFetcher(), lambda url: ""))
+                        lambda pace, rules: (_QuietFetcher(), lambda url: ""))
     job_ref = jobs.create_job(conn, ["muqawil_org"], RunMode.UPDATE,
                               job_kind=directoryjob.JOB_KIND)
 
@@ -483,7 +483,7 @@ def test_a_failure_is_recorded_and_re_raised(conn, monkeypatch):
 
     monkeypatch.setattr(contractors, "crawl", explode)
     monkeypatch.setattr(contractors, "make_fetch",
-                        lambda pace: (_QuietFetcher(), lambda url: ""))
+                        lambda pace, rules: (_QuietFetcher(), lambda url: ""))
     job_ref = jobs.create_job(conn, ["muqawil_org"], RunMode.UPDATE,
                               job_kind=directoryjob.JOB_KIND)
 
@@ -702,7 +702,7 @@ def test_two_directory_crawls_on_one_host_do_not_run_together(tmp_path, monkeypa
     registry.initialize()
     monkeypatch.setattr(contractors, "coverage", lambda *a, **k: "coverage")
     monkeypatch.setattr(contractors, "make_fetch",
-                        lambda pace: (_QuietFetcher(), lambda url: ""))
+                        lambda pace, rules: (_QuietFetcher(), lambda url: ""))
 
     spans: list[tuple[str, float]] = []
     lock = threading.Lock()
@@ -826,7 +826,7 @@ def test_the_request_count_is_visible_before_the_job_ends(conn, monkeypatch):
     monkeypatch.setattr(contractors, "crawl_partition", partition)
     monkeypatch.setattr(contractors, "coverage", lambda *a, **k: "coverage")
     monkeypatch.setattr(contractors, "make_fetch",
-                        lambda pace: (_QuietFetcher(), lambda url: ""))
+                        lambda pace, rules: (_QuietFetcher(), lambda url: ""))
     job_ref = jobs.create_job(conn, ["muqawil_org"], RunMode.UPDATE,
                               job_kind=directoryjob.JOB_KIND)
 
@@ -894,7 +894,7 @@ def test_the_heartbeat_beats_while_one_long_cell_fetches(conn, tmp_path, monkeyp
     """
     monkeypatch.setattr(contractors, "coverage", lambda *a, **k: "coverage")
     monkeypatch.setattr(contractors, "make_fetch",
-                        lambda pace: (_QuietFetcher(), lambda url: ""))
+                        lambda pace, rules: (_QuietFetcher(), lambda url: ""))
     monkeypatch.setattr(directoryjob, "BEAT_EVERY_S", 0.0, raising=False)
 
     job_ref = jobs.create_job(conn, ["muqawil_org"], RunMode.UPDATE,
@@ -1067,7 +1067,7 @@ def _run_it_threaded(conn, monkeypatch, *, cells: int = 4, control: str | None =
     monkeypatch.setattr(contractors, "crawl_partition", partition)
     monkeypatch.setattr(contractors, "coverage", lambda *a, **k: "coverage")
     monkeypatch.setattr(contractors, "make_fetch",
-                        lambda pace: (_QuietFetcher(), lambda url: ""))
+                        lambda pace, rules: (_QuietFetcher(), lambda url: ""))
     job_ref = jobs.create_job(conn, ["muqawil_org"], RunMode.UPDATE,
                               job_kind=directoryjob.JOB_KIND)
     if control is not None:

@@ -142,8 +142,8 @@ function refreshNow(doing, failed = "Could not filter") {
     // ROWS ARE CLAIMED ONLY WHEN THERE ARE ROWS. With no table on screen (the first
     // load failed, or the source had none) grid.js has already put the fault in its
     // own note, and a second line here would say it twice, one of them wrongly.
-    // Tabulator marks the element it builds into with its own class.
-    $("data-summary").textContent = $("grid").classList.contains("tabulator")
+    // The renderer marks the element it builds into with its own class.
+    $("data-summary").textContent = $("grid").classList.contains("dg")
       ? `${failed}: ${error.message} The rows below are the last answer drawn.`
       : "";
   }).finally(() => {
@@ -280,7 +280,7 @@ function sayMode() {
 }
 
 /** What grid.js reads as it starts, none of which it can do without. */
-const GRID_NEEDS = ["Tabulator", "ScrapeXUI", "ScrapeXSplitButton", "ScrapeXTime"];
+const GRID_NEEDS = ["ScrapeXUI", "ScrapeXSplitButton", "ScrapeXTime"];
 
 async function start() {
   if (!SOURCE_KEY) {
@@ -297,8 +297,9 @@ async function start() {
   sayMode();
   $("data-activities-clear").hidden = chosen.size === 0;
 
-  // SAID, NOT SILENT. grid.js returns without a word when Tabulator is missing,
-  // and throws on its first line when ui.js is; either way no table and no reason.
+  // SAID, NOT SILENT. grid.js throws on its first line when ui.js is missing,
+  // and that is no table and no reason. (A renderer that does not load is said
+  // by grid.js itself, in the table's own note.)
   const missing = GRID_NEEDS.filter((name) => !window[name]);
   if (missing.length) {
     show("data-blocked", `The table cannot start: ${missing.join(", ")} did not load. `

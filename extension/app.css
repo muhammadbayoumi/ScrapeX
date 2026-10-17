@@ -232,15 +232,79 @@
                      font-size: var(--fs-xs); color: var(--text); }
   .dataset-identity-line { min-width: 0; }
   .dataset-card .source-identity { margin-bottom: var(--sp-2); }
-  .sched-summary .source-identity { flex: 1; }
-  .sched-summary [data-role="next"] { flex: none; text-align: end; }
+  /* THE SITE'S NAME KEEPS ITS LINE (#1596): the name and the switch share the first
+     row and the schedule takes its own line under them, so a long "next …" can no
+     longer squeeze the name to nothing at 320-480 px. */
+  .sched-summary .source-identity { grid-column: 1; grid-row: 1; }
+  .sched-summary [data-role="next"] { grid-column: 1 / -1; grid-row: 2; }
+  .sched-summary .switch { grid-column: 2; grid-row: 1; }
   .toolbar { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;
              font-size: var(--fs-xs); }
   .toolbar .spacer { flex: 1; }
   .sched-row { padding: var(--sp-2) 0; border-bottom: 1px solid var(--line); }
-  .sched-summary { justify-content: space-between; cursor: pointer; list-style: none; }
+  .sched-summary {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--sp-1) var(--sp-3);
+    cursor: pointer;
+    list-style: none;
+  }
   .sched-summary::-webkit-details-marker { display: none; }
   .sched-body { margin-top: var(--sp-2); }
+  /* The Active switch on a Schedules row (#1596): Supabase's Switch at size medium,
+     34x20 with a 16px thumb (switch.tsx@86c813ec:10-40). Checked is brand with a white
+     thumb; unchecked is the control colour with a muted thumb. */
+  button.switch {
+    flex: none;
+    position: relative;
+    width: 34px;
+    min-width: 0;
+    height: 20px;
+    min-height: 0;
+    padding: 0;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-pill);
+    background: var(--control-bg);
+  }
+  button.switch:hover:not(:disabled) { background: var(--line); }
+  /* THE EDGE CARRIES THE STATE AT 3:1 (WCAG 2.2 SC 1.4.11). Supabase's checked track
+     is brand on white, 1.96:1; the fill stays theirs and the border takes their darker
+     brand step, --accent-ink (brand-600), which clears 3:1 on --surface in both themes. */
+  button.switch[aria-checked="true"] { border-color: var(--accent-ink); background: var(--accent); }
+  button.switch:disabled { cursor: not-allowed; opacity: 0.5; }
+  .switch-thumb {
+    position: absolute;
+    top: 1px;
+    left: 1px;
+    width: 16px;
+    height: 16px;
+    border-radius: var(--radius-pill);
+    background: var(--muted);
+    transition: transform var(--dur) var(--ease);
+  }
+  button.switch[aria-checked="true"] .switch-thumb { transform: translateX(14px); background: var(--switch-thumb-checked); }
+  @media (prefers-reduced-motion: reduce) { .switch-thumb { transition: none; } }
+  /* A confirmation after a change: Sonner's toast as Supabase styles it
+     (sonner.tsx@86c813ec:28-42) -- rounded-md, py-3 px-5, text-sm, border, shadow-lg. */
+  /* INSIDE THE CONTENT COLUMN, never over the rail, and click-through: it confirms and
+     asks nothing, so it must not take a press meant for what lies under it. */
+  .toast {
+    position: fixed;
+    inset-inline-start: var(--sp-4);
+    inset-inline-end: calc(var(--panel-rail-width) + var(--sp-4));
+    bottom: var(--sp-4);
+    pointer-events: none;
+    z-index: var(--z-modal);
+    padding: var(--sp-3) var(--sp-5);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    background: var(--surface-raised);
+    color: var(--text);
+    font-size: var(--fs-sm);
+    box-shadow: var(--shadow-lg);
+  }
+  .toast:empty { display: none; }
   .sched-fields { gap: var(--sp-2); }
 
   /* Small layout primitives, declared once instead of repeated as inline styles. */
@@ -267,15 +331,17 @@
   /* Each task tab has one visible purpose, followed by clearly separated
      sections. The side panel is too narrow for a flat stream of unrelated
      cards: hierarchy has to come from spacing and headings, not extra chrome. */
-  #view-run, #view-source, #view-data, #view-sources, #view-source-edit,
-  #view-appearance, #view-finance, #view-settings, #view-engines,
-  /* AND #view-database, WHICH WAS IN NO ENUMERATION AND HAD NO `.view-scroll`.
-     `main` is `overflow: hidden`, so a view that does not scroll itself simply
-     ends at the fold: the owner reached this page to unpack a 625 MB backup he
-     had just fetched from Drive, and Backups -- the card the whole page exists
-     to reach -- was below the edge with no way down. Every other screen is here
-     or wraps its body; this one was missed, and nothing in the file named it. */
-  #view-database {
+  /* EVERY PAGE SCROLLS BY DEFAULT, because the frame owns the scroll, as Studio's
+     shell does: its `main` is the one scrollport and no page opts in
+     (apps/studio/components/layouts/ProjectLayout/index.tsx@86c813ec:328,
+     DefaultLayout.tsx@86c813ec:132). `main` here is `overflow: hidden`, so a page
+     that is not a bounded column ends at the fold. This was a list of ids every
+     page had to join, and three pages never did: Database (#980), then Jobs and
+     Console (#1639), whose rows and only button were below the edge with no way
+     down. Only the three screens that own a full-bleed layout opt out, below.
+     `:where` keeps this a default: any page rule overrides it. */
+  :where(main > section[id^="view-"]:not(#view-profile, #view-manage-account,
+                                       #view-engine-detail)) {
     display: flex;
     flex: 1;
     flex-direction: column;
@@ -288,28 +354,22 @@
     scrollbar-width: thin;
     scrollbar-color: var(--muted) transparent;
   }
-  :is(#view-run, #view-source, #view-data, #view-sources, #view-source-edit,
-      #view-appearance, #view-finance, #view-settings, #view-engines,
-      #view-database)::-webkit-scrollbar {
+  :where(main > section[id^="view-"])::-webkit-scrollbar {
     width: .45rem;
   }
-  :is(#view-run, #view-source, #view-data, #view-sources, #view-source-edit,
-      #view-appearance, #view-finance, #view-settings, #view-engines,
-      #view-database)::-webkit-scrollbar-track {
+  :where(main > section[id^="view-"])::-webkit-scrollbar-track {
     background: transparent;
   }
-  :is(#view-run, #view-source, #view-data, #view-sources, #view-source-edit,
-      #view-appearance, #view-finance, #view-settings, #view-engines,
-      #view-database)::-webkit-scrollbar-thumb {
+  :where(main > section[id^="view-"])::-webkit-scrollbar-thumb {
     border: 2px solid transparent;
     border-radius: var(--radius-pill);
     background: var(--muted);
     background-clip: padding-box;
   }
-  /* Run, Finance, Settings and Engine have a fixed page introduction followed
-     by one independent scrollport. The scrollbar therefore starts exactly where
-     the moving content starts, rather than beside the fixed heading. */
-  :is(#view-run, #view-finance, #view-settings, #view-engines) {
+  /* A page with a `.view-scroll` has a fixed page introduction followed by one
+     independent scrollport, and so does Engine. The scrollbar therefore starts
+     exactly where the moving content starts, rather than beside the fixed heading. */
+  :is(main > section[id^="view-"]:has(> .view-scroll), #view-engines) {
     padding-inline-end: 0;
     overflow: hidden;
     scrollbar-gutter: auto;
@@ -369,8 +429,7 @@
     overflow: hidden;
   }
   .view-heading { display: flex; flex-direction: column; gap: 2px; }
-  :is(#view-run, #view-source, #view-data, #view-sources,
-      #view-appearance, #view-finance, #view-settings, #view-engines) > .view-heading,
+  main > section[id^="view-"] > .view-heading,
   #view-source-edit > .source-edit-heading {
     position: sticky;
     z-index: 2;
@@ -778,6 +837,14 @@
     font-size: var(--fs-sm);
   }
   .source-edit-form { display: flex; flex-direction: column; }
+  /* Where a crawl rule's value comes from, and the button that clears his choice,
+     on one wrapping line (#1584). Layout only: the colours are `.hint`'s. */
+  .source-edit-origin {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--sp-2);
+  }
   .source-edit-switch {
     display: flex;
     align-items: center;
@@ -4066,75 +4133,143 @@
     .checking-bar-thumb { background: CanvasText; }
   }
 
-/* THE JOBS PAGE — his request of 2026-09-07. Tokens only: the panel renders in
-   whichever theme and palette he has chosen, and a literal colour here would be the
-   one thing on the page that ignores it. */
-.jobs-head { align-items: baseline; justify-content: space-between; gap: 8px; }
+/* THE JOBS PAGE (#1542) — his request of 2026-09-07, redesigned through
+   design-the-experience and confirmed on 2026-10-09. Tokens and the shared components
+   only: layout here, nothing typed that a token already says. */
+.jobs-tools { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: center; }
+.jobs-search { flex: 1 1 100%; }
+.jobs-filter-anchor { position: relative; }
+.jobs-count { margin: var(--sp-2) 0; }
 
-.jobs-list { display: flex; flex-direction: column; gap: 6px; }
-
-.job-row { padding: 8px 10px; }
-
-/* A COLUMN, because the waiting line sits inside the summary and must be readable
-   without opening the row. */
-.job-summary {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  cursor: pointer;
-  list-style: none;
-}
-
-.job-head { display: flex; align-items: center; gap: 8px; }
-
-/* WRAPS RATHER THAN TRUNCATES. This sentence is the answer to "why is nothing
-   happening", and half of it is not an answer. */
-.job-waiting { white-space: normal; }
-
-/* THE NAME TAKES THE ROOM AND TRUNCATES, so a long source key cannot push the status
-   badge off a 360px panel. */
-.job-label {
-  flex: 1 1 auto;
-  min-width: 0;
+/* FilterPopover (FilterPopover.tsx@86c813ec:180-295): w-44, a header band, a named
+   checkbox group, Clear and Save at the end. */
+.jobs-filter {
+  position: absolute;
+  left: 0;
+  top: calc(100% + var(--sp-1));
+  z-index: var(--z-overlay);
+  width: 11rem;
+  padding: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+}
+.jobs-filter header {
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-subtle);
+}
+.jobs-filter fieldset { border: 0; margin: 0; padding: var(--sp-1) 0; }
+.jobs-filter label {
+  display: flex;
+  gap: var(--sp-2);
+  align-items: center;
+  padding: var(--sp-1) var(--sp-3);
+}
+/* Checked, the box is filled with the foreground, as Supabase fills it
+   (checkbox.tsx@86c813ec:24): --accent on white is 1.99:1 (#1582). */
+.jobs-filter input[type="checkbox"] { accent-color: var(--text); }
+.jobs-filter footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border-top: 1px solid var(--line);
+  background: var(--surface-subtle);
 }
 
-/* ONE DOT FOR "THIS IS THE ONE MOVING", which is the question the whole page exists to
-   answer. `--accent-ink` because that is the positive ink this panel HAS: `--ok` is not
-   a token here, and an invalid var() makes the whole declaration invalid without
-   throwing -- which is what `test_every_custom_property_a_stylesheet_reads_is_one_
-   something_defines` exists to catch, and did. */
-.job-live {
-  flex: 0 0 auto;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--accent-ink);
-}
+.jobs-list { padding: 0; overflow: visible; }
+.job-skeleton { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-3); }
+.job-skeleton + .job-skeleton { border-top: 1px solid var(--line); }
 
+/* ONE ROW. ⋮ holds the top corner and the one action sits on the status line (his
+   choice A); the DOM keeps the reading order (identity, status, action, ⋮, detail). */
+.job-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: var(--sp-2);
+  row-gap: var(--sp-1);
+  padding: var(--sp-3);
+}
+.job-row + .job-row { border-top: 1px solid var(--line); }
+.job-identity {
+  grid-column: 1 / -1;
+  padding-inline-end: calc(var(--sp-1) * 7 + var(--sp-2));
+}
+/* THE DOMAIN AND THE KEYS WRAP, IN JOBS ONLY (his choice D): they tell one row from
+   another, and the shared identity ellipsizes them at 320 px. `<wbr>` after each dot
+   puts the break there. */
+.job-identity .source-identity-domain,
+.job-identity .source-identity-key { white-space: normal; overflow-wrap: break-word; }
+.job-more { display: block; }
+.job-line {
+  grid-column: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--sp-2);
+  align-items: center;
+  margin: 0;
+}
+.job-line > span { white-space: nowrap; }
+.job-status-line { grid-row: 2; }
+.job-primary { grid-column: 2; grid-row: 2 / span 2; justify-self: end; align-self: start; }
+.job-kebab { position: absolute; top: var(--sp-3); inset-inline-end: var(--sp-3); }
+/* The registry's table action is a bordered default Button, w-7 (table-actions.tsx@86c813ec:62-67,
+   his choice): narrower than the panel's 36 px icon-only rule, in a table row only. */
+.job-kebab > button.icon-button {
+  min-width: 0;
+  width: calc(var(--sp-1) * 7);
+  padding: 0;
+  justify-content: center;
+}
+.job-menu { top: calc(100% + var(--sp-1)); inset-inline-end: 0; }
+.job-menu .account-menu-item { gap: var(--sp-2); }
+.job-menu .account-menu-item .sx-icon { flex: none; }
+.job-full { grid-column: 1 / -1; margin: 0; }
+
+.job-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  color: var(--text);
+  font-weight: var(--fw-medium);
+}
+.job-status .sx-icon { flex: none; }
+/* TONES. A warning glyph is --warning-600 on the row's surface, with its words in the
+   foreground (#1577's mandate: 3.05:1 is an icon's contrast, not 12 px text's). */
+.job-tone-secondary,
+.job-tone-secondary .sx-icon,
+.job-tone-default .sx-icon { color: var(--muted); }
+.job-tone-foreground .sx-icon { color: var(--text); }
+.job-tone-brand,
+.job-tone-brand .sx-icon { color: var(--accent-ink); }
+.job-tone-destructive,
+.job-tone-destructive .sx-icon { color: var(--red); }
+.job-tone-warning .sx-icon { color: var(--warning-600); }
+
+.job-barline { grid-column: 1 / -1; display: flex; align-items: center; gap: var(--sp-2); }
 .job-bar {
+  flex: 1;
   height: 4px;
   border-radius: 2px;
   background: var(--surface-subtle);
   overflow: hidden;
-  margin: 4px 0;
 }
-
 .job-bar > span { display: block; height: 100%; background: var(--accent); }
 
-.job-actions { gap: 6px; margin-top: 6px; }
+/* THE FAILURE IN TWO LINES, THEN View log (his choice B). The log has it all. */
+.job-clamp {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
 
 /* THE LOG IS TEXT AND SCROLLS INSIDE ITS OWN BOX. Every line came off somebody else's
    website, and a long one must not make the panel scroll sideways. */
 .job-log {
-  margin: 6px 0 0;
   max-height: 40vh;
   overflow: auto;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   color: var(--muted);
 }
-
-.job-log:empty { display: none; }

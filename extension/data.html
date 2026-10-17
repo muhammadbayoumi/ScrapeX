@@ -21,16 +21,17 @@
   THE ENGINE IS STILL INVOLVED. The rows come from `GET /api/table/{source_key}`
   over 127.0.0.1, because nothing else can read the local database yet.
 
-  THE GRID IS VENDORED. MV3 will not load a script from anywhere but the
-  extension, so Tabulator ships in vendor/ — the same bytes the engine serves,
-  held identical by tests/test_vendor.py. A CDN would break the offline promise
-  and hand a third party the ability to change what runs on the owner's machine.
+  THE GRID'S LIBRARIES ARE VENDORED. MV3 will not load a script from anywhere
+  but the extension, so TanStack Table and TanStack Virtual ship in
+  vendor/tanstack/ — the same bytes the engine serves, held identical by
+  tests/test_vendor.py. datagrid.js imports them, and grid.js imports datagrid.js.
+  A CDN would break the offline promise and hand a third party the ability to
+  change what runs on the owner's machine.
 -->
 <link rel="stylesheet" href="tokens.css">
 <link rel="stylesheet" href="components.css">
 <link rel="stylesheet" href="data.css">
 <link rel="stylesheet" href="table-theme.css">
-<link rel="stylesheet" href="vendor/tabulator.min.css">
 <link rel="stylesheet" href="grid-theme.css">
 <link rel="stylesheet" href="data-workspace.css">
 </head>
@@ -197,11 +198,11 @@
      on the document, and a module would run after the first paint — the
      onboarding incident, recorded at onboarding.html:73-75.
      Then what grid.js reads when it starts, in the engine page's order: the time
-     zone (the record panel's dates), the library, the icons, the split button.
+     zone (the record panel's dates), the icons, the split button. The grid's
+     renderer and its libraries are modules grid.js imports itself.
      grid.js itself is not a tag: data.js adds it once it has set the host. -->
 <script src="appearance.js"></script>
 <script src="timezone.js"></script>
-<script src="vendor/tabulator.min.js"></script>
 <script src="ui.js" data-icon-sprite="icons/material-icons.svg"></script>
 <script src="split-button.js"></script>
 <script type="module" src="data.js"></script>

@@ -123,35 +123,54 @@ INSTRUMENT = r"""
     window.__uncaught.push(reason instanceof Error ? reason.message : String(reason));
   });
 
-  // Every table grid.js constructs, counted, and whether its queued build has run.
+  // Every table grid.js constructs, counted, and whether its build has been announced.
+  // grid.js builds through window.ScrapeXDataGrid, which it sets once its renderer
+  // module has loaded, so the handle is wrapped the moment it is set.
   window.__builds = 0;
   window.__tables = [];
-  const RealTabulator = window.Tabulator;
-  window.Tabulator = new Proxy(RealTabulator, {
-    construct(target, args) {
-      window.__builds += 1;
-      const instance = Reflect.construct(target, args);
-      const entry = {built: false};
-      window.__tables.push(entry);
-      instance.on('tableBuilt', () => { entry.built = true; });
-      return instance;
+  let renderer;
+  Object.defineProperty(window, 'ScrapeXDataGrid', {
+    configurable: true,
+    get: () => renderer,
+    set: (real) => {
+      renderer = new Proxy(real, {
+        construct(target, args) {
+          window.__builds += 1;
+          const instance = Reflect.construct(target, args);
+          const entry = {built: false};
+          window.__tables.push(entry);
+          instance.on('tableBuilt', () => { entry.built = true; });
+          return instance;
+        },
+      });
     },
   });
 
-  // How many live ResizeObservers watch #grid. Each built table adds one and its destroy
-  // takes it away; a table destroyed before its build ran never takes it away.
-  window.__gridObservers = 0;
+  // How many live ResizeObservers watch #grid or anything drawn inside it. Each built
+  // table makes its own, and its destroy must release every one of them; a table that
+  // leaked one would keep watching a grid that is gone.
+  const watching = new Map();
+  const inGrid = (target) => !!(target && target.closest && target.closest('#grid'));
   const RealObserver = window.ResizeObserver;
   window.ResizeObserver = class extends RealObserver {
     observe(target, options) {
-      if (target && target.id === 'grid') window.__gridObservers += 1;
+      if (inGrid(target)) {
+        if (!watching.has(this)) watching.set(this, new Set());
+        watching.get(this).add(target);
+      }
       return super.observe(target, options);
     }
     unobserve(target) {
-      if (target && target.id === 'grid') window.__gridObservers -= 1;
+      const watched = watching.get(this);
+      if (watched) { watched.delete(target); if (!watched.size) watching.delete(this); }
       return super.unobserve(target);
     }
+    disconnect() {
+      watching.delete(this);
+      return super.disconnect();
+    }
   };
+  Object.defineProperty(window, '__gridObservers', {get: () => watching.size});
 
   // The host's own control, standing in for the activity tick the reader just pressed.
   const tick = document.createElement('input');
@@ -162,7 +181,7 @@ INSTRUMENT = r"""
   const busyHost = () => document.querySelector('[data-grid-viewport]')
     || document.getElementById('grid');
   const drawnNames = () => [...document.querySelectorAll(
-    '#grid .tabulator-row .tabulator-cell[tabulator-field="product_name"]')]
+    '#grid .dg-body .dg-row .dg-cell[data-field="product_name"]')]
     .map((cell) => cell.textContent);
 
   // One entry per refresh, written once, when it settles.
@@ -254,7 +273,7 @@ HOLD_OFFERS = """
 })();
 """
 
-#: Holds every animation frame. grid.js's post-build redraw is the only caller on the page.
+#: Holds every animation frame. The grid's size observer redraws on one.
 HOLD_FRAMES = """
 window.__rafs = [];
 window.requestAnimationFrame = (callback) => window.__rafs.push(callback);
@@ -289,18 +308,20 @@ def open_grid(browser, tmp_path):
         page.errors = []
         page.on("console", lambda message: page.logs.append(message.text))
         page.on("pageerror", lambda error: page.errors.append(str(error)))
-        page.goto(target.as_uri())
+        page.goto(f"{base}/{target.name}")
         return page
 
-    yield opener
-    for context in contexts:
-        context.close()
+    # SERVED, because the grid's renderer is a module and file:// refuses modules.
+    with harness.serve(tmp_path) as base:
+        yield opener
+        for context in contexts:
+            context.close()
 
 
 # ---- driving the page ------------------------------------------------------------------
 
 def _quiet(page):
-    """Every table grid.js constructed has run its queued build."""
+    """Every table grid.js constructed has announced its build."""
     page.wait_for_function(
         "() => window.__tables.length > 0 && window.__tables.every((t) => t.built)",
         polling=50, timeout=WAIT)
@@ -368,12 +389,12 @@ def _rebuild(page, action):
 
 def _offers(page):
     return page.evaluate(
-        "() => Tabulator.findTable('#grid')[0].getData().map((row) => row.offer_id)")
+        "() => ScrapeXDataGrid.find('#grid').getData().map((row) => row.offer_id)")
 
 
 def _names(page):
     return page.evaluate("""() => [...document.querySelectorAll(
-        '#grid .tabulator-row .tabulator-cell[tabulator-field="product_name"]')]
+        '#grid .dg-body .dg-row .dg-cell[data-field="product_name"]')]
         .map((cell) => cell.textContent)""")
 
 
@@ -395,8 +416,7 @@ def _flip(page, feature):
 def _popup_values(page, field):
     """Open a column's filter popup and read the values it offers, (Select all) aside."""
     return page.evaluate("""(field) => {
-        const column = [...document.querySelectorAll('#grid .tabulator-col')]
-          .find((c) => c.getAttribute('tabulator-field') === field);
+        const column = document.querySelector(`#grid .dg-col[data-field="${field}"]`);
         column.querySelector('.material-filter-icon').parentElement.click();
         return [...document.querySelectorAll('.setfilter-row:not(.strong) span')]
           .map((span) => span.textContent);
@@ -406,8 +426,7 @@ def _popup_values(page, field):
 def _filter_to(page, field, value):
     """His way: untick (Select all), tick one value, Apply."""
     page.evaluate("""([field, value]) => {
-        const column = [...document.querySelectorAll('#grid .tabulator-col')]
-          .find((c) => c.getAttribute('tabulator-field') === field);
+        const column = document.querySelector(`#grid .dg-col[data-field="${field}"]`);
         column.querySelector('.material-filter-icon').parentElement.click();
         document.querySelector('.setfilter-row.strong input').click();
         const row = [...document.querySelectorAll('.setfilter-row:not(.strong)')]
@@ -419,11 +438,9 @@ def _filter_to(page, field, value):
 
 
 def _menu(page, field, *path):
-    """Open a column's three-dot menu and press each item of `path` in turn (the press
-    idiom of test_grid_dom: the header guard swallows the mousedown, the click opens)."""
+    """Open a column's three-dot menu and press each item of `path` in turn."""
     page.evaluate("""([field, path]) => {
-        const column = [...document.querySelectorAll('#grid .tabulator-col')]
-          .find((c) => c.getAttribute('tabulator-field') === field);
+        const column = document.querySelector(`#grid .dg-col[data-field="${field}"]`);
         const button = column.querySelector('.material-menu-icon').parentElement;
         const r = button.getBoundingClientRect();
         const o = {bubbles: true, cancelable: true, button: 0, buttons: 1,
@@ -432,8 +449,8 @@ def _menu(page, field, *path):
         button.dispatchEvent(new MouseEvent('mouseup', o));
         button.dispatchEvent(new MouseEvent('click', o));
         for (const label of path) {
-          const menus = document.querySelectorAll('.tabulator-menu');
-          const items = [...menus[menus.length - 1].querySelectorAll('.tabulator-menu-item')];
+          const menus = document.querySelectorAll('.dg-menu');
+          const items = [...menus[menus.length - 1].querySelectorAll('.dg-menu-item')];
           const item = items.find((x) => x.textContent.trim() === label);
           if (!item) {
             throw new Error('no ' + label + ' in ' + items.map((x) => x.textContent.trim()));
@@ -441,10 +458,6 @@ def _menu(page, field, *path):
           item.click();
         }
     }""", [field, list(path)])
-
-
-def _not_initialized(page):
-    return [line for line in page.logs if "Table Not Initialized" in line]
 
 
 def _uncaught(page):
@@ -467,7 +480,7 @@ def test_a_refresh_draws_the_whole_new_answer_not_only_its_rows(open_grid):
     assert (outcome["ok"], outcome["rows"]) == ("drawn", 2), outcome
     assert _offers(page) == [4, 5]
     assert page.evaluate("""() => document.querySelector(
-        '#grid .tabulator-row .tabulator-cell[tabulator-field="tax"]').textContent""") == (
+        '#grid .dg-body .dg-row .dg-cell[data-field="tax"]').textContent""") == (
         "Excl. VAT"), "the tax cell still reads the previous answer's tax_states"
     assert _note(page) == {"hidden": False,
                            "text": "Loaded 2 of 9; filters search only what is loaded"}
@@ -483,21 +496,21 @@ def test_a_refresh_keeps_the_readers_sort_column_filter_pin_width_and_grouping(o
     page = open_grid(six, host_js=DEFERRED)
     _shown(page, six)
 
-    page.evaluate("() => Tabulator.findTable('#grid')[0].setSort('price', 'desc')")
+    page.evaluate("() => ScrapeXDataGrid.find('#grid').setSort('price', 'desc')")
     _filter_to(page, "brand", "AKS")
     _rebuild(page, lambda: _menu(page, "brand", "Pin Column", "Pin Left"))
     _rebuild(page, lambda: _menu(page, "price", "Auto-fit column width"))
     width = page.evaluate(
-        "() => Tabulator.findTable('#grid')[0].getColumn('price').getWidth()")
+        "() => ScrapeXDataGrid.find('#grid').getColumn('price').getWidth()")
     _rebuild(page, lambda: _menu(page, "brand", "Group by Brand"))
 
     read = """() => {
-        const t = Tabulator.findTable('#grid')[0];
+        const t = ScrapeXDataGrid.find('#grid');
         return {
           sorters: t.getSorters().map((s) => s.field + ':' + s.dir),
           active: t.getData('active').map((r) => [r.brand, r.price]),
           chips: document.getElementById('grid-chips').textContent,
-          frozen: t.getColumn('brand').getDefinition().frozen === true,
+          frozen: t.getColumn('brand').getDefinition().frozen === 'left',
           width: t.getColumn('price').getWidth(),
           groups: t.getGroups().map((g) => [g.getKey(),
                                              g.getRows().map((r) => r.getData().offer_id)]),
@@ -538,9 +551,15 @@ def test_a_refresh_chooses_each_columns_sorter_again_from_the_new_rows(open_grid
     whatever order they were stored."""
     page = open_grid(A, host_js=DEFERRED)
     _shown(page, A)
-    assert page.evaluate(
-        "() => Tabulator.findTable('#grid')[0].getColumn('code').getDefinition().sorter"
-    ) == "number", "A's code column should have started on the number sorter"
+    # A's codes are all numbers, so the column started on the number sorter: 10 after 9.
+    assert page.evaluate("""() => {
+        const t = ScrapeXDataGrid.find('#grid');
+        t.setSort('code', 'asc');
+        const order = t.getData('active').map((r) => r.code);
+        t.setSort();
+        return order;
+    }""") == sorted(page.evaluate("() => window.__payload.rows.map((r) => r.code)"),
+                    key=float), "A's code column should have started on the number sorter"
 
     words = _table([_row(21, "AKS", 1.0, "10"), _row(22, "AKS", 2.0, "2"),
                     _row(23, "AKS", 3.0, "1"), _row(24, "AKS", 4.0, "Beta"),
@@ -550,7 +569,7 @@ def test_a_refresh_chooses_each_columns_sorter_again_from_the_new_rows(open_grid
     assert _outcome(page, index)["ok"] == "drawn"
 
     order = page.evaluate("""() => {
-        const t = Tabulator.findTable('#grid')[0];
+        const t = ScrapeXDataGrid.find('#grid');
         t.setSort('code', 'asc');
         return t.getData('active').map((r) => r.code);
     }""")
@@ -566,9 +585,9 @@ def test_a_refresh_can_turn_nesting_on_and_off(open_grid):
                                      "'brand');" + INSTANT)
     _quiet(page)
     tree = """() => {
-        const t = Tabulator.findTable('#grid')[0];
+        const t = ScrapeXDataGrid.find('#grid');
         return {
-          controls: document.querySelectorAll('#grid .tabulator-data-tree-control').length,
+          controls: document.querySelectorAll('#grid .dg-tree-toggle').length,
           count: t.getDataCount(),
           branches: t.getData().filter((r) => Array.isArray(r._children))
                       .map((r) => r._children.length),
@@ -601,7 +620,7 @@ def test_one_feature_switch_after_a_refresh_builds_the_table_once(open_grid):
     _flip(page, "stripe")
     page.wait_for_function(
         "() => document.getElementById('grid').classList.contains('striped')"
-        "  && document.querySelectorAll('#grid .tabulator-row').length > 0",
+        "  && document.querySelectorAll('#grid .dg-body .dg-row').length > 0",
         polling=50, timeout=WAIT)
     page.wait_for_timeout(150)
 
@@ -621,7 +640,7 @@ def test_the_language_choice_survives_a_rebuild(open_grid, rebuild):
     _quiet(page)
     page.wait_for_selector("#grid-lang-toggle", timeout=WAIT)
     page.click('#grid-lang-toggle .grid-lang-option[aria-label="Show Arabic fields"]')
-    visible = """() => Tabulator.findTable('#grid')[0].getColumns()
+    visible = """() => ScrapeXDataGrid.find('#grid').getColumns()
         .filter((c) => c.isVisible()).map((c) => c.getField())"""
     shown = page.evaluate(visible)
     assert "product_name_ar" in shown and "product_name" not in shown, shown
@@ -654,17 +673,17 @@ def test_a_rebuild_keeps_his_sort_on_a_pair_whose_other_half_he_hid(open_grid, r
     """If this fails, he hides the English name, sorts by the Arabic one, and the next
     grouping, pin, feature switch or activity tick silently throws his sort away: the
     AR|EN re-apply moved the sort to the English column, which is not in the table, and
-    Tabulator answers a sort on a missing column by clearing it."""
+    a sort on a missing column clears the sort."""
     engine = rebuild == "engine-page-feature-switch"
     page = open_grid(ENGLISH_HIDDEN, host_js="" if engine else DEFERRED)
     if not engine:
         _resolve(page, 0, ENGLISH_HIDDEN)
     _quiet(page)
-    page.evaluate("() => Tabulator.findTable('#grid')[0].setSort('product_name_ar', 'desc')")
+    page.evaluate("() => ScrapeXDataGrid.find('#grid').setSort('product_name_ar', 'desc')")
     page.wait_for_timeout(150)
-    order = """() => Tabulator.findTable('#grid')[0].getRows('active')
-        .map((row) => row.getData().offer_id)"""
-    sorters = """() => Tabulator.findTable('#grid')[0].getSorters()
+    order = """() => ScrapeXDataGrid.find('#grid').getData('active')
+        .map((row) => row.offer_id)"""
+    sorters = """() => ScrapeXDataGrid.find('#grid').getSorters()
         .map((s) => [s.field, s.dir])"""
     assert page.evaluate(order) == [3, 2, 1]
 
@@ -698,9 +717,9 @@ def test_an_answer_with_no_rows(open_grid, case):
         _landed(page)
         assert _note(page)["text"] != "No records yet.", (
             "a selection that matched nothing read as a source with nothing stored")
-        assert page.evaluate("() => (Tabulator.findTable('#grid') || []).length") == 1
-        page.wait_for_selector("#grid .tabulator-placeholder", timeout=WAIT)
-        assert page.text_content("#grid .tabulator-placeholder").strip() == (
+        assert page.evaluate("() => (window.ScrapeXDataGrid && ScrapeXDataGrid.find('#grid') ? 1 : 0)") == 1
+        page.wait_for_selector("#grid .dg-placeholder", timeout=WAIT)
+        assert page.text_content("#grid .dg-placeholder").strip() == (
             "No rows match these filters.")
         assert page.evaluate(
             "() => document.querySelector('#grid-toolbar .split-button').dataset.splitWired"
@@ -717,7 +736,7 @@ def test_an_answer_with_no_rows(open_grid, case):
         page = open_grid(EMPTY_BARE)
         _landed(page)
         assert _note(page) == {"hidden": False, "text": "No records yet."}
-        assert page.evaluate("() => (Tabulator.findTable('#grid') || []).length") == 0
+        assert page.evaluate("() => (window.ScrapeXDataGrid && ScrapeXDataGrid.find('#grid') ? 1 : 0)") == 0
         assert page.evaluate("() => window.__builds") == 0
         return
 
@@ -725,7 +744,7 @@ def test_an_answer_with_no_rows(open_grid, case):
         page = open_grid(EMPTY_UNFILTERED, host_js=INSTANT)
         _landed(page)
         assert _note(page) == {"hidden": False, "text": "No records yet."}
-        assert page.evaluate("() => (Tabulator.findTable('#grid') || []).length") == 0
+        assert page.evaluate("() => (window.ScrapeXDataGrid && ScrapeXDataGrid.find('#grid') ? 1 : 0)") == 0
 
         assert _refresh_to(page, A)["ok"] == "drawn"
         assert _offers(page) == [1, 2, 3]
@@ -746,9 +765,9 @@ def test_an_answer_with_no_rows(open_grid, case):
     _quiet(page)
     empty = EMPTY_FILTERED if case == "refresh-filtered" else EMPTY_UNFILTERED
     assert _refresh_to(page, empty)["ok"] == "drawn"
-    assert page.evaluate("() => Tabulator.findTable('#grid')[0].getDataCount()") == 0
-    assert page.evaluate("() => document.querySelectorAll('#grid .tabulator-row').length") == 0
-    assert page.is_visible("#grid .tabulator-placeholder")
+    assert page.evaluate("() => ScrapeXDataGrid.find('#grid').getDataCount()") == 0
+    assert page.evaluate("() => document.querySelectorAll('#grid .dg-body .dg-row').length") == 0
+    assert page.is_visible("#grid .dg-placeholder")
     assert _note(page)["text"] != "No records yet."
 
 
@@ -759,10 +778,8 @@ def test_a_refresh_closes_the_record_panel_and_drops_its_late_answer(open_grid):
     table, and a slow answer for that row paints into it after he has moved on."""
     page = open_grid(A, host_js=HOLD_OFFERS + DEFERRED)
     _shown(page, A)
-    page.evaluate("""() => {
-        const t = Tabulator.findTable('#grid')[0];
-        t.selectRow(t.getRows()[0]);
-    }""")
+    page.evaluate("""() => document.querySelector(
+        '#grid .dg-body .dg-row[data-index="0"] .dg-select').click()""")
     page.wait_for_selector("#offer-panel:not([hidden])", timeout=WAIT)
     assert page.evaluate("() => window.__held.length") == 1
 
@@ -776,7 +793,7 @@ def test_a_refresh_closes_the_record_panel_and_drops_its_late_answer(open_grid):
     }"""
     assert page.evaluate(panel) == {"hidden": True, "text": "", "children": 0}
     assert page.evaluate(
-        "() => Tabulator.findTable('#grid')[0].getSelectedRows().length") == 0
+        "() => ScrapeXDataGrid.find('#grid').getSelectedRows().length") == 0
     assert page.evaluate(
         "() => document.querySelectorAll('#grid .grid-footer-stat')[1].hidden") is True
 
@@ -792,10 +809,8 @@ def test_a_refresh_clears_a_dataset_tables_selection(open_grid):
     first = _dataset(1)
     page = open_grid(first, host_js=DEFERRED)
     _shown(page, first)
-    page.evaluate("""() => {
-        const t = Tabulator.findTable('#grid')[0];
-        t.selectRow([t.getRows()[0], t.getRows()[1]]);
-    }""")
+    page.evaluate("""() => ['0', '1'].forEach((i) => document.querySelector(
+        `#grid .dg-body .dg-row[data-index="${i}"] .dg-select`).click())""")
     stat = """() => {
         const s = document.querySelectorAll('#grid .grid-footer-stat')[1];
         return {hidden: s.hidden,
@@ -810,7 +825,7 @@ def test_a_refresh_clears_a_dataset_tables_selection(open_grid):
 
     assert page.evaluate(stat)["hidden"] is True
     assert page.evaluate(
-        "() => Tabulator.findTable('#grid')[0].getSelectedRows().length") == 0
+        "() => ScrapeXDataGrid.find('#grid').getSelectedRows().length") == 0
 
 
 def test_a_narrowing_refresh_clears_a_dataset_selection_its_survivors_included(open_grid):
@@ -820,17 +835,15 @@ def test_a_narrowing_refresh_clears_a_dataset_selection_its_survivors_included(o
     first = _dataset(1)
     page = open_grid(first, host_js=DEFERRED)
     _shown(page, first)
-    page.evaluate("""() => {
-        const table = Tabulator.findTable('#grid')[0];
-        table.selectRow([table.getRows()[0], table.getRows()[1]]);
-    }""")
+    page.evaluate("""() => ['0', '1'].forEach((i) => document.querySelector(
+        `#grid .dg-body .dg-row[data-index="${i}"] .dg-select`).click())""")
     narrowed = dict(first, rows=first["rows"][1:], total=2, returned=2)
     index = _refresh(page)
     _resolve(page, 1, narrowed)
     assert _outcome(page, index)["ok"] == "drawn"
     page.wait_for_timeout(200)
     assert page.evaluate(
-        "() => Tabulator.findTable('#grid')[0].getSelectedRows().length") == 0
+        "() => ScrapeXDataGrid.find('#grid').getSelectedRows().length") == 0
     assert page.evaluate(
         "() => document.querySelectorAll('#grid .grid-footer-stat')[1].hidden") is True
 
@@ -840,10 +853,8 @@ def test_a_narrowing_refresh_leaves_the_record_panel_closed(open_grid):
     describing a selection the table no longer holds."""
     page = open_grid(A, host_js=DEFERRED)
     _shown(page, A)
-    page.evaluate("""() => {
-        const table = Tabulator.findTable('#grid')[0];
-        table.selectRow(table.getRows()[1]);
-    }""")
+    page.evaluate("""() => document.querySelector(
+        '#grid .dg-body .dg-row[data-index="1"] .dg-select').click()""")
     page.wait_for_selector("#offer-panel:not([hidden])", timeout=WAIT)
     index = _refresh(page)
     _resolve(page, 1, _table(A["rows"][1:]))
@@ -851,28 +862,25 @@ def test_a_narrowing_refresh_leaves_the_record_panel_closed(open_grid):
     page.wait_for_timeout(300)
     assert page.evaluate("() => document.getElementById('offer-panel').hidden") is True
     assert page.evaluate(
-        "() => Tabulator.findTable('#grid')[0].getSelectedRows().length") == 0
+        "() => ScrapeXDataGrid.find('#grid').getSelectedRows().length") == 0
 
 
 def test_a_refresh_dismisses_an_open_header_popup(open_grid):
     """If this fails, a Brand filter popup opened before the tick stays on screen over the
     new rows, offering the old rows' values."""
-    # THIS PINS THE BEHAVIOUR, AND NO LINE OF draw() DOES IT. The vendored Popup
-    # subscribes to "table-destroy" when it is shown and hides itself on it
-    # (tabulator.min.js, Popup.show and tableDestroyed), so build()'s destroy closes it.
-    # draw() once called dismissOpenHeaderPopups() as well; the gate's mutation run
-    # showed that call changed nothing, and it sent a synthetic click to the page.
+    # THIS PINS THE BEHAVIOUR, AND NO LINE OF draw() DOES IT. The renderer closes its
+    # popups when it is destroyed (datagrid.js, destroy), so build()'s destroy closes it.
     page = open_grid(A, host_js=DEFERRED)
     _shown(page, A)
     assert _popup_values(page, "brand") == ["3M", "AKS"]
-    page.wait_for_selector(".tabulator-popup-container", timeout=WAIT)
+    page.wait_for_selector(".dg-popup", timeout=WAIT)
 
     index = _refresh(page)
     _resolve(page, 1, A2)
     assert _outcome(page, index)["ok"] == "drawn"
 
     assert page.evaluate(
-        "() => document.querySelectorAll('.tabulator-popup-container').length") == 0
+        "() => document.querySelectorAll('.dg-popup').length") == 0
     assert _popup_values(page, "brand") == ["Hilti", "Makita"]
 
 
@@ -1053,13 +1061,13 @@ def test_a_loader_that_cannot_answer_a_table_is_said_on_the_page(open_grid, load
     assert _uncaught(page) == []
     if note is None:
         page.wait_for_function(
-            "() => document.querySelectorAll('#grid .tabulator-row').length === 3",
+            "() => document.querySelectorAll('#grid .dg-body .dg-row').length === 3",
             polling=50, timeout=WAIT)
         assert _offers(page) == [1, 2, 3]
         assert _note(page)["hidden"] is True
     else:
         assert _note(page) == {"hidden": False, "text": note}
-        assert page.evaluate("() => (Tabulator.findTable('#grid') || []).length") == 0
+        assert page.evaluate("() => (window.ScrapeXDataGrid && ScrapeXDataGrid.find('#grid') ? 1 : 0)") == 0
 
 
 def test_a_refresh_whose_loader_throws_returns_a_rejected_promise(open_grid):
@@ -1157,7 +1165,7 @@ def test_the_grid_is_dimmed_and_busy_until_the_newest_rows_are_drawn(open_grid, 
     assert _names(page) == ["Item 1", "Item 2", "Item 3"], "the old rows left before the new"
     if layout == "viewport":
         assert page.evaluate("() => document.getElementById('grid').hasAttribute('aria-busy')"
-                             ) is False, "the mark belongs on the viewport, not Tabulator's #grid"
+                             ) is False, "the mark belongs on the viewport, not the grid's #grid"
 
     second = _refresh(page)
     _resolve(page, 1, B)
@@ -1183,8 +1191,10 @@ def test_a_refresh_waits_for_a_table_still_being_built(open_grid):
     collision, each redrawing on every resize)."""
     page = open_grid(A, host_js=INSTANT)
     _quiet(page)
-    page.wait_for_timeout(300)      # past the viewport observer's first redraw
-    page.evaluate("() => Tabulator.findTable('#grid')[0].setSort('price', 'desc')")
+    page.wait_for_timeout(300)      # past the size observer's first redraw
+    observers = page.evaluate("() => window.__gridObservers")
+    assert observers >= 1, "the grid watches its own size, so one observer at least"
+    page.evaluate("() => ScrapeXDataGrid.find('#grid').setSort('price', 'desc')")
 
     state = page.evaluate("""async (next) => {
         const box = document.querySelector('[data-feature="stripe"]');
@@ -1199,12 +1209,11 @@ def test_a_refresh_waits_for_a_table_still_being_built(open_grid):
 
     assert state == "drawn"
     assert page.evaluate(
-        "() => Tabulator.findTable('#grid')[0].getSorters().map((s) => s.field + ':' + s.dir)"
+        "() => ScrapeXDataGrid.find('#grid').getSorters().map((s) => s.field + ':' + s.dir)"
     ) == ["price:desc"]
     assert _offers(page) == [7, 8, 9]
-    assert page.evaluate("() => window.__gridObservers") == 1, (
-        "a table destroyed before its build ran built itself into #grid anyway")
-    assert _not_initialized(page) == []
+    assert page.evaluate("() => window.__gridObservers") == observers, (
+        "a replaced table left an observer watching a grid that is gone")
     assert page.errors == []
     assert _uncaught(page) == []
 
@@ -1215,13 +1224,16 @@ def test_a_rebuild_inside_a_refreshs_build_gap_is_drawn_before_the_refresh_resol
     replaced it before it exists."""
     page = open_grid(A, host_js=INSTANT)
     _quiet(page)
-    page.wait_for_timeout(300)      # past the viewport observer's first redraw
+    page.wait_for_timeout(300)      # past the size observer's first redraw
 
     seen = page.evaluate("""async (next) => {
         const mount = document.getElementById('grid');
         const box = document.querySelector('[data-feature="stripe"]');
-        const watcher = new MutationObserver(() => {
-          if (mount.childElementCount !== 0) return;
+        // The gap: the refresh's table is drawn and has not yet announced its build.
+        const drawnAnew = (records) => records.some((record) => [...record.addedNodes]
+          .some((node) => node.classList && node.classList.contains('dg-scroller')));
+        const watcher = new MutationObserver((records) => {
+          if (!drawnAnew(records)) return;
           watcher.disconnect();
           box.checked = !box.checked;
           box.dispatchEvent(new Event('change', {bubbles: true}));
@@ -1231,33 +1243,35 @@ def test_a_rebuild_inside_a_refreshs_build_gap_is_drawn_before_the_refresh_resol
         const outcome = await window.__grid.refresh();
         return {
           state: outcome.state,
-          rows: document.querySelectorAll('#grid .tabulator-row').length,
+          rows: document.querySelectorAll('#grid .dg-body .dg-row').length,
           striped: mount.classList.contains('striped'),
-          tables: (Tabulator.findTable('#grid') || []).length,
+          tables: (window.ScrapeXDataGrid && ScrapeXDataGrid.find('#grid') ? 1 : 0),
           flipped: box.checked,
         };
     }""", A2)
 
     assert seen == {"state": "drawn", "rows": 3, "striped": True, "tables": 1,
                     "flipped": True}, seen
-    assert _not_initialized(page) == []
     assert page.errors == []
 
 
 def test_a_redraw_queued_by_the_replaced_table_leaves_the_new_one_alone(open_grid):
     """If this fails, the table a tick replaced reaches into its replacement before that
-    one is built, and the console fills with Tabulator's 'Table Not Initialized'."""
+    one is built: a redraw it queued runs against a grid that is no longer its own."""
     page = open_grid(A, host_js=HOLD_FRAMES + INSTANT)
     _quiet(page)
-    page.wait_for_timeout(300)      # past the viewport observer's first redraw
+    page.wait_for_timeout(300)      # past the size observer's first redraw
     assert page.evaluate("() => window.__rafs.length") >= 1, (
-        "the first table queued no redraw, so there is nothing to race")
+        "the first table queued no frame, so there is nothing to race")
 
     seen = page.evaluate("""async (next) => {
         const mount = document.getElementById('grid');
         let flushed = 0;
-        const watcher = new MutationObserver(() => {
-          if (mount.childElementCount !== 0) return;
+        // The moment the replacement is drawn, the replaced table's frames run.
+        const drawnAnew = (records) => records.some((record) => [...record.addedNodes]
+          .some((node) => node.classList && node.classList.contains('dg-scroller')));
+        const watcher = new MutationObserver((records) => {
+          if (!drawnAnew(records)) return;
           watcher.disconnect();
           const queued = window.__rafs.splice(0);
           flushed = queued.length;
@@ -1272,7 +1286,6 @@ def test_a_redraw_queued_by_the_replaced_table_leaves_the_new_one_alone(open_gri
     assert seen["state"] == "drawn", seen
     assert seen["flushed"] >= 1, seen
     assert _offers(page) == [4, 5]
-    assert _not_initialized(page) == []
     assert page.errors == []
 
 
@@ -1305,7 +1318,7 @@ def test_the_host_is_handed_one_frozen_refresh_and_the_engines_page_none(open_gr
     """If this fails, the engine's own page grows a refresh any script can call, or the
     host is handed a handle it can rewrite, or is handed two."""
     page = open_grid(A, host_js=host_js + SNAPSHOT)
-    page.wait_for_function("() => document.querySelectorAll('#grid .tabulator-row').length",
+    page.wait_for_function("() => document.querySelectorAll('#grid .dg-body .dg-row').length",
                            polling=50, timeout=WAIT)
     page.wait_for_timeout(100)
 

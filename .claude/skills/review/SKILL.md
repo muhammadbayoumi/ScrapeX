@@ -14,6 +14,11 @@ Four dimensions, and every review covers all four:
 - **tests** — coverage gaps, assertion strength, missing edge cases, untested failure
   paths. The strongest finding here is a vacuous guard: a test that still passes when the
   code it claims to protect is deleted or inverted. Name the mutation that survives.
+  Two weak guards to name as such: a test that only asserts a string appears in a source
+  file catches the string's deletion, never the string ceasing to take effect; and a
+  browser test that reads an animated or measured value once (a colour under a
+  transition, a size before layout settles) passes on a fast machine and fails on a slow
+  one, so it waits, with a bound, for the expected value instead.
 - **performance** — N+1 and query patterns, memory, caching, slow paths. Judge against
   the real warehouse, not a fixture: ~17,900 contractor profiles, 408,547 memberships,
   a 2.1 GB database.
@@ -61,14 +66,24 @@ test or workflow change.
    what the line does not support, demands a demonstration for every must fix, and then
    reads the change cold to find what all four walked past. It records **every kill with
    its reason** — its own success metric is killing findings, so the kill list is the
-   only record of its false negatives.
+   only record of its false negatives. A finding that something is unused, dead or has
+   no caller is believed only after a search of the whole tree — templates, the
+   extension, the authored sources and their generated copies, and the later branches of
+   a stack — because a reviewer reads the files around the diff, and the caller is often
+   on another surface.
 4. **Fix what survives, push, review again.** On a branch that is not yours, what the
    pass finds goes back to its author; the merging session pushes no behaviour change it
    did not write.
 5. **Clean means no must fix and no should fix.** An *optional* becomes an issue —
    `gh issue create` — and never a fix in the same PR.
+6. **Merge only a head that contains today's `main`.** Right before merging, run
+   `git log <head>..origin/main`. If it prints anything, merge `origin/main` into the
+   head, push, and wait for green on that new SHA, then merge. Other sessions merge to
+   `main` all day: the ruleset refuses a merge whose required checks were reported on a
+   head behind `main` ("N of N required status checks are expected"), and a `VERSION`
+   bump on `main` fails `version-intent` on any head that lacks it.
 
-Three rules that decide the outcome:
+Rules that decide the outcome:
 
 - **The report names each reviewer and its verdict, as a comment on the PR the moment
   each pass returns.** A verdict held only in a session's context dies with the session,
@@ -80,6 +95,11 @@ Three rules that decide the outcome:
 - **A finding advances only with a demonstration**: a failing test, a quoted line whose
   own text shows the defect, or a counted query. Undemonstrated, it drops one rank and is
   filed.
+- **Review a part of a stack where it will run.** A part that nothing loads yet — a
+  renderer, a stylesheet, a module the next part wires in — passes every test at its own
+  head, because no test reaches it. Its reviewers also run their probes against the top
+  of the stack, rebuilt on today's `main`, and a guard that only bites there is added in
+  this part when it can be written here, or else in the part that wires it in.
 - **Split before the review, not after.** Over 1,000 changed lines outside `tests/` and
   fixtures, split first. Five passes that do not converge say the same thing too late.
 - **A split leaves a stack, and a squash merge breaks it.** Merging the parent collapses
@@ -103,7 +123,12 @@ Three rules that decide the outcome:
      `git checkout <old-child> -- <files>`: a file the parent changed again after the
      child branched comes back in its old version, silently. The cherry-pick stops on
      that file instead; keep `main`'s side and re-apply the child's change to it, and a
-     resolution that picks a behaviour goes back to the author.
+     resolution that picks a behaviour goes back to the author. Resolve only the authored
+     file: a conflict in a generated copy is settled by regenerating the copies with the
+     repository's tool (`tools/sync_design_assets.py`), never by editing them. Before
+     `git cherry-pick --continue`, prove no conflict marker is left — `git diff --check`
+     prints any, and `git diff --cached --check` once they are staged — because a scripted resolution that fails without stopping the script
+     leaves the markers in, and `git add -A` commits them.
   3. **Read it: `git range-diff --creation-factor=100 <parent-branch>..<old-child>
      origin/main..HEAD`.** Each `<` must be a copy step 1 found. Each own commit shows
      `=`, or `!` where every changed patch line (`-` or `+` in the second column) is a
@@ -146,6 +171,11 @@ for every pass.
 
 **No agent without a falsifiable question and a demonstration it must run.** "Review this"
 is not a question, and what comes back from one cannot be ranked.
+
+**Every reviewer is given a time budget — about an hour — and told to report what it has
+when it is spent.** A mutation pass has no natural end and will run for hours; one that
+overruns is asked to report its results so far, never restarted, and its unrun mutations
+are listed in its verdict.
 
 **After a fix, re-run the dimension whose file changed**, not the panel.
 

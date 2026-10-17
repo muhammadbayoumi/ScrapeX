@@ -794,3 +794,56 @@ def test_heidelberg_end_to_end_into_warehouse():
     # 8, not 9: the ninth is priced nowhere, so no row registers it — and its
     # details are withheld for the same reason rather than arriving as rejects.
     assert (products, result.rejected_out_of_scope) == (8, 0)
+
+
+# ---- the site's stop pauses the source, never empties the category (#1585) ------
+
+def test_an_unreachable_corporate_robots_txt_pauses_the_source():
+    """The corporate host is the THIRD host this source reads, so its robots.txt is
+    first read inside `read_families` -- whose broad `except` filed the
+    `RobotsUnreachable` as a category defect, and the run finished with the category
+    column empty. RFC 9309 §2.3.1.4 (ES-2) makes it a pause: the source stops, and no
+    page of that host is asked for. Through the REAL fetcher over a cut wire."""
+    import httpx
+
+    from scrapex.connectors.base import HttpFetcher, RobotsUnreachable
+
+    asked: list[str] = []
+
+    def site(request: httpx.Request) -> httpx.Response:
+        asked.append(str(request.url))
+        if request.url.path == "/robots.txt":
+            return httpx.Response(503 if request.url.host == "www.heidelbergmaterials.eg"
+                                  else 404)
+        name = request.url.path.rsplit("/", 1)[-1]
+        return httpx.Response(200, json=_fixture(name))
+
+    fetcher = HttpFetcher(min_interval_s=0.0, jitter=0.0, max_attempts=1)
+    fetcher._client = httpx.Client(transport=httpx.MockTransport(site))
+
+    with pytest.raises(RobotsUnreachable, match=r"www\.heidelbergmaterials\.eg"):
+        list(HeidelbergPriceMatrixConnector(fetcher).fetch(make_entry()))
+
+    corporate = [url for url in asked if url.startswith(CORPORATE)]
+    assert corporate == [f"{CORPORATE}/robots.txt"], corporate
+
+
+def test_the_breaker_on_the_corporate_host_pauses_the_source_too():
+    """Any `CrawlBlocked` -- the stub raises one -- passes the listing guard."""
+    from scrapex.connectors.base import CrawlBlocked
+
+    class _Blocking(_StubFetcher):
+        def get(self, url, **kwargs):
+            if url.startswith(CORPORATE):
+                raise CrawlBlocked("5 refusals in a row")
+            return super().get(url, **kwargs)
+
+    with pytest.raises(CrawlBlocked):
+        crawl(_Blocking())
+
+
+def test_an_ordinary_failure_on_the_corporate_host_is_still_a_defect():
+    """The isolation that stays: a page that will not load is a defect, not a stop."""
+    defects = defects_of(_StubFetcher(pages={"/en/our-products": None}))
+
+    assert any("/en/our-products" in d for d in defects), defects

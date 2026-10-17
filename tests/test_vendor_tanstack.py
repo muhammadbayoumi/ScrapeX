@@ -300,3 +300,12 @@ def test_the_pinned_packages_are_the_ones_the_readme_records():
     for package in real:
         assert f"`{package.npm}` | {package.version} |" in readme, package.npm
         assert f"`{package.integrity}`" in readme, package.npm
+
+
+def test_tanstack_is_the_only_library_either_vendor_root_holds():
+    """CLAUDE.md: the extension's only third-party code is TanStack, add no
+    other. Tabulator left in #1467; a library copied back in, or a new one
+    beside it, fails here instead of shipping."""
+    assert {p.name for p in (ROOT / "extension" / "vendor").iterdir()} == {"tanstack"}
+    assert {p.name for p in (ROOT / "scrapex" / "webui" / "static" / "vendor").iterdir()} == {
+        "README.md", "tanstack"}

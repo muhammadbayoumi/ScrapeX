@@ -226,9 +226,16 @@ A conflict exists only where Supabase **specifies** something different. Where i
 
 ## Mandates
 
-A source other than Supabase governs something Supabase covers only by a mandate. He grants a mandate for one specific change he asks for, and it stays as narrow as that request. Each mandate is one row: **request · source · scope · issue**.
+A source other than Supabase governs something Supabase covers only by a mandate. He grants a mandate for one specific change, and it stays as narrow as that change. It has one of three reasons:
+- **gap**: Supabase does not cover the point well enough;
+- **his preference**: he is not comfortable with a Supabase detail;
+- **study-backed proposal**: a session proposes a different answer, from a study it can show.
 
-_None._
+Whatever the reason, he grants it only after seeing Supabase's version and the alternative side by side, as an image or an HTML page with the measurements that decide it. The `design-the-experience` skill is how that comparison is made. A mandate is re-opened when the pin moves. Each mandate is one row: **request · reason · source · scope · issue**.
+
+| Request | Reason | Source | Scope | Issue |
+| --- | --- | --- | --- | --- |
+| Warning words readable at 12 px | gap: `warning-600` on white is ≈3.05:1 | WCAG 2.2 SC 1.4.3 (text, 4.5:1) and SC 1.4.11 (icons, 3:1) | A warning status keeps `warning-600` on its **icon**; its **words** take the foreground colour. Supabase's values only, composed differently | #1542 |
 
 **Barred:** Carbon, Material 3, Polaris, Atlassian, GOV.UK and Office cannot govern anything Supabase covers. Carbon's single row above is for vocabulary, in a gap.
 

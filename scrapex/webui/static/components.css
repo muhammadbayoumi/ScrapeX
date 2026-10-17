@@ -439,9 +439,18 @@ button:active:not(:disabled),
 }
 
 button:disabled,
+button[aria-disabled="true"],
 .button[aria-disabled="true"] {
   opacity: 0.5;
   cursor: not-allowed;
+  transform: none;
+}
+
+/* A PRESS IN FLIGHT IS aria-disabled, NOT disabled (#1542): HTML's focus fix-up drops
+   focus to <body> from a focused button that becomes disabled, so a keyboard user lost
+   his place on every Pause. aria-disabled keeps it focusable; the handler ignores the
+   press, and this keeps it from moving under the pointer. */
+button[aria-disabled="true"]:active {
   transform: none;
 }
 
@@ -460,6 +469,15 @@ button.ghost:hover:not(:disabled),
   color: var(--text);
 }
 
+/* Supabase's Button `type="dashed"` (Button.tsx@86c813ec:38-62): the default button with
+   a dashed --line-strong border, as FilterPopover draws its trigger while no option is
+   chosen (FilterPopover.tsx@86c813ec:184). Chosen, the trigger is the solid default. */
+button.dashed,
+.button.dashed {
+  border-style: dashed;
+  border-color: var(--line-strong);
+}
+
 button.danger,
 .button.danger {
   border-color: var(--red);
@@ -472,6 +490,23 @@ button.danger:hover:not(:disabled),
   border-color: var(--red-hover);
   background: var(--red-hover);
   color: var(--danger-contrast);
+}
+
+/* Supabase's `warning` Button (Button.tsx@86c813ec:85-100): foreground text on the pale
+   warning fill, the warning colour at 30% for its border (--border-warning). Studio
+   confirms a switch being turned off with it (CronJobTableCell.tsx@86c813ec:210-253). */
+button.warning,
+.button.warning {
+  border-color: color-mix(in srgb, var(--amber) 30%, transparent);
+  background: var(--warning-button);
+  color: var(--text);
+}
+
+button.warning:hover:not(:disabled),
+.button.warning:hover:not([aria-disabled="true"]) {
+  border-color: var(--amber);
+  background: var(--warning-button-hover);
+  color: var(--text);
 }
 
 button.link,

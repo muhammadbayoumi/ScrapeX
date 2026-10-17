@@ -2,7 +2,7 @@
 // engine cannot answer — and nothing else.
 //
 // PURE ON PURPOSE, exactly like workbook.js: no DOM, no fetch, no chrome, no
-// Tabulator. data.js is a page controller and cannot be imported under
+// grid library. data.js is a page controller and cannot be imported under
 // `node --test` — it reads `window.location` and starts loading the moment it
 // is imported. Everything here can be driven with hostile input instead, which
 // is the only reason any of it is covered at all.

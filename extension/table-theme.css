@@ -8,8 +8,8 @@
  */
 /* Shared table vocabulary and the native HTML table renderer.
  *
- * This file owns plain <table> presentation. grid-theme.css owns Tabulator's
- * renderer and consumes only the tokens declared here. Keeping the mapping in
+ * This file owns plain <table> presentation. grid-theme.css owns the grid's
+ * renderer (datagrid.js) and consumes only the tokens declared here. Keeping the mapping in
  * separate files gives both renderers one visual vocabulary without making the
  * application shell aware of either one's selectors.
  */

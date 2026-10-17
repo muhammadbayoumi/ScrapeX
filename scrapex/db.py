@@ -430,6 +430,28 @@ def _reclaim_if_stale(lock_path: Path) -> bool:
         return False
 
 
+def write_lock_holder(db_path: Path | str = DEFAULT_DB_PATH) -> int | None:
+    """The pid of ANOTHER live process holding the write lock, else None. Never waits.
+
+    For a caller that must not take the lock while another app writes, and must not
+    mistake its own threads for that app (#1596, ruling D5): our own pid is None here,
+    because a thread of this runtime holding the lock is waited for on the in-process
+    gate, not skipped. A lock left by a dead holder is reclaimed, as `write_lock`
+    does. An unreadable lock file is None too -- `write_lock` then decides, and a
+    caller treats its `DbLockedError` as "not this tick".
+    """
+    lock_path = Path(str(db_path) + ".lock")
+    if _reclaim_if_stale(lock_path):
+        return None
+    try:
+        owner, _ = _lock_owner(lock_path.read_text(encoding="ascii", errors="replace"))
+    except OSError:
+        return None                            # no lock file: nobody holds it
+    if owner <= 0 or owner == os.getpid() or not _pid_is_alive(owner):
+        return None
+    return owner
+
+
 # One gate per database file, for the writers INSIDE this process.
 #
 # THE FILE LOCK CANNOT SERIALISE US FROM OURSELVES. It is keyed by pid, and

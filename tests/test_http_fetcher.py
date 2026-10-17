@@ -332,8 +332,9 @@ def test_politeness_can_be_widened_for_a_large_crawl(monkeypatch):
     fetcher.get(URL)
     fetcher.get(URL)
 
-    # One wait for two requests: the first is free, the second owes the interval.
-    assert slept == [5.0], f"the configured interval was not applied: {slept}"
+    # Two waits for two pages: robots.txt is a request the site saw (#1302), so page
+    # one owes the interval after it, and page two owes it after page one.
+    assert slept == [5.0, 5.0], f"the configured interval was not applied: {slept}"
 
 
 # ---- the live-progress hook --------------------------------------------------
@@ -434,6 +435,56 @@ def test_a_robots_crawl_delay_slows_the_fetcher_down():
     assert fetcher._min_interval_s == 10.0
     assert any("crawl delay" in w for w in fetcher.robots_warnings)
     assert seen[0].endswith("/robots.txt"), "robots must be read before page one"
+
+
+def _clocked(monkeypatch):
+    """A clock that advances only by what the pacer sleeps -- so every wait it
+    records is owed to a request it could see, and nothing else."""
+    now = [FROZEN_CLOCK]
+    slept: list[float] = []
+
+    def sleep(seconds):
+        slept.append(seconds)
+        now[0] += seconds
+    monkeypatch.setattr("scrapex.connectors.base.time.monotonic", lambda: now[0])
+    monkeypatch.setattr("scrapex.connectors.base.time.sleep", sleep)
+    return slept
+
+
+def test_the_first_page_waits_the_sites_crawl_delay_after_robots_txt(monkeypatch):
+    """#1302, measured on two studies: robots.txt was fetched outside the pacer, so
+    the first page left 1.2 s and 2.3 s after it -- the second against the site's
+    own `Crawl-delay: 10`, broken on the second request of every crawl."""
+    slept = _clocked(monkeypatch)
+    fetcher, seen = _fetcher_with_robots("User-agent: *\nCrawl-delay: 10\n")
+
+    fetcher.get(URL)
+
+    assert seen[0].endswith("/robots.txt") and seen[1] == URL, seen
+    assert slept == [10.0], f"page one did not wait the crawl delay: {slept}"
+
+
+@pytest.mark.parametrize("robots_text", [None, "User-agent: *\nAllow: /\n"],
+                         ids=["no-robots-file", "robots-without-delay"])
+def test_the_first_page_waits_our_own_pace_after_robots_txt(monkeypatch, robots_text):
+    """A 404 or a file that asks for nothing is still a request the site served."""
+    slept = _clocked(monkeypatch)
+    fetcher, _ = _fetcher_with_robots(robots_text)
+    fetcher._min_interval_s = 2.5
+
+    fetcher.get(URL)
+
+    assert slept == [2.5], slept
+
+
+def test_the_robots_fetch_is_still_not_counted_as_a_crawl_request(monkeypatch):
+    """Paced like one, never counted as one: the budget and the bar are the crawl's."""
+    _clocked(monkeypatch)
+    fetcher, _ = _fetcher_with_robots("User-agent: *\nCrawl-delay: 1\n")
+
+    fetcher.get(URL)
+
+    assert fetcher.requests_count == 1
 
 
 def test_a_disallowed_path_is_disclosed_once_per_host_not_per_page():

@@ -6,7 +6,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  controlsFor, forgetRate, isMoving, isSettled, jobLabel, jobWaitingLine, liveJob, observeRate, ownsAWorker, progressFraction, progressLine, recentRate, rowsFrom, statusTone, statusWords, summariseJobs,
+  controlsFor, forgetRate, isSettled, jobLabel, jobWaitingLine, liveJob, observeRate, ownsAWorker,
+  progressFraction, progressLine, recentRate, statusWords, summaryClass,
 } from "../jobsview.js";
 
 /** `fetch` AS THE RUNNERS ACTUALLY LEAVE IT, which is empty.
@@ -209,28 +210,42 @@ test("the label names the kind in words and the source it is working", () => {
     "an unknown kind must still name itself rather than reading 'Job'");
 });
 
-test("every tone is a badge variant the kit actually defines", () => {
-  // THE DEFECT CLASS, NOT THE ONE STATUS. `failed` returned `err`, which is a MESSAGE
-  // tone in this panel and not a badge one -- `.badge.err` does not exist, so the
-  // cascade fell back to `color: var(--muted)` and 28 of his 163 jobs drew grey,
-  // indistinguishable from `cancelled`. An invalid `var()` and an undefined badge class
-  // fail the same silent way, which is why this asserts the whole range.
-  const DEFINED = new Set(["ok", "off", "danger", ""]);
-  const STATUSES = ["completed", "failed", "completed_with_errors",
-                    "partially_completed", "requires_review", "cancelled", "paused",
-                    "running", "preparing", "queued", "scheduled", "resuming",
-                    "pausing", "cancelling", "something_new"];
-  for (const status of STATUSES) {
-    assert.ok(DEFINED.has(statusTone(status)),
-      `statusTone(${status}) = "${statusTone(status)}", which components.css does not `
-      + "define -- it renders as plain grey and says nothing");
-  }
+/** The Sources payload as `/api/sources` serves it: a registered site, a dataset card
+ *  keyed by its dataset with the site behind it (`webui/app.py:942-947`), and a site
+ *  with no domain of its own. */
+const SOURCES = [
+  {source_key: "ELBUROJ", source_name: "Elburoj", source_name_ar: "البروج",
+   base_url: "https://www.elburoj.com"},
+  {source_key: "contractors", site_key: "muqawil_org", source_name: "Saudi Contractors Authority",
+   base_url: "https://muqawil.org"},
+  {source_key: "NO_URL", source_name: "Offline list", base_url: ""},
+];
 
-  assert.equal(statusTone("completed"), "ok");
-  assert.equal(statusTone("failed"), "danger",
-    "a failed job must be the one colour he can pick out of 163 rows");
-  assert.equal(statusTone("partially_completed"), "off");
-  assert.equal(statusTone("paused"), "off");
+test("a job is named by its kind and the panel's one source identity (#1542)", () => {
+  // THE DOMAIN, AS EVERY OTHER SOURCE IN THE PANEL IS NAMED (`sourceIdentity`,
+  // components.css:781 "the domain is the primary identity"). The key was the job's
+  // own word for it only because the job payload carries keys alone.
+  assert.equal(jobLabel({job_kind: "crawl", source_keys: ["ELBUROJ"]}, SOURCES),
+    "Crawl · elburoj.com", "www. is not part of the identity, as sourceDomain drops it");
+  // A JOB KEYED BY ITS SITE, FOUND THROUGH THE DATASET CARD THAT CARRIES IT.
+  assert.equal(jobLabel({job_kind: "directory_crawl", source_keys: ["muqawil_org"]}, SOURCES),
+    "Listing crawl · muqawil.org");
+  // AND ONE KEYED BY ITS DATASET, as an enrichment job is.
+  assert.equal(jobLabel({job_kind: "organization_enrichment", source_keys: ["contractors"]},
+    SOURCES), "Enrichment · muqawil.org");
+  assert.equal(jobLabel({job_kind: "crawl", source_keys: ["NO_URL"]}, SOURCES),
+    "Crawl · Offline list", "no domain: the name leads, as sourceIdentity does");
+  assert.equal(jobLabel({job_kind: "crawl", source_keys: ["GONE"]}, SOURCES),
+    "Crawl · GONE", "a source Sources does not list keeps its key");
+});
+
+test("a job over several sources names the first and counts the rest", () => {
+  const three = {job_kind: "crawl", source_keys: ["ELBUROJ", "GONE", "NO_URL"]};
+  assert.equal(jobLabel(three, SOURCES), "Crawl · elburoj.com and 2 others");
+  assert.equal(jobLabel({job_kind: "crawl", source_keys: ["ELBUROJ", "GONE"]}, SOURCES),
+    "Crawl · elburoj.com and 1 other", "one other is singular");
+  assert.equal(jobLabel({...three, current_source_key: "NO_URL"}, SOURCES),
+    "Crawl · Offline list and 2 others", "the source it is on now leads");
 });
 
 test("a status is spelt one way per screen", () => {
@@ -240,48 +255,6 @@ test("a status is spelt one way per screen", () => {
   assert.equal(statusWords("completed_with_errors"), "completed with errors");
   assert.equal(statusWords("running"), "running");
   assert.equal(statusWords(null), "");
-  assert.match(summariseJobs({jobs: [{job_ref: "j", status: "completed_with_errors"}]}),
-    /completed with errors/);
-});
-
-test("the dot means moving, not merely holding a worker", () => {
-  // `app.css` calls it "ONE DOT FOR 'THIS IS THE ONE MOVING'", and it was drawn from
-  // `ownsAWorker` -- which is the discriminator `ADOPTION_ORDER` exists to reject. It lit
-  // on the `preparing` job that sat blocked for 33 minutes and announced "running".
-  assert.equal(isMoving(WORKING), true);
-  assert.equal(isMoving({status: "resuming"}), true);
-  assert.equal(isMoving(BLOCKED), false,
-    "the blocked job that cost him 33 minutes was called moving");
-  assert.equal(ownsAWorker(BLOCKED), true,
-    "it does hold a worker -- which is exactly why the two must not be one question");
-  for (const status of ["pausing", "cancelling", "queued", "paused"]) {
-    assert.equal(isMoving({status}), false, status);
-  }
-  assert.equal(rowsFrom({jobs: [BLOCKED]})[0].live, false,
-    "the row's dot still comes from 'holds a worker'");
-});
-
-test("the summary says how many and in what state", () => {
-  const said = summariseJobs({jobs: [WORKING, BLOCKED, DONE, PAUSED]});
-  assert.match(said, /4 jobs/);
-  assert.match(said, /1 running/);
-  assert.match(said, /1 completed/);
-  assert.match(summariseJobs({jobs: []}), /No jobs yet/);
-  assert.match(summariseJobs({jobs: [DONE]}), /1 job\b/, "one job was called jobs");
-});
-
-test("the rows keep the payload's order and carry every job, settled included", () => {
-  // THE WHOLE POINT: 162 of his 163 jobs were unreachable because the only query the
-  // panel made carried `active_only=true`.
-  const rows = rowsFrom({jobs: [DONE, WORKING, BLOCKED, PAUSED]});
-
-  assert.deepEqual(rows.map((row) => row.job_ref),
-    [DONE.job_ref, WORKING.job_ref, BLOCKED.job_ref, PAUSED.job_ref]);
-  assert.equal(rows.filter((row) => row.settled).length, 1);
-  assert.equal(rows.find((row) => row.job_ref === WORKING.job_ref).live, true);
-  assert.equal(rows.filter((row) => row.job_ref).length, 4);
-  assert.deepEqual(rowsFrom({jobs: [null, {}, DONE]}).map((r) => r.job_ref),
-    [DONE.job_ref], "a job with no ref reached the page as a row with no identity");
 });
 
 test("held and settled are read off the vocabulary, not guessed", () => {
@@ -292,11 +265,50 @@ test("held and settled are read off the vocabulary, not guessed", () => {
     assert.equal(ownsAWorker({status}), false, status);
   }
   for (const status of ["cancelled", "completed", "completed_with_errors",
-                        "partially_completed", "failed"]) {
+                        "partially_completed", "failed", "skipped"]) {
     assert.equal(isSettled({status}), true, status);
   }
   assert.equal(isSettled({status: "paused"}), false,
     "a paused job is not finished; it is waiting for him");
+});
+
+/** A scheduled firing that found its source busy (#1596): written finished, with the
+ *  reason in `error_summary`, never started. */
+const SKIPPED = {
+  job_ref: "job_5c1e0d0f1a2b", job_kind: "profile_crawl", status: "skipped",
+  source_keys: ["muqawil_org"], current_source_key: null,
+  progress: {done: 0, total: 1, unit: "source(s)"}, fetch: {...NO_FETCH},
+  queued_behind: null, created_at: "2026-10-09T06:00:00Z", started_at: null,
+  finished_at: "2026-10-09T06:00:00Z",
+  error_summary: "This site's previous run was still going (job_034c51a29deb)",
+};
+
+test("a skipped job is finished: no control, no wait, never the live one", () => {
+  assert.equal(isSettled(SKIPPED), true);
+  assert.deepEqual(controlsFor(SKIPPED), [],
+    "a skip offered Pause or Cancel, which the engine answers 409");
+  assert.equal(jobWaitingLine(SKIPPED), "", "a skip was described as waiting");
+  assert.equal(ownsAWorker(SKIPPED), false);
+  assert.equal(liveJob([SKIPPED]), null, "the mini-player adopted a skip as live");
+  assert.equal(liveJob([SKIPPED, PAUSED]), PAUSED);
+});
+
+test("a skip's reason is drawn muted, and a failure's still in red", () => {
+  assert.equal(summaryClass("skipped"), "muted");
+  for (const status of ["failed", "partially_completed", "completed_with_errors",
+                        "cancelled", "something_new", "", null, undefined]) {
+    assert.equal(summaryClass(status), "err", String(status));
+  }
+  // The row drawn from it is test_a_skipped_job_is_drawn_finished_and_says_why_without_alarm.
+});
+
+test("a skip never ran, so it states no progress: no bar and no '0 of 1'", () => {
+  assert.equal(progressFraction(SKIPPED), null, "a job that never ran drew a bar");
+  assert.equal(progressLine(SKIPPED), "", "a job that never ran said how far it got");
+  // The same counters on a job that did start still say where it is.
+  const queued = {...SKIPPED, status: "queued"};
+  assert.equal(progressLine(queued), "0 of 1 source(s)");
+  assert.equal(progressFraction(queued), 0);
 });
 
 // THE COLLISION GUARD LIVES IN `tests/test_panel_wiring.py`, NOT HERE.

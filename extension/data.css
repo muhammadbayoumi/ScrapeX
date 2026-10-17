@@ -62,7 +62,7 @@ body {
    table drags the punctuation and the numbers around it unless the cell is
    isolated. grid.js isolates the product name and the variant itself; a
    dataset's Arabic columns, such as a company's name, have only this. */
-.tabulator-cell { unicode-bidi: plaintext; }
+.dg-cell { unicode-bidi: plaintext; }
 
 /* THE ACTIVITY FILTER — issue 543. Tokens only: this page renders in whichever
    theme and palette he has chosen, and a literal colour here would be the one

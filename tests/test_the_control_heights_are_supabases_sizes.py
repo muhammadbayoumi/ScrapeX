@@ -125,6 +125,9 @@ READS = {
     # icon link (an icon-only Button, 36x26: its width is its padding's).
     ("design/data-workspace.css", ".dataset-menu-trigger", "min-height"): (TINY, BUTTON),
     ("design/data-workspace.css", ".dataset-icon-button", "height"): (TINY, BUTTON),
+    # A column's filter and menu: Supabase's column menu trigger, a Button at its tiny height
+    # with padding 3px (ColumnMenu.tsx@86c813ec:225-234; his ruling on #1466).
+    ("design/grid-theme.css", ".dg .dg-header-button", "height"): (TINY, BUTTON),
 }
 
 #: The reads that are a Supabase component held off its default, each until the issue that

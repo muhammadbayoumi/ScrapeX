@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from scrapex import db as dbmod
+from scrapex import source_settings
 from scrapex.config import ExtractSpec, SourceEntry
 from scrapex.connectors.base import (CrawlBlocked, DEFAULT_USER_AGENT,
                                     HttpFetcher, resolve_fetcher)
@@ -15,6 +16,14 @@ from scrapex.connectors.zid import ZidConnector
 from scrapex.ingest import ingest_payloads
 from scrapex.rowspec import ENRICHMENT, PRODUCT_PRICES, RowView
 from scrapex.vocab import ExtractKind, ExtractScope
+
+
+def _fetcher(source, crawl_settings=None):
+    """`resolve_fetcher` for a source as it SHIPPED -- no warehouse, so no choice of his
+    (#1584) -- which is the layer every test in this file is about."""
+    return resolve_fetcher(source, source_settings.layered({}, source.source_key, source),
+                           crawl_settings)
+
 
 FX = Path(__file__).parent / "fixtures"
 CHROME_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/125.0.0.0 Safari/537.36"
@@ -64,7 +73,7 @@ def make_enriched_entry() -> SourceEntry:
 
 
 def test_resolve_fetcher_uses_source_user_agent():
-    fetcher = resolve_fetcher(make_entry())
+    fetcher = _fetcher(make_entry())
     try:
         assert isinstance(fetcher, HttpFetcher)
         assert fetcher._client.headers["user-agent"] == CHROME_UA
@@ -74,7 +83,7 @@ def test_resolve_fetcher_uses_source_user_agent():
 
 def test_resolve_fetcher_defaults_ua_when_unset():
     entry = make_entry().model_copy(update={"user_agent": None})
-    fetcher = resolve_fetcher(entry)
+    fetcher = _fetcher(entry)
     try:
         assert fetcher._client.headers["user-agent"] == DEFAULT_USER_AGENT
     finally:

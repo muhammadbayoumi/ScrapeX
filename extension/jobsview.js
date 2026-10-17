@@ -20,26 +20,12 @@
 
 /** Terminal statuses, from `scrapex/vocab.py:TERMINAL_JOB_STATUSES`. */
 const SETTLED = new Set(["cancelled", "completed", "completed_with_errors",
-                         "partially_completed", "failed"]);
+                         "partially_completed", "failed", "skipped"]);
 
 /** Where the worker is holding the job, from `vocab.WORKER_HELD_STATUSES` plus the two
  *  transitional statuses `set_control` parks a held job in. A job in one of these owns a
  *  runtime; anything else non-terminal is waiting for one or for him. */
 const HELD = new Set(["preparing", "running", "resuming", "pausing", "cancelling"]);
-
-/** Where the job is actually ADVANCING, which is not the same as holding a worker.
- *
- *  THE DOT MUST NOT DISAGREE WITH `ADOPTION_ORDER`. `app.css` calls the dot "ONE DOT FOR
- *  'THIS IS THE ONE MOVING', which is the question the whole page exists to answer", and
- *  it was drawn from `HELD` -- so it lit on the `preparing` job that sat blocked on the
- *  politeness lane for 33 minutes, beside a badge reading `preparing` and a waiting line
- *  saying it may be blocked, while announcing "running" to a screen reader. That is the
- *  same wrong discriminator `ADOPTION_ORDER` below is built to reject. */
-const MOVING = new Set(["running", "resuming"]);
-
-/** Statuses that wait on HIM and never advance on their own — `BLOCKING_JOB_STATUSES`
- *  excludes them for the same reason. */
-const HIS_MOVE = new Set(["paused", "requires_review"]);
 
 const KIND_LABELS = {
   crawl: "Crawl",
@@ -57,15 +43,9 @@ export function ownsAWorker(job) {
   return HELD.has(String(job?.status || ""));
 }
 
-/** Whether this is the one moving, which is what the row's dot claims. */
-export function isMoving(job) {
-  return MOVING.has(String(job?.status || ""));
-}
-
 /** `completed_with_errors` as `completed with errors`. The panel un-underscores a status
- *  everywhere it shows one -- `renderActivity`, `renderMiniplayer` and `summariseJobs`
- *  below -- and the row's badge was the one surface opting out, so the same screen spelt
- *  one status two ways. */
+ *  everywhere it shows one -- `renderActivity`, `renderMiniplayer` and the Jobs rows
+ *  (`statusLook`) -- so one screen never spells one status two ways. */
 export function statusWords(status) {
   return String(status || "").replace(/_/g, " ");
 }
@@ -106,12 +86,58 @@ export function liveJob(jobs) {
   return live.reduce((best, job) => (rank(job) < rank(best) ? job : best), live[0]);
 }
 
-/** `Profile fetch · muqawil_org`, from the payload's own words. */
-export function jobLabel(job) {
+/** A source's domain, the panel's primary identity for it: the URL's host, lower-case,
+ *  without a leading `www.` or a trailing dot. `sourceDomain` in app.js is this. */
+export function domainOf(url) {
+  let host = "";
+  try { host = new URL(url).host; } catch (_) { host = String(url || ""); }
+  host = host.replace(/\.$/, "");
+  return host.toLowerCase().startsWith("www.") ? host.slice(4) : host;
+}
+
+/** The Sources entry a key names, by its `source_key` or the `site_key` behind it. */
+export function sourceOf(key, sources) {
+  return (sources || []).find((one) => one && (one.source_key === key
+    || one.site_key === key)) || null;
+}
+
+/** The source a job is on now, else its first: the one its name leads with. */
+export function jobLead(job) {
+  return job?.current_source_key || (job?.source_keys || [])[0] || "";
+}
+
+/** "and 2 others" for a job of several sources; "" for one. */
+export function othersLine(job) {
+  const others = Math.max(0, (job?.source_keys || []).length - 1);
+  return others ? `and ${others} other${others === 1 ? "" : "s"}` : "";
+}
+
+/** How the panel names one source key: the Sources identity's domain, else its name,
+ *  else the key. A job carries keys only; a site's key can also arrive as the
+ *  `site_key` behind a dataset card (`webui/app.py:942-947`), and a dataset's as its
+ *  `source_key`, so either finds it. */
+export function sourceTitle(key, sources) {
+  const source = sourceOf(key, sources);
+  if (!source) return key;
+  return domainOf(source.base_url) || source.source_name || key;
+}
+
+/**
+ * `Listing crawl · muqawil.org` -- the kind, and the source as the panel names sources.
+ *
+ * THE KIND STAYS (see `renderMiniplayer`): a crawl's chained interpretation starts on
+ * the same source a few milliseconds after the crawl ends, and without the kind the line
+ * reads as the crawl starting over. THE SOURCE IS THE PANEL'S ONE IDENTITY, the domain
+ * (`sourceIdentity`, components.css:781), and no longer the key: this read the key "from
+ * the payload's own words" because a job carries nothing else, so the row, the player
+ * and the Sources page named one site three ways (#1542). Without `sources`, the key.
+ */
+export function jobLabel(job, sources = []) {
   const kind = KIND_LABELS[job?.job_kind] || String(job?.job_kind || "Job");
-  const source = job?.current_source_key
-    || (job?.source_keys || [])[0] || "";
-  return source ? `${kind} · ${source}` : kind;
+  const lead = jobLead(job);
+  if (!lead) return kind;
+  const more = othersLine(job);
+  return `${kind} · ${sourceTitle(lead, sources)}${more ? ` ${more}` : ""}`;
 }
 
 /**
@@ -135,6 +161,7 @@ export function jobLabel(job) {
  * tighter than the Activity panel, so it takes the `~` and leaves the date there.
  */
 export function progressLine(job) {
+  if (job?.status === "skipped") return "";   // never ran: "0 of 1" would say it did
   const [done, total, unit, basis] = counted(job);
   if (!(total > 0)) {
     // A NUMERATOR WITH NO DENOMINATOR IS STILL NEWS. A crawl whose total is not yet
@@ -163,6 +190,7 @@ function counted(job) {
 /** 0–1, or null when the job states no denominator. Null is not zero: a bar drawn at
  *  0% for a job with no total says "nothing has happened", which may be false. */
 export function progressFraction(job) {
+  if (job?.status === "skipped") return null;   // never ran: no bar, not an empty one
   const [done, total] = counted(job);
   if (!(total > 0)) return null;
   return Math.max(0, Math.min(1, done / total));
@@ -231,75 +259,149 @@ export function controlsFor(job) {
   return ["pause", "cancel"];
 }
 
-/** The badge class this status wears. The kit defines exactly three variants --
- *  `.badge.ok`, `.badge.off` and `.badge.danger` (`design/components.css:644-661`) -- and
- *  a class outside that set renders as plain grey, which is the mistake
- *  `renderEngineDetail` already records about `warn`.
- *
- *  `failed` WORE `err` UNTIL REVIEW, AND `err` IS A MESSAGE TONE, NOT A BADGE ONE. `.err`
- *  does exist (`components.css:75`, `color: var(--red)`) but `.chip, .badge` sets
- *  `color: var(--muted)` at equal specificity 550 lines later, so the cascade won and
- *  every failed job drew grey -- indistinguishable from `cancelled` and from a status
- *  this file has never heard of. 28 of the 163 jobs measured on 2026-09-07 were failures,
- *  and they are the rows he is looking for. */
-export function statusTone(status) {
-  const value = String(status || "");
-  if (value === "completed") return "ok";
-  if (value === "failed") return "danger";
-  if (value === "completed_with_errors" || value === "partially_completed"
-      || value === "requires_review") return "off";
-  if (value === "cancelled") return "";
-  if (HIS_MOVE.has(value)) return "off";
-  return "";
+/** The class a job's `error_summary` is drawn in. A skipped job's summary is the reason
+ *  the schedule passed it over (#1596), not an error, so it is muted rather than red. */
+export function summaryClass(status) {
+  return String(status || "") === "skipped" ? "muted" : "err";
 }
 
-/** `163 jobs · 1 running · 23 cancelled`, so the page says what it is showing.
- *
- *  NAMED `summariseJobs` AND NOT `summarise`, WHICH IS A HARNESS CONSTRAINT ON THE
- *  PRODUCTION CODE AND WORTH STATING. `tools/panel_harness.py` inlines every panel
- *  module and strips the `import` lines, so a name that exists only as an ALIAS
- *  (`import { summarise as summariseJobs }`) is not defined in the harness at all --
- *  it threw inside `showView`, the page kept its placeholder, and the guard reported
- *  "0 of 4 jobs drawn". `datatable.js` exported a `summarise` of its own until #1198,
- *  and the specific name is the better one regardless. */
-export function summariseJobs(payload) {
-  const jobs = (payload?.jobs || []).filter(Boolean);
-  if (!jobs.length) return "No jobs yet. Start one from the Run screen.";
-  const counts = new Map();
-  for (const job of jobs) {
-    const key = String(job.status || "");
-    counts.set(key, (counts.get(key) || 0) + 1);
-  }
-  const parts = [`${jobs.length.toLocaleString()} job${jobs.length === 1 ? "" : "s"}`];
-  for (const [status, count] of [...counts.entries()].sort((a, b) => b[1] - a[1])) {
-    parts.push(`${count.toLocaleString()} ${statusWords(status)}`);
-  }
-  return parts.join(" · ");
+// ---- the Jobs page's own rules (#1542) ---------------------------------------------
+
+/** Each status's glyph and tone. The WORD is the engine's own, sentence-cased: no job
+ *  state is renamed here. Tones follow Studio (PreviousRunsTab.tsx@86c813ec:222-247:
+ *  running muted, success brand-600, failed destructive, words coloured too;
+ *  ProjectCardStatus.tsx@86c813ec:110-114, 171-187: paused in the foreground, the
+ *  in-between states in warning). Glyphs are the Material sprite's until #1057 moves the
+ *  panel to Lucide (docs/DESIGN-SYSTEM.md, Icons; his decision of 2026-10-09). */
+const STATUS_LOOK = {
+  running: ["material-pending", "secondary"],
+  resuming: ["material-sync", "warning"],
+  preparing: ["material-sync", "warning"],
+  queued: ["material-schedule", "default"],
+  scheduled: ["material-schedule", "default"],
+  paused: ["material-pause-circle", "foreground"],
+  pausing: ["material-pause-circle", "warning"],
+  cancelling: ["material-block", "warning"],
+  requires_review: ["material-warning", "warning"],
+  failed: ["material-cancel", "destructive"],
+  partially_completed: ["material-warning", "warning"],
+  completed_with_errors: ["material-warning", "warning"],
+  completed: ["material-check-circle", "brand"],
+  cancelled: ["material-block", "default"],
+  // #1596, his ruling D4: a scheduled firing that found its source busy and did not run.
+  // THE TONE IS STUDIO'S: it draws its own skipped step as a plain `default` badge
+  // (BranchManagement/ActionStatusBadge.tsx@86c813ec:18, 79), the tone a cancel wears
+  // here -- the word in the foreground, the glyph muted, nothing like a failure. He chose
+  // this (option C, 2026-10-09, on #1596) over `secondary`, which drew a skip exactly as
+  // a running job is drawn. THE ONE DEPARTURE IS THE GLYPH: Studio's badge has none, and
+  // this page's rule is that every status has one, so it takes Material's `next_plan` --
+  // passed over, on to the next slot.
+  skipped: ["material-next-plan", "default"],
+};
+
+export function statusLook(status) {
+  const words = statusWords(status);
+  const [glyph, tone] = STATUS_LOOK[String(status || "")] || ["material-info", "default"];
+  return {word: words ? words[0].toUpperCase() + words.slice(1) : "", glyph, tone};
 }
 
 /**
- * The rows to draw, newest first, exactly as the payload ordered them.
+ * When the job ran, as the warehouse stored it: "Started 7 Oct, 8:00 AM → 9:12 AM".
  *
- * NOT RE-SORTED HERE. `list_jobs` orders by `job_id DESC`, which is the order they were
- * entered; re-sorting by a timestamp in the page would disagree with it the moment two
- * jobs share a second, and `created_at` is stored at second resolution.
+ * NO DURATION, AND THAT IS THE POINT (his choice C). `started_at` survives a resume
+ * (jobs.py:936) and no pause is stamped, so finish minus start counts pauses, waits for
+ * the site's turn and a sleeping laptop -- 3 h 35 m of one crawl, measured. A job that
+ * never started reads from `created_at`. A finish on another day carries its date, and
+ * a cancel says so whichever state it was cancelled from. So does a skip (#1596), which
+ * never started: "Added 9 Oct, 6:00 AM → skipped 6:00 AM". `fmt` is ScrapeXTime.format.
  */
-export function rowsFrom(payload) {
-  return (payload?.jobs || []).filter((job) => job && job.job_ref).map((job) => ({
-    job_ref: job.job_ref,
-    label: jobLabel(job),
-    status: job.status,
-    tone: statusTone(job.status),
-    progress: progressLine(job),
-    fraction: progressFraction(job),
-    waiting: jobWaitingLine(job),
-    controls: controlsFor(job),
-    settled: isSettled(job),
-    live: isMoving(job),
-    created_at: job.created_at,
-    finished_at: job.finished_at,
-    error_summary: job.error_summary || "",
-  }));
+export function timeLine(job, fmt) {
+  const begun = job?.started_at;
+  const from = begun ? `Started ${fmt(begun, "short")}`
+    : job?.created_at ? `Added ${fmt(job.created_at, "short")}` : "";
+  const end = job?.finished_at;
+  if (!end || !from) return from;
+  const sameDay = fmt(end, "date") === fmt(begun || job.created_at, "date");
+  const when = sameDay ? fmt(end, "time") : fmt(end, "short");
+  const how = job.status === "cancelled" || job.status === "skipped" ? `${job.status} ` : "";
+  return `${from} → ${how}${when}`;
+}
+
+/** "1 job", "1,234 jobs": the count of jobs, worded one way wherever it is said. */
+export function jobsNoun(n) {
+  return `${n.toLocaleString()} job${n === 1 ? "" : "s"}`;
+}
+
+/** The line above the list: what is shown, out of what, and whether it is live. It is
+ *  not a live region; a change he made is announced on its own. */
+export function jobsCountLine({shown, total, live, seconds = 1.5, readAt, bounded, kept}, fmt) {
+  const noun = jobsNoun;
+  const parts = [bounded
+    ? (shown === total ? `Newest ${total} jobs shown; older jobs are not listed`
+      : `${shown.toLocaleString()} of the newest ${total} jobs`)
+    : shown === total ? noun(total) : `${shown.toLocaleString()} of ${noun(total)}`];
+  if (kept) parts.push(`${kept} kept until you change the filter`);
+  if (live) parts.push(`Refreshes every ${seconds}s while a job is in progress or queued`);
+  else if (readAt) parts.push(`Read at ${fmt(readAt, "time")}`);
+  return parts.join(" · ");
+}
+
+/** THE SOURCES SEARCH, in one place: a source matches a term on its English or Arabic
+ *  name, its key, or its domain. The Sources page and the Jobs page both ask this, so
+ *  the two searches cannot drift apart (#1623's gate). */
+export function sourceMatches(source, term) {
+  const wanted = String(term || "").trim().toLowerCase();
+  if (!wanted) return true;
+  return [source?.source_name, source?.source_name_ar, source?.source_key,
+    domainOf(source?.base_url)]
+    .some((field) => String(field || "").toLowerCase().includes(wanted));
+}
+
+/** Search on the Jobs page: any of a job's sources matches as the Sources search would,
+ *  and so does the job's own key -- which is all there is for one Sources does not list. */
+export function jobMatches(job, term, sources = []) {
+  const wanted = String(term || "").trim().toLowerCase();
+  if (!wanted) return true;
+  return (job?.source_keys || []).some((key) => {
+    const source = sourceOf(key, sources);
+    return String(key).toLowerCase().includes(wanted) || Boolean(source && sourceMatches(source, wanted));
+  });
+}
+
+/** The statuses the filter offers: those in the list, plus any he selected whose last
+ *  job has since settled into another, so he can still untick it. */
+export function filterOptions(jobs, selected = new Set()) {
+  const seen = [];
+  for (const status of [...selected, ...(jobs || []).map((job) => job.status)]) {
+    if (status && !seen.includes(status)) seen.push(status);
+  }
+  return seen;
+}
+
+/** The one action a row shows (table.mdx@86c813ec:201): Pause or Resume. */
+export function primaryControl(job) {
+  return controlsFor(job).find((control) => control !== "cancel") || null;
+}
+
+/** The rest, in the row's menu: its log, and Cancel where Cancel can still act. */
+export function menuControls(job) {
+  const status = String(job?.status || "");
+  const cancel = controlsFor(job).includes("cancel") && status !== "cancelling";
+  return cancel ? ["log", "cancel"] : ["log"];
+}
+
+export function refusalLine(control, label, status) {
+  const verb = control[0].toUpperCase() + control.slice(1);
+  return `${verb} was refused: ${label} is already ${statusWords(status)}`;
+}
+
+/** Which narrowing emptied the list. Studio's NoSearchResults wording for a search
+ *  (NoSearchResults.tsx@86c813ec:29-32); its `description` for the other two. */
+export function noResultsLine({term, statuses}) {
+  const searched = String(term || "").trim();
+  if (searched && statuses) return "No job matches the search and the selected statuses";
+  if (searched) return `Your search for “${searched}” did not return any results`;
+  return "No job has the selected statuses";
 }
 
 

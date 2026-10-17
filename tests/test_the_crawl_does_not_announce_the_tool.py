@@ -33,11 +33,24 @@ from pathlib import Path
 
 import pytest
 
+from scrapex import source_settings
 from scrapex.config import ExtractSpec, SourceEntry
-from scrapex.connectors.base import (DEFAULT_USER_AGENT, HttpFetcher,
-                                     browser_headers, resolve_fetcher,
-                                     resolve_user_agent)
+from scrapex.connectors.base import (
+    DEFAULT_USER_AGENT,
+    HttpFetcher,
+    browser_headers,
+    resolve_fetcher,
+    resolve_user_agent,
+)
 from scrapex.vocab import ExtractKind, ExtractScope
+
+
+def _fetcher(source, crawl_settings=None):
+    """`resolve_fetcher` for a source as it SHIPPED -- no warehouse, so no choice of his
+    (#1584) -- which is the layer every test in this file is about."""
+    return resolve_fetcher(source, source_settings.layered({}, source.source_key, source),
+                           crawl_settings)
+
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -200,7 +213,7 @@ def test_each_level_can_actually_be_reached(level, settings, expected):
 
 def test_the_fetcher_sends_what_the_chain_decided():
     """The chain is only worth testing if the client carries its answer."""
-    fetcher = resolve_fetcher(make_entry(), {"browser_user_agent": REPORTED})
+    fetcher = _fetcher(make_entry(), {"browser_user_agent": REPORTED})
     try:
         assert fetcher._client.headers["user-agent"] == REPORTED
     finally:
@@ -208,7 +221,7 @@ def test_the_fetcher_sends_what_the_chain_decided():
 
 
 def test_a_declaring_source_still_reaches_the_wire_with_its_own_agent():
-    fetcher = resolve_fetcher(make_entry(user_agent=DECLARED),
+    fetcher = _fetcher(make_entry(user_agent=DECLARED),
                               {"browser_user_agent": REPORTED})
     try:
         assert fetcher._client.headers["user-agent"] == DECLARED
@@ -218,7 +231,7 @@ def test_a_declaring_source_still_reaches_the_wire_with_its_own_agent():
 
 def test_a_crawl_with_no_settings_at_all_still_names_no_tool():
     """The path a CLI run takes, end to end: no panel, no settings, no name."""
-    fetcher = resolve_fetcher(make_entry())
+    fetcher = _fetcher(make_entry())
     try:
         sent = fetcher._client.headers["user-agent"]
     finally:
@@ -344,7 +357,7 @@ def test_the_platform_follows_the_agent():
 def test_the_fetcher_sends_the_whole_set_not_just_the_agent():
     """Through the real constructor, because a function nothing calls is not a
     fix."""
-    fetcher = resolve_fetcher(make_entry(), {
+    fetcher = _fetcher(make_entry(), {
         "browser_user_agent": DEFAULT_USER_AGENT,
         "client_hints": '"Chromium";v="152"'})
     try:
@@ -378,7 +391,7 @@ def test_the_panels_hints_never_ride_beside_a_different_agent():
             ("declared by the source", {"client_hints": panel_hints}, old_chrome),
             ("typed by the owner",
              {"user_agent": old_chrome, "client_hints": panel_hints}, None)):
-        fetcher = resolve_fetcher(make_entry(user_agent=source_agent), settings)
+        fetcher = _fetcher(make_entry(user_agent=source_agent), settings)
         try:
             sent = fetcher._client.headers["sec-ch-ua"]
         finally:

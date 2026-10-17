@@ -32,8 +32,7 @@ work; `vacancies` and `tenders` are named, unbuilt.
   duplication, and prefer duplication to the wrong abstraction: no helper with one
   caller, no generic wrapper, nothing that makes control flow harder to read. Put a
   shared thing where the repo already puts shared things.
-- **Tests are non-negotiable** — too many beats too few.
-- **More edge cases, not fewer.** Thoughtfulness over speed.
+- **Tests are non-negotiable, and more edge cases, not fewer** — thoughtfulness over speed.
 - **Engineered enough, explicit over clever**: not fragile or hacky, not over-abstracted.
 - **Never assume his priorities on timeline, scale or spend.** Ask, with a number and a
   recommendation — a fan-out names its worst case before it runs, and one that multiplies
@@ -44,7 +43,8 @@ work; `vacancies` and `tenders` are named, unbuilt.
 - **He works only from the extension panel — never a terminal.** A `scrapex ...` command
   is not an answer to him.
 - **A capability and its control ship in one change.** A capability with no panel control
-  has no control; and if the route 404s, do not draw the control.
+  has no control; and if the route 404s, do not draw the control. What he sees or does is
+  designed first through the **`design-the-experience` skill**: Supabase, or shown why not.
 - **The panel is the operating system; everything else is an app, the engine included.**
   It is the only surface, it chooses which app runs a job, and it starts them —
   `extension/transport.js` sends `START_ENGINE` and `scrapex/native.py` obeys; the engine
@@ -102,8 +102,7 @@ work; `vacancies` and `tenders` are named, unbuilt.
   script a workflow runs gets a test that runs it as a process and sees it exit non-zero.
   `node --test extension/tests/*.test.mjs` and `node --test apps_script/tests/*.test.mjs`
   run the JS suites `pytest` never reaches; there is no `package.json`, and the extension's
-  only third-party code is TanStack, vendored by `tools/vendor_tanstack.py`, and Tabulator
-  until #1342 removes it — add no other.
+  only third-party code is TanStack, vendored by `tools/vendor_tanstack.py` — add no other.
 - **Python is `.python-version`'s — the newest stable CPython, adopted once the suite, every
   wheel and PyInstaller pass on it.** His engine follows only when, with his OK, each machine
   re-registers its native host from the new interpreter.
