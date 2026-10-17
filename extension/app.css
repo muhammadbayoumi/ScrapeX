@@ -4273,3 +4273,50 @@
   overflow-wrap: anywhere;
   color: var(--muted);
 }
+
+/* THE SCHEDULES PAGE (#1631, option C, after Supabase's Cron Jobs). Layout only: the row
+   is the Jobs row (.job-row, its padding and divider), its menu the account menu, its
+   switch button.switch. The only literal length is the shared 1px divider, which it
+   inherits rather than types. */
+.sched-tools-end { margin-inline-start: auto; display: flex; gap: var(--sp-2); }
+.schedule-row { grid-template-columns: minmax(0, 1fr) auto auto; align-items: start; }
+.schedule-row .schedule-id { grid-column: 1; grid-row: 1; min-width: 0; }
+.schedule-row .switch { grid-column: 2; grid-row: 1; margin-top: var(--sp-1); }
+.schedule-row .job-kebab {
+  position: relative;
+  top: auto;
+  inset-inline-end: auto;
+  grid-column: 3;
+  grid-row: 1;
+}
+/* The identity is the row's press, to Jobs; the shared focus ring draws on it. */
+.schedule-open {
+  all: unset;
+  display: block;
+  cursor: pointer;
+  min-width: 0;
+  border-radius: var(--radius-sm);
+}
+.schedule-open:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring-color);
+  outline-offset: var(--focus-ring-offset);
+  box-shadow: var(--focus-ring-gap);
+}
+/* The chevron of a navigable row (table.mdx@86c813ec:229-231), after the domain's last
+   line, and never parted from it. The domain and the key wrap, as on Jobs (his choice D). */
+.schedule-open .source-identity-domain .sx-icon { color: var(--muted); margin-inline-start: var(--sp-1); }
+.schedule-open .source-identity-domain,
+.schedule-open .source-identity-key { white-space: normal; overflow-wrap: break-word; }
+.schedule-nowrap { white-space: nowrap; }
+/* The facts stack under the identity, so every one is read at 320 px (Studio's columns
+   need 1,170 px). Next run: the schedule's own zone first, his display zone under it. */
+.schedule-facts {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: calc(var(--sp-1) / 2) var(--sp-3);
+  margin: 0;
+}
+.schedule-facts dt { color: var(--muted); }
+.schedule-facts dd { margin: 0; min-width: 0; }
+.schedule-facts-sub { display: block; }
