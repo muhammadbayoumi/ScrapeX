@@ -1194,6 +1194,22 @@ def test_a_job_end_on_an_engine_without_the_switch_claims_no_schedules_read(open
     assert not page.js_errors
 
 
+def test_a_job_end_that_reads_sources_again_clears_their_failure(open_panel):
+    """A job end whose sources read failed is said; the next job end reads them, and the
+    banner goes. On an engine without the switch, where loadSources reads no schedules,
+    so only the sources read can clear it."""
+    page = open_panel(**OLD_ENGINE)
+    show_schedules(page)
+    page.evaluate("FAIL.push('/api/sources')")
+    page.evaluate("redrawWhatTheJobChanged()")
+    banner(page).wait_for()
+    assert banner(page).locator("strong").inner_text() == "The engine did not answer"
+    page.evaluate("FAIL.length = 0")
+    page.evaluate("redrawWhatTheJobChanged()")
+    banner(page).wait_for(state="detached")
+    assert not page.js_errors
+
+
 def test_a_read_that_left_before_a_remove_does_not_bring_the_row_back(open_panel):
     """A job end's reload left while the Remove question was open, and lands after the
     Remove was answered: its schedules are older than the Remove, so the row stays gone
@@ -1241,12 +1257,15 @@ def test_a_page_read_that_left_before_a_remove_does_not_bring_the_row_back(open_
     press_item(page, "MADAR", "Remove schedule…")
     page.wait_for_selector("#confirm-veil:not(.hidden)")
     hold_next_read(page, "/api/schedules", 1_000)
+    read_at = page.evaluate("schedulesPage.readAt")
     page.evaluate("() => { window.__tick = loadSchedulesPage({ quiet: true }); }")
     page.click("#confirm-go")
     wait_toast(page, "Removed the schedule for madar.com")
     page.evaluate("window.__tick")
     assert row(page, "MADAR").count() == 0
     assert text(page, "#sched-count").startswith("3 schedules · 1 without a source")
+    # What it shows was not read by that read, so "Read at" does not say it was.
+    assert page.evaluate("schedulesPage.readAt") == read_at
     assert not page.js_errors
 
 
