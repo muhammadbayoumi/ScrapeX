@@ -280,8 +280,10 @@ def test_a_date_layout_refuses_an_instant_rather_than_truncating_it():
     """The search APIs carry a DATE as midnight UTC. Any other time of day would
     be an instant, and dropping its time would store a day the source never
     meant."""
-    with pytest.raises(ValueError, match="is not in the layout"):
-        parse_date("2026-10-07T13:45:00Z", "YYYY-MM-DDT00:00:00Z")
+    # A whole hour is no exception: '22:00Z' is already the next day in Cairo.
+    for instant in ("2026-10-07T13:45:00Z", "2026-10-07T12:00:00Z", "2026-10-07T22:00:00Z"):
+        with pytest.raises(ValueError, match="is not in the layout"):
+            parse_date(instant, "YYYY-MM-DDT00:00:00Z")
     with pytest.raises(ValueError, match="is not in the layout"):
         parse_date("12/1/2025 3:00:00 PM", "M/D/YYYY 12:00:00 AM")
 
@@ -304,6 +306,14 @@ def test_a_day_that_does_not_exist_fails_loud(raw, layout):
 def test_an_unknown_month_name_fails_loud():
     with pytest.raises(ValueError, match="names no month"):
         parse_date("07-Okt-2026", "DD-Mon-YYYY")
+
+
+@pytest.mark.parametrize(("name", "month"), [
+    ("Jan", 1), ("Feb", 2), ("Mar", 3), ("Apr", 4), ("May", 5), ("Jun", 6),
+    ("Jul", 7), ("Aug", 8), ("Sep", 9), ("Oct", 10), ("Nov", 11), ("Dec", 12),
+])
+def test_every_month_name_is_its_own_month(name, month):
+    assert parse_date(f"07-{name}-2026", "DD-Mon-YYYY") == date(2026, month, 7)
 
 
 def test_a_month_name_is_read_in_any_case():
@@ -337,6 +347,8 @@ def test_an_instant_is_utc_and_keeps_its_time():
     "2026-10-09 16:07:56Z",       # a space where the T goes
     "2026-10-09T16:07Z",          # no seconds
     "09-Oct-2026",                # a date
+    "2026-10-09T16:07:56+02:00",  # an offset: read as Z, it would be two hours off
+    "2026-10-09T16:07:56+00:00",  # UTC by offset, still not the one shape the Bank writes
 ])
 def test_an_instant_in_another_shape_fails_loud(raw):
     with pytest.raises(ValueError, match="not an instant"):
@@ -402,10 +414,19 @@ def test_the_number_beside_the_code_is_the_one_parse_money_reads():
     "egp 5",              # not a currency code's shape
     "EGP 5 USD",          # two currencies
     "Egyptian Pounds 5",  # a currency's name, not its code
+    "EURO 5",             # four letters: not an ISO 4217 code
+    "US 5",               # two letters: a country, not a currency
 ])
 def test_an_amount_without_one_coded_currency_fails_loud(raw):
     with pytest.raises(ValueError, match="currency code and an amount"):
         parse_money_with_currency(raw)
+
+
+def test_a_coded_amount_whose_number_parse_money_refuses_fails_loud():
+    """The code is fine and the number is not: the refusal is parse_money's, and it
+    must reach the caller rather than become None, which reads as no amount written."""
+    with pytest.raises(ValueError, match="unparseable"):
+        parse_money_with_currency("EGP 1.2.3")
 
 
 @pytest.mark.parametrize("raw", [None, "", "   "])
