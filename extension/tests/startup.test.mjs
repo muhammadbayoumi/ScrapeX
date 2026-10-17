@@ -134,6 +134,8 @@ test("the bundle build is bounded by the job, and its sub-paths are not", () => 
                STARTUP_DEADLINES.localGeneric);
   assert.equal(deadlineForLocalRequest("/api/bundle/panel-pack"),
                STARTUP_DEADLINES.localGeneric);
+  assert.equal(deadlineForLocalRequest("/api/bundle/light"),
+               STARTUP_DEADLINES.localGeneric);
   assert.notEqual(STARTUP_DEADLINES.bundleBuild, STARTUP_DEADLINES.localMutation);
 });
 
