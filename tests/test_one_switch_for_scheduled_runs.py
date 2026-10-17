@@ -157,8 +157,10 @@ def test_a_schedule_fires_after_the_fold_exactly_as_before(tmp_path, monkeypatch
     keys = _mixed_rows(old)
     new = tmp_path / "new.db"
     shutil.copy(old, new)
-    monkeypatch.setattr(db, "_migrations", whole[:at + 1])
-    assert EngineDatabase(new).initialize() == [whole[at].number]
+    # The copy stops at 0024 too: `fire_due` below is compared across this one fold.
+    upgraded = EngineDatabase(new)
+    monkeypatch.setattr(upgraded, "_migrations", whole[:at + 1])
+    assert upgraded.initialize() == [whole[at].number]
 
     fired = {}
     for name, path in (("old", old), ("new", new)):
@@ -310,7 +312,8 @@ def _folded_client(tmp_path, monkeypatch, *, registered=True, **schedule):
     conn.commit()
     conn.close()
     monkeypatch.setattr(db, "_migrations", whole)
-    assert db.initialize() == [whole[at].number]
+    # 0024 and every migration after it: the whole chain the engine would apply today.
+    assert db.initialize() == [one.number for one in whole[at:]]
     manifest = tmp_path / "sources.yaml"
     shutil.copy(MANIFEST_FILE, manifest)
     test_client = TestClient(create_app(path, manifest_path=manifest))
