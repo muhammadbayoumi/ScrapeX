@@ -855,18 +855,195 @@ def test_a_good_read_after_a_failed_job_end_read_brings_runs_chips_back(open_pan
     assert chip(page, "MADAR") == "Daily 09:00"
 
 
-def test_a_job_end_redraws_the_page_from_the_panels_own_read(open_panel):
-    """A job end costs the page nothing: the panel's reload reads sources and schedules
-    once, and the page draws from it."""
+RUNNING = {
+    "job_ref": "job_madar0001", "job_kind": "crawl", "status": "running",
+    "run_mode": "update", "source_keys": ["MADAR"], "current_source_key": "MADAR",
+    "stage": None, "progress": {"done": 0, "total": 1},
+    "fetch": {"requests": 0, "expected": None, "basis": None, "as_of": None,
+              "unknown_sources": [], "sources": {}},
+    "queued_behind": None, "counters": {}, "created_at": "2026-10-11T06:00:00Z",
+    "started_at": "2026-10-11T06:00:00Z", "finished_at": None,
+    "last_heartbeat_at": None, "error_summary": None}
+
+
+def adopted(page, ref):
+    page.wait_for_function("(ref) => state.jobRef === ref", arg=ref)
+
+
+def test_a_job_end_through_the_tick_redraws_the_page_from_the_panels_own_read(open_panel):
+    """A job end costs the page no read of its own: the panel's reload reads sources and
+    schedules once (`redrawWhatTheJobChanged`), and the page draws from it. Driven
+    through the real tick (`pollJobOnce`), where `noticeActiveSet` also sees the job go."""
+    page = open_panel(jobs=[RUNNING])
+    adopted(page, RUNNING["job_ref"])
+    show_schedules(page)
+    answer(page, "/api/sources", "body.sources.find((s) => s.source_key === 'MADAR')"
+                                 ".last_success = {started_at: '2026-10-11T06:00:00Z',"
+                                 " finished_at: '2026-10-11T06:20:00Z'};")
+    schedules, sources = len(calls(page, "/api/schedules")), len(calls(page, "/api/sources"))
+    page.evaluate("ROUTES['/api/jobs'] = {jobs: []}")
+    page.wait_for_function(f"""() => document.querySelector(
+        '{VIEW} .schedule-row[data-sched="MADAR"] [data-fact="last"]')
+        .textContent.includes('11 October 2026')""", timeout=6_000)
+    # Every read of this job end left before /api/sources did (noticeActiveSet's at once,
+    # loadSources' beside it), so the count is final here.
+    assert len(calls(page, "/api/sources")) == sources + 1
+    assert len(calls(page, "/api/schedules")) == schedules + 1
+    assert not page.js_errors
+
+
+def test_a_job_that_appears_has_the_page_read_its_schedules(open_panel):
+    """A firing makes a job and re-arms its slot: the job that appears in the tick has the
+    page read schedules once, and no sources -- the job has changed none yet."""
+    page = open_panel(jobs=[RUNNING])
+    adopted(page, RUNNING["job_ref"])
+    show_schedules(page)
+    answer(page, "/api/schedules", "body.schedules.find((s) => s.source_key === 'ELBUROJ')"
+                                   ".next_run_at = '2026-10-12T05:30:00Z';")
+    schedules, sources = len(calls(page, "/api/schedules")), len(calls(page, "/api/sources"))
+    fired = {**RUNNING, "job_ref": "job_elburoj001", "status": "queued",
+             "source_keys": ["ELBUROJ"], "current_source_key": None, "started_at": None}
+    page.evaluate("(job) => { ROUTES['/api/jobs'] = {jobs: [ROUTES['/api/jobs'].jobs[0], job]}; }",
+                  fired)
+    page.wait_for_function(f"""() => document.querySelector(
+        '{VIEW} .schedule-row[data-sched="ELBUROJ"] [data-fact="next"]')
+        .textContent.includes('Mon 12 Oct')""", timeout=6_000)
+    page.wait_for_timeout(1_600)   # one more tick, with the same jobs: nothing more is read
+    assert len(calls(page, "/api/schedules")) == schedules + 1
+    assert len(calls(page, "/api/sources")) == sources
+    assert not page.js_errors
+
+
+def test_a_job_end_on_an_engine_without_the_switch_claims_no_schedules_read(open_panel):
+    """loadSources reads no schedules on an engine without the switch, so a job end there
+    is no fresh read: a failed one stays said, and "Read at" stays where it was."""
+    page = open_panel(engine_version="0.4.57",
+                      omit_capabilities=("schedule_active_switch", "scheduled_skips"))
+    show_schedules(page)
+    page.evaluate("FAIL.push('/api/schedules')")
+    page.evaluate("loadSchedulesPage({ quiet: true })")   # the tick's read, as it fails
+    banner = page.locator('#sched-state [data-role="banner"]')
+    banner.wait_for()
+    read_at = page.evaluate("schedulesPage.readAt")
+    page.evaluate("redrawWhatTheJobChanged()")
+    assert banner.locator("strong").inner_text() == "Unable to refresh data"
+    assert page.evaluate("schedulesPage.readAt") == read_at
+    assert not page.js_errors
+
+
+def test_a_read_that_left_before_a_remove_does_not_bring_the_row_back(open_panel):
+    """A job end's reload left while the Remove question was open, and lands after the
+    Remove was answered: its schedules are older than the Remove, so the row stays gone
+    and nothing about it is live. (`redrawWhatTheJobChanged` is what the tick calls at a
+    job end; called here so its read can be held across the press.)"""
+    page = open_panel(route_delays={"/api/sources": 1_500})
+    show_schedules(page)
+    press_item(page, "MADAR", "Remove schedule…")
+    page.wait_for_selector("#confirm-veil:not(.hidden)")
+    page.evaluate("() => { window.__end = redrawWhatTheJobChanged(); }")
+    page.click("#confirm-go")
+    wait_toast(page, "Removed the schedule for madar.com")
+    assert row(page, "MADAR").count() == 0
+    page.evaluate("window.__end")   # the held reload, landed and drawn
+    assert row(page, "MADAR").count() == 0
+    assert page.evaluate("state.schedules.get('MADAR').frequency") == "manual"
+    assert not page.js_errors
+
+
+def hold_next_read(page, path, ms):
+    """Hold the answer to the next GET of exactly `path` for `ms`, after the stub has
+    answered it: route timing only, for one read, so the reads around it are untouched."""
+    page.evaluate("""([path, ms]) => {
+        const real = window.fetch;
+        let held = ms;
+        window.fetch = async (url, options = {}) => {
+            const bare = String(url).replace(/^https?:\\/\\/[^/]+/, '').split('?')[0];
+            const get = !options.method || options.method === 'GET';
+            if (!(held && get && bare === path)) return real(url, options);
+            const wait = held;
+            held = 0;
+            const answered = await real(url, options);
+            const body = JSON.parse(JSON.stringify(await answered.json()));
+            await new Promise((resolve) => setTimeout(resolve, wait));
+            return { ok: answered.ok, status: answered.status, json: async () => body };
+        };
+    }""", [path, ms])
+
+
+def test_a_page_read_that_left_before_a_remove_does_not_bring_the_row_back(open_panel):
+    """The page's own read -- a tick's, held by a slow engine -- left before the Remove
+    was answered and lands after it: the Remove stands."""
     page = open_panel()
     show_schedules(page)
+    press_item(page, "MADAR", "Remove schedule…")
+    page.wait_for_selector("#confirm-veil:not(.hidden)")
+    hold_next_read(page, "/api/schedules", 1_000)
+    page.evaluate("() => { window.__tick = loadSchedulesPage({ quiet: true }); }")
+    page.click("#confirm-go")
+    wait_toast(page, "Removed the schedule for madar.com")
+    page.evaluate("window.__tick")
+    assert row(page, "MADAR").count() == 0
+    assert text(page, "#sched-count").startswith("3 schedules · 1 without a source")
+    assert not page.js_errors
+
+
+def test_the_switch_sends_the_schedule_a_read_brought_in_while_he_answered(open_panel):
+    """The engine's own page saved MADAR as Weekly Wednesday 07:15 Africa/Cairo while the
+    question was open, and a tick brought it in. The route stores every field it is sent,
+    so the POST carries that schedule, not the one he pressed on."""
+    page = open_panel()
+    show_schedules(page)
+    flip(page, "MADAR")
+    answer(page, "/api/schedules", "Object.assign(body.schedules.find((s) => s.source_key "
+                                   "=== 'MADAR'), {frequency: 'weekly', weekday: 2, "
+                                   "run_at: '07:15', timezone: 'Africa/Cairo'});")
+    page.evaluate("loadSchedulesPage({ quiet: true })")   # the tick's read
+    page.wait_for_function(f"""() => document.querySelector(
+        '{VIEW} .schedule-row[data-sched="MADAR"] .schedule-facts')
+        .textContent.includes('Weekly Wednesday 07:15')""")
+    page.click("#confirm-go")
+    wait_toast(page, "Disabled scheduled runs for madar.com")
+    body = writes(page)[-1]["body"]
+    assert (body["frequency"], body["weekday"], body["run_at"], body["timezone"],
+            body["active"]) == ("weekly", 2, "07:15", "Africa/Cairo", False), body
+    assert not page.js_errors
+
+
+def test_a_switch_on_a_schedule_removed_while_he_answered_sends_nothing(open_panel):
+    """Removed elsewhere while the question was open: its row left with the tick, and a
+    POST would save it back as a schedule and turn the source off."""
+    page = open_panel()
+    show_schedules(page)
+    flip(page, "MADAR")
     answer(page, "/api/schedules",
-           "body.schedules = body.schedules.filter((s) => s.source_key !== 'ELBUROJ');")
-    before = len(calls(page, "/api/schedules"))
-    page.evaluate("redrawWhatTheJobChanged()")
-    page.wait_for_selector(f'{VIEW} .schedule-row[data-sched="ELBUROJ"]', state="detached")
+           "body.schedules.find((s) => s.source_key === 'MADAR').frequency = 'manual';")
+    page.evaluate("loadSchedulesPage({ quiet: true })")
+    row(page, "MADAR").wait_for(state="detached")
+    page.click("#confirm-go")
+    page.wait_for_selector("#confirm-veil.hidden", state="attached")
     page.wait_for_timeout(300)
-    assert len(calls(page, "/api/schedules")) == before + 1
+    assert writes(page) == []
+    assert not page.js_errors
+
+
+def test_remove_keeps_the_time_and_zone_stored_when_it_is_answered(open_panel):
+    """Remove keeps the time and zone: the ones stored when he answers, not when he
+    opened the question."""
+    page = open_panel()
+    show_schedules(page)
+    press_item(page, "MADAR", "Remove schedule…")
+    page.wait_for_selector("#confirm-veil:not(.hidden)")
+    answer(page, "/api/schedules", "Object.assign(body.schedules.find((s) => s.source_key "
+                                   "=== 'MADAR'), {run_at: '07:15', timezone: 'Africa/Cairo'});")
+    page.evaluate("loadSchedulesPage({ quiet: true })")
+    page.wait_for_function(f"""() => document.querySelector(
+        '{VIEW} .schedule-row[data-sched="MADAR"] .schedule-facts')
+        .textContent.includes('07:15 · Africa/Cairo')""")
+    page.click("#confirm-go")
+    wait_toast(page, "Removed the schedule for madar.com")
+    body = writes(page)[-1]["body"]
+    assert (body["frequency"], body["run_at"], body["timezone"]) \
+        == ("manual", "07:15", "Africa/Cairo"), body
     assert not page.js_errors
 
 

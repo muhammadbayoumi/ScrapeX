@@ -2522,13 +2522,15 @@ async function wipeSourceData() {
 
 /** Reads sources (and, for the switch's labels, schedules); true when it read them. */
 async function loadSources() {
+  const wrote = schedulesPage.wrote;
   try {
     const [{ sources }, schedules] = await Promise.all([
       api("/api/sources"),
       // Only the switch's labels read it; unread, they are not drawn rather than guessed.
       scheduleSwitchOn() ? api("/api/schedules").catch(() => null) : null,
     ]);
-    if (scheduleSwitchOn()) {
+    // A write on the Schedules page since this read left is newer than what it holds.
+    if (scheduleSwitchOn() && wrote === schedulesPage.wrote) {
       state.schedules = schedules
         ? new Map(schedules.schedules.map((item) => [item.source_key, item])) : null;
     }
@@ -5898,8 +5900,11 @@ function noticeActiveSet(jobs) {
   if (!before) return;
   const changed = refs.size !== before.size || [...refs].some((ref) => !before.has(ref));
   if (changed && currentViewName() === "jobs") loadJobs();
-  // A firing makes a job and re-arms its slot: the Schedules page reads its list again.
-  if (changed && currentViewName() === "schedules") loadSchedulesPage({ quiet: true });
+  // A FIRING MAKES A JOB AND RE-ARMS ITS SLOT: a job that appeared, and only that, has the
+  // Schedules page read its list again. One that ended is redrawn from the panel's own
+  // reload (schedulesAfterJobEnd), which reads no schedules of the page's.
+  const appeared = [...refs].some((ref) => !before.has(ref));
+  if (appeared && currentViewName() === "schedules") loadSchedulesPage({ quiet: true });
 }
 
 async function pollJobOnce() {
@@ -8867,6 +8872,8 @@ const schedulesPage = {
   rows: new Map(),       // row key -> element; an orphan's key is "lost:" + its source_key
   menuFor: null,         // the row whose ⋮ menu is open
   writesOff: false,      // the engine stopped answering over a good list
+  wrote: 0,              // Removes this page applied; a read sent before one keeps none
+                         // of its schedules (loadSchedulesPage, loadSources)
 };
 
 // THE ENGINE'S OWN WAIT, AND ONE SECOND. The panel stops waiting for a write at 5 s
@@ -8924,6 +8931,7 @@ async function loadSchedulesPage({ quiet = false, sourcesToo = false } = {}) {
   // A job end whose schedules read failed left Run with no chips (loadSources); a good
   // read here draws them again.
   const runHadNoChips = !(state.schedules instanceof Map);
+  const wrote = page.wrote;
   try {
     const [listed, read] = await Promise.all([
       wantSources ? api("/api/sources").catch((error) => {
@@ -8931,9 +8939,14 @@ async function loadSchedulesPage({ quiet = false, sourcesToo = false } = {}) {
       }) : null,
       api("/api/schedules"),
     ]);
-    page.saved = new Map(read.schedules.map((sched) => [sched.source_key, sched]));
-    page.note = read.note || "";
-    state.schedules = page.saved;
+    // A WRITE HERE SINCE THIS READ LEFT IS NEWER than what it holds: a Remove whose
+    // answer came first would otherwise come back as a live row. Its sources still count.
+    const fresh = wrote === page.wrote;
+    if (fresh) {
+      page.saved = new Map(read.schedules.map((sched) => [sched.source_key, sched]));
+      page.note = read.note || "";
+      state.schedules = page.saved;
+    }
     if (listed) {
       page.sourcesOk = true;
       page.sourcesStale = false;
@@ -8943,7 +8956,7 @@ async function loadSchedulesPage({ quiet = false, sourcesToo = false } = {}) {
     }
     page.failure = null;
     page.startFailed = false;
-    page.readAt = new Date().toISOString();
+    if (fresh) page.readAt = new Date().toISOString();
   } catch (error) {
     if (wantSources) page.sourcesStale = page.sourcesOk;
     page.failure = { message: (error && error.message) || "no answer",
@@ -8953,25 +8966,33 @@ async function loadSchedulesPage({ quiet = false, sourcesToo = false } = {}) {
   drawSchedules();
 }
 
-/** A JOB END COSTS THIS PAGE NO READ: the panel's own reload (redrawWhatTheJobChanged)
- *  has read sources and schedules, and the page draws from what it left. */
+/** A JOB END COSTS THIS PAGE NO READ OF ITS OWN: the panel's own reload
+ *  (redrawWhatTheJobChanged) has read sources, and schedules on an engine with the switch,
+ *  and the page draws from what it left. A job start is read by noticeActiveSet. */
 function schedulesAfterJobEnd(read) {
   const page = schedulesPage;
   if (!page.saved) return;
   if (!read) {
     page.sourcesStale = true;
     page.failure = { message: "The engine did not answer", http: false, what: "sources" };
-  } else {
-    page.sourcesOk = true;
-    page.sourcesStale = false;
+    drawSchedules();
+    return;
+  }
+  page.sourcesOk = true;
+  page.sourcesStale = false;
+  if (page.failure && page.failure.what === "sources") page.failure = null;
+  // ONLY A MAP loadSources HAS JUST READ IS A FRESH READ. Still the page's own, it read
+  // none -- an engine without the switch -- or dropped one a write here made older, and
+  // what the page last read, and how that read went, stand.
+  if (state.schedules !== page.saved) {
     if (state.schedules instanceof Map) {
       page.saved = state.schedules;
       page.failure = null;
       page.readAt = new Date().toISOString();
-    } else if (scheduleSwitchOn()) {
+    } else {
       // Sources came back and schedules did not: not a fresh read.
       page.failure = { message: "The engine did not answer", http: false, what: "schedules" };
-    }   // an engine without the switch: loadSources reads no schedules, so readAt stays
+    }
   }
   drawSchedules();
 }
@@ -9319,17 +9340,23 @@ function scheduleToast(words, row) {
 
 async function toggleScheduleRow(row) {
   const key = row.dataset.sched;
-  const source = schedulesSources().find((item) => item.source_key === key);
-  const sched = schedulesPage.saved.get(key);
+  let source = schedulesSources().find((item) => item.source_key === key);
+  let sched = schedulesPage.saved.get(key);
   const button = row.querySelector('[data-role="sched-active"]');
   if (!source || !sched || scheduleGated(row)) return;
   const on = button.getAttribute("aria-checked") === "true";
   const name = siteName(source);
   // AN ENGINE THAT LOST THE SWITCH WHILE HE ANSWERED (a downgrade, a report that landed)
-  // would save the schedule, ignore `active` and answer 200: nothing is sent, and the
-  // redraw that took the switch away has put the note in its place.
+  // would save the schedule, ignore `active` and answer 200; a row that left (its schedule
+  // removed elsewhere) would be saved back. Nothing is sent: the redraw that took the
+  // switch or the row away is the answer on screen.
   if (!(await askToSwitchScheduledRuns(source, sched, on)) || scheduleGated(row)
-      || !scheduleSwitchOn()) return;
+      || !scheduleSwitchOn() || !row.isConnected) return;
+  // THE SCHEDULE AS THE PAGE HOLDS IT NOW, not as it stood when he pressed: the route
+  // stores every field it is sent, so a save a read brought in while he answered (on
+  // Settings, or the engine's own page) is kept, not undone.
+  source = schedulesSources().find((item) => item.source_key === key);
+  sched = schedulesPage.saved.get(key);
   const pressedAt = Date.now();
   setScheduleRowBusy(row, true);
   button.setAttribute("aria-busy", "true");
@@ -9472,7 +9499,7 @@ function scheduleMenuKeys(event, row) {
 async function removeScheduleRow(row) {
   const key = row.dataset.sched;
   const source = schedulesSources().find((item) => item.source_key === key);
-  const sched = schedulesPage.saved.get(key);
+  let sched = schedulesPage.saved.get(key);
   if (!source || !sched || scheduleGated(row)) return;
   const name = siteName(source);
   const yes = await askToConfirm({
@@ -9483,6 +9510,8 @@ async function removeScheduleRow(row) {
     keep: "Cancel", go: "Remove schedule", tone: "danger",
   });
   if (!yes || scheduleGated(row)) return;
+  // The time and zone it keeps are the ones stored when he answers, as the switch's are.
+  sched = schedulesPage.saved.get(key);
   const pressedAt = Date.now();
   setScheduleRowBusy(row, true);
   row.setAttribute("aria-busy", "true");
@@ -9493,6 +9522,7 @@ async function removeScheduleRow(row) {
       run_mode: sched.run_mode, missed_run_policy: sched.missed_run_policy,
       overlap_policy: "skip", enabled: Boolean(sched.enabled ?? true) });
     schedulesPage.saved.set(key, { ...sched, ...result });
+    schedulesPage.wrote += 1;
     setScheduleRowBusy(row, false);
     showToast(`Removed the schedule for ${name}`);
     schedulesRunFollows();
