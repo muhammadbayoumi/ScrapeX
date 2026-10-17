@@ -1703,11 +1703,13 @@ function renderSites() {
       // A FIRST CRAWL THAT STOPPED PARTWAY, said on its own row. The source holds rows, so
       // Run offers Update, and Update reads what changed; the engine reads the areas the
       // first crawl did not reach before that, and this line is where he learns so. The
-      // numbers are the engine's (`first_crawl`, present only while it is incomplete).
+      // numbers are the engine's (`first_crawl`: sent once part of it is read and while
+      // it is incomplete; `stopped_at` is when the last crawl that left areas unread
+      // ended, so the sentence holds after an update that read some of them too).
       const partial = s.first_crawl;
       const partialBlock = partial ? `<span class="source-row-kept">
           <span><strong>${fmtCount(partial.read)} of ${fmtCount(partial.of)} ${
-            esc(partial.unit)} read</strong> before the initial crawl stopped${
+            esc(partial.unit)} read</strong> when the last crawl stopped${
             partial.stopped_at ? " " + fmtStopped(partial.stopped_at) : ""}. An update
           reads ${partial.of - partial.read === 1 ? "the last one"
             : `the other ${fmtCount(partial.of - partial.read)}`} first.</span>
@@ -5524,12 +5526,16 @@ function refreshRunButton() {
   const refusal = engineRefusal();
   let blocked = "";
   if (!refusal) {
-    // A SELECTED SOURCE THAT ALREADY HAS A JOB NOT SETTLED gets that fact and no promise
-    // of a queue: the engine refuses a second tender crawl of it. Asked of every job not
-    // settled, not only the adopted one, so a paused crawl or one queued behind another
-    // job counts; and worded to hold at any of those statuses. Which sources a job holds
-    // is the jobs payload's fact; whether a press is refused stays the engine's.
-    const busy = state.sources.filter((s) => state.selected.has(s.source_key)
+    // A SELECTED TENDER SOURCE THAT ALREADY HAS A JOB NOT SETTLED gets that fact and no
+    // promise of a queue: the engine refuses a second tender crawl of it. Asked of every
+    // job not settled, not only the adopted one, so a paused crawl or one queued behind
+    // another job counts; and worded to hold at any of those statuses. A tender source's
+    // only job is its crawl, so "a crawl" is true. Every other source keeps the queue
+    // sentence below, which the engine honours for it: a second price crawl queues, and
+    // an enrichment or an interpretation is not a crawl. Which sources a job holds is the
+    // jobs payload's fact; whether a press is refused stays the engine's.
+    const busy = state.sources.filter((s) => s.kind === "tender"
+      && state.selected.has(s.source_key)
       && state.activeJobs.some((job) => (job.source_keys || []).includes(s.source_key)));
     if (!n) blocked = "Select at least one site above.";
     else if (busy.length) blocked = `${busy.map((s) => sourceDomain(s.base_url)
@@ -5566,7 +5572,9 @@ function showRunRefused(text) {
 function costQuestion(cost, mode, before = null) {
   const seconds = cost.requests * cost.pace_s;
   const minutes = Math.floor(seconds / 60);
-  const time = minutes < 1 ? "under a minute"
+  // A FLOOR AT EVERY SIZE. "Under a minute" would be a ceiling the pace cannot promise.
+  const whole = Math.floor(seconds);
+  const time = minutes < 1 ? `at least ${whole} second${whole === 1 ? "" : "s"}`
     : `at least ${fmtCount(minutes)} minute${minutes === 1 ? "" : "s"}`;
   return {
     // The run and the source, named the way a job is (`jobLabel`: kind · source).
@@ -5637,7 +5645,7 @@ async function startRun() {
         // in a dialog that returns whatever he answers.
         if (accepted && accepted.requests === cost.requests) {
           throw new Error(`the engine asked again about the ${fmtCount(cost.requests)} `
-            + "requests already accepted");
+            + "requests already accepted.");
         }
         if (!(await askToConfirm(costQuestion(cost, mode, accepted)))) return;
         accepted = { requests: cost.requests };
@@ -6274,7 +6282,7 @@ function askToConfirm({ title, named = "", copy, facts = [], keep, go, tone = "d
   }
   body.append(document.createTextNode(copy));
   // THE FIGURES AS LABELLED ROWS, the way Studio lays out an estimate (a label and its
-  // value, `PipelineCostDialog.tsx@86c813ec:154-200`), in the panel's `.kv` row.
+  // value, `PipelineCostDialog.tsx@86c813ec:213-228`), in the panel's `.kv` row.
   for (const [label, value] of facts) {
     const row = document.createElement("div");
     row.className = "kv";
@@ -6291,12 +6299,16 @@ function askToConfirm({ title, named = "", copy, facts = [], keep, go, tone = "d
   // danger, warning, or "" for primary: the button variant the question needs.
   $("confirm-go").className = tone;
   $("confirm-veil").classList.remove("hidden");
-  // FOCUS OPENS ON THE CHOICE THAT CHANGES NOTHING, unless the question is taller than
-  // the panel: then focusing it would scroll the title away, and the WAI-ARIA APG modal
-  // dialog pattern puts focus on the start of the content instead, its title.
+  // FOCUS OPENS ON THE CHOICE THAT CHANGES NOTHING, unless it lies below what the card
+  // shows: then reaching it would scroll the title away, and the WAI-ARIA APG Dialog
+  // (Modal) pattern puts focus on the start of the content instead, its title. Asked of
+  // the button and not of the card, which can overflow by its own padding while every
+  // word and both buttons are in view.
   const card = $("confirm-dialog");
-  if (card.scrollHeight > card.clientHeight) $("confirm-title").focus({ preventScroll: true });
-  else $("confirm-keep").focus({ preventScroll: true });
+  const shown = card.getBoundingClientRect().top + card.clientTop + card.clientHeight;
+  if ($("confirm-keep").getBoundingClientRect().bottom > shown) {
+    $("confirm-title").focus({ preventScroll: true });
+  } else $("confirm-keep").focus({ preventScroll: true });
   return new Promise((resolve) => { confirmSettle = resolve; });
 }
 

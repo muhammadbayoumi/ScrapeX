@@ -1,4 +1,4 @@
-"""DRAFT TOOL, NOT FOR MERGE: the tender control's mock-up (milestone 51, part 2), fourth draft.
+"""DRAFT TOOL, NOT FOR MERGE: the tender control's mock-up (milestone 51, part 2), sixth draft.
 
 It renders the panel through tools/panel_harness.py with the part 3b engine stubbed as the
 study's contract describes it. The study, its reference sheet and the review rounds are on
@@ -114,9 +114,23 @@ def job(status, *, ref="job_7c1e2a90b4d1", stage=None, requests=0, expected=None
             "error_summary": summary, "queued_behind": None}
 
 
+def requests_word(n):
+    return f"{n:,} request{'' if n == 1 else 's'}"
+
+
+def area_line(v):
+    """The contract's one log line per area read: "<area>: <n> notices in <m> requests"."""
+    return {"level": "info", "message": f"{v['name']}: {v['count']:,} notices in "
+                                        f"{requests_word(math.ceil(v['count'] / 1000))}"}
+
+
+# THE ORDER THE MOCK READS AREAS IN is the facet's, largest first: the first crawl read
+# areas[:DONE] and stopped before areas[DONE]; every later state continues from there.
 RUNNING = job("running", stage=f"reading {CURRENT}", requests=DONE_REQUESTS,
               expected=EXPECTED, done=DONE, total=AREAS, notices=DONE_NOTICES)
-LONGEST = job("running", stage="reading Lao People's Democratic Republic",
+# THE LONGEST NAME THE BANK PUBLISHES, from the facet, not a long name chosen by hand.
+LONGEST_NAME = max((v["name"] for v in areas), key=len)
+LONGEST = job("running", stage=f"reading {LONGEST_NAME}",
               requests=DONE_REQUESTS, expected=EXPECTED, done=DONE, total=AREAS,
               notices=DONE_NOTICES)
 STARTING = job("running", stage="counting notices")
@@ -141,53 +155,69 @@ PRICE_RUNNING = {"job_ref": "job_6be2c94a07f1", "job_kind": "crawl", "status": "
                                                    "retries": 0}}},
                  "counters": {"observations": 1_830}, "error_summary": None,
                  "queued_behind": None}
-UPDATE_AREAS = job("running", stage="reading Brazil", requests=13, expected=LEFT_REQUESTS,
-                   done=DONE + 12, total=AREAS, notices=9_874)
-UPDATE_CHANGES = job("running", stage="reading changes", requests=LEFT_REQUESTS + 3,
-                     unit="pages", done=3, notices=125_919 + 2_412, new=125_919 + 58,
-                     unchanged=2_354)
-UPDATING = job("running", stage="reading changes", requests=3, unit="pages", done=3,
-               notices=2_412, new=58, unchanged=2_354)
+# AN UPDATE OF THE STOPPED FIRST CRAWL, 12 areas into the 143 it did not read.
+UPDATE_READ = 12
+UPDATE_AREAS = job("running", stage=f"reading {areas[DONE + UPDATE_READ]['name']}",
+                   requests=1 + sum(pages[DONE:DONE + UPDATE_READ]),
+                   expected=LEFT_REQUESTS, done=DONE + UPDATE_READ, total=AREAS,
+                   notices=sum(v["count"] for v in areas[DONE:DONE + UPDATE_READ]))
+# THE SAME UPDATE AFTER EVERY AREA, 3 pages into the notices changed since.
+CHANGES = (1_000, 1_000, 412)
+LEFT_NOTICES = TOTAL - DONE_NOTICES
+UPDATE_CHANGES = job("running", stage="reading changes",
+                     requests=LEFT_REQUESTS + len(CHANGES), unit="pages", done=len(CHANGES),
+                     notices=LEFT_NOTICES + sum(CHANGES), new=LEFT_NOTICES + 58,
+                     unchanged=sum(CHANGES) - 58)
+# THE HISTORY ON JOBS, oldest last: the first crawl failed at areas[DONE]; an update read
+# the rest but two areas; the next update read those two, then the changes.
+MISSED = (areas[DONE + 1], areas[DONE + 17])
+MISSED_PAGES = sum(math.ceil(v["count"] / 1000) for v in MISSED)
+MISSED_NOTICES = sum(v["count"] for v in MISSED)
+FIRST_FAIL_PAGE = 1
+HISTORY_DONE = 1 + MISSED_PAGES + 3
 HISTORY = [
     job("running", ref="job_a91c03d2e7f4", stage="reading changes", requests=2, unit="pages",
         done=2, notices=1_611, new=37, unchanged=1_574),
-    job("completed", ref="job_0b9f61c2d8e7", requests=15, unit="pages", done=3,
-        notices=13_412, new=11_058, unchanged=2_354,
-        # 15 REQUESTS AT 2.5 S APART TAKE AT LEAST 35 S.
-        started="2026-10-13T08:00:01Z", finished="2026-10-13T08:00:39Z"),
-    job("completed_with_errors", ref="job_51d0aa7e3c22", requests=LEFT_REQUESTS - 9,
-        expected=LEFT_REQUESTS, done=AREAS - 2, total=AREAS,
-        notices=TOTAL - DONE_NOTICES - 21_000, errors=2,
-        summary="2 areas not read; an update reads them first. Brazil: HTTP 503 after 3 "
-                "tries. Kenya: response cut off at 1,204,111 bytes.",
+    job("completed", ref="job_0b9f61c2d8e7", requests=HISTORY_DONE, unit="pages", done=3,
+        notices=MISSED_NOTICES + sum(CHANGES), new=MISSED_NOTICES + 58,
+        unchanged=sum(CHANGES) - 58,
+        # AT 2.5 S APART, N REQUESTS TAKE AT LEAST 2.5 * (N - 1) S; this one takes 3 s more.
+        started="2026-10-13T08:00:01Z",
+        finished=iso(datetime(2026, 10, 13, 8, 0, 1, tzinfo=timezone.utc)
+                     + timedelta(seconds=math.ceil(2.5 * (HISTORY_DONE - 1)) + 3))),
+    job("completed_with_errors", ref="job_51d0aa7e3c22",
+        requests=LEFT_REQUESTS - MISSED_PAGES, expected=LEFT_REQUESTS, done=AREAS - 2,
+        total=AREAS, notices=LEFT_NOTICES - MISSED_NOTICES, errors=2,
+        summary=f"2 areas not read; an update reads them first. {MISSED[0]['name']}: HTTP 503 "
+                f"after 3 tries. {MISSED[1]['name']}: response cut off at 1,204,111 bytes.",
         started="2026-10-12T08:00:02Z", finished="2026-10-12T08:17:40Z"),
-    job("failed", ref="job_e4472b1f9a03", requests=DONE_REQUESTS, expected=EXPECTED,
-        done=DONE, total=AREAS, notices=DONE_NOTICES, errors=1_000,
-        summary="Stopped: the Bank's notices changed shape. 41 of 184 areas read; an "
-                "update reads the rest. Kenya, page 3: none of 1,000 notices could be read "
-                "('Prequalification Notice' is not a known notice type).",
+    # THE CONSEQUENCE LEADS, so the two-line clamp on Jobs keeps it (row 24).
+    job("failed", ref="job_e4472b1f9a03",
+        requests=DONE_REQUESTS + FIRST_FAIL_PAGE, expected=EXPECTED,
+        done=DONE, total=AREAS, notices=DONE_NOTICES + 1_000, errors=1_000,
+        summary=f"{DONE} of {AREAS} areas read; an update reads the rest. Stopped because "
+                f"the Bank's notices changed shape at {CURRENT}, page {FIRST_FAIL_PAGE}: none "
+                "of 1,000 notices could be read ('Prequalification Notice' is not a known "
+                "notice type).",
         started="2026-10-11T08:00:01Z", finished="2026-10-11T08:14:03Z"),
 ]
+# ONE LINE PER AREA READ, as the contract says, after the line that plans the phase.
 LOGS = [
     {"level": "info", "message": f"counted {TOTAL:,} notices in {AREAS} areas: "
                                  f"{EXPECTED:,} requests"},
-    *({"level": "info", "message": f"{v['name']}: {v['count']:,} notices in "
-                                   f"{math.ceil(v['count'] / 1000)} requests"}
-      for v in areas[DONE - 3:DONE]),
-    {"level": "info", "message": f"{CURRENT}: reading"},
+    *(area_line(v) for v in areas[:DONE]),
 ]
-
-
 LOGS_UPDATE_AREAS = [
     {"level": "info", "message": f"{AREAS - DONE} areas not read yet: "
                                  f"{LEFT_REQUESTS:,} requests"},
-    {"level": "info", "message": "Kenya: 1,204 notices in 2 requests"},
-    {"level": "info", "message": "Brazil: reading"},
+    *(area_line(v) for v in areas[DONE:DONE + UPDATE_READ]),
 ]
-LOGS_UPDATE_CHANGES = LOGS_UPDATE_AREAS[:2] + [
+LOGS_UPDATE_CHANGES = [
+    LOGS_UPDATE_AREAS[0],
+    *(area_line(v) for v in areas[DONE:]),
     {"level": "info", "message": "every area read; reading the notices changed since "
                                  "13 Oct 2026, 8:00 AM"},
-    {"level": "info", "message": "changes: 1,000 notices in 1 request"},
+    *({"level": "info", "message": f"changes: {n:,} notices in 1 request"} for n in CHANGES),
 ]
 
 
@@ -285,7 +315,7 @@ STATES = {
                               engine_jobs(cost=COST_FIRST, mixed=True), click("#run"),
                               wait(300), scroll("#run", "center")],
                              [(14, "#run-refused")]),
-    "09-refused-while-a-job-runs": (dict(sources=SOURCES, jobs=[UPDATING], logs=LOGS),
+    "09-refused-while-a-job-runs": (dict(sources=SOURCES, jobs=[PRICE_RUNNING], logs=[]),
                                     [click("#tab-run"), TICK_WB, TICK_SHORT,
                                      engine_jobs(cost=COST_FIRST, mixed=True), click("#run"),
                                      wait(3600), scroll("#run", "center")],
@@ -338,7 +368,7 @@ STATES = {
                            [(17, "#act-state")]),
     "16-jobs-page": (dict(sources=SOURCES, jobs=HISTORY, logs=LOGS),
                      [click("#tab-jobs"), wait(500)],
-                     [(22, "#jobs-list > :nth-child(1)"), (23, "#jobs-list > :nth-child(2)")]),
+                     [(22, "#jobs-list > :nth-child(1)"), (23, "#jobs-list > :nth-child(3)")]),
     "17-jobs-page-failed": (dict(sources=SOURCES, jobs=HISTORY, logs=LOGS),
                             [click("#tab-jobs"), wait(500),
                              scroll("#jobs-list > :nth-child(4)", "end")],
@@ -367,7 +397,16 @@ SHORT = {
     "23-confirm-320-high": (dict(sources=SOURCES),
                             [click("#tab-run"), TICK_WB, engine_jobs(cost=COST_FIRST),
                              click("#run"), wait(250)],
-                            [(7, "#confirm-title")]),
+                            [(7, "#confirm-title"), (9, "#confirm-keep")]),
+    # D2, SUPABASE'S SIDE: ConfirmationModal sets no initial focus, so Radix focuses the
+    # first tabbable element, Cancel, with `preventScroll: true`
+    # (@radix-ui/react-focus-scope@1.1.7, `focus()`). Drawn by doing exactly that.
+    "23s-confirm-320-high-supabase": (dict(sources=SOURCES),
+                                      [click("#tab-run"), TICK_WB,
+                                       engine_jobs(cost=COST_FIRST), click("#run"), wait(250),
+                                       ("js", "document.getElementById('confirm-keep')"
+                                              ".focus({preventScroll: true})")],
+                                      [(7, "#confirm-title"), (9, "#confirm-keep")]),
 }
 
 MARK = (214, 40, 160)
@@ -419,6 +458,16 @@ def shoot(browser, stub_kwargs, steps, markers, width, height, scheme, tmp):
         blocked: (document.getElementById('run-blocked') || {}).textContent || '',
         posts: window.__posts || null,
         tenderCard: !!document.querySelector('[data-open="worldbank_org"]'),
+        // WHETHER HE CAN SEE WHAT HAS FOCUS: inside the open card's visible box, or the
+        // viewport when no question is open.
+        focusInView: (() => { const a = document.activeElement;
+          if (!a || a === document.body) return null;
+          const r = a.getBoundingClientRect();
+          const open = !document.getElementById('confirm-veil').classList.contains('hidden');
+          const box = open ? document.getElementById('confirm-dialog').getBoundingClientRect()
+                           : {top: 0, bottom: innerHeight};
+          return r.top >= Math.max(0, box.top) && r.bottom <= Math.min(innerHeight, box.bottom);
+        })(),
         focus: document.activeElement && (document.activeElement.id
                || document.activeElement.tagName)})""")
     shot = tmp / f"s{width}{scheme}.png"
