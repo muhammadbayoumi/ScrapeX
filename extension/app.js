@@ -2529,7 +2529,7 @@ async function loadSources() {
       // Only the switch's labels read it; unread, they are not drawn rather than guessed.
       scheduleSwitchOn() ? api("/api/schedules").catch(() => null) : null,
     ]);
-    // A write on the Schedules page since this read left is newer than what it holds.
+    // A Remove on the Schedules page since this read left is newer than what it holds.
     if (scheduleSwitchOn() && wrote === schedulesPage.wrote) {
       state.schedules = schedules
         ? new Map(schedules.schedules.map((item) => [item.source_key, item])) : null;
@@ -5901,8 +5901,8 @@ function noticeActiveSet(jobs) {
   const changed = refs.size !== before.size || [...refs].some((ref) => !before.has(ref));
   if (changed && currentViewName() === "jobs") loadJobs();
   // A FIRING MAKES A JOB AND RE-ARMS ITS SLOT: a job that appeared, and only that, has the
-  // Schedules page read its list again. One that ended is redrawn from the panel's own
-  // reload (schedulesAfterJobEnd), which reads no schedules of the page's.
+  // Schedules page read its list again. One that ended is drawn from the panel's own
+  // reload (redrawWhatTheJobChanged, then schedulesAfterJobEnd), with no read of its own.
   const appeared = [...refs].some((ref) => !before.has(ref));
   if (appeared && currentViewName() === "schedules") loadSchedulesPage({ quiet: true });
 }
@@ -8939,8 +8939,8 @@ async function loadSchedulesPage({ quiet = false, sourcesToo = false } = {}) {
       }) : null,
       api("/api/schedules"),
     ]);
-    // A WRITE HERE SINCE THIS READ LEFT IS NEWER than what it holds: a Remove whose
-    // answer came first would otherwise come back as a live row. Its sources still count.
+    // A REMOVE HERE SINCE THIS READ LEFT IS NEWER than what it holds: the removed row
+    // would otherwise come back, live. Its sources still count.
     const fresh = wrote === page.wrote;
     if (fresh) {
       page.saved = new Map(read.schedules.map((sched) => [sched.source_key, sched]));
@@ -8981,9 +8981,9 @@ function schedulesAfterJobEnd(read) {
   page.sourcesOk = true;
   page.sourcesStale = false;
   if (page.failure && page.failure.what === "sources") page.failure = null;
-  // ONLY A MAP loadSources HAS JUST READ IS A FRESH READ. Still the page's own, it read
-  // none -- an engine without the switch -- or dropped one a write here made older, and
-  // what the page last read, and how that read went, stand.
+  // ONLY A MAP loadSources HAS JUST READ IS A FRESH READ. While state.schedules is still
+  // the page's own, loadSources read none (an engine without the switch) or dropped one a
+  // Remove here made older, so what the page last read, and how that read went, stand.
   if (state.schedules !== page.saved) {
     if (state.schedules instanceof Map) {
       page.saved = state.schedules;
