@@ -18,6 +18,7 @@
     "GET /",
     "GET /api/appearance",
     "GET /api/bundle/archive",
+    "GET /api/bundle/light",
     "GET /api/bundle/panel-pack",
     "GET /api/changes",
     "GET /api/dry/{source_key}",
