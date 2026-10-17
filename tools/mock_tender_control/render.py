@@ -419,6 +419,13 @@ STATES = {
                        [(28, "#setup")]),
 }
 SHORT = {
+    "23r-asked-again-320-high": (dict(sources=SOURCES),
+                                 [click("#tab-run"), TICK_WB,
+                                  engine_jobs(cost=COST_FIRST, moves=3), PRESS_RUN, wait(250),
+                                  # ONE SHIFT+TAB reaches the confirm button from the title
+                                  # (320 px) and from Cancel (400, 480 px) alike.
+                                  ("key", "Shift+Tab"), ("key", "Enter"), wait(400)],
+                                 [(8, "#confirm-copy")]),
     "22-short-panel-320-high": (dict(sources=SOURCES),
                                 [click("#tab-run"), TICK_WB, scroll("#run", "end")],
                                 [(5, "#run")]),
@@ -428,14 +435,17 @@ SHORT = {
                             # NO MARKER ON THE TITLE: its box would cover the focus ring
                             # this state and 23s compare. Row 7 is marked in 03.
                             [(9, "#confirm-keep")]),
-    # D2, SUPABASE'S SIDE: ConfirmationModal sets no initial focus, so Radix focuses the
+    # THE COMPARISON, SUPABASE'S SIDE: ConfirmationModal sets no initial focus, so Radix focuses the
     # first tabbable element, Cancel, with `preventScroll: true`
     # (@radix-ui/react-focus-scope@1.1.7, `focus()`). Drawn by doing exactly that.
     "23s-confirm-320-high-supabase": (dict(sources=SOURCES),
                                       [click("#tab-run"), TICK_WB,
                                        engine_jobs(cost=COST_FIRST), PRESS_RUN, wait(250),
-                                       ("js", "document.getElementById('confirm-keep')"
-                                              ".focus({preventScroll: true})")],
+                                       # AT ITS TOP FIRST: Radix mounts a fresh dialog,
+                                       # where the draft has scrolled Cancel into view.
+                                       ("js", "document.getElementById('confirm-dialog')"
+                                              ".scrollTop = 0; document.getElementById("
+                                              "'confirm-keep').focus({preventScroll: true})")],
                                       [(9, "#confirm-keep")]),
 }
 
@@ -456,6 +466,8 @@ def drive(page, steps):
         elif kind == "press":
             page.focus(step[1])
             page.keyboard.press(step[2])
+        elif kind == "key":
+            page.keyboard.press(step[1])
         elif kind == "wait":
             page.wait_for_timeout(step[1])
         page.wait_for_timeout(120)
@@ -518,9 +530,12 @@ def draw_marks(img, found):
         left, top, right, bottom = rect
         if bottom < 0 or top > img.height:
             continue
-        left, top, right, bottom = left - 3, top - 3, right + 3, bottom + 3
+        # 7 PX OUT, clear of the focus ring, which reaches 4 px out (`--focus-ring-offset`
+        # and `--focus-ring-width`, tokens.css:439-440): a marker must not hide the focus
+        # a state shows.
+        left, top, right, bottom = left - 7, top - 7, right + 7, bottom + 7
         d.rectangle([left, top, right, bottom], outline=MARK, width=2)
-        cx, cy = max(10, min(img.width - 10, right + 6)), max(10, min(img.height - 10, top - 6))
+        cx, cy = max(10, min(img.width - 10, right + 2)), max(10, min(img.height - 10, top - 2))
         d.ellipse([cx - 10, cy - 10, cx + 10, cy + 10], fill=MARK)
         text = str(number)
         w = d.textlength(text, font=font)

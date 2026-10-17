@@ -5580,16 +5580,17 @@ function runQuestion() {
   return [...state.selected].sort().join("\u0000") + "\u0001" + $("run-mode").value;
 }
 
-/** Say what the engine refused on this page, or clear it. */
-function showRunRefused(text) {
+/** Say what the engine refused on this page, or clear it. `question` is the selection and
+ *  mode it answered, taken at the press: he can change them while the engine answers. */
+function showRunRefused(text, question = runQuestion()) {
   $("run-refused").textContent = text;
-  state.refusedFor = text ? runQuestion() : "";
+  state.refusedFor = text ? question : "";
 }
 
 /** The question a run asks before it reads a source it does not hold whole yet.
  *
- * Every number is the engine's 409 answer (`cost`). The panel multiplies requests by the
- * pace and says "at least": the pace is a floor, and download time is not in it. */
+ * Every figure but Time is the engine's 409 answer (`cost`). Time is the panel's own
+ * arithmetic on two of them, and says "at least": download time is not in it. */
 function costQuestion(cost, mode, before = null) {
   // THE PANEL'S OWN ARITHMETIC, on the engine's two figures: N requests at a pace wait
   // (N - 1) paces between them. A floor, since download time is not in it.
@@ -5604,12 +5605,14 @@ function costQuestion(cost, mode, before = null) {
     title: `${MODES[mode][0]} · ${cost.source}`,
     // TWO SENTENCES, BOTH THE ENGINE'S: what the run reads, and what the figures rest on.
     // The figures go in rows; a long value squeezes a `.kv` label to a letter a line.
-    // A RE-ASK SAYS WHY IT IS BACK: the figure moved while he read the first one.
-    copy: `${before ? `The figure changed from about ${requestCount(before.requests)}. `
-      : ""}${cost.reads} ${cost.basis}`,
+    // A RE-ASK SAYS WHY IT IS BACK, and names the new figure too: the sentences are the
+    // dialog's description, the only part read out when it opens.
+    copy: `${before ? `The figure changed from about ${fmtCount(before.requests)} to about `
+      + `${requestCount(cost.requests)}. ` : ""}${cost.reads} ${cost.basis}`,
     facts: [
       ["Requests", `about ${fmtCount(cost.requests)}`],
-      ["Time", time],
+      // NO WAIT TO STATE under a second: "at least 0 seconds" says nothing.
+      ...(seconds < 1 ? [] : [["Time", time]]),
       ["Pace", `${cost.pace_s}s between requests`],
       ["Counted on", fmtDay(cost.counted_at)],
     ],
@@ -5651,6 +5654,7 @@ async function startRun() {
       "\n\nResume, on the site's own row, continues from them instead and " +
       "re-fetches none of them.\n\nDiscard them and start from the top?")) return;
   state.starting = true;
+  const asked = runQuestion();
   $("run").disabled = true;
   showRunRefused("");
   const body = { source_keys: keys, run_mode: mode };
@@ -5696,7 +5700,7 @@ async function startRun() {
     state.starting = false;
     refreshRunButton();
     // AFTER THE REFRESH, which used to erase it in the same task (#1332, #1656).
-    if (refused) showRunRefused(refused);
+    if (refused) showRunRefused(refused, asked);
     // FOCUS GOES BACK TO START. Disabling it for the request dropped focus to the body, so
     // the confirmation had nothing to return it to; and its own button, hidden with it,
     // still holds focus here until the browser blurs it after this task. NEVER OUT OF AN
@@ -6357,16 +6361,23 @@ function askToConfirm({ title, named = "", copy, facts = [], keep, go, tone = "d
   // danger, warning, or "" for primary: the button variant the question needs.
   $("confirm-go").className = tone;
   $("confirm-veil").classList.remove("hidden");
-  // FOCUS OPENS ON THE CHOICE THAT CHANGES NOTHING, unless it lies below what the card
-  // shows: then reaching it would scroll the title away, and the WAI-ARIA APG Dialog
-  // (Modal) pattern puts focus on the start of the content instead, its title. Asked of
-  // the button and not of the card, which can overflow by its own padding while every
-  // word and both buttons are in view.
+  // EVERY QUESTION OPENS AT ITS TOP. The card stays in the page between questions, and
+  // kept the scroll the last one was left at, with the new one's title out of view.
   const card = $("confirm-dialog");
-  const shown = card.getBoundingClientRect().top + card.clientTop + card.clientHeight;
-  if ($("confirm-keep").getBoundingClientRect().bottom > shown) {
+  card.scrollTop = 0;
+  // FOCUS OPENS ON THE CHOICE THAT CHANGES NOTHING, unless reaching it would scroll the
+  // start of the question out of view: then the WAI-ARIA APG Dialog (Modal) pattern puts
+  // focus on the start of the content instead, its title. Its condition, measured: how far
+  // Cancel lies below what the card shows, against how far the title lies below the
+  // card's top. A Cancel clipped by less than that is scrolled into view and takes focus.
+  const top = card.getBoundingClientRect().top + card.clientTop;
+  const below = $("confirm-keep").getBoundingClientRect().bottom - (top + card.clientHeight);
+  if (below > $("confirm-title").getBoundingClientRect().top - top) {
     $("confirm-title").focus({ preventScroll: true });
-  } else $("confirm-keep").focus({ preventScroll: true });
+  } else {
+    $("confirm-keep").focus({ preventScroll: true });
+    if (below > 0) $("confirm-keep").scrollIntoView({ block: "nearest" });
+  }
   return new Promise((resolve) => { confirmSettle = resolve; });
 }
 
