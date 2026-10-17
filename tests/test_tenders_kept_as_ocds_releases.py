@@ -1,4 +1,4 @@
-"""Tenders kept as OCDS releases, with the responses they came from (migration 0024).
+"""Tenders kept as OCDS releases, with the responses they came from (migration 0025).
 
 On the real schema and the real migration stream, never a fixture schema (`CLAUDE.md`):
 
@@ -6,7 +6,9 @@ On the real schema and the real migration stream, never a fixture schema (`CLAUD
     upgrades a warehouse at the version before it without touching what it holds;
   * the history is append-only and the evidence immutable, by trigger;
   * `tenderstore` stores a release once, keeps persons out of it, and compiles the
-    current state by OCDS's merge rule (ES-3), from real World Bank notices.
+    current state by OCDS's merge rule (ES-3), from real World Bank notices;
+  * the award tables stand empty until part 4 brings their writer, and already refuse
+    what OCDS's codelists and their own pairs of columns refuse.
 """
 from __future__ import annotations
 
@@ -23,18 +25,24 @@ from scrapex.databases.domain import EngineDatabase
 from scrapex.sites import worldbank as wb
 
 ROOT = Path(__file__).resolve().parents[1]
-MIGRATION = "0024_tenders_kept_as_ocds_releases.sql"
+MIGRATION = "0025_tenders_kept_as_ocds_releases.sql"
 FIXTURE = Path(__file__).parent / "fixtures" / "worldbank" / "notices.json"
 NOTICES = {n["id"]: n for n in json.loads(FIXTURE.read_text(encoding="utf-8"))["notices"]}
 OPEN_REOI, IFB, ITS_AWARD = "OP00473710", "OP00158446", "OP00184991"
 
-#: Every table 0024 creates, and the singular a foreign key to it is named after (ES-4).
+#: Every table 0025 creates, and the singular a foreign key to it is named after (ES-4).
 TABLES = ("fetched_responses", "tender_processes", "tender_releases", "tenders",
           "tender_parties", "tender_party_roles", "tender_contact_points", "tender_items",
-          "tender_classifications", "tender_locations")
+          "tender_classifications", "tender_locations", "tender_awards",
+          "tender_award_suppliers", "tender_contracts", "tender_bids",
+          "tender_beneficial_owners")
+#: Created here on his ruling of 2026-10-17 (#1658), and written by nothing until part 4.
+AWARD_TABLES = ("tender_awards", "tender_award_suppliers", "tender_contracts",
+                "tender_bids", "tender_beneficial_owners")
 SINGULAR = {"fetched_responses": "fetched_response", "tender_processes": "tender_process",
             "tender_releases": "tender_release", "tender_parties": "tender_party",
-            "crawl_job": "crawl_job", "source_site": "source_site"}
+            "tender_awards": "tender_award", "crawl_job": "crawl_job",
+            "source_site": "source_site"}
 
 
 @pytest.fixture()
@@ -269,3 +277,104 @@ def test_a_compile_is_a_rebuild_from_the_history(conn):
     conn.execute("DELETE FROM tenders")
     tenderstore.compile_process(conn, stored.tender_process_id)
     assert snapshot() == before
+
+
+# ---- the award tables: here now, written from part 4 on (his ruling, #1658) ---------------
+
+def test_an_award_notice_leaves_the_award_tables_empty_until_their_writer(conn):
+    """The award notice's payload carries its award and contract (`release_from_notice`),
+    and still nothing is compiled from them: their writer is part 4's."""
+    _store(conn, IFB)
+    stored = _store(conn, ITS_AWARD)
+    payload = json.loads(conn.execute("SELECT payload FROM tender_releases WHERE id = ?",
+                                      (stored.tender_release_id,)).fetchone()[0])
+    assert payload["awards"][0]["id"] == NOTICES[ITS_AWARD]["contract_id"]
+    assert payload["contracts"][0]["awardID"] == NOTICES[ITS_AWARD]["contract_id"]
+    for table in AWARD_TABLES:
+        assert conn.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 0, table
+
+
+def _award_chain(conn) -> dict[str, int]:
+    """One row in each award table, as part 4 will write them, on a stored process."""
+    stored = _store(conn, ITS_AWARD)
+    process = stored.tender_process_id
+    party = conn.execute("SELECT id, party_ref FROM tender_parties WHERE tender_process_id = ? "
+                         "AND party_ref != 'worldbank'", (process,)).fetchone()
+    award = conn.execute(
+        "INSERT INTO tender_awards (tender_process_id, award_ref, title, status, awarded_at, "
+        "value_amount, value_currency, value_amount_usd, contract_period_duration) "
+        "VALUES (?,?,?,?,?,?,?,?,?)",
+        (process, "1703070", "Supply of transformers", "active", "2022-03-01",
+         292182.0, "EGP", 18690.5, "P30M")).lastrowid
+    conn.execute("INSERT INTO tender_award_suppliers (tender_award_id, tender_party_id, "
+                 "value_amount_usd, value_is_split) VALUES (?,?,?,?)",
+                 (award, party[0], 9345.25, 1))
+    conn.execute("INSERT INTO tender_contracts (tender_award_id, contract_ref, signed_at, "
+                 "no_objection_at) VALUES (?,?,?,?)", (award, "1703070", "2022-03-30",
+                                                       "2022-03-20"))
+    bid = conn.execute(
+        "INSERT INTO tender_bids (tender_process_id, bid_ref, tender_party_id, status, "
+        "value_amount, value_currency, evaluated_value_amount, evaluated_value_currency, "
+        "technical_score, financial_score, combined_score, rank) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        (process, "1", party[0], "valid", 319200.0, "EGP", 292182.0, "EGP",
+         84.5, 100.0, 87.6, 1)).lastrowid
+    owner = conn.execute(
+        "INSERT INTO tender_beneficial_owners (tender_release_id, party_ref, owner_ref, name, "
+        "nationality, residence, control) VALUES (?,?,?,?,?,?,?)",
+        (stored.tender_release_id, party[1], "1", "A Person", "Egypt", "Egypt",
+         "holds 25% or more of the shares")).lastrowid
+    return {"process": process, "party": party[0], "award": award, "bid": bid,
+            "owner": owner, "release": stored.tender_release_id}
+
+
+def test_the_award_tables_hold_what_part_4_will_write(conn):
+    rows = _award_chain(conn)
+    assert tuple(conn.execute(
+        "SELECT a.value_amount, a.value_currency, a.value_amount_usd, s.value_is_split, "
+        "c.signed_at, b.rank FROM tender_awards a "
+        "JOIN tender_award_suppliers s ON s.tender_award_id = a.id "
+        "JOIN tender_contracts c ON c.tender_award_id = a.id "
+        "JOIN tender_bids b ON b.tender_party_id = s.tender_party_id").fetchone()) == (
+        292182.0, "EGP", 18690.5, 1, "2022-03-30", 1)
+    assert conn.execute("SELECT tender_release_id FROM tender_beneficial_owners"
+                        ).fetchone()[0] == rows["release"]
+
+
+@pytest.mark.parametrize(("table", "column", "value"), [
+    ("tender_awards", "status", "awarded"),                     # not in awardStatus
+    ("tender_awards", "value_currency", "egp"),                 # ISO 4217 is upper case
+    ("tender_awards", "value_currency", None),                  # an amount with no currency
+    ("tender_awards", "contract_period_duration", "30 Month(s)"),  # as written, not ISO 8601
+    ("tender_award_suppliers", "value_amount_usd", None),       # split, but no share
+    ("tender_bids", "status", "rejected"),                      # bidStatus says disqualified
+    ("tender_bids", "rank", 0),                                 # 1 is first
+    ("tender_bids", "evaluated_value_currency", None),          # an amount with no currency
+    ("tender_beneficial_owners", "name", None),                 # an owner is a named person
+])
+def test_the_award_tables_refuse_what_their_definitions_refuse(conn, table, column, value):
+    rows = _award_chain(conn)
+    key = {"tender_awards": rows["award"], "tender_bids": rows["bid"],
+           "tender_beneficial_owners": rows["owner"]}.get(table)
+    where = ("tender_award_id = ?", rows["award"]) if key is None else ("id = ?", key)
+    with pytest.raises(sqlite3.IntegrityError):
+        conn.execute(f"UPDATE {table} SET {column} = ? WHERE {where[0]}", (value, where[1]))
+
+
+def test_a_bid_or_a_supplier_must_name_a_party_of_the_warehouse(conn):
+    rows = _award_chain(conn)
+    with pytest.raises(sqlite3.IntegrityError, match="FOREIGN KEY"):
+        conn.execute("UPDATE tender_bids SET tender_party_id = ? WHERE id = ?",
+                     (rows["party"] + 1000, rows["bid"]))
+    with pytest.raises(sqlite3.IntegrityError, match="FOREIGN KEY"):
+        conn.execute("UPDATE tender_award_suppliers SET tender_party_id = ?",
+                     (rows["party"] + 1000,))
+
+
+def test_a_beneficial_owner_can_be_removed_and_the_history_stays(conn):
+    """His ruling on #1647: persons live outside the append-only history, so they can go."""
+    rows = _award_chain(conn)
+    conn.execute("DELETE FROM tender_beneficial_owners WHERE id = ?", (rows["owner"],))
+    assert conn.execute("SELECT count(*) FROM tender_beneficial_owners").fetchone()[0] == 0
+    assert conn.execute("SELECT count(*) FROM tender_releases WHERE id = ?",
+                        (rows["release"],)).fetchone()[0] == 1

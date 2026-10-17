@@ -5,7 +5,9 @@ whole in `tender_releases`, which a trigger makes append-only, and it is the his
 The typed tables (`tenders`, `tender_parties` and the rest) are the current state,
 compiled from a process's releases by `compile_process`. They are rebuilt from the
 releases, never edited on their own, so deleting and re-inserting them is the rule
-here and not a shortcut.
+here and not a shortcut. The award tables (`tender_awards`, its suppliers, contracts
+and bids) are compiled here too once part 4 brings their writer; until then nothing
+writes them, and an award notice's award stays in its release.
 
 THIS MODULE KNOWS NO SOURCE. A site module (`scrapex/sites/worldbank.py`, the first)
 turns what its site publishes into a `Release`; everything below reads OCDS and nothing

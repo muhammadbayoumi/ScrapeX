@@ -12,17 +12,19 @@
 -- documents, a party's Arabic name); they wait for the source that fills them, because
 -- an empty column is a promise, not a fact.
 --
--- WHAT IS DEFERRED TO THE NEXT MIGRATION, AND WHY. Awards, their suppliers, contracts
--- and bids (#1616 D3, D4, D5, D6, D7) arrive with their writer, the award-text parser and
--- `contractdata`, in part 4 of milestone 51. #1616 §5 is the rule: a table ships with its
--- first writer. Until then an award notice is kept here as a release like any other, so
--- part 4 compiles awards from what is already stored and fetches nothing twice.
+-- THE AWARD TABLES ARE CREATED HERE AND STAY EMPTY UNTIL PART 4. His ruling on #1658,
+-- 2026-10-17: awards, their suppliers, contracts, bids and beneficial owners (#1616 D3
+-- to D7) go in this migration, where his rulings on #1647 placed them, and wait for their
+-- writer, the award-text parser and `contractdata`, in part 4 of milestone 51. Until then
+-- an award notice is kept as a release like any other, its structured award fields
+-- inside the payload, so part 4 compiles awards from what is already stored.
 --
 -- PERSONS ARE NOT IN THE HISTORY. His ruling on #1647: every person is kept (contact
--- persons), in a table of its own and outside `tender_releases`, which is append-only.
--- So a person can be removed later, if the Bank's reply or a person's request requires
--- it, without breaking the history's promise. `fetched_responses` still holds the raw
--- response they arrived in; removing a person from evidence is an archive, not an edit.
+-- persons and beneficial owners), each in a table of its own and outside
+-- `tender_releases`, which is append-only. So a person can be removed later, if the
+-- Bank's reply or a person's request requires it, without breaking the history's
+-- promise. `fetched_responses` still holds the raw response they arrived in; removing a
+-- person from evidence is an archive, not an edit.
 --
 -- `fetched_responses` IS THE EVIDENCE OF ANY MEDIA TYPE that `generic_page_snapshot`
 -- cannot hold (`content_type = 'text/html'` only, `db/engine/schema.sql:194-195`). Its
@@ -42,7 +44,7 @@
 --
 -- CREATE TABLE ONLY: nothing that exists changes, so no existing row can fail this.
 
-PRAGMA user_version = 24;
+PRAGMA user_version = 25;
 
 -- One response as fetched, whatever its media type. Immutable.
 CREATE TABLE fetched_responses (
@@ -267,3 +269,149 @@ CREATE TABLE tender_locations (
 ) STRICT;
 
 CREATE INDEX tender_locations_tender_process_id_idx ON tender_locations (tender_process_id);
+
+-- ---- Awards, contracts and bids: created here, empty until part 4 brings their writer ----
+-- Each holds what #1647 §5.2 and §5.3 found the Bank publishing, under OCDS's name for
+-- it. Where the Bank publishes more than OCDS has a field for, the column says so.
+
+-- An award in a process (OCDS `awards`), compiled.
+CREATE TABLE tender_awards (
+    id                       INTEGER PRIMARY KEY,
+    tender_process_id        INTEGER NOT NULL REFERENCES tender_processes(id),
+    -- OCDS award id, unique within the process: the Bank's contract number (#1616 D3).
+    award_ref                TEXT NOT NULL,
+    -- OCDS award title: the Bank's "Scope of Contract" (#1616 D3).
+    title                    TEXT,
+    -- OCDS awardStatus code.
+    status                   TEXT CHECK (status IN ('pending', 'active', 'cancelled',
+                                 'unsuccessful')),
+    -- OCDS award date, a date: when the award was notified.
+    awarded_at               TEXT,
+    -- The signed price in its own currency (ISO 4217): the award text's "Signed
+    -- Contract price" (#1647 §5.2). Its one home; `tender_contracts` does not repeat it.
+    value_amount             REAL,
+    value_currency           TEXT CHECK (value_currency IS NULL OR (
+                                 length(value_currency) = 3
+                                 AND value_currency = upper(value_currency))),
+    -- The Bank's own conversion to US dollars, beside the signed price and never in its
+    -- place (#1616 D7). Departs from OCDS, whose value is one amount in one currency.
+    value_amount_usd         REAL,
+    -- How long the contract runs, as an ISO 8601 duration (`P30M`), because the Bank
+    -- states months (#1616 D3). Departs from OCDS's contractPeriod.durationInDays: a
+    -- month is not a fixed number of days.
+    contract_period_duration TEXT CHECK (contract_period_duration IS NULL
+                                 OR contract_period_duration GLOB 'P[0-9]*[DWMY]'),
+    CHECK ((value_amount IS NULL) = (value_currency IS NULL)),
+    UNIQUE (tender_process_id, award_ref)
+) STRICT;
+
+CREATE INDEX tender_awards_tender_process_id_idx ON tender_awards (tender_process_id);
+
+-- A supplier an award is made to (OCDS `awards[].suppliers`), compiled.
+CREATE TABLE tender_award_suppliers (
+    id               INTEGER PRIMARY KEY,
+    tender_award_id  INTEGER NOT NULL REFERENCES tender_awards(id),
+    tender_party_id  INTEGER NOT NULL REFERENCES tender_parties(id),
+    -- This member's share of the award in US dollars, as the Bank states it (#1616 D4).
+    -- It is the Bank's figure, so it is named as `tender_awards.value_amount_usd` is.
+    value_amount_usd REAL,
+    -- 1 when that share is the Bank's equal division of the total among a joint
+    -- venture's members, not a share the members stated (#1647 §6.2 C2).
+    value_is_split   INTEGER NOT NULL DEFAULT 0 CHECK (value_is_split IN (0, 1)),
+    CHECK (value_is_split = 0 OR value_amount_usd IS NOT NULL),
+    UNIQUE (tender_award_id, tender_party_id)
+) STRICT;
+
+CREATE INDEX tender_award_suppliers_tender_award_id_idx
+    ON tender_award_suppliers (tender_award_id);
+CREATE INDEX tender_award_suppliers_tender_party_id_idx
+    ON tender_award_suppliers (tender_party_id);
+
+-- A contract signed for an award (OCDS `contracts`), compiled (#1616 D5).
+CREATE TABLE tender_contracts (
+    id              INTEGER PRIMARY KEY,
+    -- OCDS awardID.
+    tender_award_id INTEGER NOT NULL REFERENCES tender_awards(id),
+    -- OCDS contract id, unique within its award.
+    contract_ref    TEXT NOT NULL,
+    -- OCDS dateSigned, a date: the Bank states no time.
+    signed_at       TEXT,
+    -- When the Bank gave its no-objection, a date (`contr_no_obj_dat`). Not in OCDS
+    -- core: it is the funder's approval.
+    no_objection_at TEXT,
+    UNIQUE (tender_award_id, contract_ref)
+) STRICT;
+
+CREATE INDEX tender_contracts_tender_award_id_idx ON tender_contracts (tender_award_id);
+
+-- A bid in a process (OCDS bids extension, `bids.details`), compiled (#1616 D6).
+CREATE TABLE tender_bids (
+    id                              INTEGER PRIMARY KEY,
+    tender_process_id               INTEGER NOT NULL REFERENCES tender_processes(id),
+    -- OCDS bid id, unique within the process.
+    bid_ref                         TEXT NOT NULL,
+    -- The bidder. OCDS lists a bid's tenderers; the Bank names each bidder as one
+    -- party, a joint venture included.
+    tender_party_id                 INTEGER NOT NULL REFERENCES tender_parties(id),
+    -- OCDS bidStatus code: `valid` for an evaluated bid, `disqualified` for a rejected one.
+    status                          TEXT CHECK (status IN ('invited', 'pending', 'valid',
+                                        'disqualified', 'withdrawn')),
+    -- The Bank's "Reason for Rejection", as written. Not in OCDS.
+    rejection_reason                TEXT,
+    -- "Bid Price at Opening", in its own currency: OCDS's one bid value.
+    value_amount                    REAL,
+    value_currency                  TEXT CHECK (value_currency IS NULL OR (
+                                        length(value_currency) = 3
+                                        AND value_currency = upper(value_currency))),
+    -- "Evaluated Bid Price" and "Final Evaluation Price", each in its own currency and
+    -- each under its own label, because #1647 §5.2 counted the two together and did
+    -- not show they are one figure. Not in OCDS, whose bid has one value.
+    evaluated_value_amount          REAL,
+    evaluated_value_currency        TEXT CHECK (evaluated_value_currency IS NULL OR (
+                                        length(evaluated_value_currency) = 3
+                                        AND evaluated_value_currency
+                                            = upper(evaluated_value_currency))),
+    final_evaluation_value_amount   REAL,
+    final_evaluation_value_currency TEXT CHECK (final_evaluation_value_currency IS NULL OR (
+                                        length(final_evaluation_value_currency) = 3
+                                        AND final_evaluation_value_currency
+                                            = upper(final_evaluation_value_currency))),
+    -- A quality-based selection's scores, as the Bank publishes them. Not in OCDS.
+    technical_score                 REAL,
+    financial_score                 REAL,
+    combined_score                  REAL,
+    -- OCDS bid rank: 1 is first.
+    rank                            INTEGER CHECK (rank IS NULL OR rank >= 1),
+    CHECK ((value_amount IS NULL) = (value_currency IS NULL)),
+    CHECK ((evaluated_value_amount IS NULL) = (evaluated_value_currency IS NULL)),
+    CHECK ((final_evaluation_value_amount IS NULL)
+           = (final_evaluation_value_currency IS NULL)),
+    UNIQUE (tender_process_id, bid_ref)
+) STRICT;
+
+CREATE INDEX tender_bids_tender_process_id_idx ON tender_bids (tender_process_id);
+CREATE INDEX tender_bids_tender_party_id_idx ON tender_bids (tender_party_id);
+
+-- A beneficial owner of a party, as one release states it: a PERSON (OCDS beneficial
+-- owners extension, `parties[].beneficialOwners`). Outside the append-only history on
+-- his ruling (#1647), so it can be removed.
+CREATE TABLE tender_beneficial_owners (
+    id                INTEGER PRIMARY KEY,
+    tender_release_id INTEGER NOT NULL REFERENCES tender_releases(id),
+    -- The party it owns, by its OCDS party id within the process.
+    party_ref         TEXT NOT NULL,
+    -- OCDS person id, unique within the party in this release.
+    owner_ref         TEXT NOT NULL,
+    name              TEXT NOT NULL,
+    -- Nationality and country of residence, as the award text writes them. OCDS keeps
+    -- nationalities as ISO 3166-1 codes; the Bank writes names.
+    nationality       TEXT,
+    residence         TEXT,
+    -- The control the person holds, as the award text states it. Not in OCDS, which
+    -- leaves the nature of control to the Beneficial Ownership Data Standard.
+    control           TEXT,
+    UNIQUE (tender_release_id, party_ref, owner_ref)
+) STRICT;
+
+CREATE INDEX tender_beneficial_owners_tender_release_id_idx
+    ON tender_beneficial_owners (tender_release_id);

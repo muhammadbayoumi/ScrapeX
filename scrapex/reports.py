@@ -2591,6 +2591,16 @@ TABLE_GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
          ("tender_items", "What a tender buys, by its classification code."),
          ("tender_classifications", "The source's own sectors for a process."),
          ("tender_locations", "The countries a process is carried out in."),
+         ("tender_awards", "Who won a tender, at what signed price, and the Bank's "
+                           "figure for it in US dollars."),
+         ("tender_award_suppliers", "The firms an award went to, and each joint "
+                                    "venture member's share."),
+         ("tender_contracts", "When a contract was signed, and when the Bank approved it."),
+         ("tender_bids", "Every bid evaluated or rejected: its prices, scores and rank, "
+                         "and why a rejected bid was turned down."),
+         ("tender_beneficial_owners", "The people who own a firm that bid, as an award "
+                                      "notice names them. Kept apart so they can be "
+                                      "removed."),
      ]),
     ("General extraction", "The flexible branch for non-price data. It discovers a "
      "dataset and its fields first, then stores versioned records without forcing "

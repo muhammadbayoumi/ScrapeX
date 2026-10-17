@@ -162,14 +162,16 @@ crawl as if there were no file. That is a MAY, not taken today; taking it is his
 **Governs:** how a tender is stored: every release kept whole and never changed, and the
 typed tables rebuilt from the releases by OCDS's merge rule.
 
-**Cited at:** `scrapex/tenderstore.py`, `db/engine/migrations/0024_tenders_kept_as_ocds_releases.sql`.
+**Cited at:** `scrapex/tenderstore.py`, `db/engine/migrations/0025_tenders_kept_as_ocds_releases.sql`.
 
 ### The source
 
 | source | what it contributes |
 |---|---|
 | [Open Contracting Data Standard 1.1.5, *Releases and records*](https://standard.open-contracting.org/1.1/en/primer/releases_and_records/) | A **release** is what a publisher said about a contracting process at a point in time, and is never changed. A **record** is the current state, compiled by merging the releases in date order: a field a later release states replaces the earlier value, and a field it leaves out keeps it. |
-| [OCDS 1.1.5 codelists](https://standard.open-contracting.org/1.1/en/schema/codelists/) | `releaseTag`, `tenderStatus`, `method`, `procurementCategory`, `partyRole`: the vocabularies the typed columns are held to. |
+| [OCDS 1.1.5 codelists](https://standard.open-contracting.org/1.1/en/schema/codelists/) | `releaseTag`, `tenderStatus`, `method`, `procurementCategory`, `partyRole`, `awardStatus`: the vocabularies the typed columns are held to. |
+| [OCDS bid statistics and details extension](https://github.com/open-contracting-extensions/ocds_bid_extension) | `bids.details`: a bid's id, its tenderers, its one `value`, its `rank`, and the `bidStatus` codelist (`invited`, `pending`, `valid`, `disqualified`, `withdrawn`). |
+| [OCDS beneficial owners extension](https://github.com/open-contracting-extensions/ocds_beneficialOwners_extension) | `parties[].beneficialOwners`: a natural person with an id, a name and `nationalities` as ISO 3166-1 codes. It has no field for the control a person holds. |
 
 ### What it decides
 
@@ -178,25 +180,30 @@ typed tables rebuilt from the releases by OCDS's merge rule.
 `tenderstore.compile_process`, which deletes and re-inserts them because they are derived.
 A notice read twice is one release; a notice that changed is a new release with the same
 id. Persons stay out of the releases (his ruling on #1647) so they can be removed.
+The award tables (`tender_awards`, its suppliers, contracts and bids) are compiled the
+same way once part 4 of milestone 51 brings their writer; until then they stand empty.
 
-**Decided** by the owner on #1616 and #1647, 2026-10-10.
+**Decided** by the owner on #1616 and #1647, 2026-10-10, and on #1658, 2026-10-17.
 
 ### How to re-open this
 
 Level 4 of the precedence order: a published practice with a named author, the Open
 Contracting Partnership. **Provisional, by his ruling on #1614**: a reference is where a
 design starts, not a rule it bends to. Each departure is recorded with its reason beside
-the line that departs. 0024 records three: sectors kept in the source's own terms, a
-country kept as the source's code when it has no ISO one, and a deadline kept as a date
-and a local time because the source states no instant. OCDS 1.2, when it is released, is
-read against this entry.
+the line that departs. 0025 records these: sectors kept in the source's own terms; a
+country kept as the source's code when it has no ISO one; a deadline kept as a date and
+a local time, because the source states no instant; the Bank's US-dollar figure kept
+beside the signed price; a contract's duration in months, as ISO 8601; a bid's two
+evaluated prices and its scores; and a beneficial owner's nationality, residence and
+control as the source writes them. OCDS 1.2, when it is released, is read against this
+entry.
 
 ## ES-4 · New tables follow Supabase's Postgres style, as far as SQLite allows
 
-**Governs:** the names and shape of every table created from migration 0024 on. Tables
+**Governs:** the names and shape of every table created from migration 0025 on. Tables
 created before it keep their own style, by his ruling on #1616.
 
-**Cited at:** `db/engine/migrations/0024_tenders_kept_as_ocds_releases.sql`, `tests/test_tenders_kept_as_ocds_releases.py`.
+**Cited at:** `db/engine/migrations/0025_tenders_kept_as_ocds_releases.sql`, `tests/test_tenders_kept_as_ocds_releases.py`.
 
 ### The source
 
