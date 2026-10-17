@@ -1329,6 +1329,166 @@ def test_remove_keeps_the_time_and_zone_stored_when_it_is_answered(open_panel):
     assert not page.js_errors
 
 
+# Another reader's Map in state.schedules: the panel's own loadSources, or Settings'
+# loadSchedules, landing after the page's read (the re-review's A1 and A2).
+MADAR_MANUAL = "body.schedules.find((s) => s.source_key === 'MADAR').frequency = 'manual';"
+
+
+def another_readers_map(page):
+    page.wait_for_function("() => state.schedules instanceof Map"
+                           " && state.schedules !== schedulesPage.saved")
+
+
+def test_a_remove_reaches_runs_chip_over_a_map_another_read_left(open_panel):
+    """Sources' loadSources, its schedules read slow, lands after the page's read, so Run
+    draws from a Map the page does not hold. A Remove still reaches Run's chip."""
+    page = open_panel()
+    load_run_first(page)
+    hold_next_read(page, "/api/schedules", 1_500)
+    page.click("#tab-sources")
+    show_schedules(page)
+    another_readers_map(page)
+    press_item(page, "MADAR", "Remove schedule…")
+    page.click("#confirm-go")
+    wait_toast(page, "Removed the schedule for madar.com")
+    assert chip(page, "MADAR") == "Not scheduled"
+    assert not page.js_errors
+
+
+def test_a_remove_reaches_runs_chip_over_a_map_settings_left(open_panel):
+    """The same, from Settings' editor, whose read lands after the page's."""
+    page = open_panel()
+    load_run_first(page)
+    hold_next_read(page, "/api/schedules", 1_500)
+    page.click("#tab-settings")
+    show_schedules(page)
+    another_readers_map(page)
+    press_item(page, "MADAR", "Remove schedule…")
+    page.click("#confirm-go")
+    wait_toast(page, "Removed the schedule for madar.com")
+    assert chip(page, "MADAR") == "Not scheduled"
+    assert not page.js_errors
+
+
+def test_a_settings_read_that_left_before_a_remove_does_not_undo_it(open_panel):
+    """Settings' read left before the Remove and lands after it: its schedules are older."""
+    page = open_panel()
+    load_run_first(page)
+    show_schedules(page)
+    page.click("#tab-settings")
+    page.wait_for_function("() => document.querySelector('#schedules .sched-row')")
+    hold_next_read(page, "/api/schedules", 2_500)
+    page.evaluate("() => { window.__settings = loadSchedules(); }")
+    page.click("#tab-schedules")
+    page.wait_for_function("() => !document.getElementById('sched-list')"
+                           ".hasAttribute('aria-busy')")
+    press_item(page, "MADAR", "Remove schedule…")
+    page.click("#confirm-go")
+    wait_toast(page, "Removed the schedule for madar.com")
+    page.evaluate("window.__settings")
+    assert page.evaluate("state.schedules.get('MADAR').frequency") == "manual"
+    assert not page.js_errors
+
+
+def test_a_job_end_takes_no_map_settings_left_for_a_read(open_panel):
+    """No switch, so the job end's reload reads no schedules. A Map Settings left after
+    the page's read is not adopted as a read made now: "Read at" stays, and the source
+    the page's own newer read dropped stays dropped."""
+    page = open_panel(**OLD_ENGINE)
+    hold_next_read(page, "/api/schedules", 1_500)
+    page.click("#tab-settings")
+    answer(page, "/api/schedules",
+           "body.schedules = body.schedules.filter((s) => s.source_key !== 'ELBUROJ');")
+    show_schedules(page)
+    another_readers_map(page)
+    read_at = page.evaluate("schedulesPage.readAt")
+    page.evaluate("redrawWhatTheJobChanged()")
+    assert page.evaluate("schedulesPage.readAt") == read_at
+    assert row(page, "ELBUROJ").count() == 0
+    assert not page.js_errors
+
+
+def test_a_job_end_across_a_remove_takes_no_older_map(open_panel):
+    """Another reader's Map sits in state.schedules, and a job end's reload is in flight
+    across a Remove: the reload drops its own read, and takes no other Map for it, so
+    the removed row stays gone."""
+    page = open_panel()
+    hold_next_read(page, "/api/schedules", 1_500)
+    page.click("#tab-sources")
+    show_schedules(page)
+    another_readers_map(page)
+    press_item(page, "MADAR", "Remove schedule…")
+    page.wait_for_selector("#confirm-veil:not(.hidden)")
+    hold_next_read(page, "/api/sources", 1_500)
+    read_at = page.evaluate("schedulesPage.readAt")
+    page.evaluate("() => { window.__end = redrawWhatTheJobChanged(); }")
+    page.click("#confirm-go")
+    wait_toast(page, "Removed the schedule for madar.com")
+    answer(page, "/api/schedules", MADAR_MANUAL)
+    page.evaluate("window.__end")
+    assert row(page, "MADAR").count() == 0
+    assert page.evaluate("schedulesPage.saved.get('MADAR').frequency") == "manual"
+    # The page's own Map, which the Remove put in state.schedules, is no read either.
+    assert page.evaluate("schedulesPage.readAt") == read_at
+    assert not page.js_errors
+
+
+def test_an_engine_check_during_the_first_read_keeps_it_loading(open_panel):
+    """No list read yet: an engine check draws nothing over "Loading schedules…"."""
+    page = open_panel(route_delays={"/api/schedules": 1_500})
+    page.click("#tab-schedules")
+    page.wait_for_function("() => document.getElementById('sched-count').textContent"
+                           " === 'Loading schedules…'")
+    page.evaluate("updateEngineState()")
+    assert text(page, "#sched-count") == "Loading schedules…"
+    assert page.locator("#sched-list").is_visible()
+    assert not page.js_errors
+
+
+def test_the_old_engine_note_is_not_rewritten_by_a_tick_or_a_check(open_panel):
+    """A role="status" node rewritten on every draw is announced on every tick: the
+    same words keep the same node."""
+    page = open_panel(**OLD_ENGINE)
+    show_schedules(page)
+    page.evaluate("window.__note = document.querySelector('#sched-state [data-role=\"old\"]')")
+    page.evaluate("loadSchedulesPage({ quiet: true })")
+    page.evaluate("updateEngineState()")
+    assert page.evaluate("window.__note.isConnected")
+    assert not page.js_errors
+
+
+def test_a_switch_that_returns_sits_before_the_menu(open_panel):
+    """The switch a late report adds is where a built row has it, before ⋮, so Tab
+    reaches it in the order it is drawn."""
+    page = open_panel(blackhole_routes=("/api/version",))
+    show_schedules(page)
+    page.evaluate("BLACKHOLE_ROUTES.length = 0")
+    page.evaluate("updateEngineState()")
+    order = page.evaluate(f"""() => [...document.querySelector(
+        '{VIEW} .schedule-row[data-sched="MADAR"]').children]
+        .map((el) => el.dataset.role || el.className.split(' ')[0])""")
+    assert order.index("sched-active") < order.index("job-kebab"), order
+    assert not page.js_errors
+
+
+def test_a_tick_where_one_job_ends_and_one_starts_reads_the_schedules(open_panel):
+    """The active set keeps its size, one job out and one in -- the crawl's handoff to its
+    interpretation. On an engine without the switch the job end's reload reads no
+    schedules, so only noticeActiveSet's read brings in the slot the firing re-armed."""
+    page = open_panel(jobs=[RUNNING], **OLD_ENGINE)
+    adopted(page, RUNNING["job_ref"])
+    show_schedules(page)
+    answer(page, "/api/schedules", "body.schedules.find((s) => s.source_key === 'ELBUROJ')"
+                                   ".next_run_at = '2026-10-12T05:30:00Z';")
+    fired = {**RUNNING, "job_ref": "job_elburoj001", "status": "queued",
+             "source_keys": ["ELBUROJ"], "current_source_key": None, "started_at": None}
+    page.evaluate("(job) => { ROUTES['/api/jobs'] = {jobs: [job]}; }", fired)
+    page.wait_for_function(f"""() => document.querySelector(
+        '{VIEW} .schedule-row[data-sched="ELBUROJ"] [data-fact="next"]')
+        .textContent.includes('Mon 12 Oct')""", timeout=6_000)
+    assert not page.js_errors
+
+
 # ---- the shared list, state.sources ---------------------------------------------------
 
 def test_load_sources_says_whether_it_read_them(open_panel):

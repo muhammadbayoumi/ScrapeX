@@ -6016,8 +6016,12 @@ async function pollJobOnce() {
  * added.
  */
 async function redrawWhatTheJobChanged() {
+  const held = state.schedules;
   const read = await loadSources();
-  if (currentViewName() === "schedules") schedulesAfterJobEnd(read);
+  // loadSources read schedules when it wrote a Map (or null) of its own: neither the one
+  // held before it, nor the page's, which a Remove or the page's own read put there.
+  const readSchedules = state.schedules !== held && state.schedules !== schedulesPage.saved;
+  if (currentViewName() === "schedules") schedulesAfterJobEnd(read, readSchedules);
   if (currentViewName() === "data") await loadDatasets();
 }
 
@@ -7226,11 +7230,13 @@ async function loadSchedules() {
   // the panel could only read them — so the section said "No schedules yet"
   // forever, with no way to change that. One row per implemented site, its
   // saved schedule merged in, defaults from the source's declared cadence.
+  const wrote = schedulesPage.wrote;
   try {
     const [d, src] = await Promise.all([api("/api/schedules"), api("/api/sources")]);
     $("sched-note").textContent = d.note;
     const saved = new Map(d.schedules.map((s) => [s.source_key, s]));
-    state.schedules = saved;
+    // A Remove on the Schedules page since this read left is newer than what it holds.
+    if (wrote === schedulesPage.wrote) state.schedules = saved;
     const switchOn = scheduleSwitchOn();
     const sites = src.sources.filter((s) => s.implemented);
     if (!sites.length) {
@@ -8908,9 +8914,11 @@ function scheduleOrphans() {
 }
 
 // RUN FOLLOWS WHAT THIS PAGE WRITES. Run does not re-read on a later show
-// (loadRunDestination), so its cards are redrawn from the Map just written -- DOM only,
-// and never while he is on Run, where a read that lands late would rebuild them under him.
+// (loadRunDestination), so its cards are redrawn from the Map just written -- made the
+// one Run reads, since a read elsewhere may have landed another -- DOM only, and never
+// while he is on Run, where a read that lands late would rebuild them under him.
 function schedulesRunFollows() {
+  state.schedules = schedulesPage.saved;
   if (currentViewName() !== "run") renderSites();
 }
 
@@ -8968,8 +8976,9 @@ async function loadSchedulesPage({ quiet = false, sourcesToo = false } = {}) {
 
 /** A JOB END COSTS THIS PAGE NO READ OF ITS OWN: the panel's own reload
  *  (redrawWhatTheJobChanged) has read sources, and schedules on an engine with the switch,
- *  and the page draws from what it left. A job start is read by noticeActiveSet. */
-function schedulesAfterJobEnd(read) {
+ *  and the page draws from what it left. A job start is read by noticeActiveSet.
+ *  `readSchedules`: that reload wrote state.schedules from a read of its own. */
+function schedulesAfterJobEnd(read, readSchedules) {
   const page = schedulesPage;
   if (!page.saved) return;
   if (!read) {
@@ -8981,10 +8990,11 @@ function schedulesAfterJobEnd(read) {
   page.sourcesOk = true;
   page.sourcesStale = false;
   if (page.failure && page.failure.what === "sources") page.failure = null;
-  // ONLY A MAP loadSources HAS JUST READ IS A FRESH READ. While state.schedules is still
-  // the page's own, loadSources read none (an engine without the switch) or dropped one a
-  // Remove here made older, so what the page last read, and how that read went, stand.
-  if (state.schedules !== page.saved) {
+  // ONLY A MAP THE RELOAD HAS JUST READ IS A FRESH READ. It read none on an engine without
+  // the switch, and dropped one a Remove here made older; a Map another reader left in
+  // state.schedules is no read of this job end. Then what the page last read, and how
+  // that read went, stand.
+  if (readSchedules) {
     if (state.schedules instanceof Map) {
       page.saved = state.schedules;
       page.failure = null;
