@@ -23,9 +23,18 @@ below are its shape, generalised.
 - **Say the ceiling out loud before you start**, and count every request against it. A
   study is tens of requests, not thousands. The heidelberg study spent 23 with a
   self-imposed 2.5 s gap (`docs/recon/heidelberg-materials-eg.md:48`).
-- **`robots.txt` is read first and obeyed for the whole study**, whatever
-  `crawl_obey_disallow` ships at (`scrapex/settings.py:99`). `scrapex/robots.py:206`
-  parses it; a study never needs the path a site asked you to leave alone.
+- **`robots.txt` and the site's terms are read first and recorded, as information, not as
+  constraints.** This is his ruling for every study while the tool is under development
+  (2026-10-10, #1618): «للعلم وليس للتطبيق فنحن نطور الاداة». Record:
+  - every `Disallow` or `Allow` line that touches a path the study used, and any
+    `Crawl-delay`, from the file `scrapex/robots.py:206` parses;
+  - every clause of the terms on automated access, attribution and redistribution;
+  - in the request log, each request made against a `Disallow` line.
+
+  Whether a collector obeys `robots.txt` is his choice for each source, in the panel
+  (`scrapex/robots.py:34`), and the study is what lets him make it knowingly. The terms
+  are a contract, not a technical request: a clause that forbids automated collection
+  goes to him as a finding of its own, because the risk of ignoring it is his.
 - **Never authenticate, never pay, never bypass a block.** A field behind a login is
   recorded as existing and gated — that is a finding, and getting at it is his decision.
 - Every claim about the site cites the response that carries it. Every claim about ScrapeX
@@ -36,8 +45,9 @@ below are its shape, generalised.
 
 ## Pass 0 · What the site permits
 
-`robots.txt`, terms, rate limits, any `X-RateLimit-*` or `Retry-After` header, whether the
-site 403s a plain client. Record the user-agent you used and whether it mattered.
+`robots.txt` and terms, recorded rather than applied as the budget above says. Rate
+limits, any `X-RateLimit-*` or `Retry-After` header, whether the site 403s a plain client.
+Record the user-agent you used and whether it mattered.
 
 ## Pass 1 · Identity
 
@@ -206,7 +216,8 @@ refuses to make it active before it is probed (`scrapex/config.py:446`).
 ## Done means
 
 - [ ] Every request is logged, and the total is at or under the ceiling you named.
-- [ ] `robots.txt` was read before the second request and obeyed throughout.
+- [ ] `robots.txt` and the terms were read before the second request and recorded, and
+      every request made against a `Disallow` line is marked in the log.
 - [ ] All sixteen hidden-field lines are answered — a `no` written down, not skipped.
 - [ ] The price's unit and VAT are proved by a cart, or named as unproved in the questions.
 - [ ] Every fact the site states twice has its agreement counted over the census.

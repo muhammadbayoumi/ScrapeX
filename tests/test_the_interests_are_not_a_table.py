@@ -54,7 +54,7 @@ def test_the_page_has_five_tables_and_none_of_them_is_interests():
 
     assert len(soup.find_all("table")) == 5
 
-    card = soup.select_one("div.section-card:has(ul.list-numerical li.list-item)")
+    card = soup.select_one("div.section-card:has(li.list-item:is(ul.list-numerical li))")
     assert card is not None, "the interests block must exist to be missing from tables"
     assert card.find("table") is None, "interests are a list, not a table"
     assert not any(table.find_parent("div", class_="section-card") is card
@@ -113,7 +113,7 @@ def test_the_headings_really_do_differ_so_the_selector_must_be_structural():
     titles = {}
     for locale in ("en", "ar"):
         soup = BeautifulSoup(_html(locale), "html.parser")
-        card = soup.select_one("div.section-card:has(ul.list-numerical li.list-item)")
+        card = soup.select_one("div.section-card:has(li.list-item:is(ul.list-numerical li))")
         titles[locale] = card.select_one("h3.card-title").get_text(strip=True)
 
     assert titles["en"] == "Interests"

@@ -131,7 +131,8 @@ screen that will not exist.
   - the longest real text;
   - each transitional status;
   - the limit or paging case;
-  - a live tick: what he selected, typed, focused or opened survives the redraw.
+  - a live tick: what he selected, typed, focused or opened survives the redraw;
+  - a short panel, 320 px high: the last element of the page can be scrolled to.
 - **Numbered markers** on the elements, and **one reference sheet**: marker · element ·
   reference · class. Each image shows the three widths side by side.
 - Send the images to him, and post the sheet on the study issue.

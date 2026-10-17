@@ -504,21 +504,22 @@ def test_upgrading_the_database_is_a_truthful_no_op_when_nothing_is_pending():
     from scrapex.webui.database_api import create_database_router
 
     class Registry:
-        def __init__(self, applied):
-            self._applied = applied
+        """Healthy, so the guarded path (#1635) has nothing to migrate."""
+
+        def ensure_ready(self):
+            return {"ok": True, "created": [], "databases": {
+                "engine": {"kind": "engine", "path": "unused", "ok": True,
+                           "status": "Healthy", "action": ""}}}
 
         def initialize(self):
-            return self._applied
+            raise AssertionError("a healthy warehouse was migrated")
 
     quiet = FastAPI()
-    quiet.include_router(create_database_router(lambda: Registry({"general": [], "marketlens": []})))
+    quiet.include_router(create_database_router(lambda: Registry()))
     body = TestClient(quiet).post("/api/databases/upgrade").json()
     assert body["ok"] is True and "already up to date" in body["message"]
-
-    busy = FastAPI()
-    busy.include_router(create_database_router(lambda: Registry({"general": [], "marketlens": [36]})))
-    body = TestClient(busy).post("/api/databases/upgrade").json()
-    assert "1 migration to marketlens" in body["message"]
+    # What it does when something IS pending, backup first, is in
+    # tests/test_the_engine_upgrades_its_own_warehouse.py, beside the other two doors.
 
 
 def test_relinking_the_native_host_refuses_a_value_that_is_not_an_extension_id(client):

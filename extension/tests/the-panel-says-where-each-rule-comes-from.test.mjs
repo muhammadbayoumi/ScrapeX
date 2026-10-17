@@ -297,6 +297,7 @@ function saver(answerNow, source, form, {legacy = false, refuse = null, reread =
     renderSourceManager: () => {}, renderRobotsChoice: () => {},
     renderSourceEditor: () => { drawn.editor += 1; },
     sourceRulesMode: () => modeNow || opened,
+    scheduleSwitchOn: () => false,       // an engine whose editor still saves `active`
     capabilityRefusal: () => (opened === "rules" ? "" : "REFUSAL SENTENCE"),
     loadSourceRules: async () => { drawn.reread += 1; return reread; },
     state: {sources: [source], editingSourceKey: source.source_key,
@@ -570,12 +571,14 @@ for (const [opened, now] of [["rules", "legacy"], ["legacy", "rules"], ["rules",
 
 // ---- no automation switch for a dataset or directory card (his ruling, 2026-10-09) ---
 
-function managerCards(sources) {
+function managerCards(sources, {switchOn = false, schedules = null} = {}) {
   const box = {innerHTML: "", querySelectorAll: () => []};
   const nodes = {"source-manager-list": box, "source-manager-count": {textContent: ""}};
   const context = {
     $: (id) => nodes[id], esc: (v) => String(v ?? ""), icon: () => "",
-    state: {sources, sourceFilter: ""},
+    state: {sources, sourceFilter: "", schedules},
+    scheduleSwitchOn: () => switchOn,
+    scheduleSummary: (s) => `Daily 09:00 for ${s.source_key}`,
     sourceIdentity: (s) => `<span>${s.source_key}</span>`,
     sourceDomain: () => "", openSourceEditor: () => {},
     sourceMatches,   // the Sources search's one rule, from jobsview.js
@@ -597,5 +600,21 @@ test("a price card says its automation; a dataset or directory card says none", 
 });
 
 test("the run list draws the Auto switch for a price source only", () => {
-  assert.match(fn("renderSites"), /const auto = ready && !s\.kind \?/);
+  assert.match(fn("renderSites"),
+               /const auto = ready && !s\.kind && scheduleSwitchOn\(\)[\s\S]*?: ready && !s\.kind \?/);
+});
+
+test("with the one switch a price card says its schedule; a dataset or directory none",
+     () => {
+  const sources = [
+    {source_key: "SHOP", implemented: true, active: true},
+    {source_key: "contractors", site_key: "muqawil_org", kind: "dataset", implemented: true},
+  ];
+  const [price, dataset] = managerCards(sources, {switchOn: true, schedules: new Map()});
+  assert.match(price, /Daily 09:00 for SHOP/);
+  assert.doesNotMatch(price, /Automation/);
+  assert.doesNotMatch(dataset, /Daily/);
+  // Schedules unread: nothing is drawn rather than a guess.
+  const [unread] = managerCards(sources, {switchOn: true, schedules: null});
+  assert.doesNotMatch(unread, /Daily|Automation/);
 });

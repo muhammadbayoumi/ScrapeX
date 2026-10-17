@@ -763,6 +763,12 @@
             </span>
             <input id="source-edit-active" type="checkbox">
           </label>
+          <!-- WITH THE ONE SWITCH (#1596): the schedule, read-only, opening its row. -->
+          <p class="hint" id="source-edit-schedule" hidden>
+            Scheduled runs:
+            <button type="button" class="link compact" id="source-edit-schedule-link"></button>
+            <span id="source-edit-schedule-note"></span>
+          </p>
           <!-- WHERE THE VALUE COMES FROM (#1584): his choice, or what the source
                ships with. Clearing his choice returns it to the source's. -->
           <p class="hint source-edit-origin" data-rules-only>
@@ -2659,6 +2665,10 @@
        Supabase's ConfirmationModal (variant="destructive", cancelLabel/confirmLabel,
        ConfirmationModal.tsx@86c813ec:27-62); an alertdialog with focus on the choice that
        changes nothing (WAI-ARIA APG). `askToConfirm` in app.js fills and opens it. -->
+  <!-- A short confirmation after a change (#1596). Empty is hidden; always present,
+       so a screen reader hears what is written into it. -->
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
   <div id="confirm-veil" class="modal-veil hidden">
     <div class="modal-card" role="alertdialog" aria-modal="true"
          aria-labelledby="confirm-title" aria-describedby="confirm-copy"

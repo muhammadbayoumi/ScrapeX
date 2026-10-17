@@ -93,6 +93,10 @@ RECIPES = {
     "pause": ("POST /api/sources/{key}/active", "post",
               f"/api/sources/{KEY}/active", {"active": False}),
     "sheet": ("GET /api/export/{key}", "get", f"/api/export/{KEY}", None),
+    # "Edit schedule", which replaces `pause` once the engine has the one switch (#1596).
+    # It opens the Schedules row, whose switch saves through this route.
+    "schedule": ("POST /api/schedules/{key}", "post", f"/api/schedules/{KEY}",
+                 {"frequency": "daily", "active": False}),
     # THE SAME ROUTE AS `update` AND A DIFFERENT VERB, which is the whole point of naming
     # the kind: `POST /api/jobs` infers a crawl from the source registry and cannot infer
     # which of the two things a caller wants over one key. Measured against the real

@@ -1,4 +1,4 @@
-# Chrome Web Store listing — ScrapeX 0.3.8
+# Chrome Web Store listing — ScrapeX 0.3.9
 
 Draft for the owner to review, edit and paste. Every claim here is checked
 against what the extension actually declares — the permissions and scopes below

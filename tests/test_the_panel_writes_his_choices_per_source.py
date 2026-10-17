@@ -270,11 +270,13 @@ def _schedule_card(client, key: str) -> str:
 
 def test_the_schedules_page_says_a_shipped_on_source_he_switched_off_will_not_fire(engine):
     client, _, _ = engine
-    assert "Auto is off" not in _schedule_card(client, ZIDDY), "fixture: ZIDDY ships on"
+    # The note names the panel's switch, not "Auto" (#1630 review P1).
+    off = "Scheduled runs are off for this source."
+    assert off not in _schedule_card(client, ZIDDY), "fixture: ZIDDY ships on"
 
     client.post(f"/api/sources/{ZIDDY}/active", json={"active": False})
 
-    assert "Auto is off" in _schedule_card(client, ZIDDY)
+    assert off in _schedule_card(client, ZIDDY)
 
 
 def test_lifecycle_follows_what_the_engines_own_manifest_ships(engine):

@@ -59,6 +59,7 @@ SELECT = "select.tsx@86c813ec:110 shadow-md"
 DIALOG = "dialog.tsx@86c813ec:67 shadow-md dark:shadow-xs"
 # modality.mdx@86c813ec:64: "Sheets are dialogs presented as side panels."
 SHEET = "sheet.tsx@86c813ec:63 shadow-lg"
+TOAST = "sonner.tsx@86c813ec:42 shadow-lg"
 
 #: (authored sheet, selector) -> (the token it reads, the atom that says so).
 OVERLAYS = {
@@ -74,6 +75,7 @@ OVERLAYS = {
     ("extension/app.css", ".finance-converter-options"): ("--shadow-md", SELECT),
     ("extension/app.css", ".modal-card"): ("--shadow-md", DIALOG),
     ("extension/app.css", ".workspace-menu"): ("--shadow-lg", SHEET),
+    ("extension/app.css", ".toast"): ("--shadow-lg", TOAST),
     ("scrapex/webui/static/webui.css", ".source-filter-popover"): ("--shadow-md", POPOVER),
     ("scrapex/webui/static/webui.css", ".sidebar-ready .workspace-sidebar"): ("--shadow-lg", SHEET),
 }
