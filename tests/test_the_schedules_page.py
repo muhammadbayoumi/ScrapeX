@@ -772,6 +772,269 @@ def test_focus_goes_to_the_row_that_takes_the_removed_rows_place(open_panel, wid
     assert not page.js_errors
 
 
+# ---- a write in flight, a read that fails, an engine that is gone ---------------------
+# Each of these was a mutation that survived the whole file at #1704's gate (R1-R15).
+
+STATUS = f'{VIEW} .schedule-row[data-sched="MADAR"] [data-role="status"]'
+MADAR_OFF = "body.sources.find((s) => s.source_key === 'MADAR').active = false;"
+OLD_ENGINE = {"engine_version": "0.4.57",
+              "omit_capabilities": ("schedule_active_switch", "scheduled_skips")}
+
+
+def status_starts(page, words, timeout=5_000):
+    page.wait_for_function("([sel, w]) => document.querySelector(sel).textContent.startsWith(w)",
+                           arg=[STATUS, words], timeout=timeout)
+
+
+def banner(page):
+    return page.locator('#sched-state [data-role="banner"]')
+
+
+def press_and_hold(page):
+    """MADAR's switch, pressed against an engine that never answers the write."""
+    flip(page, "MADAR")
+    page.evaluate("window.__pressed = Date.now()")
+    page.click("#confirm-go")
+    status_starts(page, "Saving…")
+
+
+def unread_words(page):
+    at = page.evaluate("ScrapeXTime.format(schedulesPage.readAt, 'time')")
+    return ("No answer from the engine in 5 s, and it could not be read again. "
+            f"The row shows what was read at {at}.")
+
+
+def test_a_commit_inside_the_engines_lock_wait_is_still_found(open_panel):
+    """R1. The engine waits up to 10 s for the write lock (`db.py`, `write_lock`), so a
+    commit 7.5 s after the press is found by the second read, at 11 s, and said."""
+    page = open_panel(blackhole_routes=("/api/schedules/MADAR",))
+    show_schedules(page)
+    press_and_hold(page)
+    status_starts(page, "No answer from the engine in 5 s", timeout=9_000)
+    page.wait_for_timeout(2_500)
+    answer(page, "/api/sources", MADAR_OFF)
+    wait_toast(page, "Disabled scheduled runs for madar.com", timeout=8_000)
+    assert page.evaluate("Date.now() - window.__pressed") >= 10_900
+    assert not page.js_errors
+
+
+def test_a_press_on_a_switch_in_flight_does_nothing(open_panel):
+    """R3. The switch is aria-disabled while its write is out, never `disabled` (#1542),
+    so Space still reaches it: it asks nothing and sends nothing."""
+    page = open_panel(blackhole_routes=("/api/schedules/MADAR",))
+    show_schedules(page)
+    press_and_hold(page)
+    row(page, "MADAR").locator('[data-role="sched-active"]').focus()
+    page.keyboard.press("Space")
+    page.wait_for_timeout(300)
+    assert page.locator("#confirm-veil").is_hidden()
+    assert len(writes(page)) == 1
+    assert not page.js_errors
+
+
+def test_the_menu_of_a_row_in_flight_does_not_open(open_panel):
+    """R14. ⋮ is aria-disabled while the row's write is out, and a press opens nothing."""
+    page = open_panel(blackhole_routes=("/api/schedules/MADAR",))
+    show_schedules(page)
+    press_and_hold(page)
+    kebab = row(page, "MADAR").locator('[data-role="kebab"]')
+    kebab.click(force=True)
+    page.wait_for_timeout(300)
+    assert row(page, "MADAR").locator('[role="menu"]').is_hidden()
+    assert kebab.get_attribute("aria-expanded") == "false"
+    assert not page.js_errors
+
+
+def test_a_failed_first_reread_after_a_timeout_says_so_and_frees_the_row(open_panel):
+    """R4. The read at once after a timeout fails: the row says it could not be read
+    again, and when it was last read, and its switch is live and unchanged."""
+    page = open_panel(blackhole_routes=("/api/schedules/MADAR",))
+    show_schedules(page)
+    press_and_hold(page)
+    page.evaluate("FAIL.push('/api/sources')")
+    status_starts(page, "No answer from the engine in 5 s, and it could not", timeout=9_000)
+    assert text(page, STATUS) == unread_words(page)
+    switch = row(page, "MADAR").locator('[data-role="sched-active"]')
+    assert switch.get_attribute("aria-disabled") is None
+    assert switch.get_attribute("aria-checked") == "true"
+    assert banner(page).locator("strong").inner_text() == "Unable to refresh data"
+    assert not page.js_errors
+
+
+def test_a_failed_second_reread_after_a_timeout_says_so(open_panel):
+    """R4. The first read found the change not there yet; the one at 11 s fails."""
+    page = open_panel(blackhole_routes=("/api/schedules/MADAR",))
+    show_schedules(page)
+    press_and_hold(page)
+    status_starts(page, "No answer from the engine in 5 s, and scheduled", timeout=9_000)
+    page.evaluate("FAIL.push('/api/sources')")
+    status_starts(page, "No answer from the engine in 5 s, and it could not", timeout=9_000)
+    assert text(page, STATUS) == unread_words(page)
+    assert not page.js_errors
+
+
+def test_an_http_failure_over_a_shown_list_keeps_the_list_and_its_controls(open_panel):
+    """R8. A tick the engine refuses, over a list already shown: "Unable to refresh
+    data", the time the list was read, the engine's words, no action, and the rows
+    stay live -- the engine is answering."""
+    page = open_panel()
+    show_schedules(page)
+    at = page.evaluate("ScrapeXTime.format(schedulesPage.readAt, 'time')")
+    page.evaluate("FAIL.push('/api/schedules')")
+    page.evaluate("loadSchedulesPage({ quiet: true })")
+    assert banner(page).locator("strong").inner_text() == "Unable to refresh data"
+    assert banner(page).locator("p").inner_text() == (
+        f"Showing the schedules as read at {at}. The engine answered: "
+        "the engine could not do that")
+    assert "danger" not in banner(page).get_attribute("class")
+    assert banner(page).locator("button").count() == 0
+    assert row(page, "MADAR").locator('[data-role="sched-active"]') \
+        .get_attribute("aria-disabled") is None
+    assert not page.js_errors
+
+
+def test_a_job_end_whose_sources_read_fails_says_so_and_try_again_reads_them(open_panel):
+    """R7 and R15. A job end's reload of sources fails: the list stays, and the banner
+    says so (never a stale list in silence). Try again reads sources as well as
+    schedules, because the last read that wanted them failed."""
+    page = open_panel()
+    show_schedules(page)
+    page.evaluate("FAIL.push('/api/sources')")
+    page.evaluate("redrawWhatTheJobChanged()")   # what the tick calls at a job end
+    banner(page).wait_for()
+    assert banner(page).locator("strong").inner_text() == "The engine did not answer"
+    assert banner(page).locator("p").inner_text().startswith("Showing the schedules as read at ")
+    assert row(page, "MADAR").count() == 1
+    answer(page, "/api/sources", MADAR_OFF)
+    page.evaluate("FAIL.length = 0")
+    sources = len(calls(page, "/api/sources"))
+    banner(page).locator("button").click()
+    banner(page).wait_for(state="detached")
+    assert len(calls(page, "/api/sources")) == sources + 1
+    assert row(page, "MADAR").locator('[data-role="sched-active"]') \
+        .get_attribute("aria-checked") == "false"
+    assert not page.js_errors
+
+
+def test_a_tick_after_a_failed_sources_read_reads_them_again(open_panel):
+    """R15. A tick reads schedules alone -- unless the last read that wanted sources
+    failed, and then it reads them too."""
+    page = open_panel()
+    show_schedules(page)
+    page.evaluate("FAIL.push('/api/sources')")
+    page.evaluate("loadSchedulesPage({ quiet: true, sourcesToo: true })")
+    banner(page).wait_for()
+    answer(page, "/api/sources", MADAR_OFF)
+    page.evaluate("FAIL.length = 0")
+    sources = len(calls(page, "/api/sources"))
+    page.evaluate("loadSchedulesPage({ quiet: true })")
+    assert len(calls(page, "/api/sources")) == sources + 1
+    assert row(page, "MADAR").locator('[data-role="sched-active"]') \
+        .get_attribute("aria-checked") == "false"
+    assert not page.js_errors
+
+
+def test_a_start_that_fails_sends_him_to_run(open_panel):
+    """R11. Start engine on the banner, and the engine does not start: the reason is drawn
+    where the engine is started from, so the banner sends him there."""
+    page = open_panel(engine_up=False)
+    show_schedules(page)
+    banner(page).locator("button").click()
+    page.wait_for_function("""() => document.querySelector(
+        '#sched-state [data-role="banner"] p')?.textContent
+        === 'The engine did not start. Open Run to see why.'""")
+    assert banner(page).locator("strong").inner_text() == "Engine not running"
+    assert banner(page).locator("button").inner_text() == "Open Run"
+    banner(page).locator("button").click()
+    page.wait_for_selector("#view-run", state="visible")
+    assert not page.js_errors
+
+
+def assert_writes_wait(page, *, switch):
+    """⋮ and Create schedule are aria-disabled, and so is the switch where there is one;
+    pressed, none of them asks, opens or sends anything."""
+    madar = row(page, "MADAR")
+    kebab = madar.locator('[data-role="kebab"]')
+    assert kebab.get_attribute("aria-disabled") == "true"
+    assert page.get_attribute("#sched-create", "aria-disabled") == "true"
+    toggle = madar.locator('[data-role="sched-active"]')
+    assert toggle.count() == (1 if switch else 0)
+    if switch:
+        assert toggle.get_attribute("aria-disabled") == "true"
+        toggle.focus()
+        page.keyboard.press("Space")
+    kebab.click(force=True)
+    page.click("#sched-create", force=True)
+    page.wait_for_timeout(300)
+    assert page.locator("#confirm-veil").is_hidden()
+    assert madar.locator('[role="menu"]').is_hidden()
+    assert page.locator(VIEW).is_visible()
+    assert writes(page) == []
+
+
+def test_a_stopped_engine_holds_every_write_over_a_shown_list(open_panel):
+    """R12. The engine answers but is not running (its worker is gone), and a read fails:
+    the list stays, and every write waits. Its version report is still known, so the
+    switches stay, held."""
+    page = open_panel()
+    show_schedules(page)
+    answer(page, "/api/health", "body.worker_alive = false;")
+    page.evaluate("updateEngineState()")
+    page.evaluate("FAIL.push('/api/schedules')")
+    page.evaluate("loadSchedulesPage({ quiet: true })")
+    banner(page).wait_for()
+    assert page.evaluate("state.engineUp") is False
+    assert_writes_wait(page, switch=True)
+    assert not page.js_errors
+
+
+def test_an_engine_that_is_gone_holds_every_write_over_a_shown_list(open_panel):
+    """R12. The engine stopped answering altogether: "Engine stopped answering" over the
+    list, the writes wait, and the switches leave with the version report that said the
+    engine had them -- "their controls return when the engine answers"."""
+    page = open_panel()
+    show_schedules(page)
+    page.evaluate("""() => { const real = window.fetch;
+        window.fetch = (url, options) => /\\/api\\//.test(String(url))
+          ? Promise.reject(new TypeError("Failed to fetch")) : real(url, options); }""")
+    page.evaluate("updateEngineState()")
+    page.evaluate("loadSchedulesPage({ quiet: true })")
+    assert banner(page).locator("strong").inner_text() == "Engine stopped answering"
+    assert old_note(page).count() == 0
+    assert_writes_wait(page, switch=False)
+    assert not page.js_errors
+
+
+def test_the_idle_probe_reads_the_list_while_it_is_shown(open_panel):
+    """R5. With no job running the page's list is read on the panel's idle probe, every
+    30 s, while the page is shown."""
+    page = open_panel()
+    show_schedules(page)
+    page.clock.install()
+    page.evaluate("() => document.dispatchEvent(new Event('visibilitychange'))")
+    page.wait_for_timeout(500)
+    answer(page, "/api/schedules",
+           "body.schedules = body.schedules.filter((s) => s.source_key !== 'ELBUROJ');")
+    page.clock.run_for(31_000)
+    page.wait_for_selector(f'{VIEW} .schedule-row[data-sched="ELBUROJ"]', state="detached",
+                           timeout=3_000)
+    assert not page.js_errors
+
+
+def test_a_paused_schedule_on_an_old_engine_reads_paused_and_remove_keeps_it(open_panel):
+    """R2 and R9. On an engine without the switch, `enabled = 0` is a pause: the row
+    reads "Paused", and Remove keeps `enabled` as stored, so nothing is lost."""
+    paused = [dict(PRICE[0], enabled=0, next_run_at=None), *PRICE[1:]]
+    page = open_panel(schedules=sched(paused), **OLD_ENGINE)
+    show_schedules(page)
+    assert row(page, "MADAR").locator('[data-fact="next"]').inner_text() == "Paused"
+    press_item(page, "MADAR", "Remove schedule…")
+    page.click("#confirm-go")
+    wait_toast(page, "Removed the schedule for madar.com")
+    assert writes(page)[0]["body"]["enabled"] is False
+    assert not page.js_errors
+
+
 # ---- Run follows what this page writes (C53, C53b) ---------------------------------
 
 def test_runs_chip_follows_the_switch(open_panel):
