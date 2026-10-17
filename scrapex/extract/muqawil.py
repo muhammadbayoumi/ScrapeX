@@ -538,7 +538,7 @@ MULTI_VALUED_GROUPS: tuple[MultiValuedGroup, ...] = (
         # and `الأنشطة` in Arabic, which is not even a translation of it. A title-based
         # selector read 25 nodes from one locale and 0 from the other. The card is the
         # one holding the nested list, and `read_interests` refuses if two ever do.
-        selector="div.section-card:has(ul.list-numerical li.list-item)",
+        selector="div.section-card:has(li.list-item:is(ul.list-numerical li))",  # #1664
         published_as="Interests / الأنشطة",
         scheme_name="Interests", scheme_name_ar="الأنشطة"),
     MultiValuedGroup(
@@ -668,7 +668,12 @@ def locate_group(html: str, key: str) -> Tag | None:
 #: The list is the thing that identifies the card. Measured on both committed profiles:
 #: exactly one `div.section-card` contains `ul.list-numerical` items — 25 of them — and
 #: the other two contain none.
-_INTEREST_LIST = "div.section-card:has(ul.list-numerical li.list-item)"
+#:
+#: THE `:is()` IS THE COMBINATOR'S HOME, NOT A STYLE. soupsieve 3.0 (2026-10-10) refuses a
+#: combinator directly inside `:has()` -- `:has(ul.list-numerical li.list-item)` raised
+#: `SelectorSyntaxError` on every profile -- and still accepts one inside a nested `:is()`.
+#: Same cards on both versions (#1664).
+_INTEREST_LIST = "div.section-card:has(li.list-item:is(ul.list-numerical li))"
 
 
 def read_interests(html: str) -> tuple[tuple[str, ...], ...]:

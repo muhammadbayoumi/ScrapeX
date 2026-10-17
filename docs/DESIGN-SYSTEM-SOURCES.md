@@ -206,7 +206,7 @@ If documentation and implementation conflict, record the conflict explicitly wit
 
 ## Gap sources: studied, not adopted
 
-A conflict exists only where Supabase **specifies** something different. Where it is silent, nothing is deleted. The gap is studied against the official sources named here, and **none is adopted** until the study lands on its issue and he reviews it. The exceptions are two he has already settled: #1040 adopted Noto Sans Arabic (#1048 ships it), and Google's branding guidelines already govern the sign-in button through its test. A Supabase value that fails a WCAG criterion still ships for now; a second source enters only through a mandate.
+A conflict exists only where Supabase **specifies** something different. Where it is silent, nothing is deleted. The gap is studied against the official sources named here, and **none is adopted** until the study lands on its issue and he reviews it. The exceptions are two he has already settled: #1040 adopted Noto Sans Arabic (#1048 ships it), and Google's branding guidelines already govern the sign-in button through its test. A gap the table does not name yet is studied against widely followed official sources: W3C standards, the platform's own APIs, and published design systems, including those the bar below keeps out of anything Supabase covers. The change that adopts the study's answer adds the gap's row (#1074). A Supabase value that fails a WCAG criterion still ships for now; a second source enters only through a mandate.
 
 | Where Supabase is silent | Official sources to study | Studied in |
 | --- | --- | --- |
@@ -223,6 +223,8 @@ A conflict exists only where Supabase **specifies** something different. Where i
 | The panel below 480px | WCAG 2.2 SC 1.4.10; the Chrome `sidePanel` API | #1070 |
 | Grid row count, reorder, pinning, sticky header | WAI-ARIA 1.2 `aria-rowcount`; APG Grid | #1075 |
 | Job-state words the copywriting page is silent on | The Carbon status indicator, for vocabulary only | #1074 |
+| A time read in a zone other than his display zone: a schedule's next slot in the schedule's own zone and 24-hour clock | ECMA-402 `Intl.DateTimeFormat` `timeZone`; the IANA time zone database. Drawn by `ScrapeXTime.wallClock`, the one formatter | #1631 |
+| Where focus goes when the row holding it leaves a list | WCAG 2.2 SC 2.4.3; WAI-ARIA APG (focus moves to a logical place) | #1631 |
 
 ## Mandates
 
@@ -236,6 +238,13 @@ Whatever the reason, he grants it only after seeing Supabase's version and the a
 | Request | Reason | Source | Scope | Issue |
 | --- | --- | --- | --- | --- |
 | Warning words readable at 12 px | gap: `warning-600` on white is ≈3.05:1 | WCAG 2.2 SC 1.4.3 (text, 4.5:1) and SC 1.4.11 (icons, 3:1) | A warning status keeps `warning-600` on its **icon**; its **words** take the foreground colour. Supabase's values only, composed differently | #1542 |
+| Schedules is a page of the rail, below Jobs | his preference: Studio nests Cron Jobs inside an integration; he moved schedules out of Settings | his ruling on #1631 (option C) | The rail button and the page | #1631 |
+| A schedule's facts stacked under its row: Schedule, Next run, Last success; no Command column, no run-status badge | gap: Studio's columns need 1,170 px, the panel is 320–480 px | WCAG 2.2 SC 1.4.10 | The Schedules row | #1631 |
+| "Last success" is the source's last successful run, manual or scheduled | study-backed proposal: `schedule.last_run_at` is written only by a firing; `last_success` on `/api/sources` by any successful run | the engine's own field | The Schedules row | #1631 |
+| The row's press opens Jobs narrowed to the source | study-backed proposal: Studio opens a page per job; the panel's runs and logs already live on Jobs | — | The Schedules row's identity | #1631 |
+| Remove schedule asks once and saves `manual` | study-backed proposal: the route has no delete, the time and zone stay stored, nothing is lost; Studio's Delete job asks for the name | — | Remove schedule… | #1631 |
+| A press in flight closes the question; the row reads "Saving…" and stays focusable, `aria-busy` and `aria-disabled` | study-backed proposal: Studio keeps its dialog open with Disable loading; the panel's question is shared, and a control in flight is never `disabled` (#1542) | WAI-ARIA 1.2 `aria-busy` | The Schedules row's switch and Remove | #1631 |
+| The count above the list, with "Read at" | study-backed proposal: the page is live, as Jobs is, so it has no Refresh; Studio's footer reads "Total: N jobs" | the Jobs page's count line | The Schedules count | #1631 |
 
 **Barred:** Carbon, Material 3, Polaris, Atlassian, GOV.UK and Office cannot govern anything Supabase covers. Carbon's single row above is for vocabulary, in a gap.
 

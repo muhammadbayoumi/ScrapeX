@@ -95,6 +95,29 @@
         <div id="jobs-list" class="card jobs-list hidden"></div>
       </div>
     </section>
+    <!-- THE SCHEDULES PAGE (#1631, option C, after Supabase's Cron Jobs), designed through
+         design-the-experience and confirmed by him on #1631. Price sources only: a
+         directory cannot be scheduled on today's engine, and the note under the list says
+         so. Live as Jobs is, so there is no Refresh; "Read at" says when it was read. -->
+    <section id="view-schedules" class="hidden" role="tabpanel"
+             aria-labelledby="tab-schedules" tabindex="0">
+      <header class="view-heading">
+        <h1>Schedules</h1>
+        <p>When each source runs automatically</p>
+      </header>
+      <div class="view-scroll">
+        <div class="jobs-tools hidden" id="sched-tools">
+          <span class="sched-tools-end">
+            <button id="sched-create" type="button">Create schedule</button>
+          </span>
+        </div>
+        <p class="muted text-xs jobs-count" id="sched-count">&nbsp;</p>
+        <div id="sched-state"></div>
+        <div id="sched-list" class="card jobs-list hidden"></div>
+        <p class="muted text-xs mt-2 hidden" id="sched-dir-note"></p>
+        <p class="muted text-xs mt-2" id="sched-engine-note"></p>
+      </div>
+    </section>
     <!-- ============================ RUN ============================ -->
     <section id="view-run" class="hidden" role="tabpanel" aria-labelledby="tab-run" tabindex="0">
       <header class="view-heading">
@@ -2509,6 +2532,16 @@
           <use href="#material-history"></use>
         </svg>
         <span class="visually-hidden">Jobs</span>
+      </button>
+      <!-- BELOW JOBS, BY HIS RULING ON #1631 (option C): schedules moved out of Settings
+           into a page of their own, next to the runs they start. -->
+      <button class="rail-item" id="tab-schedules" role="tab" data-view="schedules"
+              aria-controls="view-schedules" aria-selected="false" tabindex="-1"
+              aria-label="Schedules" title="Schedules">
+        <svg class="sx-icon" aria-hidden="true">
+          <use href="#material-schedule"></use>
+        </svg>
+        <span class="visually-hidden">Schedules</span>
       </button>
       <button class="rail-item" id="tab-run" role="tab" data-view="run"
               aria-controls="view-run" aria-selected="false" tabindex="-1"

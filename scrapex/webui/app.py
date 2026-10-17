@@ -56,8 +56,15 @@ from .. import version as engine_version
 from ..capture import capture_source, crawl_settings
 from ..catalog_models import SiteCreate
 from ..changes import change_summary, recent_changes
-from ..config import SourceEntry, load_manifest, resolve_manifest_path
-from ..connectors.base import CrawlBlocked, HttpFetcher, resolve_user_agent
+from ..config import (
+    RefusedHostError,
+    SourceEntry,
+    canonical_host,
+    checked_host,
+    load_manifest,
+    resolve_manifest_path,
+)
+from ..connectors.base import CrawlBlocked, HostRefused, HttpFetcher, resolve_user_agent
 from ..connectors.factory import _BUILDERS, supports_history
 from ..databases import (
     DatabaseKindError,
@@ -151,7 +158,7 @@ from ..settings import get as settings_get
 from ..settings import save as save_settings
 from ..settings import set_state as set_settings_state
 from ..snapshotcrawl import stored_under_run
-from ..sourceresolver import SourceResolver
+from ..sourceresolver import RefusedSource, SourceResolver
 from ..sources_admin import SourceKeyInUse, rename_source, source_footprint
 from ..storage import (
     FREE_SPACE_MARGIN,
@@ -2300,7 +2307,19 @@ def create_app(
         url = (body or {}).get("url", "").strip()
         if not url:
             raise HTTPException(status_code=400, detail="url is required")
-        return probe_url(url).to_json()
+        # TWO REFUSALS, TOLD APART BY TYPE. The typed address itself is refused before
+        # anything is asked. A harmless address whose pages redirect to a refused host
+        # surfaces from inside the probe (`probe.py` re-raises it rather than read it as
+        # silence), and the sentence then names the address he typed, which is the one
+        # fact he can act on: he never typed the refused host.
+        try:
+            checked_host(url)
+            return probe_url(url).to_json()
+        except RefusedHostError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        except HostRefused as exc:
+            raise HTTPException(status_code=400,
+                                detail=f"{exc} {canonical_host(url)} redirects to it.")
 
     @app.post("/api/sources/{source_key}/active")
     def api_set_active(source_key: str, body: dict):
@@ -2336,6 +2355,8 @@ def create_app(
                        "its editor")
         try:
             entry = _entry_from_form(body or {})
+        except RefusedHostError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
         except (ValueError, KeyError) as exc:
             raise HTTPException(status_code=400, detail=f"invalid source: {exc}")
         try:
@@ -2543,6 +2564,12 @@ def create_app(
             # Retry-After is reported instead of waited (`retry_after_s`), and the
             # retries stop at one timeout's budget (`cut_short`).
             read = fetcher.read_robots(shipped.base_url, answer_promptly=True)
+        except HostRefused as exc:
+            # THE SOURCE'S robots.txt REDIRECTS INTO A REFUSED HOST: said as the probe
+            # says it, naming the host he can act on, rather than a bare 500.
+            raise HTTPException(
+                status_code=400,
+                detail=f"{exc} {canonical_host(shipped.base_url)} redirects to it.")
         finally:
             fetcher.close()
 
@@ -4081,6 +4108,31 @@ def create_app(
         return FileResponse(
             pack, media_type="application/gzip", filename=pack.name)
 
+    @app.get("/api/bundle/light")
+    def api_bundle_light():
+        """Stream the newest light file's parts (#1199), for the panel to carry to Drive.
+
+        Fixed, with no parameters, for the reason the two routes above give: a route
+        that takes no argument cannot be pointed at another file. Its index is not
+        served here; it travels in the reply of `POST /api/bundle`, so the panel holds
+        what the engine described and can compare it with what this sends.
+
+        `application/gzip` and no Content-Encoding, as the panel pack: it is a gzip
+        FILE of independent members, and the browser must not inflate it in transit.
+        """
+        conn = read_conn()
+        try:
+            folder = _bundle_folder(conn)
+        finally:
+            conn.close()
+
+        parts = _newest(folder, lightfile.PARTS_SUFFIX)
+        if parts is None:
+            raise HTTPException(status_code=404, detail=(
+                "no light file has been built yet — POST /api/bundle first"))
+        return FileResponse(
+            parts, media_type="application/gzip", filename=parts.name)
+
     @app.post("/api/storage/restore")
     def api_storage_restore(body: dict):
         """Put a backup in place.
@@ -4768,6 +4820,8 @@ def create_app(
                 continue
             try:
                 sources.get(key)
+            except RefusedSource as exc:
+                raise HTTPException(status_code=400, detail=str(exc))
             except LookupError:
                 raise HTTPException(status_code=404, detail=f"unknown source_key {key!r}")
         # AND WHICH COLLECTOR READS IT, decided here for the same reason the key is
@@ -5443,4 +5497,7 @@ def _entry_from_form(form: dict) -> SourceEntry:
     for field in SourceEntry.model_fields:
         if field not in data and field in form:
             data[field] = form[field]
+    # The site's own address is refused HERE as well as by the model, so the panel
+    # reads the one sentence and not pydantic's report of it.
+    checked_host(data.get("base_url"))
     return SourceEntry.model_validate(data)

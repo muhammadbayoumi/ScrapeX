@@ -183,7 +183,7 @@ const VIEWS = [
   "profile", "engines", "database",
   // `jobs` SITS BEFORE `run` HERE FOR THE SAME REASON IT DOES IN THE RAIL: his ruling
   // of 2026-09-09, and this list is the order a reader of the file sees.
-  "source", "jobs", "run", "data", "sources", "source-edit", "appearance", "finance",
+  "source", "jobs", "schedules", "run", "data", "sources", "source-edit", "appearance", "finance",
   "console", "settings",
   // A sub-view of Profile, like source-edit is of Sources: no rail button, and
   // showView maps it back to the Profile rail entry below. A name here with no
@@ -381,6 +381,7 @@ function showView(name, animate = true) {
   }
   if (name === "database") loadDatabase();
   if (name === "jobs") loadJobs();
+  if (name === "schedules") schedulesPage.loading = loadSchedulesPage({ sourcesToo: true });
   if (name === "data") loadDatasets();
   if (name === "sources") loadSources();
   if (name === "finance") loadGoogleFinance();
@@ -942,6 +943,9 @@ async function updateEngineState() {
   setStatus(engine);
   await loadVersions(engine, current);
   if (!current()) return {cancelled: true};
+  // The Schedules page's switches and its old-engine note follow this answer, from what
+  // the page last read: no read of its own.
+  if (currentViewName() === "schedules" && schedulesPage.saved) drawSchedules();
   markStartup("engine-check-finish", {
     state: state.engineState, reachable: Boolean(engine.reachable),
   });
@@ -2535,32 +2539,44 @@ async function wipeSourceData() {
   }
 }
 
+/** Reads sources (and, for the switch's labels, schedules); true when it read them. */
 async function loadSources() {
+  const wrote = schedulesPage.wrote;
   try {
     const [{ sources }, schedules] = await Promise.all([
       api("/api/sources"),
       // Only the switch's labels read it; unread, they are not drawn rather than guessed.
       scheduleSwitchOn() ? api("/api/schedules").catch(() => null) : null,
     ]);
-    state.sources = sources;
-    if (scheduleSwitchOn()) {
+    // A Remove on the Schedules page since this read left is newer than what it holds.
+    if (scheduleSwitchOn() && wrote === schedulesPage.wrote) {
       state.schedules = schedules
         ? new Map(schedules.schedules.map((item) => [item.source_key, item])) : null;
     }
-    // Drop selections for sites that vanished from the manifest.
-    for (const key of [...state.selected]) {
-      if (!sources.some((s) => s.source_key === key)) state.selected.delete(key);
-    }
-    renderSites();
-    renderSourceManager();
+    adoptSources(sources);
     loadChangeSummaries();
+    return true;
   } catch (_) {
     $("sites").innerHTML =
       `<div class="srow"><span class="err">Couldn&#39;t reach the engine.</span></div>`;
     $("source-manager-count").textContent = "";
     $("source-manager-list").innerHTML =
       `<div class="source-manager-empty err">Couldn&#39;t reach the engine.</div>`;
+    return false;
   }
+}
+
+/** THE PANEL'S ONE LIST, state.sources, written the same way by every read of
+ *  /api/sources (this panel's and the Schedules page's): a selection of a site that left
+ *  the manifest is dropped, and Run's cards and the Source manager follow. `run` false
+ *  leaves Run's cards alone, for a read that lands while he is on Run. */
+function adoptSources(sources, { run = true } = {}) {
+  state.sources = sources;
+  for (const key of [...state.selected]) {
+    if (!sources.some((s) => s.source_key === key)) state.selected.delete(key);
+  }
+  if (run) renderSites();
+  renderSourceManager();
 }
 
 const CHANGE_LABELS = {
@@ -6052,6 +6068,8 @@ function armIdleProbe() {
     // A STOPPED ENGINE IS ASKED AGAIN LATER, not never: its coming back up starts no
     // poll of its own (`setStatus`), so a probe that gave up here stayed given up.
     if (!state.engineUp) { armIdleProbe(); return; }
+    // The Schedules page reads its list on the same idle probe, only while it is shown.
+    if (currentViewName() === "schedules") loadSchedulesPage({ quiet: true });
     let found = [];
     try { found = (await api("/api/jobs?active_only=true&limit=1")).jobs || []; }
     catch (_) { found = []; }
@@ -6069,6 +6087,11 @@ function noticeActiveSet(jobs) {
   if (!before) return;
   const changed = refs.size !== before.size || [...refs].some((ref) => !before.has(ref));
   if (changed && currentViewName() === "jobs") loadJobs();
+  // A FIRING MAKES A JOB AND RE-ARMS ITS SLOT: a job that appeared, and only that, has the
+  // Schedules page read its list again. One that ended is drawn from the panel's own
+  // reload (redrawWhatTheJobChanged, then schedulesAfterJobEnd), with no read of its own.
+  const appeared = [...refs].some((ref) => !before.has(ref));
+  if (appeared && currentViewName() === "schedules") loadSchedulesPage({ quiet: true });
 }
 
 async function pollJobOnce() {
@@ -6181,7 +6204,12 @@ async function pollJobOnce() {
  * added.
  */
 async function redrawWhatTheJobChanged() {
-  await loadSources();
+  const held = state.schedules;
+  const read = await loadSources();
+  // loadSources read schedules when it wrote a Map (or null) of its own: neither the one
+  // held before it, nor the page's, which a Remove or the page's own read put there.
+  const readSchedules = state.schedules !== held && state.schedules !== schedulesPage.saved;
+  if (currentViewName() === "schedules") schedulesAfterJobEnd(read, readSchedules);
   if (currentViewName() === "data") await loadDatasets();
 }
 
@@ -7284,6 +7312,14 @@ function scheduleSwitchOn() {
   return !capabilityRefusal("schedule_active_switch");
 }
 
+// An engine KNOWN not to deploy `key`: its report lacks the key, or it is too old to
+// report. Nothing known -- no report yet, one that timed out, a stopped engine -- is not
+// this, so what it would say is not said rather than guessed.
+function engineKnownWithout(key) {
+  const deployed = deployedFrom(state.versionReport);
+  return Boolean(deployed && !deployed[key]) || state.versionStatus === "unsupported";
+}
+
 // The name a sentence calls a site by, as the editor's own Edit label does.
 function siteName(source) {
   return sourceDomain(source.base_url) || source.source_name || source.source_key;
@@ -7313,16 +7349,18 @@ function scheduleSummary(source) {
     ? label : label + " · Off";
 }
 
-// Open this source's row on the Schedules page, expanded and focused.
-async function openScheduleRow(key) {
+// SETTINGS' EDITOR, until part 2 of #1631 moves Create and Edit into a sheet on the
+// Schedules page: this source's row expanded and focused, or the editor's first row for
+// a new schedule (`key` null).
+async function openScheduleEditor(key) {
   showView("settings");
   $("s-sched").classList.remove("hidden");
   document.querySelector('[data-sect="s-sched"]').setAttribute("aria-expanded", "true");
   await state.schedulesLoad;
-  const row = [...document.querySelectorAll(".sched-row")]
-    .find((item) => item.dataset.sched === key);
+  const rows = [...document.querySelectorAll("#schedules .sched-row")];
+  const row = key ? rows.find((item) => item.dataset.sched === key) : rows[0];
   if (!row) return;
-  row.open = true;
+  if (key) row.open = true;
   row.querySelector("summary").focus({preventScroll: true});
   row.scrollIntoView({block: "nearest"});
 }
@@ -7355,12 +7393,13 @@ function scheduleRowLine(sched, runsOn, switchOn) {
 
 // Ask, then turn this source's scheduled runs on or off with the schedule as saved.
 // The row is updated where it stands, so an edit he has not saved stays in its fields.
-async function toggleScheduledRuns(source, sched, button, status) {
-  const on = button.getAttribute("aria-checked") === "true";
+// THE SWITCH'S QUESTION AND WHAT IT SENDS, one copy for both switches that turn a
+// source's scheduled runs on or off: the Schedules page's row and Settings' editor row.
+function askToSwitchScheduledRuns(source, sched, on) {
   const site = siteName(source);
   const verb = on ? "Disable" : "Enable";
   const label = scheduleLabel(sched);
-  const yes = await askToConfirm({
+  return askToConfirm({
     title: `${verb} scheduled runs`,
     copy: on
       ? `Disable scheduled runs for ${site}? Its schedule is kept and stops firing until `
@@ -7371,14 +7410,25 @@ async function toggleScheduledRuns(source, sched, button, status) {
     // (CronJobTableCell.tsx@86c813ec:210-253); his choice B, 2026-10-10 (#1596).
     keep: "Cancel", go: verb, tone: on ? "warning" : "",
   });
-  if (!yes) return;
+}
+
+// The schedule as saved rides along, so the switch changes nothing else about it.
+function scheduleSwitchBody(sched, active) {
+  return {
+    frequency: sched.frequency, run_at: sched.run_at, timezone: sched.timezone,
+    weekday: sched.weekday, run_mode: sched.run_mode,
+    missed_run_policy: sched.missed_run_policy, overlap_policy: "skip", active,
+  };
+}
+
+async function toggleScheduledRuns(source, sched, button, status) {
+  const on = button.getAttribute("aria-checked") === "true";
+  const site = siteName(source);
+  if (!(await askToSwitchScheduledRuns(source, sched, on))) return;
   button.disabled = true;
   try {
-    const result = await post("/api/schedules/" + encodeURIComponent(source.source_key), {
-      frequency: sched.frequency, run_at: sched.run_at, timezone: sched.timezone,
-      weekday: sched.weekday, run_mode: sched.run_mode,
-      missed_run_policy: sched.missed_run_policy, overlap_policy: "skip", active: !on,
-    });
+    const result = await post("/api/schedules/" + encodeURIComponent(source.source_key),
+      scheduleSwitchBody(sched, !on));
     Object.assign(sched, result);
     source.active = result.active;
     const runsOn = scheduledRunsOn(source, sched);
@@ -7413,11 +7463,13 @@ async function loadSchedules() {
   // the panel could only read them — so the section said "No schedules yet"
   // forever, with no way to change that. One row per implemented site, its
   // saved schedule merged in, defaults from the source's declared cadence.
+  const wrote = schedulesPage.wrote;
   try {
     const [d, src] = await Promise.all([api("/api/schedules"), api("/api/sources")]);
     $("sched-note").textContent = d.note;
     const saved = new Map(d.schedules.map((s) => [s.source_key, s]));
-    state.schedules = saved;
+    // A Remove on the Schedules page since this read left is newer than what it holds.
+    if (wrote === schedulesPage.wrote) state.schedules = saved;
     const switchOn = scheduleSwitchOn();
     const sites = src.sources.filter((s) => s.implemented);
     if (!sites.length) {
@@ -7433,8 +7485,7 @@ async function loadSchedules() {
     // extension's version -- says nothing rather than tell him to update an engine.
     const deployed = deployedFrom(state.versionReport);
     const engineSkips = Boolean(deployed && deployed.scheduled_skips);
-    const engineIsOlder = (deployed && !deployed.scheduled_skips)
-      || state.versionStatus === "unsupported";
+    const engineIsOlder = engineKnownWithout("scheduled_skips");
     const skipNote = (sched) => engineSkips
       ? "If this site's previous run is still going, ScrapeX skips the slot and lists it on the Jobs page."
       : !engineIsOlder ? ""
@@ -8331,14 +8382,7 @@ function renderJobs() {
     }
     jobsState(stateBox, null);
     $("jobs-count").textContent = "Loading jobs…";
-    list.classList.remove("hidden");
-    list.replaceChildren(...Array.from({ length: 4 }, () => {
-      const one = document.createElement("div");
-      one.className = "job-skeleton";
-      one.append(document.createElement("div"), document.createElement("div"));
-      one.querySelectorAll("div").forEach((bar) => bar.classList.add("skeleton"));
-      return one;
-    }));
+    drawListSkeleton(list);
     return;
   }
 
@@ -8383,6 +8427,19 @@ function renderJobs() {
     if (expected !== row) list.insertBefore(row, expected);
     before = row;
   }
+}
+
+/** Four skeleton rows while a list's first read is out (DataGrid.tsx@86c813ec:29-32): the
+ *  Jobs page's and the Schedules page's. */
+function drawListSkeleton(list) {
+  list.classList.remove("hidden");
+  list.replaceChildren(...Array.from({ length: 4 }, () => {
+    const one = document.createElement("div");
+    one.className = "job-skeleton";
+    one.append(document.createElement("div"), document.createElement("div"));
+    one.querySelectorAll("div").forEach((bar) => bar.classList.add("skeleton"));
+    return one;
+  }));
 }
 
 function jobsBanner(failure, listShown) {
@@ -9038,6 +9095,760 @@ async function loadDatabase() {
     renderBundles([], { detail: "The engine did not answer, so the folder could not be read." });
     out("db-msg", esc((error && error.message) || "Couldn't read the database."), "err");
   }
+}
+
+// ---- the Schedules page (#1631, option C, after Supabase's Cron Jobs) --------------
+// Designed through design-the-experience; the reference sheet, the states and his
+// confirmation are on #1631. One row per scheduled price source: its facts stacked under
+// it, the one Active switch, and a ⋮ menu. PART 1 of the four he approved: Edit schedule
+// and Create schedule open Settings' editor until part 2 moves them into a sheet here.
+const schedulesPage = {
+  saved: null,           // source_key -> stored schedule, as the last good read held it
+  note: "",              // the engine's own note, drawn under the list
+  loading: null,         // the read a page show started; a link entry waits on it
+  sourcesOk: false,      // state.sources was filled by a read this page made or waited on
+  sourcesStale: false,   // a read that wanted sources failed: every read retries them
+  failure: null,         // {message, http, what: "schedules" | "sources"}
+  readAt: null,
+  starting: false,       // Start engine pressed here, still in flight
+  startFailed: false,
+  rows: new Map(),       // row key -> element; an orphan's key is "lost:" + its source_key
+  menuFor: null,         // the row whose ⋮ menu is open
+  writesOff: false,      // the engine stopped answering over a good list
+  wrote: 0,              // Removes this page applied; a read sent before one keeps none
+                         // of its schedules (loadSchedulesPage, loadSources)
+};
+
+// THE ENGINE'S OWN WAIT, AND ONE SECOND. The panel stops waiting for a write at 5 s
+// (`destinationData`, startup.js); the engine waits up to 10 s for the write lock
+// (`write_lock(timeout_s=10.0)`, scrapex/db.py) and then commits. 11 s after the press,
+// a read says what the engine holds.
+const SCHEDULE_LOCK_WAIT_MS = 11000;
+
+// No row, orphan or switch is drawn from a list this page did not read or wait on.
+function schedulesSources() {
+  return schedulesPage.sourcesOk ? state.sources || [] : [];
+}
+
+// Price sources that can run. A directory has no schedule that fires on today's engine
+// (its key answers 404 on POST /api/schedules), and an unbuilt source runs nothing.
+function schedulableSources() {
+  return schedulesSources().filter((source) => source.implemented && !source.kind);
+}
+
+function scheduleStatus(source) {
+  const sched = schedulesPage.saved.get(source.source_key) || {};
+  if ((sched.frequency || "manual") === "manual") return "Not scheduled";
+  return scheduledRunsOn(source, sched) ? "On" : "Off";
+}
+
+// A stored schedule whose source left the manifest: every write route answers 404 for
+// its key (#1650), and the scheduler re-arms it without firing.
+function scheduleOrphans() {
+  const known = new Set(schedulesSources().map((source) => source.source_key));
+  return [...schedulesPage.saved.values()].filter((sched) => !known.has(sched.source_key)
+    && (sched.frequency || "manual") !== "manual");
+}
+
+// RUN FOLLOWS WHAT THIS PAGE WRITES. Run does not re-read on a later show
+// (loadRunDestination), so its cards are redrawn from the Map just written -- made the
+// one Run reads, since a read elsewhere may have landed another -- DOM only, and never
+// while he is on Run, where a read that lands late would rebuild them under him.
+function schedulesRunFollows() {
+  state.schedules = schedulesPage.saved;
+  if (currentViewName() !== "run") renderSites();
+}
+
+/** ONE READ: sources and schedules together on a page show, a link entry, after a switch
+ *  press; schedules alone on a tick. A failed read that wanted sources leaves them stale,
+ *  and every read retries them until one succeeds. */
+async function loadSchedulesPage({ quiet = false, sourcesToo = false } = {}) {
+  const page = schedulesPage;
+  if (!page.saved && !quiet) {
+    page.failure = null;
+    $("sched-count").textContent = "Loading schedules…";
+    $("sched-state").replaceChildren();
+    page.rows.clear();
+    drawListSkeleton($("sched-list"));
+    $("sched-list").setAttribute("aria-busy", "true");
+  }
+  const wantSources = sourcesToo || !page.sourcesOk || page.sourcesStale;
+  // A job end whose schedules read failed left Run with no chips (loadSources); a good
+  // read here draws them again.
+  const runHadNoChips = !(state.schedules instanceof Map);
+  const wrote = page.wrote;
+  try {
+    const [listed, read] = await Promise.all([
+      wantSources ? api("/api/sources").catch((error) => {
+        throw Object.assign(error, { what: "sources" });
+      }) : null,
+      api("/api/schedules"),
+    ]);
+    // A REMOVE HERE SINCE THIS READ LEFT IS NEWER than what it holds: the removed row
+    // would otherwise come back, live. Its sources still count.
+    const fresh = wrote === page.wrote;
+    if (fresh) {
+      page.saved = new Map(read.schedules.map((sched) => [sched.source_key, sched]));
+      page.note = read.note || "";
+      state.schedules = page.saved;
+    }
+    if (listed) {
+      page.sourcesOk = true;
+      page.sourcesStale = false;
+      adoptSources(listed.sources, { run: currentViewName() !== "run" });
+    } else if (runHadNoChips) {
+      schedulesRunFollows();
+    }
+    page.failure = null;
+    page.startFailed = false;
+    if (fresh) page.readAt = new Date().toISOString();
+  } catch (error) {
+    if (wantSources) page.sourcesStale = page.sourcesOk;
+    page.failure = { message: (error && error.message) || "no answer",
+      http: Boolean(error && error.kind === "http"), what: (error && error.what) || "schedules" };
+  }
+  $("sched-list").removeAttribute("aria-busy");
+  drawSchedules();
+}
+
+/** A JOB END COSTS THIS PAGE NO READ OF ITS OWN: the panel's own reload
+ *  (redrawWhatTheJobChanged) has read sources, and schedules on an engine with the switch,
+ *  and the page draws from what it left. A job start is read by noticeActiveSet.
+ *  `readSchedules`: that reload wrote state.schedules from a read of its own. */
+function schedulesAfterJobEnd(read, readSchedules) {
+  const page = schedulesPage;
+  if (!page.saved) return;
+  if (!read) {
+    page.sourcesStale = true;
+    page.failure = { message: "The engine did not answer", http: false, what: "sources" };
+    drawSchedules();
+    return;
+  }
+  page.sourcesOk = true;
+  page.sourcesStale = false;
+  if (page.failure && page.failure.what === "sources") page.failure = null;
+  // ONLY A MAP THE RELOAD HAS JUST READ IS A FRESH READ. It read none on an engine without
+  // the switch, and dropped one a Remove here made older; a Map another reader left in
+  // state.schedules is no read of this job end. Then what the page last read, and how
+  // that read went, stand.
+  if (readSchedules) {
+    if (state.schedules instanceof Map) {
+      page.saved = state.schedules;
+      page.failure = null;
+      page.readAt = new Date().toISOString();
+    } else {
+      // Sources came back and schedules did not: not a fresh read.
+      page.failure = { message: "The engine did not answer", http: false, what: "schedules" };
+    }
+  }
+  drawSchedules();
+}
+
+// The Jobs page's words for the same failures (jobsBanner), about schedules.
+function scheduleBanner() {
+  const page = schedulesPage;
+  const failure = page.failure;
+  const listShown = Boolean(page.saved);
+  const read = page.readAt ? window.ScrapeXTime.format(page.readAt, "time") : "";
+  const shown = listShown ? `Showing the schedules as read at ${read}. ` : "";
+  if (failure.http) {
+    return { tone: listShown ? "banner" : "banner danger",
+      title: listShown ? "Unable to refresh data"
+        : failure.what === "sources" ? "Unable to read sources" : "Unable to read schedules",
+      copy: listShown ? `${shown}The engine answered: ${failure.message}` : failure.message,
+      action: listShown ? null : ["Try again", () => loadSchedulesPage()] };
+  }
+  if (!state.engineUp) {
+    const title = listShown ? "Engine stopped answering" : "Engine not running";
+    if (page.startFailed) {
+      // The reason is drawn where the engine is started from: send him there, as Jobs does.
+      return { tone: "banner", title, copy: `${shown}The engine did not start. Open Run to see why.`,
+        action: ["Open Run", () => showView("run")] };
+    }
+    return { tone: "banner", title,
+      copy: listShown
+        ? `${shown}Their controls return when the engine answers. Start the engine to read them again.`
+        : "Start the engine to read schedules.",
+      action: [page.starting ? "Starting…" : "Start engine", async () => {
+        if (page.starting) return;
+        page.starting = true;
+        drawSchedules();
+        try { await startEngineFromPanel(); } finally { page.starting = false; }
+        page.startFailed = !state.engineUp;
+        if (page.startFailed) drawSchedules();
+        else loadSchedulesPage({ sourcesToo: true });
+      }, page.starting] };
+  }
+  return { tone: "banner", title: "The engine did not answer", copy: `${shown}Try again in a moment.`,
+    action: ["Try again", () => loadSchedulesPage({ quiet: listShown })] };
+}
+
+// ONE ALERT NODE, rewritten only when its words change: a fresh role="alert" on every
+// tick is announced on every tick (jobsState's rule).
+function drawScheduleBanner(box) {
+  const node = box.querySelector('[data-role="banner"]');
+  if (!schedulesPage.failure) { node?.remove(); return; }
+  const banner = scheduleBanner();
+  const key = JSON.stringify([banner.tone, banner.title, banner.copy, banner.action?.[0]]);
+  if (node && node.dataset.drawn === key) return;
+  const fresh = document.createElement("div");
+  fresh.dataset.role = "banner";
+  fresh.dataset.drawn = key;
+  fresh.className = banner.tone;
+  fresh.setAttribute("role", "alert");
+  fresh.innerHTML = `<strong class="text-sm">${esc(banner.title)}</strong>`
+    + `<p class="text-xs muted">${esc(banner.copy)}</p>`;
+  if (banner.action) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "ghost";
+    button.textContent = banner.action[0];
+    if (banner.action[2]) button.setAttribute("aria-disabled", "true");
+    button.addEventListener("click", banner.action[1]);
+    fresh.append(button);
+  }
+  // A redraw he caused (Start engine becoming Starting…) keeps his focus on its button.
+  const hadFocus = Boolean(node && node.contains(document.activeElement));
+  if (node) node.replaceWith(fresh); else box.prepend(fresh);
+  if (hadFocus) fresh.querySelector("button")?.focus({ preventScroll: true });
+}
+
+// An engine before `schedule_active_switch`: its version in words, never the key. The
+// switch was first deployed by engine 0.4.60 (#1630).
+function scheduleOldEngineNote() {
+  const note = document.createElement("div");
+  note.className = "banner";
+  note.setAttribute("role", "status");
+  note.dataset.role = "old";
+  note.innerHTML = `<strong class="text-sm">No on/off switch on the rows with this engine</strong>
+    <p class="text-xs muted">${esc(`This engine is ${state.engineVersion}. Turning a schedule on `
+      + "or off from its row needs engine 0.4.60 or newer. Until then, use Enabled in Edit "
+      + "schedule, and Auto on the Run page.")}</p>`;
+  return note;
+}
+
+function scheduleEmptyCard() {
+  const card = document.createElement("div");
+  card.className = "card empty";
+  card.dataset.role = "empty";
+  // "Include the action" (copywriting.mdx@86c813ec:167-172).
+  card.innerHTML = `<p class="text-sm">No schedules yet</p>
+    <p class="text-xs">Create one to run a source automatically.</p>
+    <button type="button" class="ghost">Create schedule</button>`;
+  card.querySelector("button").addEventListener("click", () => openScheduleEditor(null));
+  return card;
+}
+
+function drawSchedules() {
+  const page = schedulesPage;
+  const list = $("sched-list");
+  const box = $("sched-state");
+  if (!page.saved) {
+    // NO READ, NO CONTROLS: nothing to act on, and nothing drawn from a list not read.
+    $("sched-tools").classList.add("hidden");
+    list.classList.add("hidden");
+    $("sched-count").textContent = "";
+    $("sched-dir-note").classList.add("hidden");
+    $("sched-engine-note").textContent = "";
+    box.querySelectorAll(':scope > :not([data-role="banner"])').forEach((node) => node.remove());
+    drawScheduleBanner(box);
+    return;
+  }
+  const scheduled = schedulableSources().filter((source) => scheduleStatus(source) !== "Not scheduled");
+  const lost = scheduleOrphans();
+  const total = scheduled.length + lost.length;
+  // "Read at", as the Jobs count line; hidden with the list, where the card says it.
+  const line = total ? `${total} schedule${total === 1 ? "" : "s"}${
+    lost.length ? ` · ${lost.length} without a source` : ""} · Read at ${
+    window.ScrapeXTime.format(page.readAt, "time")}` : "";
+  if ($("sched-count").textContent !== line) $("sched-count").textContent = line;
+  $("sched-tools").classList.toggle("hidden", total === 0);
+  page.writesOff = Boolean(page.failure) && !state.engineUp;
+  if (page.writesOff) $("sched-create").setAttribute("aria-disabled", "true");
+  else $("sched-create").removeAttribute("aria-disabled");
+  const directories = schedulesSources().filter((source) => source.kind === "directory");
+  $("sched-dir-note").classList.toggle("hidden", !directories.length);
+  $("sched-dir-note").textContent = directories.length ? `Directory sources (${
+    directories.map((source) => sourceDomain(source.base_url)).join(", ")
+  }) can't be scheduled yet. Run them from the Run page.` : "";
+  $("sched-engine-note").textContent = page.note;
+  drawScheduleBanner(box);
+  // ONLY AN ENGINE KNOWN TO LACK THE SWITCH is told so, in its version as of this draw,
+  // and the node is rewritten only when its words change (drawScheduleBanner's rule).
+  const old = box.querySelector('[data-role="old"]');
+  const note = engineKnownWithout("schedule_active_switch") ? scheduleOldEngineNote() : null;
+  if (!note) old?.remove();
+  else if (!old) box.append(note);
+  else if (old.textContent !== note.textContent) old.replaceWith(note);
+
+  if (!total) {
+    const hadFocus = [...page.rows.values()].some((row) => row.contains(document.activeElement));
+    list.classList.add("hidden");
+    for (const row of page.rows.values()) row.remove();
+    page.rows.clear();
+    let card = box.querySelector('[data-role="empty"]');
+    if (!card) { card = scheduleEmptyCard(); box.append(card); }
+    // The last row left with focus in it: focus goes to the card's own action.
+    if (hadFocus) card.querySelector("button").focus({ preventScroll: true });
+    return;
+  }
+  box.querySelector('[data-role="empty"]')?.remove();
+  list.classList.remove("hidden");
+  list.querySelectorAll(".job-skeleton").forEach((one) => one.remove());
+  // KEYED ROWS, PATCHED IN PLACE: a tick never rebuilds a row (the Jobs rule, #1542).
+  const wanted = new Set([...scheduled.map((source) => source.source_key),
+    ...lost.map((sched) => "lost:" + sched.source_key)]);
+  // FOCUS IN A ROW THAT LEAVES goes to the row that takes its place, else the row
+  // before, else Create -- never to <body> (WCAG 2.2 SC 2.4.3). Neither Jobs nor
+  // Studio's Delete job has a precedent; this is the APG's "a logical place".
+  const leaving = [...page.rows.entries()].find(([key, row]) =>
+    !wanted.has(key) && row.contains(document.activeElement));
+  const leavingAt = leaving ? [...list.children].indexOf(leaving[1]) : -1;
+  for (const [key, row] of page.rows) {
+    if (!wanted.has(key)) { row.remove(); page.rows.delete(key); }
+  }
+  let before = null;
+  const place = (key, make, update) => {
+    let row = page.rows.get(key);
+    if (!row) { row = make(); page.rows.set(key, row); } else update(row);
+    // MOVED ONLY WHEN OUT OF PLACE: moving a node blurs whatever inside it had focus.
+    const expected = before ? before.nextElementSibling : list.firstElementChild;
+    if (expected !== row) list.insertBefore(row, expected);
+    before = row;
+  };
+  const build = (html) => {
+    const template = document.createElement("template");
+    template.innerHTML = html.trim();
+    return template.content.firstElementChild;
+  };
+  for (const source of scheduled) {
+    place(source.source_key, () => {
+      const row = build(scheduleRowHtml(source));
+      bindScheduleRow(row);
+      return row;
+    }, (row) => patchScheduleRow(row, source));
+  }
+  for (const sched of lost) place("lost:" + sched.source_key, () => build(scheduleOrphanHtml(sched)), () => {});
+  for (const [key, row] of page.rows) if (!key.startsWith("lost:")) gateScheduleRow(row);
+  if (leavingAt >= 0) {
+    const live = [...list.children].filter((row) => !row.classList.contains("schedule-orphan"));
+    const target = live[Math.min(leavingAt, live.length - 1)];
+    const into = target && (target.querySelector('[data-role="sched-active"]')
+      || target.querySelector('[data-role="runs"]'));
+    (into || $("sched-create")).focus({ preventScroll: true });
+  }
+}
+
+// ---- one row ----------------------------------------------------------------------
+
+// NEXT RUN IN THE SCHEDULE'S OWN ZONE AND CLOCK, so its weekday and hour read against
+// "Weekly Monday 06:30 · Asia/Riyadh"; the instant in his display zone, named, under it
+// (§6.8).
+function scheduleFacts(source, sched) {
+  const zone = sched.timezone || "UTC";
+  const paused = !scheduleSwitchOn() && sched.schedule_id != null && !sched.enabled;
+  const next = paused ? "Paused"
+    : scheduleStatus(source) !== "On" ? "Off"
+    : sched.next_run_at
+      ? `${esc(window.ScrapeXTime.wallClock(sched.next_run_at, zone))}<span class="muted schedule-facts-sub">${
+        window.ScrapeXTime.markup(sched.next_run_at, "datetime", { zone: true })}</span>`
+      : "—";
+  // THE SOURCE'S LAST SUCCESSFUL RUN, manual or scheduled: `last_success` on
+  // /api/sources -- not `schedule.last_run_at`, which only a firing writes.
+  const done = source.last_success && source.last_success.finished_at;
+  const last = done ? window.ScrapeXTime.markup(done, "datetime", { zone: true })
+    : `<span class="muted">None yet</span>`;
+  return `<dl class="schedule-facts text-xs">
+    <dt>Schedule</dt><dd>${esc(scheduleLabel(sched))} · ${esc(zone)}</dd>
+    <dt>Next run</dt><dd data-fact="next">${next}</dd>
+    <dt>Last success</dt><dd data-fact="last">${last}</dd>
+  </dl>`;
+}
+
+// The identity is the row's press, to Jobs; a trailing chevron says so
+// (table.mdx@86c813ec:229-231). It trails the domain's last label and breaks with it.
+function scheduleIdentity(source) {
+  const identity = sourceIdentity(source, false, null, "Row", { wrap: true });
+  const start = identity.indexOf(">", identity.indexOf("<strong")) + 1;
+  const end = identity.indexOf("</strong>");
+  const domain = identity.slice(start, end);
+  const cut = domain.lastIndexOf("<wbr>");
+  const split = cut < 0 ? 0 : cut + "<wbr>".length;
+  return identity.slice(0, start) + domain.slice(0, split) + `<span class="schedule-nowrap">${
+    domain.slice(split)}${
+    icon("material-chevron-right", "inline-icon")}</span>` + identity.slice(end);
+}
+
+// THE ROW'S SWITCH, "" on an engine the panel cannot confirm has it. Asked on every
+// draw (patchScheduleRow), so a report that lands late, an upgrade or a downgrade adds
+// or removes it on a row already built.
+function scheduleSwitchHtml(source) {
+  const sched = schedulesPage.saved.get(source.source_key) || {};
+  return scheduleSwitchOn() && sched.schedule_id != null
+    ? `<button type="button" role="switch" class="switch" data-role="sched-active"
+        aria-checked="${scheduleStatus(source) === "On"}" aria-label="Scheduled runs for ${
+        esc(siteName(source))}">
+        <span class="switch-thumb" aria-hidden="true"></span></button>` : "";
+}
+
+function scheduleRowHtml(source) {
+  const sched = schedulesPage.saved.get(source.source_key) || {};
+  const name = esc(siteName(source));
+  return `<div class="job-row schedule-row" data-sched="${esc(source.source_key)}">
+    <span class="schedule-id"><button type="button" class="schedule-open" data-role="runs"
+      aria-label="Runs of ${name} on Jobs">${scheduleIdentity(source)}</button></span>
+    ${scheduleSwitchHtml(source)}
+    <span class="job-kebab">
+      <button type="button" class="ghost icon-button" aria-haspopup="menu" aria-expanded="false"
+              aria-label="Actions for ${name}" data-role="kebab">${icon("material-more-vert", "sm")}</button>
+      <div class="account-menu job-menu hidden" role="menu" data-role="menu"
+           aria-label="Actions for ${name}"></div>
+    </span>
+    ${scheduleFacts(source, sched)}
+    <p class="job-full text-xs hidden" role="status" data-role="status"></p>
+  </div>`;
+}
+
+// No switch and no menu: every write route answers 404 for a key outside the manifest.
+function scheduleOrphanHtml(sched) {
+  return `<div class="job-row schedule-row schedule-orphan" data-sched="${esc(sched.source_key)}">
+    <span class="schedule-id"><span class="source-identity"><strong class="source-identity-domain">${
+      esc(sched.source_key)}</strong></span></span>
+    <dl class="schedule-facts text-xs">
+      <dt>Schedule</dt><dd>${esc(scheduleLabel(sched))} · ${esc(sched.timezone || "UTC")}</dd>
+      <dt>Next run</dt><dd data-fact="next">Never</dd>
+    </dl>
+    <p class="job-full text-xs">This source is no longer in your sources, so its schedule never runs. It can't be changed or removed yet.</p>
+  </div>`;
+}
+
+function patchScheduleRow(row, source) {
+  const facts = row.querySelector(".schedule-facts");
+  const html = scheduleFacts(source, schedulesPage.saved.get(source.source_key) || {});
+  if (facts.dataset.html !== html) {
+    const template = document.createElement("template");
+    template.innerHTML = html.trim();
+    template.content.firstElementChild.dataset.html = html;
+    facts.replaceWith(template.content.firstElementChild);
+  }
+  const busy = row.dataset.busy === "true";
+  let toggle = row.querySelector('[data-role="sched-active"]');
+  const wanted = scheduleSwitchHtml(source);
+  if (wanted && !toggle) {
+    const template = document.createElement("template");
+    template.innerHTML = wanted.trim();
+    toggle = template.content.firstElementChild;
+    row.querySelector(".job-kebab").before(toggle);
+  } else if (!wanted && toggle) {
+    // Focus on a switch that leaves stays in its row, never on <body> (WCAG 2.2 SC 2.4.3).
+    const hadFocus = toggle === document.activeElement;
+    toggle.remove();
+    toggle = null;
+    if (hadFocus) row.querySelector('[data-role="runs"]').focus({ preventScroll: true });
+  }
+  if (toggle && !busy) toggle.setAttribute("aria-checked", String(scheduleStatus(source) === "On"));
+  // A READ AFTER A PRESS IS THE ENGINE'S ANSWER: what an earlier press left on the row is
+  // cleared by the next good read, unless a press is in flight or the line is that read's.
+  const status = row.querySelector('[data-role="status"]');
+  if (status.dataset.keep === "once") status.dataset.keep = "";
+  else if (!busy) setScheduleRowStatus(row, "", "");
+}
+
+function setScheduleRowStatus(row, words, tone) {
+  const status = row.querySelector('[data-role="status"]');
+  status.textContent = words;
+  status.className = `job-full text-xs${tone ? ` ${tone}` : ""}${words ? "" : " hidden"}`;
+}
+
+// A ROW'S WRITES WAIT while one of them is in flight or the engine is not answering:
+// switch and ⋮ aria-disabled (focusable, never `disabled`, #1542), and every press returns.
+function scheduleGated(row) {
+  return schedulesPage.writesOff || row.dataset.busy === "true";
+}
+
+function gateScheduleRow(row) {
+  for (const control of row.querySelectorAll('[data-role="sched-active"], [data-role="kebab"]')) {
+    if (scheduleGated(row)) control.setAttribute("aria-disabled", "true");
+    else control.removeAttribute("aria-disabled");
+  }
+}
+
+function setScheduleRowBusy(row, busy) {
+  row.dataset.busy = busy ? "true" : "";
+  gateScheduleRow(row);
+}
+
+function scheduleToast(words, row) {
+  showToast(words);
+  if (row && row.isConnected) keepClearOfToast(row);
+}
+
+// ---- the switch: the panel's question, then "Saving…" on the row -------------------
+
+async function toggleScheduleRow(row) {
+  const key = row.dataset.sched;
+  let source = schedulesSources().find((item) => item.source_key === key);
+  let sched = schedulesPage.saved.get(key);
+  const button = row.querySelector('[data-role="sched-active"]');
+  if (!source || !sched || scheduleGated(row)) return;
+  const on = button.getAttribute("aria-checked") === "true";
+  const name = siteName(source);
+  // AN ENGINE THAT LOST THE SWITCH WHILE HE ANSWERED (a downgrade, a report that landed)
+  // would save the schedule, ignore `active` and answer 200; a row that left (its schedule
+  // removed elsewhere) would be saved back. Nothing is sent: the redraw that took the
+  // switch or the row away is the answer on screen.
+  if (!(await askToSwitchScheduledRuns(source, sched, on)) || scheduleGated(row)
+      || !scheduleSwitchOn() || !row.isConnected) return;
+  // THE SCHEDULE AS THE PAGE HOLDS IT NOW, not as it stood when he pressed: the route
+  // stores every field it is sent, so a save a read brought in while he answered (on
+  // Settings, or the engine's own page) is kept, not undone.
+  source = schedulesSources().find((item) => item.source_key === key);
+  sched = schedulesPage.saved.get(key);
+  const pressedAt = Date.now();
+  setScheduleRowBusy(row, true);
+  button.setAttribute("aria-busy", "true");
+  setScheduleRowStatus(row, "Saving…", "muted");
+  try {
+    const result = await post("/api/schedules/" + encodeURIComponent(key),
+      scheduleSwitchBody(sched, !on));
+    Object.assign(sched, result);
+    source.active = result.active;
+    button.removeAttribute("aria-busy");
+    setScheduleRowBusy(row, false);
+    patchScheduleRow(row, source);
+    scheduleToast(`${result.active ? "Enabled" : "Disabled"} scheduled runs for ${name}`, row);
+    loadSchedulesPage({ quiet: true, sourcesToo: true });   // `active` as the engine holds it
+  } catch (error) {
+    if (!isTimeoutError(error)) {
+      button.removeAttribute("aria-busy");
+      setScheduleRowBusy(row, false);
+      setScheduleRowStatus(row, `Unable to save: ${error.message}`, "err");
+      scheduleToast(`Unable to change scheduled runs for ${name}: ${error.message}`, row);
+      return;
+    }
+    // The switch is the SOURCE's `active`, which /api/schedules does not carry: the
+    // reads take /api/sources too.
+    const want = !on;
+    const word = want ? "on" : "off";
+    await settleScheduleRow(row, pressedAt, true,
+      () => Boolean(schedulesSources().find((item) => item.source_key === key)?.active) === want, {
+        done: () => {
+          setScheduleRowStatus(row, `Scheduled runs are ${word} for ${name}.`, "muted");
+          row.querySelector('[data-role="status"]').dataset.keep = "once";
+          scheduleToast(`${want ? "Enabled" : "Disabled"} scheduled runs for ${name}`, row);
+        },
+        waiting: `No answer from the engine in 5 s, and scheduled runs are not ${word} yet. `
+          + "The engine can still save it for a few seconds; this row checks again then.",
+        notSaved: "No answer from the engine, and the change is not saved yet (checked at {t}). "
+          + "Press the switch to try again.",
+      });
+    button.removeAttribute("aria-busy");
+  }
+}
+
+// A TIMEOUT IS NOT A REFUSAL, AND A LATE COMMIT IS STILL CAUGHT: read at once; if the
+// change is not there, keep the row's writes held and read once more when the engine's
+// own wait is over; then say what that read found. Two reads, only after a timeout.
+async function settleScheduleRow(row, pressedAt, sourcesToo, holds, words) {
+  const read = async () => {
+    await loadSchedulesPage({ quiet: true, sourcesToo });
+    return !schedulesPage.failure;
+  };
+  const finish = (said) => {
+    setScheduleRowBusy(row, false);
+    row.removeAttribute("aria-busy");
+    if (said) {
+      setScheduleRowStatus(row, said, "muted");
+      row.querySelector('[data-role="status"]').dataset.keep = "once";
+    }
+    drawSchedules();   // the row takes what the read found, now that it is no longer held
+  };
+  const unread = () => "No answer from the engine in 5 s, and it could not be read again. "
+    + `The row shows what was read at ${window.ScrapeXTime.format(schedulesPage.readAt, "time")}.`;
+  if (!(await read())) return finish(unread());
+  if (holds()) { finish(""); return words.done(); }
+  setScheduleRowStatus(row, words.waiting, "muted");
+  await new Promise((resolve) =>
+    setTimeout(resolve, Math.max(0, pressedAt + SCHEDULE_LOCK_WAIT_MS - Date.now())));
+  if (!(await read())) return finish(unread());
+  if (holds()) { finish(""); return words.done(); }
+  // "yet (checked at …)": the bound covers the lock, not a handler still queued.
+  finish(words.notSaved.replace("{t}", window.ScrapeXTime.format(new Date().toISOString(), "time")));
+}
+
+// ---- the menu: the WAI-ARIA APG menu button, the Jobs page's model -----------------
+
+function openScheduleMenu(row, at = 0) {
+  if (scheduleGated(row)) return;
+  if (schedulesPage.menuFor && schedulesPage.menuFor !== row) closeScheduleMenu(false);
+  const key = row.dataset.sched;
+  const items = [["material-tune", "Edit schedule", () => openScheduleEditor(key)]];
+  // Only on an engine that records skips; even then a slot missed, or skipped for an off
+  // source, is recorded nowhere (#1505).
+  if ((deployedFrom(state.versionReport) || {}).scheduled_skips) {
+    items.push(["material-history", "View skipped runs", () => {
+      showView("jobs");
+      jobsSetNarrowing({ term: key, statuses: new Set(["skipped"]) });
+    }]);
+  }
+  items.push(null, ["material-close", "Remove schedule…", () => removeScheduleRow(row)]);
+  const menu = row.querySelector('[data-role="menu"]');
+  menu.replaceChildren(...items.map((item) => {
+    if (!item) {
+      const separator = document.createElement("div");
+      separator.className = "account-menu-separator";
+      separator.setAttribute("role", "separator");
+      return separator;
+    }
+    const [glyph, words, act] = item;
+    const button = document.createElement("button");
+    button.type = "button";
+    // Destructive, as Jobs' "Cancel job…" is.
+    button.className = "account-menu-item" + (words.startsWith("Remove") ? " is-destructive" : "");
+    button.setAttribute("role", "menuitem");
+    button.tabIndex = -1;
+    button.innerHTML = `${icon(glyph, "sm")}${esc(words)}`;
+    // Focus back on ⋮ before it acts, so a question it opens returns there.
+    button.addEventListener("click", () => { closeScheduleMenu(true); act(); });
+    return button;
+  }));
+  menu.classList.remove("hidden");
+  row.querySelector('[data-role="kebab"]').setAttribute("aria-expanded", "true");
+  schedulesPage.menuFor = row;
+  const buttons = [...menu.querySelectorAll('[role="menuitem"]')];
+  buttons[at < 0 ? buttons.length - 1 : 0].focus();
+}
+
+function closeScheduleMenu(returnFocus) {
+  const row = schedulesPage.menuFor;
+  if (!row) return;
+  schedulesPage.menuFor = null;
+  row.querySelector('[data-role="menu"]').classList.add("hidden");
+  const kebab = row.querySelector('[data-role="kebab"]');
+  kebab.setAttribute("aria-expanded", "false");
+  if (returnFocus) kebab.focus();
+}
+
+function scheduleMenuKeys(event, row) {
+  const items = [...row.querySelectorAll('[role="menuitem"]')];
+  const at = items.indexOf(document.activeElement);
+  const go = (i) => { event.preventDefault(); items[(i + items.length) % items.length].focus(); };
+  if (event.key === "ArrowDown") go(at + 1);
+  else if (event.key === "ArrowUp") go(at - 1);
+  else if (event.key === "Home") go(0);
+  else if (event.key === "End") go(items.length - 1);
+  else if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); closeScheduleMenu(true); }
+  else if (event.key === "Tab") closeScheduleMenu(false);
+}
+
+// REMOVE IS `frequency = manual`: the route has no delete, and nothing is lost -- the time
+// and zone stay stored, and his past runs stay on Jobs. So it asks once, never for a name.
+async function removeScheduleRow(row) {
+  const key = row.dataset.sched;
+  const source = schedulesSources().find((item) => item.source_key === key);
+  let sched = schedulesPage.saved.get(key);
+  if (!source || !sched || scheduleGated(row)) return;
+  const name = siteName(source);
+  const yes = await askToConfirm({
+    title: "Remove schedule",
+    copy: `Remove the schedule for ${name}? It stops running automatically. `
+      + "Its past runs stay on the Jobs page, and manual runs still work.",
+    // "Remove schedule", never a bare "Remove" (copywriting.mdx@86c813ec:25-29).
+    keep: "Cancel", go: "Remove schedule", tone: "danger",
+  });
+  if (!yes || scheduleGated(row)) return;
+  // The time and zone it keeps are the ones stored when he answers, as the switch's are.
+  sched = schedulesPage.saved.get(key);
+  const pressedAt = Date.now();
+  setScheduleRowBusy(row, true);
+  row.setAttribute("aria-busy", "true");
+  setScheduleRowStatus(row, "Removing schedule…", "muted");
+  try {
+    const result = await post("/api/schedules/" + encodeURIComponent(key), {
+      frequency: "manual", run_at: sched.run_at, timezone: sched.timezone, weekday: sched.weekday,
+      run_mode: sched.run_mode, missed_run_policy: sched.missed_run_policy,
+      overlap_policy: "skip", enabled: Boolean(sched.enabled ?? true) });
+    schedulesPage.saved.set(key, { ...sched, ...result });
+    schedulesPage.wrote += 1;
+    setScheduleRowBusy(row, false);
+    showToast(`Removed the schedule for ${name}`);
+    schedulesRunFollows();
+    drawSchedules();
+  } catch (error) {
+    if (!isTimeoutError(error)) {
+      setScheduleRowBusy(row, false);
+      row.removeAttribute("aria-busy");
+      setScheduleRowStatus(row, `Unable to remove the schedule: ${error.message}`, "err");
+      scheduleToast(`Unable to remove the schedule for ${name}: ${error.message}`, row);
+      return;
+    }
+    // The row's presence answers it: a removed schedule is `manual`, and leaves the list.
+    await settleScheduleRow(row, pressedAt, false,
+      () => (schedulesPage.saved.get(key)?.frequency || "manual") === "manual", {
+        done: () => { showToast(`Removed the schedule for ${name}`); schedulesRunFollows(); },
+        waiting: "No answer from the engine in 5 s, and the schedule is still there. The engine "
+          + "can still remove it for a few seconds; this row checks again then.",
+        notSaved: "No answer from the engine, and the schedule is not removed yet (checked at "
+          + "{t}). Press Remove schedule to try again.",
+      });
+  }
+}
+
+function bindScheduleRow(row) {
+  const key = row.dataset.sched;
+  const source = schedulesSources().find((item) => item.source_key === key);
+  row.querySelector(".schedule-facts").dataset.html =
+    scheduleFacts(source, schedulesPage.saved.get(key) || {});
+  // On the row, not the switch: patchScheduleRow adds and removes the switch.
+  row.addEventListener("click", (event) => {
+    if (event.target.closest('[data-role="sched-active"]')) toggleScheduleRow(row);
+  });
+  row.querySelector('[data-role="runs"]').addEventListener("click", () => {
+    showView("jobs");
+    jobsSetNarrowing({ term: key, statuses: new Set() });
+  });
+  const kebab = row.querySelector('[data-role="kebab"]');
+  kebab.addEventListener("click", () => (schedulesPage.menuFor === row
+    ? closeScheduleMenu(false) : openScheduleMenu(row)));
+  kebab.addEventListener("keydown", (event) => {
+    if (event.key === "ArrowDown") { event.preventDefault(); openScheduleMenu(row, 0); }
+    if (event.key === "ArrowUp") { event.preventDefault(); openScheduleMenu(row, -1); }
+  });
+  row.querySelector('[data-role="menu"]').addEventListener("keydown", (event) => scheduleMenuKeys(event, row));
+}
+
+// ---- "open its schedule", from anywhere in the panel ------------------------------
+
+/** The Run card's chip, the Source manager's Edit schedule and Edit source's link land
+ *  here. A link entry is a page show: it reads sources, so a site added since has its
+ *  row. An unscheduled source opens the editor until part 2 brings Create here. */
+async function openScheduleRow(key) {
+  showView("schedules");
+  await schedulesPage.loading;
+  const row = schedulesPage.rows.get(key);
+  if (row) {
+    row.scrollIntoView({ block: "nearest" });
+    row.querySelector('[data-role="runs"]').focus({ preventScroll: true });
+    return;
+  }
+  if (!schedulesPage.saved) return;   // the banner says why
+  if (schedulableSources().some((source) => source.source_key === key)) {
+    openScheduleEditor(key);
+    return;
+  }
+  showToast("This source can't be scheduled here.");   // never a press that does nothing
+}
+
+function wireSchedulesPage() {
+  $("sched-create").addEventListener("click", () => {
+    if ($("sched-create").getAttribute("aria-disabled") !== "true") openScheduleEditor(null);
+  });
+  // A press outside the open menu closes it, applying nothing.
+  document.addEventListener("pointerdown", (event) => {
+    if (schedulesPage.menuFor && !event.target.closest("#view-schedules .job-kebab")) {
+      closeScheduleMenu(false);
+    }
+  });
 }
 
 // ---- source / add site (first tab, spec 11) ---------------------------------
@@ -10241,6 +11052,29 @@ async function backUpToDrive(token, report = "drive-msg") {
   const panelPack = built.panel_pack
     ? await bytes("/api/bundle/panel-pack")
     : null;
+  // THE LIGHT FILE (#1199) NEVER FAILS A BACKUP, on this side as in the engine
+  // (`_build_one_bundle`): the zip IS the backup. One this panel cannot read is
+  // left behind and said, and `backUp` is handed a manifest without it, or its
+  // size check would refuse the archive over it. A 404 is not hypothetical: the
+  // index shipped a release before this route (#1488), so an engine from between
+  // the two sends it and has no route for the file, and it keeps running after
+  // the extension reloads, until he restarts it. Not asked for at
+  // all when it holds no bytes -- every table failed, and the faults sentence
+  // below names them. Bytes that differ from the index are still refused by
+  // `backUp`, archive and all: that is an engine describing one file and
+  // serving another, not a copy that is missing.
+  let light = null;
+  let lightLeft = "";
+  if (built.light?.parts_file?.bytes) {
+    try {
+      light = await bytes("/api/bundle/light");
+    } catch (error) {
+      lightLeft = error?.kind === "http" && error?.status === 404
+        ? "the engine running is older than this panel. Restart it from the " +
+          "Engine page, then back up again"
+        : String(error?.message || error).replace(/\.$/, "");
+    }
+  }
 
   // `manifest: built` is not decoration. WHAT THE ENGINE DESCRIBED AND WHAT
   // ARRIVED ARE TWO DIFFERENT FACTS -- the manifest comes from the POST above,
@@ -10249,8 +11083,9 @@ async function backUpToDrive(token, report = "drive-msg") {
   // to Drive under a pointer carrying the real one's digest. `backUp` compares
   // them now, because it is handed both.
   const stored = await backUp(token, {
-    archive, name: built.name, panelPack,
-    manifest: built, bundleFormat: built.bundle_format,
+    archive, name: built.name, panelPack, light,
+    manifest: light ? built : {...built, light: null},
+    bundleFormat: built.bundle_format,
     // Both bars, because only the visible one exists on any given screen and
     // `driveProgress` is a no-op for the other. Cheaper and plainer than
     // threading the caller's choice through `backUpToDrive`.
@@ -10264,16 +11099,19 @@ async function backUpToDrive(token, report = "drive-msg") {
   const pruned = stored.pruned.length
     ? ` ${stored.pruned.length} older backup${stored.pruned.length === 1 ? "" : "s"} removed.`
     : "";
-  // THE LIGHT FILE (#1199) never fails a backup, so what it could not write is
-  // said here, where he reads the result, rather than left in the reply.
+  // THE LIGHT FILE (#1199) never fails a backup, so what the engine could not
+  // write, or this panel could not carry, is said here, where he reads the
+  // result, rather than left in the reply.
   const faults = built.light?.faults || [];
-  const light = built.light_error
+  const lightNote = built.light_error
     ? ` The offline copy of the Data page was not written: ${built.light_error}.`
-    : faults.length
-      ? ` The offline copy of the Data page left out ${faults.length} ` +
-        `table${faults.length === 1 ? "" : "s"}: ${faults.map((f) => f.key).join(", ")}.`
-      : "";
-  return `Backed up ${fmtMegabytes(archive.size)} to Drive.${pruned}${light}`;
+    : lightLeft
+      ? ` The offline copy of the Data page was not carried to Drive: ${lightLeft}.`
+      : faults.length
+        ? ` The offline copy of the Data page left out ${faults.length} ` +
+          `table${faults.length === 1 ? "" : "s"}: ${faults.map((f) => f.key).join(", ")}.`
+        : "";
+  return `Backed up ${fmtMegabytes(archive.size)} to Drive.${pruned}${lightNote}`;
 }
 
 async function fetchFromDrive(token) {
@@ -10692,6 +11530,7 @@ function wireDeferredControls() {
 
   // THE JOBS PAGE IS LIVE, so it has no Refresh: the panel's one tick feeds it (#1542).
   wireJobsPage();
+  wireSchedulesPage();
 
   runModeSelectUi = setupRunModeSelect();
   $("run-mode").addEventListener("change", refreshMode);

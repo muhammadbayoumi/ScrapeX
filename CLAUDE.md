@@ -114,9 +114,7 @@ work; `vacancies` and `tenders` are named, unbuilt.
   `crawl_obey_disallow` ships at `0` (`scrapex/settings.py:99`): never set a source
   `active: true`, or leave `robots` at its default, without his word.
 - **A source is studied before anything is built from it, to one standard**: the
-  **`study-a-source` skill**. The study names every field the site publishes and every
-  field it holds and does not show, each with the response it came from, and it lands in
-  an issue.
+  **`study-a-source` skill**, and the study lands in an issue.
 - **Never start a run you cannot watch to the end.** A crawl outlasts a session and holds
   the write lock while it runs.
 
@@ -135,7 +133,9 @@ record, and every kind of question, has its command: the **`record-it` skill**.
 **A reference is not a record.** What a decision RESTS ON is in
 `docs/ENGINEERING-SOURCES.md` for the engine and `docs/DESIGN-SYSTEM-SOURCES.md` for the
 interface — cite the entry's key at the line it governs, and changing the rule means
-arguing with its source rather than with whoever wrote it.
+arguing with its source rather than with whoever wrote it. **How the interface should
+behave is never asked of him**: a study answers it from the interface's file — Supabase
+first, widely followed official sources only where Supabase is silent — and he reviews it.
 
 ## Four traps that cost an afternoon each
 
