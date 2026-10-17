@@ -97,7 +97,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
-from .connectors.base import declare_frontier
+from .connectors.base import HostRefused, declare_frontier
 from .pagesource import WHOLE, Cell, PageSource, RowIdentity
 from .sightings import record_sightings
 from .snapshotbody import decode
@@ -785,6 +785,8 @@ def witness(fetch: Fetch, partition: PartitionedListing, base_url: str,
     try:
         after = partition.read_ids(fetch(partition.listing_url(
             base_url, locale=partition.primary_locale, page=1, cell=cell)))
+    except HostRefused:
+        raise                      # not a failed witness: see `pagewalk._get`
     except Exception as exc:
         # A FAILED WITNESS IS A VERDICT, NOT AN END. Found by a test that made the
         # parser throw: the fetch and the parse here were unguarded, so one
@@ -964,6 +966,8 @@ def _crawl_one_cell(size: CellSize, *, conn: sqlite3.Connection,
     if resize_cells and len(seen_here) != size.declared:
         try:
             at_end = size_cell(fetch, partition, base_url, size.cell)
+        except HostRefused:
+            raise                  # not a deficit left unexplained: see `pagewalk._get`
         except Exception:
             # Failing to explain a deficit is not a reason to lose the cell.
             at_end = None
@@ -1097,6 +1101,8 @@ def crawl_partition(conn: sqlite3.Connection, partition: PartitionedListing,
     for cell in plan:
         try:
             sizes.append(size_cell(fetch, partition, base_url, cell))
+        except HostRefused:
+            raise                  # not an unsized cell: see `pagewalk._get`
         except Exception as exc:
             unsized.append((cell.label, f"{type(exc).__name__}: {exc}"))
 
