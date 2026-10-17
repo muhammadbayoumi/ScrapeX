@@ -135,7 +135,7 @@ state their consequence, active voice, and specific verbs.
 |---|---|
 | Surfaces and text | `--bg`, `--surface`, `--surface-raised`, `--line`, `--text`, `--muted` |
 | Brand and status | `--accent`, `--accent-ink`, `--amber`, `--red`, `--focus` |
-| Controls | `--button-bg`, `--button-hover`, `--control-bg`, `--control-height-tiny` (26px) and `--control-height-small` (34px): Supabase's SIZE heights, whose scale is 26/34/38/42/50 (`packages/ui/src/lib/constants.ts@86c813ec:61-65`). A Button reads tiny, its default (`Button.tsx@86c813ec:192`); an Input or Select reads small (`input.tsx@86c813ec:31`, `SIZE_VARIANTS_DEFAULT` at `constants.ts@86c813ec:111`). `--touch-target` survives for the places that size for touch deliberately |
+| Controls | `--button-bg`, `--button-hover`, `--control-bg`, `--control-height-tiny` (26px) and `--control-height-small` (34px): Supabase's SIZE heights, whose scale is 26/34/38/42/50 (`packages/ui/src/lib/constants.ts@86c813ec:61-65`). A Button reads tiny, its default (`Button.tsx@86c813ec:192`); an Input or Select reads small (`input.tsx@86c813ec:31`, `SIZE_VARIANTS_DEFAULT` at `constants.ts@86c813ec:111`). `--touch-target` survives for the places that size for touch deliberately, and `--touch-floor` (44px) is what every button reaches on a touch screen, through Supabase's hit area, a `::before` that leaves the box alone (#1051) |
 | Spacing | `--sp-0` through `--sp-8` on a 4 px base |
 | Shape and elevation | `--radius-xs` through `--radius-pill`. `--shadow-xs`, `--shadow-sm`, `--shadow-md` and `--shadow-lg` are what Supabase's atoms render (Tailwind 4.2.4's theme, #1049): a menu, popover or select casts `md`, a Sheet `lg`, and a Dialog `md` dropping to `xs` in dark |
 | Typography | `--font`, `--font-heading` and `--font-mono` are Supabase's stacks in their order (`apps/design-system/styles/globals.css@86c813ec:13-16`), with Noto Sans Arabic directly after the first shipped Latin face, so no face the product does not ship stands ahead of it: Chromium aliases a missing Helvetica to Arial, which carries Arabic on Windows (his ruling (a′), #1431). All four faces ship as files in `design/fonts/`, each beside its `OFL.txt`, and load on both surfaces (#1048). Upright faces only, by his choice: the browser slants `.unverified` and `<em>` (#1431). `--fs-2xs` through `--fs-2xl`, weight and line-height tokens |
@@ -157,8 +157,10 @@ semantic token to the canonical file. Do not create a page-local colour system.
 - Accessibility: `.visually-hidden`, consistent `:focus-visible`, coarse
   pointer sizing, reduced-motion fallbacks, and forced-colour fallbacks.
 
-Tables use `table-theme.css`. Tabulator maps to the same table vocabulary through
-`grid-theme.css`; renderer-specific overrides stay there. Both are authored in `design/`
+Tables use `table-theme.css`. The Data page's grid is Supabase's Data Grid pattern on
+TanStack Table and TanStack Virtual (#1342): `design/datagrid.js` draws it, and it maps to
+the same table vocabulary through `grid-theme.css`, which is the whole of its look. Both
+stylesheets and both scripts are authored in `design/`
 and served as generated copies from `scrapex/webui/static/` (#1198): edit the `design/`
 file and run `python tools/sync_design_assets.py`.
 
@@ -237,8 +239,9 @@ canonical sprite only when the repository contains no suitable symbol already.
 - Web application shell: `scrapex/webui/static/webui.css`.
 - One web page's layout: `scrapex/webui/static/pages/`, except the Data page's, which is
   `design/data-workspace.css` (served as `static/pages/data-workspace.css`).
-- Native and Tabulator tables: `design/table-theme.css` and `design/grid-theme.css`.
-- The Data page's grid: `design/grid.js` and `design/ui.js`. Every file in `design/` is
+- Native tables and the grid: `design/table-theme.css` and `design/grid-theme.css`.
+- The Data page's grid: `design/grid.js`, its renderer `design/datagrid.js` and
+  `design/ui.js`. Every file in `design/` is
   copied by `tools/sync_design_assets.py` to the surfaces its `ASSETS` entry names, and a
   copy is never edited.
 - Extension panel and onboarding layout: `extension/app.css` and

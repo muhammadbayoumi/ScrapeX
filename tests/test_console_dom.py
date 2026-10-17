@@ -352,3 +352,35 @@ def test_a_workbook_that_is_not_the_add_ins_is_refused_by_tab_id(inspect):
     assert "1.TableDefinition is tab 999999 here" in state, state
     assert page.locator("#tables-list button.pair-row").count() == 0, (
         "the workbook was refused and its tables were listed anyway")
+
+
+def test_every_editor_field_is_supabases_34px_input(inspect):
+    """An Input or a Select is Supabase's at small, 34px (input.tsx@86c813ec:31,
+    constants.ts@86c813ec:62), and the shared rule in design/components.css sizes the
+    Console's fields too (#1430). The Console's own `.field input, .field select` restated the
+    Input's padding and text and outranked that rule: every <select> stood 34px with 8px of
+    block padding, which cuts its descenders off, and every text field stood 38.14px on the
+    Console's 1.55 line (#1457's code-quality pass). Neither panel sweep opens the Console.
+
+    The editor cards stay closed until a row is edited, and what is measured is their fields'
+    size, so the cards are shown here by their class."""
+    page = inspect()
+    page.evaluate("""() => {
+      for (const el of document.querySelectorAll('.cv.hidden, .card.hidden')) {
+        el.classList.remove('hidden');
+      }
+    }""")
+    fields = page.evaluate("""() => [...document.querySelectorAll('.field input, .field select')]
+      .filter((el) => el.checkVisibility() && !['checkbox', 'radio', 'hidden'].includes(el.type))
+      .map((el) => ({name: '#' + el.id, tag: el.tagName.toLowerCase(),
+                     height: Math.round(el.getBoundingClientRect().height * 100) / 100,
+                     padTop: getComputedStyle(el).paddingTop}))""")
+    tags = [field["tag"] for field in fields]
+    # 33 selects and 38 text fields when #1430 measured; fewer means a card did not show.
+    assert tags.count("select") >= 30 and tags.count("input") >= 30, tags
+    wrong = sorted({f"{field['name']} ({field['tag']}): {field['height']}px, "
+                    f"block padding {field['padTop']}" for field in fields
+                    if field["height"] != 34
+                    or (field["tag"] == "select" and field["padTop"] != "0px")})
+    assert not wrong, ("Console fields not Supabase's 34px Input, or a <select> with block "
+                       "padding inside it:\n  " + "\n  ".join(wrong))

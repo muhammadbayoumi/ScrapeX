@@ -73,7 +73,7 @@ from enum import StrEnum
 # The release stamp. Bump it for a functional, architectural or behavioural
 # change (issue 32 section 1.1), and regenerate the baseline + CHANGELOG in the
 # same commit: python -m scrapex.cli export-version
-VERSION = "0.4.39"
+VERSION = "0.4.60"
 
 #: Whether ScrapeX has been published to anybody but its owner.
 #:
@@ -257,6 +257,61 @@ CAPABILITIES: tuple[Capability, ...] = (
         panel_control="enrichment.html",
         settings=(),
         commit="c0cd695",
+    ),
+    Capability(
+        key="source_rules",
+        # #1584: his choices about one source -- active, robots, its custom rule, the
+        # agent and the pace -- read with where each comes from and saved to the
+        # warehouse, for every kind of source, through GET/POST
+        # /api/sources/{key}/rules. An engine older than this answers those routes
+        # 404, so the panel asks this key before it calls them. `since` is the
+        # EXTENSION version that carries the control (0.3.7), as the floor's comment
+        # above requires -- 0.4.54 would have declared every 0.3.x panel too old.
+        since="0.3.7",
+        summary="See where each of a source's crawl rules comes from -- the source, "
+                "your general rule or your choice -- change it for that source alone, "
+                "and clear your choice to return to the source's.",
+        surfaces=(Surface.PANEL, Surface.ENGINE),
+        panel_control="source-edit-agent",
+        settings=(),
+        # The commit that built the routes and the editor. A squash merge does not
+        # keep it: if this lands that way, cite the merge commit instead.
+        commit="9102a10a",
+    ),
+    Capability(
+        key="scheduled_skips",
+        # #1596 step A: a scheduled firing whose source is busy, or that finds another
+        # app holding the write lock, is written as a finished `skipped` job instead of
+        # queueing. A panel older than 0.3.8 does not know that status and treats it as
+        # unfinished -- offering Pause and Cancel on it, and the mini-player adopting
+        # it -- so the floor rises to the extension that draws it and drops the
+        # overlap choice the engine no longer reads.
+        since="0.3.8",
+        summary="A scheduled run whose source is still running, or that finds another "
+                "app writing to the warehouse, is skipped and logged as a job instead "
+                "of waiting in a queue.",
+        surfaces=(Surface.PANEL, Surface.ENGINE),
+        panel_control="skip-note",
+        settings=(),
+        # The commit that built the skip and the panel line. A squash merge does not
+        # keep it: if this lands that way, cite the merge commit instead.
+        commit="68066288",
+    ),
+    Capability(
+        key="schedule_active_switch",
+        # #1596 D1 option 2: one Active switch on each Schedules row, saved through
+        # POST /api/schedules/{key} with `active` beside the schedule. An older engine
+        # ignores that field and saves the schedule alone, so the panel asks this key
+        # before it draws the switch, and keeps the old controls where it is missing.
+        since="0.3.9",
+        summary="Turn a source's scheduled runs on or off from its row on the Schedules "
+                "page, with one switch.",
+        surfaces=(Surface.PANEL, Surface.ENGINE),
+        panel_control="sched-active",
+        settings=(),
+        # The commit that built the switch. A squash merge does not keep it: if this
+        # lands that way, cite the merge commit instead.
+        commit="4cddd19a",
     ),
 )
 

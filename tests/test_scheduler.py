@@ -137,12 +137,15 @@ def test_overlap_skip_drops_the_occurrence_when_still_running(conn):
     assert get_schedule(conn, "SHOP")["next_run_at"] == "2026-07-21T09:00:00Z"
 
 
-def test_overlap_queue_lines_up_behind_the_running_one(conn):
+def test_overlap_queue_no_longer_lines_up_behind_the_running_one(conn):
+    """His ruling on #1596: a busy firing is skipped and never queues, and `queue` --
+    the stored default -- is no longer read. The skip itself is pinned in
+    test_a_busy_slot_is_skipped_and_logged.py."""
     create_job(conn, ["SHOP"])
     upsert_schedule(conn, "SHOP", frequency="daily", run_at="09:00",
                     overlap_policy=OverlapPolicy.QUEUE.value, now=utc(2026, 7, 20, 8, 0))
-    assert len(fire_due(conn, utc(2026, 7, 20, 9, 0))) == 1
-    assert len(list_jobs(conn, active_only=True)) == 2
+    assert fire_due(conn, utc(2026, 7, 20, 9, 0)) == []
+    assert len(list_jobs(conn, active_only=True)) == 1
 
 
 def test_schedule_carries_its_run_mode_into_the_job(conn):

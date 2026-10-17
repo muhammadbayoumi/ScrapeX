@@ -54,6 +54,9 @@ export async function checkEngine({backend = null, signal = null,
       // WAL-reset bug (#1207). `null` for an engine from before the field, as
       // with `build`.
       sqlite: h.sqlite || null,
+      // WHICH PYTHON THE ENGINE RUNS, and the engine's verdict against the
+      // Python ScrapeX is pinned to (#1321). `null` on the same terms.
+      python: h.python || null,
       // THE BANNER THAT COULD NOT APPEAR. The engine has published
       // `schema_lag` on every health answer since the schema gate was
       // built (scrapex/webui/app.py), and app.js renders it in full —

@@ -155,6 +155,36 @@ def test_a_custom_rule_with_no_delay_keeps_the_sites_own(site):
         "leaving the delay unset must mean 'whatever the site asked for', not 'none'")
 
 
+def test_the_tool_wide_switch_off_drops_the_sites_delay_from_the_default(site):
+    """#1413: the delay `decide()` returns is the delay the fetcher applies, so it
+    must know the `crawl_honour_delay` switch the fetcher obeys."""
+    verdict = decide(site, RobotsChoice.DEFAULT, honour_site_delay=False)
+
+    assert verdict.delay_s is None
+
+
+def test_obey_keeps_the_sites_delay_when_the_switch_is_off(site):
+    """#1413, the owner's ruling: under obey the source's rule wins."""
+    verdict = decide(site, RobotsChoice.OBEY, honour_site_delay=False)
+
+    assert verdict.delay_s == 5.0
+
+
+def test_a_custom_delay_is_its_own_whatever_the_switch(site):
+    for honour in (True, False):
+        verdict = decide(site, RobotsChoice.CUSTOM,
+                         custom=RobotsCustom(crawl_delay_s=1.0), honour_site_delay=honour)
+        assert verdict.delay_s == 1.0, f"switch {honour} moved the owner's own delay"
+
+
+def test_a_null_custom_delay_follows_the_switch_like_the_default(site):
+    on = decide(site, RobotsChoice.CUSTOM, custom=RobotsCustom())
+    off = decide(site, RobotsChoice.CUSTOM, custom=RobotsCustom(), honour_site_delay=False)
+
+    assert on.delay_s == 5.0
+    assert off.delay_s is None
+
+
 def test_custom_with_no_rule_stored_is_refused_not_defaulted():
     """Falling back to the tool default here would hand the owner the exact
     behaviour he chose CUSTOM to escape, under his own label."""
@@ -243,10 +273,14 @@ sources:
     body = answer.json()
     assert body["unreadable"], "an unreachable site is being reported as having no rules"
     assert not body["found"]
-    assert "could not be read" in body["summary"]
+    # A NETWORK FAILURE, so since #1585 (ES-2, RFC 9309 §2.3.1.4) the crawl PAUSES on
+    # this site, and the route says so where it said "could not be read" before.
+    assert body["unreachable"] is True, body
+    assert "could not be reached" in body["summary"], body["summary"]
     assert body["choice"] == "obey", "the route does not report the source's own choice"
     # It must still say what would happen, rather than leaving the screen blank.
     assert body["on_a_disallowed_path"]["reason"]
+    assert body["on_a_disallowed_path"]["may_fetch"] is False, body
 
 
 def test_the_look_route_refuses_a_source_that_does_not_exist(tmp_path):
@@ -287,11 +321,10 @@ sources:
 
 
 def test_switching_away_from_custom_clears_the_rule_it_leaves_behind(tmp_path):
-    """The edit route drops nulls so a partial edit cannot wipe a field, which
-    means a client CANNOT clear the custom rule by sending null. Left behind, it
-    sits under a choice that ignores it and reads as "this site is customised"
-    on every later open — until someone switches back and is governed by a rule
-    they last saw weeks ago."""
+    """A custom rule left behind sits under a choice that ignores it and reads as
+    "this site is customised" on every later open — until someone switches back and
+    is governed by a rule they last saw weeks ago. His `default` must not carry the
+    rule the source shipped under `custom`."""
     import os
     import subprocess
     import sys
@@ -330,12 +363,13 @@ sources:
     assert load_manifest(manifest).get("SWITCHY").robots_custom, "fixture is wrong"
 
     client = TestClient(create_app(db_path=str(database), manifest_path=str(manifest)))
-    answer = client.post("/api/sources/SWITCHY/edit",
-                         json={"robots": "default", "robots_custom": None})
+    # HIS CHOICE, IN THE WAREHOUSE (#1584): the robots choice is saved by /rules, and
+    # the shipped custom rule is not carried under his `default`.
+    answer = client.post("/api/sources/SWITCHY/rules", json={"robots": "default"})
     assert answer.status_code == 200, answer.text
 
-    after = load_manifest(manifest).get("SWITCHY")
-    assert after.robots == "default"
-    assert not after.robots_custom, (
-        f"the 9-second rule is still stored under a choice that ignores it: "
-        f"{after.robots_custom}")
+    robots = answer.json()["fields"]["robots"]
+    assert (robots["value"], robots["origin"]) == ("default", "choice")
+    assert robots["custom"] is None, (
+        f"the 9-second rule is still in force under a choice that ignores it: "
+        f"{robots['custom']}")

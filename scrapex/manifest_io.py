@@ -124,50 +124,10 @@ def add_source(entry: SourceEntry, path: Path | str = MANIFEST_FILE) -> None:
         raise
 
 
-def set_active(source_key: str, active: bool, path: Path | str = MANIFEST_FILE) -> bool:
-    """Flip ONE source's active flag in place. Returns True when the file changed.
-
-    Surgical by the same rule as add_source: the manifest is hand-commented and
-    those comments are the owner's records, so the file is edited line-wise —
-    only the one `active:` line inside the one source's block — never re-dumped.
-    The result must still parse and validate; a write that breaks the manifest
-    is rolled back whole. Validation is also what refuses activating a
-    TBD-probe placeholder, with pydantic's own message.
-    """
-    import re
-
-    path = Path(path)
-    original = path.read_text(encoding="utf-8")
-    lines = original.splitlines(keepends=True)
-
-    start = None
-    for i, line in enumerate(lines):
-        if re.match(rf"^  - source_key:\s*{re.escape(source_key)}\s*$", line):
-            start = i
-            break
-    if start is None:
-        raise KeyError(source_key)
-    end = next((j for j in range(start + 1, len(lines))
-                if re.match(r"^  - source_key:", lines[j])), len(lines))
-
-    for j in range(start, end):
-        found = re.match(r"^(\s+active:\s*)(true|false)\s*$", lines[j])
-        if found:
-            replacement = f"{found.group(1)}{'true' if active else 'false'}\n"
-            if lines[j] == replacement:
-                return False                      # already in the asked state
-            lines[j] = replacement
-            break
-    else:
-        raise ValueError(f"{source_key} has no active line to flip")
-
-    path.write_text("".join(lines), encoding="utf-8")
-    try:
-        load_manifest(path)
-    except Exception:
-        path.write_text(original, encoding="utf-8")   # never a corrupted manifest
-        raise
-    return True
+# `set_active` STOOD HERE AND IS GONE (#1584). It flipped one source's `active:` line in
+# this file; `active` is his per-source choice now, kept in the warehouse
+# (`source_settings.save`, `POST /api/sources/{key}/active`), because the packaged
+# engine deletes this file at exit and the flip did not survive a restart (#1583).
 
 
 def _block_bounds(lines: list[str], source_key: str) -> tuple[int, int]:
@@ -188,11 +148,9 @@ def update_source(source_key: str, entry: SourceEntry,
                   path: Path | str = MANIFEST_FILE) -> None:
     """Replace ONE source's block with `entry`, or raise without changing the file.
 
-    Deliberately NOT surgical the way set_active is, and the difference is worth
-    stating: flipping `active` touches one line and every hand-written comment
-    around it survives untouched, which is the whole reason that function edits
-    line-wise. An EDIT can change any field, add one, or remove one — there is
-    no single line to rewrite — so the block is replaced wholesale.
+    Deliberately NOT surgical, and the reason is worth stating: an EDIT can change any
+    field, add one, or remove one — there is no single line to rewrite — so the block
+    is replaced wholesale.
 
     The cost is real and is the owner's to know: comments the owner wrote INSIDE
     an edited source's block do not survive the edit. Comments elsewhere in the

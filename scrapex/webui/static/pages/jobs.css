@@ -108,6 +108,13 @@
   font-variant-numeric: tabular-nums;
 }
 
+.job-note {
+  margin: 0;
+  padding: var(--sp-3) var(--sp-4);
+  border-top: 1px solid var(--line);
+  font-size: var(--fs-xs);
+}
+
 .job-error {
   margin: 0;
   padding: var(--sp-3) var(--sp-4);

@@ -41,6 +41,18 @@ from .base import CrawlBlocked, HttpFetcher, ScrapedTable, declare_frontier
 
 PAGE_SIZE = 100
 
+
+class GraphqlRefused(RuntimeError):
+    """The store answered the product query with GraphQL `errors`, not with a page.
+
+    NOT THE END OF THE CATALOGUE, and the loop used to read it as one (#1261). GraphQL
+    reports a rejected or failed query as HTTP 200 with `{"errors": [...]}`, so no fetch
+    raises: page 1 became "zero rows" with the site's reason thrown away, and a later
+    page a crawl reported clean over a truncated catalogue. Raised instead, the run
+    fails with the store's own words; jobs.py isolates the source, as it does
+    `SitemapUnreadable`.
+    """
+
 # configurable_options carries the site's own NAME for each variant axis
 # ("السماكة (مم)"), and each variant child carries its weight — verified live
 # on madar 2026-07-22 (riyadh-cement: weight 50 + "50كجم" in the name; steel
@@ -578,8 +590,17 @@ class MagentoGraphqlConnector:
                 page += 1
                 continue
             body = {"query": query, "variables": {"pageSize": PAGE_SIZE, "currentPage": page}}
-            products = (((self._fetcher.post(endpoint, json=body).json() or {})
-                         .get("data") or {}).get("products")) or {}
+            answer = self._fetcher.post(endpoint, json=body).json() or {}
+            if answer.get("errors"):
+                first = answer["errors"][0]
+                said = first.get("message") if isinstance(first, dict) else first
+                raise GraphqlRefused(
+                    f"the store answered page {page} of the product query with "
+                    f"{len(answer['errors'])} GraphQL error(s), the first: {said!r}. "
+                    f"Read as the end of the catalogue this would have reported "
+                    f"{'zero rows' if page == 1 else 'a truncated catalogue as complete'}"
+                    f" ({endpoint})")
+            products = (answer.get("data") or {}).get("products") or {}
             items = products.get("items") or []
             if not items:
                 break

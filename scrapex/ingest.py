@@ -231,7 +231,12 @@ def _with_product_sku(r) -> dict:
 
 # ---- entity resolution (get-or-create; each returns an explicit `created`) ---
 
-def _get_source_id(conn, entry: SourceEntry, currency: str) -> int:
+def get_source_id(conn, entry: SourceEntry, currency: str | None) -> int:
+    """The source's `source_site` row, registered from its manifest entry if absent.
+
+    PUBLIC because ingest is not its only caller: the panel stores his per-source
+    choices against this row (#1584), and a source he has never crawled has none yet.
+    """
     row = conn.execute(
         "SELECT source_id, source_name FROM source_site WHERE source_key = ?",
         (entry.source_key,)).fetchone()
@@ -943,7 +948,7 @@ def ingest_payloads(conn: sqlite3.Connection, entry: SourceEntry,
     show a progress bar against instead of a percentage of nothing."""
     from .contract import assert_writable
     assert_writable(conn)  # two-engine guardrail: never write across contract versions
-    source_id = _get_source_id(conn, entry, _first_currency(payloads))
+    source_id = get_source_id(conn, entry, _first_currency(payloads))
     # The manifest's tax evidence is recorded before any price is written, so a
     # price can never be stored under a tax position the warehouse cannot state.
     # Failing to record evidence must not lose a crawl, so it is contained: the

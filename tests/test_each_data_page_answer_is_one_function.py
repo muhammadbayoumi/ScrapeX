@@ -1,17 +1,16 @@
 """Each answer the Data page reads is one function, and its route is that function.
 
-THE LIGHT FILE IS TO STORE THESE BODIES (#1199, not yet built). A reader with no
-engine will open a record card, an activity tree and the dataset list from a copy the
-engine wrote, so the copy must be the route's own answer rather than a second build of
-it. Three of them lived inside `create_app` closures, where a second caller could only
-copy them:
+THE LIGHT FILE STORES THESE BODIES (#1199). A reader with no engine will open a record
+card, an activity tree and the dataset list from a copy the engine wrote, so the copy
+must be the route's own answer rather than a second build of it. Three of them lived
+inside `create_app` closures, where a second caller could only copy them:
 
     GET /api/offer/{source}/{id}     ->  reports.offer_card
     GET /api/taxonomy/{dataset}      ->  taxonomy.dataset_taxonomy
     the datasets the listing shows   ->  extract_service.listed_datasets / dataset_folds
 
 Each test holds the route's bytes to the function's, as FastAPI serialises a route
-with no response model, which is how the light file will write them.
+with no response model, which is how the light file writes them.
 """
 from __future__ import annotations
 

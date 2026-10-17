@@ -66,11 +66,11 @@ and the comment says so. An empty or unreadable comments file is an error, never
 first run, and so is `[]`: gh prints `[[]]` for a log with no comments, and `[]` is
 what it leaves when its fetch fails.
 
-A scheduled task runs it every Monday. By hand it is the same, from Git Bash in a
-checkout of main (PowerShell reads the braces and `$(...)` differently), and the
-`&&` stops it at the first command that fails. The token is assigned before it is
-exported, because `export X=$(...)` succeeds even when the command inside fails, and
-gh then posts as whichever account is active:
+It runs when he asks for it; no scheduled task runs it. A run is these commands,
+from Git Bash in a checkout of main (PowerShell reads the braces and `$(...)`
+differently), and the `&&` stops it at the first command that fails. The token is
+assigned before it is exported, because `export X=$(...)` succeeds even when the
+command inside fails, and gh then posts as whichever account is active:
 
     T=$(mktemp -d) && GH_TOKEN=$(gh auth token --user muhammadbayoumi) && export GH_TOKEN &&
     gh api 'repos/{owner}/{repo}/issues/1181/comments' --paginate --slurp > "$T/log.json" &&

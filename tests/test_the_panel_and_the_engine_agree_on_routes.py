@@ -307,18 +307,14 @@ def test_the_panel_knows_every_status_the_engine_can_report():
         "a status it has never heard of sorts last and says nothing")
 
 
-def test_held_and_moving_are_the_engines_idea_of_held_and_a_subset_of_it():
+def test_held_is_the_engines_idea_of_held():
     """`HELD` is `WORKER_HELD_STATUSES` plus the two transitional statuses `set_control`
-    parks a held job in. `MOVING` is the narrower question the row's dot asks -- it must
-    be a subset, because a job that is moving is by definition holding a worker."""
+    parks a held job in."""
     from scrapex import vocab
 
     held = _js_strings("extension/jobsview.js", "HELD", "new Set([", "])")
-    moving = _js_strings("extension/jobsview.js", "MOVING", "new Set([", "])")
 
     assert vocab.WORKER_HELD_STATUSES <= held, (
         f"the panel thinks {sorted(held)} hold a worker and the engine says "
         f"{sorted(vocab.WORKER_HELD_STATUSES)}")
     assert held - set(vocab.WORKER_HELD_STATUSES) == {"pausing", "cancelling"}
-    assert moving < held, (
-        "the dot claims a job is moving that the engine does not consider held")

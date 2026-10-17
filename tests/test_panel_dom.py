@@ -72,8 +72,10 @@ numbers for the second one.
 """
 from __future__ import annotations
 
+import base64
 import re
 import sys
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -113,6 +115,22 @@ ANOTHER_ACCOUNT = {"accounts": [{"id": "2", "email": "second@example.com",
 # The engine's half of the handshake, read from the engine rather than typed.
 from scrapex.native import PROTOCOL_VERSION as PROTOCOL  # noqa: E402
 from scrapex.vocab import RunMode  # noqa: E402
+
+# Which Supabase component a control is, and the size its default reads: #1050's guard holds
+# both, and the touch sweep below reads them there (#1051).
+from tests.test_the_control_heights_are_supabases_sizes import (  # noqa: E402
+    BUTTON,
+    DEFAULT,
+    GROUP_INSIDE,
+    INPUT,
+    SELECT_TRIGGER,
+)
+from tests.test_the_hit_area_is_supabases import (  # noqa: E402
+    APP,
+    HALF_THE_GAP,
+    SCHEME_PICKER,
+    STACK_GAP,
+)
 
 
 @pytest.fixture(scope="module")
@@ -368,6 +386,55 @@ def test_each_destination_owns_its_scroll_and_keeps_its_heading_fixed(open_panel
     assert before and after and after["y"] == pytest.approx(before["y"], abs=.1)
 
 
+# AN ELEMENT IS UNREACHABLE when it lies below `main`'s bottom edge and no ancestor
+# between it and `main` scrolls. Leaves only, and only those with a box, so a hidden
+# subtree or a closed disclosure is not counted.
+_UNREACHABLE_PER_PAGE = """() => {
+  const main = document.querySelector('main');
+  const pages = [...document.querySelectorAll('main > section[id^="view-"]')];
+  const out = {};
+  for (const page of pages) {
+    pages.forEach((other) => other.classList.toggle('hidden', other !== page));
+    const fold = main.getBoundingClientRect().bottom;
+    const lost = [];
+    for (const el of page.querySelectorAll('*')) {
+      if (el.children.length || !el.getClientRects().length) continue;
+      const box = el.getBoundingClientRect();
+      if (!box.height || box.top < fold) continue;
+      let up = el.parentElement, reached = false;
+      while (up && up !== main) {
+        const style = getComputedStyle(up);
+        if (/(auto|scroll)/.test(style.overflowY) && up.scrollHeight > up.clientHeight
+            && up.getBoundingClientRect().top < fold) { reached = true; break; }
+        up = up.parentElement;
+      }
+      if (!reached) lost.push(`${el.tagName.toLowerCase()} ${(el.textContent || '').trim().slice(0, 40)}`);
+    }
+    out[page.id] = lost;
+  }
+  return out;
+}"""
+
+
+def test_every_page_can_be_scrolled_to_its_last_element_in_a_short_panel(open_panel):
+    """#1639: A PAGE SCROLLS BECAUSE THE FRAME SAYS SO, NOT BECAUSE IT JOINED A LIST.
+    Jobs and Console were never on the list of ids that scroll, so in a short panel
+    their rows and Console's only button sat below the edge with no way down -- as
+    Database's Backups had (#980). The pages come from the DOM, never from a list
+    here, so a page added tomorrow is held to this the day it lands."""
+    many = [dict(HIS_JOBS[i % len(HIS_JOBS)], job_ref=f"job_long_{i:03d}") for i in range(40)]
+    page = open_panel(jobs=many)
+    page.click(JOBS_TAB)
+    page.wait_for_function(
+        "() => document.querySelectorAll('#jobs-list .job-row').length === 40", timeout=5000)
+    page.set_viewport_size({"width": 400, "height": 320})
+    page.wait_for_timeout(200)
+    lost = page.evaluate(_UNREACHABLE_PER_PAGE)
+    # EVERY PAGE WAS MEASURED, or an empty answer passes for a clean one.
+    assert len(lost) >= 15 and {"view-jobs", "view-console", "view-database"} <= set(lost)
+    assert {view: found[:3] for view, found in lost.items() if found} == {}
+
+
 def test_the_icon_rail_keeps_deep_workspace_pages_in_one_grouped_menu(open_panel):
     page = open_panel()
     page.evaluate("""() => {
@@ -499,6 +566,32 @@ HIS_JOBS = [
 JOBS_TAB = 'nav.side-rail button[data-view="jobs"]'
 
 
+def _job_row(page, ref):
+    return page.locator(f'#jobs-list .job-row[data-job="{ref}"]')
+
+
+def _menu_items(page, ref):
+    """Open a row's ⋮ menu (the APG menu button) and return its items' words."""
+    row = _job_row(page, ref)
+    row.locator('[data-part="kebab"]').click()
+    page.wait_for_timeout(100)
+    return [one.strip() for one in row.locator('[role="menuitem"]').all_text_contents()]
+
+
+def _menu_item(page, ref, words):
+    row = _job_row(page, ref)
+    if row.locator('[data-part="menu"]').is_hidden():
+        row.locator('[data-part="kebab"]').click()
+        page.wait_for_timeout(100)
+    return row.locator('[role="menuitem"]', has_text=words)
+
+
+def _open_log(page, ref):
+    _menu_item(page, ref, "View log").click()
+    page.wait_for_timeout(400)
+    return _job_row(page, ref).locator(".job-log")
+
+
 def test_a_rendered_row_states_its_number_in_the_unit_the_job_counted(open_panel):
     """THE GUARD THE WRONG UNIT NEEDED, AND ITS ABSENCE IS WHY THAT SHIPPED.
 
@@ -519,8 +612,12 @@ def test_a_rendered_row_states_its_number_in_the_unit_the_job_counted(open_panel
 
     sweep = page.locator('#jobs-list .job-row[data-job="job_034c51a29deb"]')
     said = sweep.inner_text()
-    assert "Profile fetch" in said and "muqawil_org" in said, (
-        f"the row does not name the kind and the source: {said!r}")
+    # The source by its domain, as the panel names sources (#1542), and the kind beside
+    # the status.
+    domain = sweep.locator('[data-part="identity"] .source-identity-domain').inner_text()
+    assert domain == "muqawil.org", f"the row is not named by its domain: {domain!r} in {said!r}"
+    assert "Profile fetch" in sweep.locator('[data-part="statusline"]').inner_text(), (
+        f"the row does not name the kind: {said!r}")
     assert "620 of 938 page(s)" in said, (
         f"the row states its progress in the wrong unit, or not at all: {said!r}")
     assert "source(s)" not in said, (
@@ -567,10 +664,12 @@ def test_the_jobs_page_shows_every_job_and_not_only_the_active_one(open_panel):
     rows = page.locator("#jobs-list .job-row")
     assert rows.count() == 7, (
         f"{rows.count()} of 7 jobs drawn -- a finished job is still unreachable")
-    said = page.locator("#jobs-summary").inner_text()
-    assert "7 jobs" in said, said
-    assert "1 completed" in said and "1 paused" in said, (
-        f"the summary does not say what state they are in: {said!r}")
+    said = page.locator("#jobs-count").inner_text()
+    assert said.startswith("7 jobs"), said
+    # EACH ROW SAYS ITS STATE, in the engine's own word (#1542): the count line no
+    # longer breaks them down, the rows and the Status filter do.
+    assert "Completed" in _job_row(page, "job_7b891d5b67ac").inner_text()
+    assert "Paused" in _job_row(page, "job_0212decca681").inner_text()
     # THE SETTLED ONE IS THERE, which is the whole request.
     assert page.locator('#jobs-list .job-row[data-job="job_7b891d5b67ac"]').count() == 1
 
@@ -582,16 +681,101 @@ def test_the_jobs_page_shows_every_job_and_not_only_the_active_one(open_panel):
     asked = [one for one in page.evaluate("() => window.__calls")
              if one.startswith("/api/jobs?")]
     assert asked, "the page never asked for the list at all"
-    # THE PAGE'S OWN REQUEST, and the mini-player's is not it. That one still carries
-    # `active_only=true&limit=5` and correctly so -- he ruled the mini-player stays,
-    # and it wants the live job. What this asserts is that ONE request asks for the
-    # whole list: unbounded by status, and bounded by a number that is not five.
+    # THE PAGE'S OWN REQUEST, and the tick's is not it: that one carries
+    # `active_only=true`. What this asserts is that ONE request asks for the whole list:
+    # unbounded by status, bounded at the page's 200 plus the one that says whether
+    # older jobs exist.
     whole = [one for one in asked if "active_only" not in one]
     assert whole, (
         f"every request still filters by status, so the settled jobs are unreachable "
         f"however many rows a stub happens to answer with: {asked}")
-    assert all("limit=200" in one for one in whole), (
+    assert all("limit=201" in one for one in whole), (
         f"the page asked for a handful rather than the list: {whole}")
+    assert not page.js_errors
+
+
+# A SCHEDULED FIRING THAT FOUND ITS SOURCE BUSY (#1596, his ruling D4): finished at the
+# moment it was written, never started, and the reason in `error_summary`.
+SKIPPED_JOB = {
+    "job_ref": "job_5c1e0d0f1a2b", "job_kind": "profile_crawl", "status": "skipped",
+    "run_mode": "update", "source_keys": ["muqawil_org"], "current_source_key": None,
+    "stage": None, "progress": {"done": 0, "total": 1},
+    "fetch": {"requests": 0, "expected": None, "basis": None, "as_of": None,
+              "unknown_sources": [], "sources": {}},
+    "queued_behind": None, "counters": {}, "created_at": "2026-10-09T06:00:00Z",
+    "started_at": None, "finished_at": "2026-10-09T06:00:00Z", "last_heartbeat_at": None,
+    "error_summary": "This site's previous run was still going (job_034c51a29deb)"}
+
+
+def test_a_skipped_job_is_drawn_finished_and_says_why_without_alarm(open_panel):
+    """A skip is something the schedule did, not something that went wrong. Its row reads
+    "Skipped" with its own glyph and says why, in the muted line and not the red one a
+    failure uses; it offers no action, because the engine refuses every one on a
+    finished job; and the mini-player does not adopt it as the job doing the work.
+    (The old page's per-status summary line is gone with the page, #1542.)"""
+    failed = next(job for job in HIS_JOBS if job["status"] == "failed")
+    page = open_panel(jobs=[SKIPPED_JOB, failed])
+    page.wait_for_timeout(400)
+    assert not page.is_visible("#miniplayer"), (
+        "the mini-player adopted a skipped job as if it were running")
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(300)
+
+    ref = SKIPPED_JOB["job_ref"]
+    row = _job_row(page, ref)
+    assert row.count() == 1, "the skipped job was not drawn"
+    assert "Skipped" in _status_line(page, ref)
+    assert row.locator('[data-part="statusline"] use').get_attribute("href") == "#material-next-plan"
+    assert row.locator('[data-part="primary"]').is_hidden(), (
+        "a skipped job offered a control the engine answers 409")
+    assert _menu_items(page, ref) == ["View log"], "a skipped job's menu offers Cancel"
+    page.keyboard.press("Escape")
+    reason = row.locator('[data-part="error"]')
+    assert "previous run was still going" in reason.inner_text(), (
+        "the reason the schedule skipped it is not on the row")
+    classes = reason.get_attribute("class").split()
+    assert "muted" in classes and "err" not in classes, (
+        f"a skip's reason is drawn as an error: {classes}")
+    failure = _job_row(page, failed["job_ref"]).locator('[data-part="error"]')
+    assert "err" in failure.get_attribute("class").split(), (
+        "a failure's reason stopped being drawn as one")
+    assert not page.js_errors
+
+
+def test_a_skipped_row_wears_look_c_and_not_a_running_rows_look(open_panel):
+    """#1596, his look C, drawn by #1608's row: Studio's `default` tone -- the word in
+    the foreground and the `next_plan` glyph muted -- where `running` is muted throughout.
+    And a job that never ran draws no bar and no "0 of 1"."""
+    running = {**SKIPPED_JOB, "job_ref": "job_running0001", "status": "running",
+               "finished_at": None, "started_at": "2026-10-09T05:00:00Z",
+               "error_summary": None}
+    page = open_panel(jobs=[SKIPPED_JOB, running])
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(300)
+
+    def status(ref):
+        return _job_row(page, ref).locator('[data-part="statusline"] .job-status')
+
+    def colour(name):
+        return page.evaluate(
+            "n => { const s = document.createElement('span');"
+            " s.style.color = getComputedStyle(document.body).getPropertyValue(n).trim();"
+            " document.body.append(s); const v = getComputedStyle(s).color; s.remove();"
+            " return v; }", name)
+
+    skip, run = status(SKIPPED_JOB["job_ref"]), status(running["job_ref"])
+    assert skip.locator('use[href="#material-next-plan"]').count() == 1, (
+        "the skip's status has no next_plan glyph")
+    look = "el => [el.className, getComputedStyle(el).color]"
+    assert skip.evaluate(look) != run.evaluate(look), (
+        "a skipped row's status is drawn exactly like a running row's")
+    assert skip.evaluate("el => getComputedStyle(el).color") == colour("--text"), (
+        "the skip's word is not in the foreground colour")
+    assert skip.locator("svg").evaluate("el => getComputedStyle(el).color") == colour(
+        "--muted"), "the skip's glyph is not muted"
+    row = _job_row(page, SKIPPED_JOB["job_ref"])
+    assert row.locator('[data-part="barline"]').is_hidden(), "a job that never ran drew a bar"
+    assert "0 of 1" not in row.inner_text()
     assert not page.js_errors
 
 
@@ -612,41 +796,43 @@ def test_a_still_job_says_what_it_waits_for_and_names_no_job_it_cannot(open_pane
         f"it named the job holding the worker, which the payload cannot tell it: {said!r}")
     paused = page.locator('#jobs-list .job-row[data-job="job_0212decca681"]').inner_text()
     assert "resume it" in paused, paused
-    # AND IT IS NOT WEARING THE "THIS ONE IS MOVING" DOT. The dot was drawn from "holds a
-    # worker", which includes `preparing` -- so this row said `preparing`, said it may be
-    # blocked, and lit a dot announcing "running" to a screen reader, all at once. The
-    # negative was never asserted although the row was in hand.
-    assert blocked.locator(".job-live").count() == 0, (
+    # AND IT IS NOT DRAWN AS THE ONE MOVING. The running look (the turning glyph, in the
+    # muted tone Studio gives Running) was once drawn from "holds a worker", which
+    # includes `preparing` -- so the job that sat blocked for 33 minutes looked like the
+    # one doing the work. It wears Preparing's own look instead.
+    assert blocked.locator(".job-tone-secondary").count() == 0, (
         "the job that sat blocked for 33 minutes is drawn as the one doing the work")
-    assert page.locator(
-        '#jobs-list .job-row[data-job="job_034c51a29deb"] .job-live').count() == 1, (
-        "the job actually running lost its dot")
+    assert "Preparing" in blocked.locator('[data-part="statusline"]').inner_text()
+    assert _job_row(page, "job_034c51a29deb").locator(".job-tone-secondary").count() == 1, (
+        "the job actually running lost its look")
     assert not page.js_errors
 
 
 def test_the_controls_sit_on_the_job_they_belong_to(open_panel):
     """HALF OF WHAT THIS PAGE IS FOR. On 2026-09-07 the job he wanted to stop was not
-    the job the panel was drawing, so Cancel could not reach it at all."""
+    the job the panel was drawing, so Cancel could not reach it at all.
+
+    ONE EXPOSED ACTION AND THE REST IN ⋮ (table.mdx@86c813ec:201, #1542): Pause or
+    Resume on the row, Cancel in its menu where a mis-click on a list of 163 cannot
+    reach it in one press."""
     page = open_panel(jobs=HIS_JOBS)
     page.click(JOBS_TAB)
     page.wait_for_timeout(300)
 
-    settled = page.locator('#jobs-list .job-row[data-job="job_7b891d5b67ac"]')
-    assert settled.locator("button").count() == 0, (
+    settled = _job_row(page, "job_7b891d5b67ac")
+    assert settled.locator('[data-part="primary"]').is_hidden(), (
         "a finished job was offered a control the route answers 409 for")
-    # THE ROW IS OPENED FIRST, WHICH IS WHAT A PERSON DOES. The controls sit inside the
-    # row on purpose: a mis-click on a list of 163 must not cancel a 33-minute crawl.
-    paused = page.locator('#jobs-list .job-row[data-job="job_0212decca681"]')
-    paused.locator("summary").click()
-    page.wait_for_timeout(150)
-    labels = [paused.locator("button").nth(i).inner_text()
-              for i in range(paused.locator("button").count())]
-    assert labels == ["Resume", "Cancel"], labels
+    assert _menu_items(page, "job_7b891d5b67ac") == ["View log"], (
+        "a finished job's menu offers a control the route answers 409 for")
+    page.keyboard.press("Escape")
 
-    working = page.locator('#jobs-list .job-row[data-job="job_034c51a29deb"]')
-    working.locator("summary").click()
-    page.wait_for_timeout(150)
-    working.locator("button").first.click()
+    paused = _job_row(page, "job_0212decca681")
+    assert paused.locator('[data-part="primary"] button').inner_text() == "Resume"
+    assert _menu_items(page, "job_0212decca681") == ["View log", "Cancel job…"]
+    page.keyboard.press("Escape")
+
+    working = _job_row(page, "job_034c51a29deb")
+    working.locator('[data-part="primary"] button').click()
     page.wait_for_timeout(300)
     # `__writes` IS THE HARNESS'S OWN RECORD of every non-GET, with its path, method
     # and body -- so this asserts the request that was actually made rather than the
@@ -672,58 +858,45 @@ def test_the_miniplayer_adopts_the_job_doing_the_work(open_panel):
     assert not page.js_errors
 
 
-def test_the_jobs_reload_button_actually_reloads(open_panel):
-    """A BUTTON THAT CANNOT WORK IS WORSE THAN NO BUTTON, and this one shipped drawn
-    and wired to nothing: `jobs-reload` appeared exactly once in the repository, in the
-    markup that draws it. The page has no poll, so it was also the ONLY refresh -- while
-    the mini-player above it repolls every 1.5s, leaving a live player on a frozen list.
-
-    CI could not see it. Every button guard in this file is per-button, and this button
-    arrived without one; nothing checks that a drawn control is reachable at all."""
+def test_a_refusal_survives_the_reload_the_same_press_triggers(open_panel):
+    """NO SILENT FAILURES. A 409 is the answer when the job settled between the draw
+    and the press, and the reload the press itself triggers once wiped the sentence that
+    said so. It is said IN THE ROW now (#1542), from the status the reloaded row reached
+    -- the 409's body carries only a sentence (webui/app.py:4779-4780) -- and any other
+    answer says its own detail, never "refused"."""
     page = open_panel(jobs=HIS_JOBS)
     page.click(JOBS_TAB)
     page.wait_for_timeout(300)
-
-    page.evaluate("() => { window.__calls.length = 0; }")
-    page.click("#jobs-reload")
-    page.wait_for_timeout(300)
-
-    again = [one for one in page.evaluate("() => window.__calls")
-             if one.startswith("/api/jobs?") and "active_only" not in one]
-    assert again, (
-        "Reload asked the engine for nothing -- the button is drawn and unwired, which "
-        "is what it did when it shipped")
-    assert page.locator("#jobs-list .job-row").count() == 7
-
-
-def test_a_refusal_survives_the_reload_the_same_press_triggers(open_panel):
-    """NO SILENT FAILURES. A 409 is the answer when the job settled between the draw
-    and the press, and `pressJobControl` wrote that sentence and then called `loadJobs`,
-    whose success path cleared the very node it had written. The message lived for one
-    round trip. A caught error erased by the same handler is a swallowed error.
-
-    THE HARNESS REFUSES WITH A 500 AND THAT IS THE SAME PATH. `pressJobControl` catches
-    whatever `post` throws and writes one sentence for all of them; what is under test is
-    that the sentence survives the reload the press itself triggers, which does not
-    depend on the status. `/api/jobs/` does not prefix `/api/jobs?limit=200`, so the list
-    still loads -- which is the state being tested."""
-    page = open_panel(jobs=HIS_JOBS,
-                      fail_routes=("/api/jobs/job_034c51a29deb/control",))
-    page.click(JOBS_TAB)
-    page.wait_for_timeout(300)
-
-    working = page.locator('#jobs-list .job-row[data-job="job_034c51a29deb"]')
-    working.locator("summary").click()
-    page.wait_for_timeout(150)
-    working.locator("button").first.click()
-    page.wait_for_timeout(400)
-
-    said = page.locator("#jobs-blocked").inner_text()
-    assert "refused" in said, (
-        f"the refusal was written and then wiped by the reload: {said!r}")
+    # THE JOB COMPLETED BETWEEN THE DRAW AND THE PRESS: the press is refused, and every
+    # read after it reports completed -- so the sentence must come from the reload, not
+    # from the row he pressed in, which still said running.
+    page.evaluate(_JOBS_STATUS_REWRITE)
+    page.evaluate("""() => { const real = window.fetch;
+        window.fetch = (u, o) => {
+          if (!String(u).includes("/api/jobs/job_034c51a29deb/control")) return real(u, o);
+          window.__status.job_034c51a29deb = "completed";
+          return Promise.resolve(new Response(JSON.stringify({detail: "job 'job_034c51a29deb' is completed"}),
+            {status: 409, headers: {"Content-Type": "application/json"}})); }; }""")
+    working = _job_row(page, "job_034c51a29deb")
+    working.locator('[data-part="primary"] button').click()
+    page.wait_for_timeout(600)
+    said = working.locator('[data-part="refusal"]').inner_text()
+    assert said == "Pause was refused: Profile fetch · muqawil.org is already completed", (
+        f"the refusal was not said in the row, from the reloaded status: {said!r}")
+    assert working.locator('[data-part="refusal"]').get_attribute("role") == "alert"
     # AND THE LIST WAS STILL RELOADED, because a 409 means the row on screen is the
     # stale one that offered the button.
     assert page.locator("#jobs-list .job-row").count() == 7
+
+    # ANY OTHER ANSWER IS NOT A REFUSAL, and says its own words.
+    other = open_panel(jobs=HIS_JOBS, fail_routes=("/api/jobs/job_034c51a29deb/control",))
+    other.click(JOBS_TAB)
+    other.wait_for_timeout(300)
+    row = other.locator('#jobs-list .job-row[data-job="job_034c51a29deb"]')
+    row.locator('[data-part="primary"] button').click()
+    other.wait_for_timeout(600)
+    said = row.locator('[data-part="refusal"]').inner_text()
+    assert said == "Pause failed: the engine could not do that", said
 
 
 def test_a_press_does_not_shut_the_row_it_was_pressed_in(open_panel):
@@ -749,9 +922,8 @@ def test_a_press_does_not_shut_the_row_it_was_pressed_in(open_panel):
     page.click(JOBS_TAB)
     page.wait_for_timeout(300)
 
-    working = page.locator('#jobs-list .job-row[data-job="job_0212decca681"]')
-    working.locator("summary").click()
-    page.wait_for_timeout(300)
+    working = _job_row(page, "job_0212decca681")
+    _open_log(page, "job_0212decca681")
     before = working.locator(".job-log").inner_text()
     assert before, "the log did not load, so this guard would prove nothing"
     assert "fetching — 0 requests so far" in before, (
@@ -770,12 +942,13 @@ def test_a_press_does_not_shut_the_row_it_was_pressed_in(open_panel):
     assert fetches_before == 1, (
         f"expected exactly one log request for the row just opened, saw {fetches_before}")
 
-    working.locator("button").first.click()
+    working.locator('[data-part="primary"] button').focus()
+    page.keyboard.press("Enter")
     page.wait_for_timeout(400)
 
-    reopened = page.locator('#jobs-list .job-row[data-job="job_0212decca681"]')
-    assert reopened.evaluate("row => row.open"), (
-        "the row he pressed a button in closed under him")
+    reopened = _job_row(page, "job_0212decca681")
+    assert reopened.locator(".job-log").is_visible(), (
+        "the log he had open closed under the press")
     assert reopened.locator(".job-log").inner_text() == before, (
         "the fetched log was thrown away and has to be bought again")
     fetches_after = log_requests()
@@ -802,33 +975,23 @@ def test_a_failed_job_is_the_one_row_he_can_pick_out(open_panel):
     page.click(JOBS_TAB)
     page.wait_for_timeout(300)
 
-    failed = page.locator('#jobs-list .job-row[data-job="job_5155b86ba455"]')
+    failed = _job_row(page, "job_5155b86ba455")
     assert failed.count() == 1
-    tone = failed.locator(".badge").first.evaluate(
-        "(el) => getComputedStyle(el).backgroundColor")
-    plain = page.evaluate(
-        """() => {
-            const probe = document.createElement("span");
-            probe.className = "badge";
-            document.body.appendChild(probe);
-            const colour = getComputedStyle(probe).backgroundColor;
-            probe.remove();
-            return colour;
-        }""")
+    colour = "(el) => getComputedStyle(el).color"
+    tone = failed.locator(".job-status").evaluate(colour)
+    plain = page.evaluate("() => getComputedStyle(document.body).color")
     assert tone != plain, (
-        f"the failed badge is the plain badge colour {plain}, so the rows he opens this "
-        "page to find draw no eye at all")
+        f"Failed is drawn in the body colour {plain}, so the rows he opens this page to "
+        "find draw no eye at all")
     # AND NOT THE SAME AS CANCELLED, which is the defect stated exactly: those were the
-    # two he could not tell apart.
-    cancelled = page.locator('#jobs-list .job-row[data-job="job_925080aad843"]')
-    assert cancelled.locator(".badge").first.evaluate(
-        "(el) => getComputedStyle(el).backgroundColor") == plain, (
-        "cancelled carries no tone by design; if it gained one this guard proves nothing")
+    # two he could not tell apart. Studio colours Failed's words destructive and leaves
+    # Cancelled's in the foreground (PreviousRunsTab.tsx@86c813ec:222-247).
+    cancelled = _job_row(page, "job_925080aad843")
+    assert cancelled.locator(".job-status").evaluate(colour) != tone, (
+        "Failed and Cancelled are drawn alike")
 
-    # THE REASON IS ON THE ROW. `error_summary` had no assertion anywhere.
-    failed.locator("summary").click()
-    page.wait_for_timeout(150)
-    assert "refused 41 pages" in failed.inner_text(), (
+    # THE REASON IS ON THE ROW, without opening anything (his choice B).
+    assert "refused 41 pages" in failed.locator('[data-part="error"]').inner_text(), (
         f"a failed job does not say why it failed: {failed.inner_text()!r}")
     assert not page.js_errors
 
@@ -867,10 +1030,7 @@ def test_a_row_opens_its_own_log_and_stamps_it_in_his_zone(open_panel):
     page.click(JOBS_TAB)
     page.wait_for_timeout(300)
 
-    row = page.locator('#jobs-list .job-row[data-job="job_034c51a29deb"]')
-    row.locator("summary").click()
-    page.wait_for_timeout(400)
-    log = row.locator(".job-log").inner_text()
+    log = _open_log(page, "job_034c51a29deb").inner_text()
 
     assert "fetching — 0 requests so far" in log, f"the log did not render: {log!r}"
     assert "2026-07-30T10:00:00Z" not in log, (
@@ -886,20 +1046,14 @@ def test_a_job_with_no_log_and_a_log_that_cannot_be_read_both_say_so(open_panel)
     page = open_panel(jobs=HIS_JOBS)
     page.click(JOBS_TAB)
     page.wait_for_timeout(300)
-    row = page.locator('#jobs-list .job-row[data-job="job_034c51a29deb"]')
-    row.locator("summary").click()
-    page.wait_for_timeout(400)
-    assert "wrote no log" in row.locator(".job-log").inner_text()
+    assert "wrote no log" in _open_log(page, "job_034c51a29deb").inner_text()
 
-    # `/api/jobs/` DOES NOT PREFIX `/api/jobs?limit=200`, so the list still loads and
+    # `/api/jobs/` DOES NOT PREFIX `/api/jobs?limit=201`, so the list still loads and
     # only the log fetch fails -- which is the state being tested.
     broken = open_panel(jobs=HIS_JOBS, fail_routes=("/api/jobs/",))
     broken.click(JOBS_TAB)
     broken.wait_for_timeout(300)
-    hurt = broken.locator('#jobs-list .job-row[data-job="job_034c51a29deb"]')
-    hurt.locator("summary").click()
-    broken.wait_for_timeout(400)
-    assert "could not be read" in hurt.locator(".job-log").inner_text(), (
+    assert "could not be read" in _open_log(broken, "job_034c51a29deb").inner_text(), (
         "a log that failed to load left the row silent")
     assert not broken.js_errors
 
@@ -912,9 +1066,12 @@ def test_a_stopped_engine_says_why_the_jobs_list_is_empty(open_panel):
     page.wait_for_timeout(300)
 
     assert page.locator("#jobs-list .job-row").count() == 0
-    said = page.locator("#jobs-blocked").inner_text()
-    assert "did not answer" in said, (
+    said = page.locator("#jobs-state").inner_text()
+    # SAID ONLY ONCE THE PROBE AGREES (`state.engineUp`): a slow engine is not a stopped
+    # one, and a Start button for a running engine is a wrong instruction.
+    assert "Engine not running" in said and "Start the engine to read jobs." in said, (
         f"an empty list with no reason is what this page exists to stop: {said!r}")
+    assert page.locator("#jobs-state button", has_text="Start engine").count() == 1
 
 
 def test_appearance_is_a_complete_android_style_destination(open_panel):
@@ -1866,8 +2023,9 @@ def test_dataset_action_opens_the_workspace_directly(open_panel):
         '.dataset-card:not([data-open="contractors"]) .split-button-trigger'
     ).count() == price.count(), (
         "every PRICE source card must carry exactly one actions menu")
+    # "Edit schedule" where "Pause collecting" was (#1596): the switch is on the row.
     for label in ("Update now", "Recent changes", "Source settings",
-                  "Pause collecting", "Export to Google Sheets"):
+                  "Edit schedule", "Export to Google Sheets"):
         assert page.locator(
             f'.dataset-card:not([data-open="contractors"]) '
             f'[data-split-action]:has-text("{label}")'
@@ -2085,7 +2243,7 @@ def test_a_dataset_card_offers_only_the_actions_that_work(open_panel):
         "from a terminal -- `R-81`, and `REQ-45`'s whole subject")
 
     # And the four that genuinely cannot work stay absent rather than present-and-dead.
-    for label in ("Recent changes", "Source settings",
+    for label in ("Recent changes", "Source settings", "Edit schedule",
                   "Pause collecting", "Export to Google Sheets"):
         assert card.locator(f'[data-split-action]:has-text("{label}")').count() == 0, (
             f"{label} is offered on a dataset card and its route refuses a "
@@ -2864,8 +3022,17 @@ def test_where_activity_lands_reads_the_line_at_rest_not_in_passing(open_panel):
     """A LINE A SCROLL CARRIES THROUGH VIEW AND PAST IT IS NOT IN VIEW. The tests above
     read through `_where_activity_lands`, and it returned at the first frame the line
     was in view, so a scroll that carried the line through Run's scroll area to rest
-    beyond it passed (#1388's merge gate). The scroll here is the test's own -- smooth,
-    to the end of a long log -- so this holds whatever alignment the panel uses."""
+    beyond it passed (#1388's merge gate). The scroll here is the test's own, to the end
+    of a long log, so this holds whatever alignment the panel uses.
+
+    STEPPED, ONE FRAME AT A TIME, AND NEVER `behavior: "smooth"`. A smooth scroll is the
+    browser's to animate, and Chromium on Windows does not animate it when the system's
+    client-area animations are off, which is the default on Windows Server: the scroll
+    jumped to its end in one frame, the line was never in view on the way, and the
+    precondition below failed on the release runner for every tag from 0.4.38 to 0.4.59
+    (#1637). Reproduced on Windows 11 with `--disable-smooth-scrolling`, with the same
+    numbers. Half the area's height per frame is less than the area, so the line is in
+    view for at least one frame on any machine."""
     page = _open_on_run_beside_a_crawl(open_panel, 650)
     # Started a moment from now, so the wait below is watching when the line arrives.
     page.evaluate(f"""() => {{
@@ -2878,7 +3045,12 @@ def test_where_activity_lands_reads_the_line_at_rest_not_in_passing(open_panel):
         requestAnimationFrame(watch);
         setTimeout(() => {{
           const area = document.getElementById("activity").closest(".view-scroll");
-          area.scrollTo({{top: area.scrollHeight, behavior: "smooth"}});
+          const step = () => {{
+            const end = area.scrollHeight - area.clientHeight;
+            area.scrollTop = Math.min(area.scrollTop + area.clientHeight / 2, end);
+            if (area.scrollTop < end) requestAnimationFrame(step);
+          }};
+          requestAnimationFrame(step);
         }}, 300);
     }}""")
 
@@ -3711,7 +3883,8 @@ def test_edit_source_stays_inside_the_extension(open_panel):
 
 
 def test_edit_source_saves_automation_without_leaving_the_extension(open_panel):
-    page = open_panel()
+    """An engine without `schedule_active_switch` (#1596) keeps the editor's switch."""
+    page = open_panel(engine_version="0.4.59", omit_capabilities=("schedule_active_switch",))
     page.click(SOURCES_TAB)
     page.wait_for_timeout(250)
     page.click('[data-edit-source="SHORT"]')
@@ -3719,10 +3892,156 @@ def test_edit_source_saves_automation_without_leaving_the_extension(open_panel):
     page.click("#source-edit-save")
     page.wait_for_timeout(250)
 
-    calls = page.evaluate("() => window.__calls")
-    assert any(call.startswith("/api/sources/SHORT/active") for call in calls)
+    # HIS CHOICE, IN THE WAREHOUSE (#1584): the switch is saved by POST /rules with
+    # `active` alone -- exactly what changed -- and never rides an /edit, which
+    # refuses it by name.
+    writes = page.evaluate("() => window.__writes")
+    rules = [w for w in writes if w["path"] == "/api/sources/SHORT/rules"]
+    assert [w["body"] for w in rules] == [{"active": False}], writes
+    assert not any("active" in (w["body"] or {}) for w in writes
+                   if w["path"].endswith("/edit")), writes
     assert page.is_visible("#view-source-edit")
     assert "Changes saved" in text_of(page, "#source-edit-result")
+    assert not page.is_checked("#source-edit-active"), "the saved answer was not drawn"
+
+
+def test_an_engine_without_the_rules_routes_still_edits_a_source_as_before(open_panel):
+    """AN ENGINE OLDER THAN `source_rules` (#1584) edits a price source the way the
+    editor always did -- name and robots through /edit, the switch through /active --
+    and draws nothing it cannot serve: no agent or pace, no origin lines, no Clear,
+    and no "update the engine" sentence for a save it can do."""
+    page = open_panel(engine_version="0.4.53",
+                      omit_capabilities=("source_rules", "schedule_active_switch"))
+    page.click(SOURCES_TAB)
+    page.wait_for_timeout(250)
+    page.click('[data-edit-source="SHORT"]')
+    page.wait_for_timeout(250)
+    page.fill("#source-edit-name", "Renamed")
+    page.select_option("#source-edit-robots", "obey")
+    page.uncheck("#source-edit-active")
+    page.click("#source-edit-save")
+    page.wait_for_timeout(300)
+
+    writes = page.evaluate("() => window.__writes")
+    edits = [w["body"] for w in writes if w["path"] == "/api/sources/SHORT/edit"]
+    assert len(edits) == 1, writes
+    assert (edits[0]["source_name"], edits[0]["robots"]) == ("Renamed", "obey")
+    assert [w["body"] for w in writes if w["path"] == "/api/sources/SHORT/active"] == [
+        {"active": False}], writes
+    assert not [c for c in page.evaluate("() => window.__calls") if "/rules" in c]
+    assert "Changes saved" in text_of(page, "#source-edit-result")
+    assert not page.is_visible("#source-edit-agent")
+    assert not page.is_visible("#source-edit-pace")
+    assert page.evaluate("""() => [...document.querySelectorAll(
+        "#view-source-edit .source-edit-origin, [data-clear-rule]")]
+        .filter((node) => node.checkVisibility()).length""") == 0
+    words = page.inner_text("#view-source-edit")
+    assert "Reading where this comes from" not in words
+    assert "source_rules" not in words and "Update the engine" not in words
+
+
+def test_an_engine_whose_version_cannot_be_read_is_never_guessed_old(open_panel):
+    """/api/version failed: the engine may well have /rules, and on one that does an
+    /edit carrying robots is refused. So the refusal is said, the details save alone,
+    and his robots choice is held -- never sent to /edit."""
+    page = open_panel(fail_routes=("/api/version",))
+    page.click(SOURCES_TAB)
+    page.wait_for_timeout(250)
+    page.click('[data-edit-source="SHORT"]')
+    page.wait_for_timeout(250)
+
+    assert "cannot be confirmed" in text_of(page, "#source-edit-result")
+    assert page.is_disabled("#source-edit-robots")
+    page.fill("#source-edit-name", "Renamed")
+    page.click("#source-edit-save")
+    page.wait_for_timeout(300)
+
+    writes = page.evaluate("() => window.__writes")
+    edits = [w["body"] for w in writes if w["path"] == "/api/sources/SHORT/edit"]
+    assert [e["source_name"] for e in edits] == ["Renamed"], writes
+    assert not any(field in edits[0] for field in ("robots", "robots_custom")), edits
+    assert not [w for w in writes if w["path"].endswith(("/active", "/rules"))], writes
+    assert not [c for c in page.evaluate("() => window.__calls") if "/rules" in c]
+    assert "The name and details were saved" in text_of(page, "#source-edit-result")
+
+
+def test_an_engine_upgraded_while_the_editor_is_open_is_not_written_the_old_way(open_panel):
+    """Opened against 0.4.53, then the engine answers with /rules: Save redraws the
+    editor for it and writes nothing, rather than sending robots to an /edit that now
+    refuses them."""
+    page = open_panel(engine_version="0.4.53",
+                      omit_capabilities=("source_rules", "schedule_active_switch"))
+    page.click(SOURCES_TAB)
+    page.wait_for_timeout(250)
+    page.click('[data-edit-source="SHORT"]')
+    page.wait_for_timeout(250)
+    assert not page.is_visible("#source-edit-agent")
+    page.evaluate("""() => {
+        state.versionReport.capabilities.push(
+            {key: "source_rules", since: "0.3.7", summary: "His choices per source"});
+    }""")
+    page.fill("#source-edit-name", "Renamed")
+    page.click("#source-edit-save")
+    page.wait_for_timeout(300)
+
+    assert page.evaluate("() => window.__writes") == []
+    assert "nothing was saved" in text_of(page, "#source-edit-result")
+    assert page.is_visible("#source-edit-agent"), "the editor was not redrawn for /rules"
+
+
+def test_rules_that_cannot_be_read_say_so_and_the_name_still_saves(open_panel):
+    """What reading the rules says is not wiped by the editor drawing itself, the
+    controls it fills stay held, and Save still saves the name -- then reads again."""
+    page = open_panel()
+    page.evaluate("""() => {
+        const real = window.fetch;
+        window.__rulesReads = 0;
+        window.fetch = (url, options) => {
+            if (String(url).endsWith("/rules") && !(options && options.method === "POST")) {
+                window.__rulesReads += 1;
+                return Promise.reject(new Error("engine stopped answering"));
+            }
+            return real(url, options);
+        };
+    }""")
+    page.click(SOURCES_TAB)
+    page.wait_for_timeout(250)
+    page.click('[data-edit-source="SHORT"]')
+    page.wait_for_timeout(300)
+
+    assert "Could not read how this source is crawled" in text_of(page, "#source-edit-result")
+    assert page.is_disabled("#source-edit-pace") and page.is_disabled("#source-edit-agent")
+    assert "Reading where this comes from" not in page.inner_text("#view-source-edit")
+
+    page.fill("#source-edit-name", "Renamed")
+    page.click("#source-edit-save")
+    page.wait_for_timeout(300)
+
+    writes = page.evaluate("() => window.__writes")
+    assert [w["body"]["source_name"] for w in writes
+            if w["path"] == "/api/sources/SHORT/edit"] == ["Renamed"], writes
+    assert page.evaluate("() => window.__rulesReads") == 2
+    assert "The name and details were saved" in text_of(page, "#source-edit-result")
+
+
+def test_clearing_a_choice_keeps_focus_on_its_field(open_panel):
+    page = open_panel()
+    page.click(SOURCES_TAB)
+    page.wait_for_timeout(250)
+    page.click('[data-edit-source="SHORT"]')
+    page.wait_for_timeout(250)
+    page.fill("#source-edit-pace", "9")
+    page.click("#source-edit-save")
+    page.wait_for_timeout(250)
+    page.fill("#source-edit-agent", "typing, unsaved")
+
+    page.click('[data-clear-rule="crawl_pace_s"]')
+    page.wait_for_timeout(250)
+
+    assert page.evaluate("() => document.activeElement?.id") == "source-edit-pace"
+    assert page.input_value("#source-edit-pace") == ""
+    assert page.input_value("#source-edit-agent") == "typing, unsaved"
+    assert "Cleared" in text_of(page, "#source-edit-result")
 
 
 def test_sources_scroll_inside_the_library_card_not_the_page(open_panel):
@@ -5177,6 +5496,503 @@ def test_the_raw_utc_stays_reachable_on_every_converted_time(open_panel):
     assert not page.js_errors
 
 
+def test_a_schedule_row_offers_no_overlap_choice_and_saves_skip(open_panel):
+    """#1596 step A. A busy slot is skipped and logged whatever the stored policy says,
+    so the row draws one line saying so instead of a select that would change nothing,
+    and its Save still sends `skip` -- the field an engine older than that change reads,
+    so it skips too, even for a schedule he saved with the old default, `queue`."""
+    page = open_panel(sources=[CLEAN_SITE], schedules=SCHEDULE_SOON)
+    page.click(SETTINGS_TAB)
+    page.click('[data-sect="s-sched"]')
+    page.wait_for_timeout(500)
+    row = page.locator(".sched-row").first
+    row.locator("summary").click()
+
+    assert row.locator('[data-role="overlap"]').count() == 0, "the overlap select is drawn"
+    assert row.locator('[data-role="skip-note"]').inner_text() == (
+        "If this site's previous run is still going, ScrapeX skips the slot and lists it on the Jobs page.")
+
+    row.locator('[data-role="save"]').click()
+    page.wait_for_timeout(300)
+    saves = [w for w in page.evaluate("window.__writes")
+             if w["path"].startswith("/api/schedules/")]
+    assert len(saves) == 1, saves
+    assert saves[0]["body"]["overlap_policy"] == "skip", saves[0]["body"]
+    assert not page.js_errors
+
+
+def _skip_note(page):
+    page.click(SETTINGS_TAB)
+    page.click('[data-sect="s-sched"]')
+    page.wait_for_timeout(500)
+    row = page.locator(".sched-row").first
+    row.locator("summary").click()
+    return row.locator('[data-role="skip-note"]')
+
+
+@pytest.mark.parametrize("policy", ["queue", "skip"])
+def test_an_engine_without_scheduled_skips_is_told_what_it_really_does(open_panel, policy):
+    """#1620 review S9 and round 2: a 0.4.57 engine writes no skip row, so the line does
+    not promise the Jobs page -- and it still READS the stored policy, so a row stored as
+    `queue` (every row saved before this change) starts a second run there."""
+    schedules = {**SCHEDULE_SOON, "schedules": [
+        {**SCHEDULE_SOON["schedules"][0], "overlap_policy": policy}]}
+    page = open_panel(sources=[CLEAN_SITE], schedules=schedules,
+                      engine_version="0.4.57", omit_capabilities=("scheduled_skips",))
+
+    note = _skip_note(page).inner_text()
+
+    assert "lists it on the Jobs page" not in note, note
+    assert "update the engine" in note.lower(), note
+    if policy == "queue":
+        assert "still starts a second run" in note and "Save this schedule" in note, note
+    else:
+        assert "skips the slot" in note and "second run" not in note, note
+    assert not page.js_errors
+
+
+def test_a_panel_that_cannot_read_its_own_version_is_not_told_to_update_the_engine(
+        open_panel):
+    """The line asks the ENGINE's report, not `capabilityRefusal`, which also refuses when
+    Chrome did not say this extension's version -- a fault no engine update fixes."""
+    page = open_panel(sources=[CLEAN_SITE], schedules=SCHEDULE_SOON, extension_version="")
+
+    note = _skip_note(page).inner_text()
+
+    assert "lists it on the Jobs page" in note, note
+    assert "update the engine" not in note.lower(), note
+
+
+def test_an_engine_whose_report_failed_is_promised_nothing(open_panel):
+    """Nothing known, nothing said: neither the Jobs page nor an update."""
+    page = open_panel(sources=[CLEAN_SITE], schedules=SCHEDULE_SOON,
+                      fail_routes=("/api/version",))
+
+    note = _skip_note(page)
+
+    assert note.is_hidden() and note.inner_text() == ""
+    assert not page.js_errors
+
+
+# ---- one switch for scheduled runs (#1596, D1 option 2) -------------------------
+
+OFF_SITE = {**CLEAN_SITE, "active": False}
+STRESS_SHORT = {"source_key": "SHORT", "base_url": "https://a.co", "source_name": "A",
+                "family": "shopify-json", "active": True, "implemented": True,
+                "observations": 3, "products": 1}
+
+
+def _schedule_rows(page):
+    page.click(SETTINGS_TAB)
+    page.click('[data-sect="s-sched"]')
+    page.wait_for_timeout(500)
+    return page.locator(".sched-row")
+
+
+def _schedule_writes(page):
+    return [w for w in page.evaluate("window.__writes")
+            if w["path"].startswith("/api/schedules/")]
+
+
+def test_a_schedules_row_carries_one_active_switch_named_for_its_site(open_panel):
+    page = open_panel(sources=[CLEAN_SITE], schedules=SCHEDULE_SOON)
+    row = _schedule_rows(page).first
+    switch = row.locator('[data-role="sched-active"]')
+
+    assert switch.count() == 1
+    assert switch.get_attribute("role") == "switch"
+    assert switch.get_attribute("aria-checked") == "true"
+    assert switch.get_attribute("aria-label") == "Scheduled runs for madar.example.com"
+    assert "next" in row.locator('[data-role="next"]').inner_text()
+    # The old Enabled box is gone: one switch, not two.
+    row.locator("summary").click(position={"x": 4, "y": 4})
+    assert row.locator('[data-role="enabled"]').count() == 0
+    assert not page.js_errors
+
+
+def test_a_switched_off_row_reads_off_and_promises_no_next_run(open_panel):
+    """#1611 item 1: the row said "next …" for a slot that would never fire."""
+    page = open_panel(sources=[OFF_SITE], schedules=SCHEDULE_SOON)
+    row = _schedule_rows(page).first
+
+    words = row.locator('[data-role="next"]').inner_text()
+    # One formatter for the schedule (`scheduleLabel`), as the card and the manager say.
+    assert words == "Daily 09:00 · Off", words
+    assert row.locator('[data-role="sched-active"]').get_attribute("aria-checked") == "false"
+    assert "Auto is off" not in row.inner_text()
+    assert not page.js_errors
+
+
+@pytest.mark.parametrize("schedules", [None, {**SCHEDULE_SOON, "schedules": [
+    {**SCHEDULE_SOON["schedules"][0], "frequency": "manual", "next_run_at": None}]}],
+    ids=["missing", "manual"])
+def test_a_row_with_no_schedule_reads_not_scheduled_and_has_no_switch(open_panel, schedules):
+    page = open_panel(sources=[CLEAN_SITE], schedules=schedules)
+    row = _schedule_rows(page).first
+
+    assert row.locator('[data-role="next"]').inner_text() == "Not scheduled"
+    assert row.locator('[data-role="sched-active"]').count() == 0
+    assert not page.js_errors
+
+
+def test_the_switch_asks_first_and_cancel_changes_nothing(open_panel):
+    page = open_panel(sources=[CLEAN_SITE], schedules=SCHEDULE_SOON)
+    switch = _schedule_rows(page).first.locator('[data-role="sched-active"]')
+    switch.click()
+    page.wait_for_selector("#confirm-veil:not(.hidden)", timeout=2000)
+
+    assert text_of(page, "#confirm-title") == "Disable scheduled runs"
+    assert text_of(page, "#confirm-copy") == (
+        "Disable scheduled runs for madar.example.com? Its schedule is kept and stops "
+        "firing until you enable it. Manual runs still work.")
+    assert (text_of(page, "#confirm-keep"), text_of(page, "#confirm-go")) == (
+        "Cancel", "Disable")
+    # His choice B (2026-10-10, #1596): Studio's `warning` Button, not `danger` --
+    # foreground text on warning-300, the light theme's #fff4d5.
+    assert page.get_attribute("#confirm-go", "class") == "warning"
+    assert page.evaluate("""() => {
+        const s = getComputedStyle(document.getElementById('confirm-go'));
+        return [s.backgroundColor, s.color === getComputedStyle(document.body).color];
+    }""") == ["rgb(255, 244, 213)", True]
+    # The row stayed shut: the switch does not toggle the disclosure it sits in.
+    assert not page.evaluate("document.querySelector('.sched-row').open")
+
+    page.click("#confirm-keep")
+    page.wait_for_timeout(200)
+    assert page.locator("#confirm-veil").is_hidden()
+    assert _schedule_writes(page) == []
+    assert switch.get_attribute("aria-checked") == "true"
+    assert text_of(page, "#toast") == ""
+    assert not page.js_errors
+
+
+def test_disabling_saves_active_with_the_schedule_and_says_so(open_panel):
+    page = open_panel(sources=[CLEAN_SITE], schedules=SCHEDULE_SOON)
+    _schedule_rows(page).first.locator('[data-role="sched-active"]').click()
+    page.wait_for_selector("#confirm-veil:not(.hidden)", timeout=2000)
+    page.click("#confirm-go")
+    page.wait_for_function("() => document.getElementById('toast').textContent", timeout=3000)
+
+    saves = _schedule_writes(page)
+    assert [w["path"] for w in saves] == ["/api/schedules/MADAR"], saves
+    sent = saves[0]["body"]
+    assert sent["active"] is False, sent
+    # The schedule rides along as saved, so the switch changes nothing else about it.
+    assert (sent["frequency"], sent["run_at"], sent["timezone"], sent["run_mode"]) == (
+        "daily", "09:00", "Asia/Riyadh", "update"), sent
+    assert "enabled" not in sent, sent
+    assert text_of(page, "#toast") == "Disabled scheduled runs for madar.example.com"
+    assert page.get_attribute("#toast", "role") == "status"
+    # Updated where it stands: the line says Off, and focus stays on the same switch.
+    row = page.locator(".sched-row").first
+    assert row.locator('[data-role="next"]').inner_text() == "Daily 09:00 · Off"
+    assert row.locator('[data-role="sched-active"]').get_attribute("aria-checked") == "false"
+    assert page.evaluate("document.activeElement.dataset.role") == "sched-active"
+    assert not page.js_errors
+
+
+def _flip_switch(page, row):
+    row.locator('[data-role="sched-active"]').click()
+    page.wait_for_selector("#confirm-veil:not(.hidden)", timeout=2000)
+    page.click("#confirm-go")
+    page.wait_for_function("() => document.getElementById('toast').textContent", timeout=3000)
+
+
+def test_a_save_without_the_switch_sends_no_active(open_panel):
+    """#1630 review E1: a time change is not a choice about `active`, and a row 0024
+    left paused (its source never registered) stays paused."""
+    paused = {**SCHEDULE_SOON, "schedules": [
+        {**SCHEDULE_SOON["schedules"][0], "enabled": False}]}
+    page = open_panel(sources=[CLEAN_SITE], schedules=paused)
+    row = _schedule_rows(page).first
+    row.locator("summary").click(position={"x": 4, "y": 4})
+    row.locator('[data-role="time"]').fill("07:15")
+    row.locator('[data-role="save"]').click()
+    page.wait_for_timeout(300)
+
+    sent = _schedule_writes(page)[0]["body"]
+    assert "active" not in sent, sent
+    assert sent["enabled"] is False and sent["run_at"] == "07:15", sent
+    assert not page.js_errors
+
+
+def test_saving_a_row_whose_switch_is_off_says_off_and_promises_no_run(open_panel):
+    """#1630 review: a Save on an off row arms a slot the engine will not fire, so the
+    status must say Off -- never "Saved." alone, and never #1611's "Saved — next …"."""
+    page = open_panel(sources=[OFF_SITE], schedules=SCHEDULE_SOON)
+    row = _schedule_rows(page).first
+    row.locator("summary").click(position={"x": 4, "y": 4})
+    row.locator('[data-role="time"]').fill("07:15")
+    row.locator('[data-role="save"]').click()
+    status = row.locator('[data-role="status"]')
+    page.wait_for_function(
+        "() => document.querySelector('.sched-row [data-role=\"status\"]')"
+        ".textContent.startsWith('Saved')", timeout=3000)
+
+    words = status.inner_text()
+    assert words == "Saved — off.", words
+    assert "next" not in words.lower(), words
+    sent = _schedule_writes(page)[0]["body"]
+    assert "active" not in sent and sent["run_at"] == "07:15", sent
+    # The switch still reads off: the save did not turn it on.
+    assert row.locator('[data-role="sched-active"]').get_attribute("aria-checked") \
+        == "false"
+    assert not page.js_errors
+
+
+def test_a_failed_switch_says_so_where_he_is_looking(open_panel):
+    """The row may be shut, so its status line is not enough: a toast carries the
+    engine's sentence, and the switch keeps the state it had."""
+    page = open_panel(sources=[CLEAN_SITE], schedules=SCHEDULE_SOON,
+                      fail_routes=("/api/schedules/",))
+    row = _schedule_rows(page).first
+    _flip_switch(page, row)
+
+    assert text_of(page, "#toast") == (
+        "Couldn't change scheduled runs for madar.example.com: the engine could not do that")
+    switch = row.locator('[data-role="sched-active"]')
+    assert switch.get_attribute("aria-checked") == "true" and switch.is_enabled()
+    assert not page.js_errors
+
+
+def test_flipping_the_switch_keeps_an_edit_not_yet_saved(open_panel):
+    page = open_panel(sources=[CLEAN_SITE], schedules=SCHEDULE_SOON)
+    row = _schedule_rows(page).first
+    row.locator("summary").click(position={"x": 4, "y": 4})
+    row.locator('[data-role="time"]').fill("07:15")
+    _flip_switch(page, row)
+
+    assert row.evaluate("(node) => node.open")
+    assert row.locator('[data-role="time"]').input_value() == "07:15"
+    # The switch saved the schedule as STORED, not the edit he has not saved.
+    assert _schedule_writes(page)[0]["body"]["run_at"] == "09:00"
+    assert not page.js_errors
+
+
+@pytest.mark.parametrize("width", [320, 400, 480])
+def test_the_toast_never_covers_the_rail_or_its_row(open_panel, width):
+    page = open_panel(sources=[CLEAN_SITE], schedules=SCHEDULE_SOON)
+    page.set_viewport_size({"width": width, "height": 460})
+    row = _schedule_rows(page).first
+    # The switch starts out exactly where the toast will appear.
+    page.evaluate("""(el) => {
+        const box = el.getBoundingClientRect();
+        let node = el.parentElement;
+        while (node && !(node.scrollHeight > node.clientHeight
+                         && /auto|scroll/.test(getComputedStyle(node).overflowY))) {
+            node = node.parentElement;
+        }
+        (node || document.scrollingElement).scrollBy(0, box.top - (innerHeight - 55));
+    }""", row.locator('[data-role="sched-active"]').element_handle())
+    before = row.locator('[data-role="sched-active"]').bounding_box()
+    assert before["y"] > 460 - 90, ("the switch is not where the toast appears", before)
+    _flip_switch(page, row)
+
+    covered = page.evaluate("""() => [...document.querySelectorAll('nav.side-rail button')]
+        .filter((b) => b.offsetParent && b.getBoundingClientRect().top >= 0
+                && b.getBoundingClientRect().bottom <= window.innerHeight)
+        .map((b) => { const r = b.getBoundingClientRect();
+                      const hit = document.elementFromPoint(r.x + r.width / 2,
+                                                            r.y + r.height / 2);
+                      return hit && hit.closest('nav.side-rail') ? null : b.dataset.view; })
+        .filter(Boolean)""")
+    assert covered == [], covered
+    assert page.evaluate("""() => [...document.querySelectorAll('nav.side-rail button')]
+        .filter((b) => b.offsetParent && b.getBoundingClientRect().top >= 0
+                && b.getBoundingClientRect().bottom <= window.innerHeight).length""") >= 3
+    toast = page.locator("#toast").bounding_box()
+    rail = page.locator("nav.side-rail").bounding_box()
+    assert toast["x"] + toast["width"] <= rail["x"], (toast, rail)
+    switch = row.locator('[data-role="sched-active"]').bounding_box()
+    assert not (switch["y"] + switch["height"] > toast["y"]
+                and switch["y"] < toast["y"] + toast["height"]), (switch, toast)
+    assert page.evaluate("getComputedStyle(document.getElementById('toast')).pointerEvents") \
+        == "none"
+
+
+def test_a_switch_that_is_on_shows_its_edge_at_three_to_one(open_panel):
+    """WCAG 2.2 SC 1.4.11: brand on white is 1.96:1, so the edge carries the state in
+    Supabase's darker brand step, --accent-ink (brand-600)."""
+    page = open_panel(sources=[CLEAN_SITE], schedules=SCHEDULE_SOON)
+    switch = _schedule_rows(page).first.locator('[data-role="sched-active"]')
+    edge, ink = page.evaluate("""(el) => {
+        const probe = document.createElement('i');
+        probe.style.color = 'var(--accent-ink)';
+        document.body.append(probe);
+        const ink = getComputedStyle(probe).color;
+        probe.remove();
+        return [getComputedStyle(el).borderTopColor, ink];
+    }""", switch.element_handle())
+    assert edge == ink, (edge, ink)
+
+    def lum(rgb):
+        parts = [int(v) / 255 for v in rgb[rgb.index("(") + 1:-1].split(",")[:3]]
+        lin = [c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in parts]
+        return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
+    surface = page.evaluate("getComputedStyle(document.querySelector('.sched-row')"
+                            ".closest('.card, .settings-item') || document.body)"
+                            ".backgroundColor")
+    surface = surface if not surface.endswith(", 0)") else "rgb(255, 255, 255)"
+    high, low = sorted((lum(edge), lum(surface)), reverse=True)
+    assert (high + 0.05) / (low + 0.05) >= 3, (edge, surface)
+
+
+def test_the_editor_says_why_when_the_schedules_cannot_be_read(open_panel):
+    page = open_panel(sources=[CLEAN_SITE], fail_routes=("/api/schedules",))
+    page.click(SOURCES_TAB)
+    page.wait_for_timeout(300)
+    page.click('[data-edit-source="MADAR"]')
+    page.wait_for_timeout(300)
+
+    assert page.is_hidden("#source-edit-schedule-link")
+    assert text_of(page, "#source-edit-schedule-note") == (
+        "The schedules couldn't be read from the engine, so this one isn't shown.")
+
+
+def test_enabling_uses_the_same_question_with_enable(open_panel):
+    page = open_panel(sources=[OFF_SITE], schedules=SCHEDULE_SOON)
+    _schedule_rows(page).first.locator('[data-role="sched-active"]').click()
+    page.wait_for_selector("#confirm-veil:not(.hidden)", timeout=2000)
+
+    assert text_of(page, "#confirm-title") == "Enable scheduled runs"
+    assert text_of(page, "#confirm-copy") == (
+        "Enable scheduled runs for madar.example.com? It runs daily 09:00 from the next "
+        "slot.")
+    assert text_of(page, "#confirm-go") == "Enable"
+    # Enabling harms nothing, so its confirm is primary, as Studio's toggle is.
+    assert "danger" not in (page.get_attribute("#confirm-go", "class") or "")
+    page.click("#confirm-go")
+    page.wait_for_function("() => document.getElementById('toast').textContent", timeout=3000)
+    assert _schedule_writes(page)[0]["body"]["active"] is True
+    assert text_of(page, "#toast") == "Enabled scheduled runs for madar.example.com"
+    assert not page.js_errors
+
+
+def test_the_run_card_shows_the_schedule_as_a_link_to_its_row(open_panel):
+    page = open_panel(sources=[CLEAN_SITE], schedules=SCHEDULE_SOON)
+    _run_tab(page)
+    link = page.locator('#sites [data-sched-link="MADAR"]')
+
+    assert link.inner_text() == "Daily 09:00"
+    assert page.locator("#sites [data-auto]").count() == 0, "the Auto chip still switches"
+    link.click()
+    page.wait_for_timeout(500)
+    assert page.is_visible("#view-settings")
+    assert page.evaluate("document.querySelector('.sched-row[data-sched=\"MADAR\"]').open")
+    assert page.evaluate("document.activeElement.closest('.sched-row')?.dataset.sched") \
+        == "MADAR"
+    assert not page.js_errors
+
+
+def test_the_source_manager_and_the_editor_read_the_schedule(open_panel):
+    off = {**SCHEDULE_SOON, "schedules": SCHEDULE_SOON["schedules"] + [
+        {**SCHEDULE_SOON["schedules"][0], "source_key": "SHORT", "schedule_id": 2,
+         "frequency": "weekly", "weekday": 2, "run_at": "06:30"}]}
+    page = open_panel(sources=[CLEAN_SITE, {**STRESS_SHORT, "active": False}], schedules=off)
+    page.click(SOURCES_TAB)
+    page.wait_for_timeout(300)
+    metas = page.locator(".source-manager-card-meta")
+    assert [" ".join(metas.nth(i).inner_text().split()) for i in range(metas.count())] == [
+        "Ready · Daily 09:00", "Ready · Weekly Wednesday 06:30 · Off"]
+
+    page.click('[data-edit-source="MADAR"]')
+    page.wait_for_timeout(300)
+    assert not page.is_visible("#source-edit-active"), "the editor still switches"
+    assert text_of(page, "#source-edit-schedule-link") == "Daily 09:00"
+    page.click("#source-edit-schedule-link")
+    page.wait_for_timeout(500)
+    assert page.evaluate("document.querySelector('.sched-row[data-sched=\"MADAR\"]').open")
+    assert not page.js_errors
+
+
+def test_a_source_with_no_schedule_reads_not_scheduled_everywhere(open_panel):
+    page = open_panel(sources=[CLEAN_SITE])
+    _run_tab(page)
+    assert page.locator('#sites [data-sched-link="MADAR"]').inner_text() == "Not scheduled"
+    page.click(SOURCES_TAB)
+    page.wait_for_timeout(300)
+    assert " ".join(page.locator(".source-manager-card-meta").first.inner_text().split()) \
+        == "Ready · Not scheduled"
+
+
+def test_a_connector_less_source_keeps_its_sentence_and_a_disabled_switch(open_panel):
+    page = open_panel()
+    page.click(SOURCES_TAB)
+    page.wait_for_timeout(300)
+    page.click('[data-edit-source="NOT_READY"]')
+    page.wait_for_timeout(300)
+
+    assert text_of(page, "#source-edit-active-help") == (
+        "Automation cannot be enabled until this connector is available.")
+    assert page.is_visible("#source-edit-active")
+    assert page.is_disabled("#source-edit-active")
+    assert page.is_hidden("#source-edit-schedule")
+
+
+def test_the_datasets_menu_edits_the_schedule_instead_of_pausing(open_panel):
+    page = open_panel(schedules={**SCHEDULE_SOON, "schedules": [
+        {**SCHEDULE_SOON["schedules"][0], "source_key": "SHORT"}]})
+    page.click(DATA_TAB)
+    page.wait_for_timeout(300)
+    page.click('.dataset-card[data-open="SHORT"] .split-button-trigger')
+    page.wait_for_timeout(150)
+    page.click('.dataset-card[data-open="SHORT"] [data-split-action="schedule"]')
+    page.wait_for_timeout(500)
+
+    assert not [w for w in page.evaluate("window.__writes") if w["path"].endswith("/active")]
+    assert page.evaluate("document.querySelector('.sched-row[data-sched=\"SHORT\"]').open")
+    assert not page.js_errors
+
+
+LONG_HOST = {**CLEAN_SITE, "source_key": "LONG_AR",
+             "base_url": "https://very-long-subdomain.example-store-name.com.sa"}
+
+
+@pytest.mark.parametrize("width", [320, 400, 480])
+def test_a_schedules_row_keeps_its_site_name_and_switch_on_one_line(open_panel, width):
+    """Nothing that identifies a row is cut at narrow widths: the name and the switch
+    share the first line, and the schedule's long "next …" goes under them."""
+    weekly = {**SCHEDULE_SOON["schedules"][0], "frequency": "weekly", "weekday": 2}
+    schedules = {**SCHEDULE_SOON, "schedules": [
+        weekly, {**weekly, "source_key": "LONG_AR", "schedule_id": 2}]}
+    page = open_panel(sources=[OFF_SITE, LONG_HOST], schedules=schedules)
+    page.set_viewport_size({"width": width, "height": 900})
+    rows = _schedule_rows(page)
+    assert rows.count() == 2
+    for i in range(2):
+        row = rows.nth(i)
+        name = row.locator(".source-identity-domain").bounding_box()
+        switch = row.locator('[data-role="sched-active"]').bounding_box()
+        assert name and name["width"] > 40, (width, i, name)
+        assert switch, (width, i)
+        # The switch sits beside the name, not on a line of its own.
+        assert switch["y"] < name["y"] + name["height"], (width, i, name, switch)
+        assert switch["x"] > name["x"] + name["width"] - 1, (width, i, name, switch)
+    assert not page.js_errors
+
+
+def test_an_engine_without_the_switch_keeps_todays_controls(open_panel):
+    """An older engine ignores `active` on the schedule route, so no switch is drawn."""
+    page = open_panel(sources=[OFF_SITE], schedules=SCHEDULE_SOON, engine_version="0.4.59",
+                      omit_capabilities=("schedule_active_switch",))
+    _run_tab(page)
+    assert page.locator('#sites [data-auto="MADAR"]').inner_text() == "Auto: off"
+    assert page.locator("#sites [data-sched-link]").count() == 0
+    row = _schedule_rows(page).first
+    assert row.locator('[data-role="sched-active"]').count() == 0
+    row.locator("summary").click()
+    assert row.locator('[data-role="enabled"]').count() == 1
+    assert "Auto is off for this site" in row.inner_text()
+    row.locator('[data-role="save"]').click()
+    page.wait_for_timeout(300)
+    sent = _schedule_writes(page)[0]["body"]
+    assert "active" not in sent and sent["enabled"] is True, sent
+    page.click(SOURCES_TAB)
+    page.wait_for_timeout(300)
+    assert "Automation off" in page.locator(".source-manager-card-meta").first.inner_text()
+    assert not page.js_errors
+
+
 def test_the_zone_is_named_beside_a_time_whose_reading_depends_on_it(open_panel):
     """Spec 33 6.8, in the issue's own shape: "30 July 2026, 11:05 AM — Zone".
 
@@ -6115,6 +6931,112 @@ def test_the_sqlite_row_says_when_the_engines_sqlite_is_affected(open_panel):
     assert text_of(affected, "#engine-sqlite-detail") == ""
     assert text_of(affected, "#engine-build-value") == "Not reported", (
         "a stopped engine's build stayed on the screen")
+
+
+def test_the_python_row_says_when_the_engines_python_is_below_the_pin(
+        open_panel, tmp_path, monkeypatch):
+    """#1321: which Python the engine runs, beside its SQLite, and when it is behind.
+
+    His engine runs from source through a launcher that names its interpreter once,
+    so a pin move leaves it below `requires-python` and no screen said so. Every
+    payload but the unrecognised one is the engine's own `interpreter.report()`,
+    moved only by the pin it reads, so the panel is never tested against an answer
+    the engine would not give. And the NEGATIVE matters as much: a Python at the
+    pin wears no badge, or the badge becomes furniture.
+    """
+    import platform
+
+    from scrapex import interpreter
+
+    # EACH PIN IS WRITTEN FROM THIS INTERPRETER, never read from the checkout. After a
+    # pin move a machine's interpreter is below the real pin until it is upgraded, and
+    # a correct badge there must not fail the level state.
+    major, minor = sys.version_info[:2]
+
+    def pin_at(text: str):
+        pin = tmp_path / "pin" / text / ".python-version"
+        pin.parent.mkdir(parents=True)
+        pin.write_text(text + "\n", encoding="utf-8")
+        monkeypatch.setattr(interpreter, "PIN_FILE", pin)
+        return pin
+
+    pin_at(f"{major}.{minor}")
+    level = open_panel()
+    level.click("#tab-engines")
+    open_engine(level)
+    assert text_of(level, "#engine-python-value") == platform.python_version()
+    assert level.locator("#engine-python-verdict").is_visible() is False, (
+        "a Python at the pin wore a badge")
+    assert text_of(level, "#engine-python-detail") == ""
+    # WHAT HE SEES, and not only what the DOM holds: `text_of` reads hidden text too.
+    assert text_of(level, "#engine-spec-python .engine-spec-label") == "Python"
+    assert level.locator("#engine-spec-python .engine-spec-label").is_visible() is True
+    assert level.locator("#engine-python-value").is_visible() is True, (
+        "the version he asked to see is not shown")
+
+    # THE PIN MOVES AND THE ENGINE STAYS, which #1267's weekly reminder makes routine.
+    ahead = f"{major}.{minor + 1}"
+    pin = pin_at(ahead)
+    behind = open_panel()
+    behind.click("#tab-engines")
+    open_engine(behind)
+    assert text_of(behind, "#engine-python-value") == platform.python_version()
+    assert behind.locator("#engine-python-verdict").is_visible() is True
+    assert text_of(behind, "#engine-python-verdict") == "Upgrade needed"
+    assert behind.get_attribute("#engine-python-verdict", "class") == "badge off", (
+        "the amber badge is the kit's one 'attend to this'")
+    assert f"ScrapeX needs Python {ahead} or newer." in text_of(
+        behind, "#engine-python-detail"), "the row must say which Python it needs"
+    assert behind.locator("#engine-python-detail").is_visible() is True, (
+        "the sentence that says which Python it needs is not shown")
+    # Three independent facts: a Python behind the pin is not an affected SQLite
+    # and not a stale build.
+    assert behind.locator("#engine-sqlite-verdict").is_visible() is False
+    assert behind.locator("#engine-build-verdict").is_visible() is False
+
+    # A PIN THE ENGINE COULD NOT READ is its own answer: neither a verdict nor a
+    # fault of this panel's.
+    monkeypatch.setattr(interpreter, "PIN_FILE", pin.parent / "missing")
+    unread = open_panel()
+    unread.click("#tab-engines")
+    open_engine(unread)
+    assert text_of(unread, "#engine-python-value") == platform.python_version()
+    assert unread.locator("#engine-python-verdict").is_visible() is False
+    assert text_of(unread, "#engine-python-detail") == (
+        "The engine could not read which Python ScrapeX needs.")
+    # With no badge, the sentence is the only thing that tells this state from one
+    # at the pin.
+    assert unread.locator("#engine-python-detail").is_visible() is True
+
+    # A VERDICT THIS PANEL DOES NOT KNOW — a newer engine's — is not dressed as a
+    # known one.
+    unknown = open_panel(engine_python={"version": "3.16.0", "floor": "3.14",
+                                        "verdict": "partly"})
+    unknown.click("#tab-engines")
+    open_engine(unknown)
+    assert text_of(unknown, "#engine-python-value") == "3.16.0"
+    assert unknown.locator("#engine-python-verdict").is_visible() is False, (
+        "an unrecognised verdict was dressed as a known one")
+    assert "does not recognise" in text_of(unknown, "#engine-python-detail")
+
+    # An engine from before the field is not an engine in trouble.
+    old = open_panel(engine_python=False)
+    old.click("#tab-engines")
+    open_engine(old)
+    assert text_of(old, "#engine-python-value") == "Not reported"
+    assert old.locator("#engine-python-verdict").is_visible() is False
+    assert text_of(old, "#engine-python-detail") == ""
+
+    # AN ENGINE THAT STOPS takes its Python with it, as the SQLite row does.
+    behind.evaluate("() => FAIL.push('/api/health')")
+    behind.click("#engine-recheck")
+    behind.wait_for_function(
+        "() => document.getElementById('estat-text').textContent.trim() === 'Stopped'")
+    behind.wait_for_function("() => !document.getElementById('engine-recheck').disabled")
+    assert text_of(behind, "#engine-python-value") == "Not reported", (
+        "a stopped engine's Python verdict stayed on the screen")
+    assert behind.locator("#engine-python-verdict").is_visible() is False
+    assert text_of(behind, "#engine-python-detail") == ""
 
 
 def test_the_build_row_stays_readable_in_the_state_it_exists_to_report(open_panel):
@@ -7386,14 +8308,15 @@ def test_the_engine_card_has_m3_outlined_geometry(open_panel):
 
 def test_the_back_button_out_of_one_engine_is_a_borderless_pill(open_panel):
     """The same control Manage account already ships, held to the same values:
-    a 26px pill with no resting border or background, muted until hovered.
+    a 36x26 pill with no resting border or background, muted until hovered.
 
-    26 SQUARE SINCE #1050, WAS 32 WIDE AND 40 TALL, AND 40 AND 48 BEFORE R-85/OD-09.
-    It is an icon-only Button, and Supabase's Button defaults to tiny, 26px
-    (Button.tsx@86c813ec:192, constants.ts@86c813ec:61), so the declared width and
-    the global `min-height` now read the same token and the box is square. The
-    asymmetry this test was written about, a 32px width under a 40px floor, went
-    with the two notches that made it.
+    36x26 SINCE #1430, BY HIS RULING ON #1457; A 26 SQUARE SINCE #1050, WAS 32 WIDE AND
+    40 TALL, AND 40 AND 48 BEFORE R-85/OD-09. It is an icon-only Button, Supabase's at
+    its tiny default (Button.tsx@86c813ec:192): tiny's px-2.5 py-1 around its 14px icon,
+    in the Button's 1px border (constants.ts@86c813ec:54, Button.tsx@86c813ec:127, :25).
+    So it declares no width, and that padding is its 36px; its height is the global
+    `min-height`'s 26px. The asymmetry this test was written about, a 32px width under a
+    40px floor, went with the two notches that made it.
 
     Read from the CSSOM as well as the box, and the reason is a live rule rather
     than a remembered one: `button, .button { min-height: var(--control-height-tiny) }`
@@ -7414,18 +8337,20 @@ def test_the_back_button_out_of_one_engine_is_a_borderless_pill(open_panel):
 
     declared = declared_size(page, "button.engine-detail-back")
     assert declared["matches"] >= 1, declared
-    assert declared["width"] == "var(--control-height-tiny)", declared
+    assert declared["width"] is None, declared
 
     btn = page.locator("#engine-detail-back")
     box = btn.bounding_box()
     assert box
-    assert box["width"] == pytest.approx(26, abs=0.01), box["width"]
-    # 26 TALL TOO. `button, .button` in components.css carries `min-height:
-    # var(--control-height-tiny)` and nothing here overrides it, and with no padding
-    # the 20px icon sits inside that floor, so the height is the token's. Measured,
-    # not assumed. That it is the same box as its two copies is
-    # `test_the_three_back_buttons_draw_one_box`.
+    assert box["width"] == pytest.approx(36, abs=0.01), box["width"]
+    # 26 TALL. `button, .button` in components.css carries `min-height:
+    # var(--control-height-tiny)` and nothing here overrides it, and tiny's 4px padding
+    # around the 14px icon, 24px with the border, sits inside that floor, so the height
+    # is the token's. Measured, not assumed. That it is the same box as its two copies
+    # is `test_the_three_back_buttons_draw_one_box`.
     assert box["height"] == pytest.approx(26, abs=0.01), box["height"]
+    icon = btn.locator("svg").bounding_box()
+    assert icon and (icon["width"], icon["height"]) == (14, 14), icon
 
     style = btn.evaluate("""el => ({
       bg: getComputedStyle(el).backgroundColor,
@@ -7438,10 +8363,11 @@ def test_the_back_button_out_of_one_engine_is_a_borderless_pill(open_panel):
 
 def test_the_three_back_buttons_draw_one_box(open_panel):
     """Source, Manage account and one engine each open under the same back button: a
-    `ghost` icon-only <button> with the arrow-back icon and an aria-label
+    `ghost icon-button` <button> with the arrow-back icon and an aria-label
     (extension/app.html `#source-edit-back`, `#manage-account-back`,
-    `#engine-detail-back`). Each is Supabase's Button at its tiny default, an icon in a
-    26px square (Button.tsx@86c813ec:192, constants.ts@86c813ec:61).
+    `#engine-detail-back`). Each is Supabase's icon-only Button at its tiny default,
+    36x26: tiny's px-2.5 around a 14px icon, 26px tall (Button.tsx@86c813ec:192, :127,
+    constants.ts@86c813ec:54, :61), by his ruling on #1457.
 
     BOXES, NOT `min-height`. This compared the two computed min-heights until #1432's
     review showed both come from `button, .button`, so a height declared on either
@@ -7469,21 +8395,40 @@ def test_the_three_back_buttons_draw_one_box(open_panel):
 
     sizes = {selector: box and (round(box["width"], 2), round(box["height"], 2))
              for selector, box in boxes.items()}
-    assert sizes == {"#manage-account-back": (26, 26), "#engine-detail-back": (26, 26),
-                     "#source-edit-back": (26, 26)}, (
-        f"the three back buttons in this panel no longer draw one 26px square: {sizes}")
+    assert sizes == {"#manage-account-back": (36, 26), "#engine-detail-back": (36, 26),
+                     "#source-edit-back": (36, 26)}, (
+        f"the three back buttons in this panel no longer draw one 36x26 box: {sizes}")
 
 
-def test_on_a_touch_screen_only_the_plain_icon_button_takes_the_coarse_floor(open_panel):
-    """With a mouse the three icon squares are one 26px size (the test below). On a touch
-    screen `design/components.css`'s `(hover: none), (pointer: coarse)` block lifts
-    `button` to 2.75rem, 44px, and they part, as its comment, the catalogue's note and
-    docs/UI-KIT.md say:
+#: Reads which control, if any, takes a tap at a point: the element there, or the
+#: control that element sits inside. A hit area is the control's ::before, and a
+#: hit on a pseudo-element reports its originating element, so a tap the ::before
+#: catches comes back as the control itself.
+_TAKES_THE_TAP = """([x, y]) => {
+  const hit = document.elementFromPoint(x, y);
+  const control = hit && hit.closest('button, .button, input, select, textarea, summary, a');
+  return control ? (control.id || control.getAttribute('class') || control.tagName) : null;
+}"""
 
-    - a plain `icon-button` declares no min-height of its own, so it takes the floor and
-      draws 26x44. #1051 moves that reach into a hit area and changes this number;
-    - `icon-button compact` (through `button.compact`'s min-height) and `icon-button xs`
-      (through its own) outrank the block and stay 26px squares, under the floor.
+
+def test_on_a_touch_screen_an_icon_button_keeps_its_box_and_its_hit_area_keeps_the_reach(
+        open_panel):
+    """#1051's own test: on a touch screen an icon button's box is Supabase's icon-only
+    Button, 36x26, while a tap 4px outside the box still lands on it.
+
+    WHAT IT REPLACED. `design/components.css`'s `(hover: none), (pointer: coarse)`
+    block lifted `button` to `min-height: 2.75rem`, so a plain `icon-button` drew
+    26x44, a slab, while `compact` and `xs`, whose own min-height outranks the block,
+    stayed 26px squares (#1432's comment on #1051). The 44px is now the reach of
+    Supabase's hit area, a ::before at negative insets
+    (packages/config/tailwind-plugins/hit-area.css@86c813ec:31-49), so the box is the
+    tiny icon-only Button's on every pointer, tiny's px-2.5 py-1 around a 14px icon (#1430,
+    his ruling on #1457), and the reach is still 44px tall.
+
+    EXACTLY 44, NOT MORE. A tap 21px from the centre lands; 23px does not, so a reach
+    that grew to --touch-target's 48 fails here as surely as one that shrank. The box's
+    26px is 24 inside its border, so each inset is (24 - 44) / 2, -10px, and the reach
+    ends 9px past the border, 22px from the centre, above and below.
 
     The plain one is a probe because the panel draws none outside the workspace; the
     web UI's mobile menu button (scrapex/webui/templates/base.html) is one."""
@@ -7492,10 +8437,11 @@ def test_on_a_touch_screen_only_the_plain_icon_button_takes_the_coarse_floor(ope
         "the page did not open as a touch screen, so nothing below is about one")
     page.wait_for_selector("#accounts-card .account-menu-button")
     settle_view(page, "profile")
-    # In a block of its own: beside `#signout` in the flex top bar, a 44px probe would
-    # stretch the row and the sign-out with it.
+    # In a block of its own, with room above and below it: beside `#signout` in the
+    # flex top bar, a probe would share the row and the reach with it.
     page.evaluate("""() => {
       const host = document.createElement('div');
+      host.style.padding = '24px 0';
       host.innerHTML = '<button type="button" id="plain-icon-button-probe" '
         + 'class="ghost icon-button"><svg class="sx-icon" aria-hidden="true"></svg></button>';
       document.querySelector('main').prepend(host);
@@ -7506,21 +8452,424 @@ def test_on_a_touch_screen_only_the_plain_icon_button_takes_the_coarse_floor(ope
         box = page.locator(selector).first.bounding_box()
         assert box, selector
         sizes[selector] = (round(box["width"], 2), round(box["height"], 2))
-    assert sizes == {"#plain-icon-button-probe": (26, 44),
-                     "#accounts-card .account-menu-button": (26, 26),
-                     "#signout": (26, 26)}, sizes
+    assert sizes == {"#plain-icon-button-probe": (36, 26),
+                     "#accounts-card .account-menu-button": (36, 26),
+                     "#signout": (36, 26)}, (
+        f"on a touch screen an icon button's box is Supabase's icon-only Button, 36x26: {sizes}")
+
+    box = page.locator("#plain-icon-button-probe").bounding_box()
+    cx, top, bottom = box["x"] + box["width"] / 2, box["y"], box["y"] + box["height"]
+    cy = top + box["height"] / 2
+    taken = {f"{label}": page.evaluate(_TAKES_THE_TAP, [cx, y]) for label, y in (
+        ("4px above the box", top - 4), ("4px below the box", bottom + 4),
+        ("21px above the centre", cy - 21), ("21px below the centre", cy + 21))}
+    assert taken == dict.fromkeys(taken, "plain-icon-button-probe"), (
+        f"a tap inside the 44px reach no longer reaches the icon button: {taken}")
+    beyond = {f"{label}": page.evaluate(_TAKES_THE_TAP, [cx, y]) for label, y in (
+        ("23px above the centre", cy - 23), ("23px below the centre", cy + 23))}
+    assert "plain-icon-button-probe" not in beyond.values(), (
+        f"the reach grew past the 44px it was: {beyond}")
+
+
+#: Buttons the web UI draws as another element: the dataset picker's trigger is a <summary>
+#: and the source list's icon link an <a> (design/data-workspace.css). Each is held to the
+#: Button's size (tests/test_the_web_ui_controls_are_supabases_sizes.py) and, on a touch
+#: screen, to its reach (tests/test_no_reach_takes_another_controls_tap.py), which its
+#: `touch-reach` class draws as a Button's hit area (design/components.css).
+WEB_ALSO = ["summary.dataset-menu-trigger", "a.dataset-icon-button"]
+
+
+#: The Supabase component each control the sweeps read is, by the first selector it matches, and
+#: the value that component's default size reads here: the #1050 guard's DEFAULT, the one place
+#: it is written down. The sweep resolves the value against the page's own tokens. The listbox
+#: trigger is SelectTrigger, as that guard's READS row for `.sx-select-trigger` says. The
+#: converter's amount is the Input inside its InputGroup, as its READS row for the amount says.
+#: The two currency triggers beside it are InputGroupButtons, whose default, h-6, is no SIZE
+#: height, so DEFAULT holds none: they read as a Button here, and stand taller than one below.
+#: The web UI's Buttons drawn as another element are Buttons too, so their reach is read.
+_SUPABASE_SIZES = [[selector, DEFAULT[component]] for selector, component in (
+    (".sx-select-trigger", SELECT_TRIGGER),
+    (".finance-converter-row input", GROUP_INSIDE),
+    ("input, select", INPUT),
+    ("button, .button", BUTTON),
+    (", ".join(WEB_ALSO), BUTTON))]
+
+#: What every button and input reached on a touch screen before #1051: the coarse-pointer
+#: block's `min-height: 2.75rem`, which is --touch-floor now.
+_TOUCH_FLOOR = 44
+
+#: Every screen the sweep reads, and how a person reaches it from the one before: the rail's
+#: pages, the three it does not list, the Workspace sheet and an open listbox.
+_SWEEP_SCREENS = (
+    *((f"#view-{view}", [("click", f'nav.side-rail button[data-view="{view}"]')])
+      for view in ("profile", "database", "engines", "source", "jobs", "run", "data",
+                   "finance", "appearance", "sources", "console", "settings")),
+    ("nav.side-rail", []),
+    ("#view-manage-account", [("click", 'nav.side-rail button[data-view="profile"]'),
+                              ("click", "#manage-account")]),
+    ("#view-engine-detail", [("click", "#tab-engines"),
+                             ("click", '#view-engines .engine-row[data-engine-id="scrapex-engine"]')]),
+    ("#view-source-edit", [("click", SOURCES_TAB), ("click", '[data-edit-source="SHORT"]')]),
+    (".sx-select.is-open", [("click", RUN_TAB), ("click", "#run-mode-trigger")]),
+    ("#workspace-menu", [("press", "Escape"), ("click", "#workspace-toggle")]),
+)
+
+#: Reads every control on one screen: its box, how far a tap still reaches it straight up
+#: and down from its centre, and every point inside a control-like element's box that
+#: another control's reach takes. A name is the id, else the classes (state classes `is-*`
+#: left out), else the parent's first class.
+#:
+#: A POINT IS TAKEN WHEN THE CONTROL HOLDS IT WITH EVERY HIT AREA OFF AND ANOTHER CONTROL
+#: HOLDS IT WITH THEM ON. Each point is read twice, the first time under a style that sets
+#: `pointer-events: none` on the four ::before selectors design/components.css draws a hit
+#: area with. `pointer-events`, not `content: none`: removing the ::before changes what a
+#: scroller holds (#terms-of-service's reach once overflowed the Welcome stage), so the
+#: second read would be of another layout. A point the control never held is not counted:
+#: its own rounded corner, a corner its list clips off (#db-bundles' first row under
+#: #db-open-backups: CI's Chromium clips a relative row's corner for hit-testing, and 141
+#: does not), or a label laid over its radio. A point it held is counted however close the
+#: two boxes stand, so a reach into a box that touches its own is caught as surely as one
+#: across a gap. EACH EDGE IS READ AT THREE DEPTHS, 0.75, 2.5 and 4.5px in: where two boxes
+#: meet at a fractional height, hit-testing gives the outermost row to the neighbour with
+#: every hit area off too, so that row alone saw one of the Console rail's five thefts
+#: with its tabs touching.
+#:
+#: AND NO HIT AREA WIDENS WHAT A SCROLLER SCROLLS. A ::before past the end of a scroller's
+#: content is scrollable overflow, so every scroller is read with each hit area drawn and with
+#: none (`content: none`), and the two must agree. It is read last, with every scroll position
+#: put back, because a widened scroller scrolls back once its hit areas go.
+#:
+#: Takes [the scope's selector, _SUPABASE_SIZES].
+_SWEEP = """([scopeSelector, sizes]) => {
+  const LIKE = 'button, .button, input, select, textarea, summary, a[href], label';
+  const taker = (x, y) => { const hit = document.elementFromPoint(x, y); return hit && hit.closest(LIKE); };
+  // Reads with `declaration` set on every hit area: design/components.css draws one with these.
+  const withEveryHitArea = (declaration, read) => {
+    const style = document.createElement('style');
+    style.textContent = `button::before, .button::before, .touch-reach::before, .hit-area-2::before { ${declaration} !important; }`;
+    document.head.append(style);
+    try { return read(); } finally { style.remove(); }
+  };
+  const probe = document.body.appendChild(document.createElement('div'));
+  probe.style.cssText = 'position: absolute; visibility: hidden;';
+  const heights = sizes.map(([selector, value]) => {
+    probe.style.height = value;
+    return [selector, parseFloat(getComputedStyle(probe).height)];
+  });
+  probe.remove();
+  if (!heights.every(([, height]) => height > 0)) throw new Error(`a Supabase size did not resolve: ${JSON.stringify([sizes, heights])}`);
+  const name = (el) => {
+    if (el.id) return '#' + el.id;
+    const classes = [...el.classList].filter((c) => !c.startsWith('is-'));
+    const tag = el.tagName.toLowerCase() + (el.tagName === 'INPUT' ? `[type=${el.type}]` : '');
+    if (classes.length) return tag + '.' + classes.join('.');
+    const up = el.parentElement && [...el.parentElement.classList].find((c) => !c.startsWith('is-'));
+    return (up ? `.${up} > ` : '') + tag;
+  };
+  const shown = (el) => el.checkVisibility({visibilityProperty: true})
+    && el.getBoundingClientRect().width >= 2 && el.getBoundingClientRect().height >= 2;
+  const scope = document.querySelector(scopeSelector);
+  const out = {controls: [], stolen: [], widened: []};
+  for (const el of scope.querySelectorAll(LIKE)) {
+    if (!shown(el)) continue;
+    el.scrollIntoView({block: 'center', inline: 'nearest'});
+    const r = el.getBoundingClientRect();
+    const radius = Math.min(parseFloat(getComputedStyle(el).borderTopLeftRadius) || 0, r.height / 2, r.width / 2);
+    const points = [];
+    for (const depth of [0.75, 2.5, 4.5]) {
+      if (2 * depth < r.height) for (let x = r.left + radius + 1; x <= r.right - radius - 1; x += 2) points.push([x, r.top + depth], [x, r.bottom - depth]);
+      if (2 * depth < r.width) for (let y = r.top + radius + 1; y <= r.bottom - radius - 1; y += 2) points.push([r.left + depth, y], [r.right - depth, y]);
+    }
+    for (const fx of [0.25, 0.5, 0.75]) for (const fy of [0.25, 0.5, 0.75]) points.push([r.left + r.width * fx, r.top + r.height * fy]);
+    const owns = (hit) => Boolean(hit) && (hit === el || el.contains(hit));
+    const held = withEveryHitArea('pointer-events: none', () => points.map(([x, y]) => owns(taker(x, y))));
+    points.forEach(([x, y], i) => {
+      const other = taker(x, y);
+      if (held[i] && other && !owns(other)) out.stolen.push(`${name(el)} by ${name(other)}`);
+    });
+    if (el.matches('input[type=checkbox], input[type=radio]') || !heights.some(([selector]) => el.matches(selector))) continue;
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    // Out to 48px a side: a one-sided reach runs the whole floor past one edge, 44px less half
+    // the box from the centre, which a 30px scan read as 41.5 on a 24px link.
+    const reach = (dy) => { let d = 0; for (let i = 0.5; i <= 48; i += 0.5) { if (taker(cx, cy + dy * i) === el) d = i; else break; } return d; };
+    const supabase = heights.find(([selector]) => el.matches(selector))[1];
+    out.controls.push({name: name(el), width: r.width, height: r.height, supabase, reach: reach(-1) + reach(1)});
+  }
+  const scrollers = [document.scrollingElement, ...document.querySelectorAll('*')].filter((s) =>
+    s === document.scrollingElement || /auto|scroll|hidden/.test(getComputedStyle(s).overflow));
+  const at = scrollers.map((s) => [s.scrollLeft, s.scrollTop]);
+  const extent = () => scrollers.map((s) => `${s.scrollWidth - s.clientWidth}x${s.scrollHeight - s.clientHeight}`);
+  const drawn = extent();
+  const bare = withEveryHitArea('content: none', extent);
+  scrollers.forEach((s, i) => { [s.scrollLeft, s.scrollTop] = at[i]; });
+  drawn.forEach((scrolls, i) => {
+    if (scrolls !== bare[i]) out.widened.push(`${name(scrollers[i])} scrolls ${scrolls}, and ${bare[i]} without its hit areas`);
+  });
+  return out;
+}"""
+
+
+def read_the_sweep(page, scope: str, label: str, read: dict) -> None:
+    """Runs _SWEEP over `scope` on `page` and adds what it found to `read`, the
+    {"controls": {name: [control, ...]}, "stolen": [...], "widened": [...]} a sweep collects
+    over one surface, each finding under `label`, the screen it was read on."""
+    found = page.evaluate(_SWEEP, [scope, _SUPABASE_SIZES])
+    read["stolen"] += [f"{label}: {theft}" for theft in found["stolen"]]
+    read["widened"] += [f"{label}: {scroller}" for scroller in found["widened"]]
+    for control in found["controls"]:
+        read["controls"].setdefault(control["name"], []).append(control)
+
+
+def assert_no_box_grows_and_no_reach_shrinks(read: dict, taller_than_supabase: dict,
+                                             short_of_the_floor: dict) -> None:
+    """What every touch sweep holds over what read_the_sweep read on one surface (#1051): no
+    reach takes a tap inside another control's box, no hit area widens what a scroller scrolls,
+    and every control's box is no taller than its Supabase component's and its reach at least
+    the 44px floor, but for the controls named, each with its bound and its reason.
+
+    BOTH LISTS MAY ONLY SHRINK: a named control that comes down to its size, or up to the floor,
+    fails until its name goes, and a new one fails until it is named with its reason. AND EACH
+    NAME KEEPS ITS BOUND: a tall box may not stand more than half a pixel above the ceiling
+    named for it, nor a short reach fall more than half a pixel below the least. Without the
+    ceiling, a named box could grow back to #1051's 44px slab with every check green."""
+    assert not read["stolen"], (
+        "a hit area takes taps inside another control's box:\n  "
+        + "\n  ".join(sorted(set(read["stolen"]))))
+    assert not read["widened"], (
+        "a hit area widens what a scroller scrolls:\n  " + "\n  ".join(sorted(set(read["widened"]))))
+    controls = read["controls"]
+    taller = {name: max(c["height"] for c in seen) for name, seen in controls.items()
+              if any(c["height"] > c["supabase"] + 0.01 for c in seen)}
+    assert set(taller) == set(taller_than_supabase), (
+        f"taller than Supabase's size, not named: {sorted(set(taller) - set(taller_than_supabase))}\n"
+        f"named, and not taller any more (take the name out): "
+        f"{sorted(set(taller_than_supabase) - set(taller))}\n"
+        f"all: {dict(sorted(taller.items()))}")
+    rose = {name: (round(height, 2), taller_than_supabase[name][0])
+            for name, height in taller.items() if height > taller_than_supabase[name][0] + 0.5}
+    assert not rose, f"box taller than the ceiling named for it, (now, ceiling): {rose}"
+    short = {name: min(c["reach"] for c in seen) for name, seen in controls.items()
+             if min(c["reach"] for c in seen) < _TOUCH_FLOOR - 0.5}
+    assert set(short) == set(short_of_the_floor), (
+        f"reached across less than {_TOUCH_FLOOR}px, not named: "
+        f"{sorted(set(short) - set(short_of_the_floor))}\n"
+        f"named, and not short any more (take the name out): "
+        f"{sorted(set(short_of_the_floor) - set(short))}\n"
+        f"all: {dict(sorted(short.items()))}")
+    fell = {name: (reach, short_of_the_floor[name][0]) for name, reach in short.items()
+            if reach < short_of_the_floor[name][0] - 0.5}
+    assert not fell, f"reach below what it was before #1051, (now, before): {fell}"
+
+
+_NO_BEFORE = ("#1051, his to decide: an <input> or a <select> draws no ::before, so it keeps the "
+              "44px floor on its box")
+#: The rail's items and the Engine screen's action rows: one reason for both lists below.
+_TOUCH_TARGET = ("#1051, his to decide: --touch-target sizes it, 48px, on every pointer, and which "
+                 "Supabase component it is cannot be computed")
+_A_ROW = ("a row of a lead and lines of text, which Supabase gives no control height (#1040 "
+          "rule 2)")
+_GROUP_BUTTON = ("#1456: Supabase's InputGroupButton, whose default is h-6, 24px "
+                 "(input-group.tsx@86c813ec:125, :130, :137), stands as a full-height 32px "
+                 "segment of the converter's group")
+
+#: Controls whose box is taller than their Supabase component's on a touch screen, each with
+#: its ceiling and why it is still. THE LIST MAY ONLY SHRINK: a control that comes down to its
+#: size fails the test until its name goes, and a new one fails until it is named here with its
+#: reason. AND NO NAMED BOX MAY GROW: its ceiling is the tallest box the sweep read for it on
+#: #1444's branch, rounded up to the half pixel, and a box more than half a pixel above it
+#: fails, as a reach more than half a pixel below its least does.
+_TALLER_THAN_SUPABASE = {
+    **dict.fromkeys([
+        "#jobs-search", "#site-search", "#source-edit-agent", "#source-edit-cadence",
+        "#source-edit-currency", "#source-edit-key", "#source-edit-name",
+        "#source-edit-name-ar", "#source-edit-pace", "#source-edit-robots", "#source-edit-url",
+        "#source-edit-vat", "#source-manager-filter"], (44, _NO_BEFORE)),
+    **dict.fromkeys([
+        "#tab-appearance", "#tab-console", "#tab-data", "#tab-database", "#tab-engines",
+        "#tab-finance", "#tab-jobs", "#tab-profile", "#tab-run", "#tab-settings", "#tab-source",
+        "#tab-sources", "#workspace-toggle", "button.sx-select-option", "#runtime-restart",
+        "#engine-diagnostics", "#engine-setup-guide"], (48, _TOUCH_TARGET)),
+    ".appearance-scheme-picker > button": (48, SCHEME_PICKER),
+    "#engine-copy-details": (48.5, _TOUCH_TARGET),
+    "button.engine-row": (103, _TOUCH_TARGET),
+    "#engine-row-scrapex-engine": (140.5, _TOUCH_TARGET),
+    "button.account-switch": (42, _A_ROW),
+    "button.accounts-disclosure": (44, _A_ROW),
+    "button.accounts-action": (56, _A_ROW),
+    "#drive-review-permissions": (48, _A_ROW),
+    "button.workspace-destination": (80, _A_ROW),
+    "button.link.sect.settings-toggle": (80.5, _A_ROW),
+    "button.manage-account-row.manage-account-row-button.has-lead": (91, _A_ROW),
+    "button.appearance-palette-tile": (129, _A_ROW),
+    **dict.fromkeys(["#finance-converter-currency-trigger", "#finance-converter-target-trigger"],
+                    (32, _GROUP_BUTTON)),
+}
+
+#: Controls a tap reaches less than 44px of on a touch screen, each with the least it must
+#: keep and why. The least is what it reached before #1051, measured on main 333e680f, for all
+#: but two whose reasons say what they lost: the converter's amount, and the backups button,
+#: whose box #1430 brought to the tiny Button's 26px. It may only shrink, the same way.
+_SHORT_OF_THE_FLOOR = {
+    "#signout": (26, "its view's scroll edge clips the top of its reach; its own min-height "
+                     "outranked the floor, so it was a 26px square"),
+    "#db-open-backups": (34.5, "the row button flush below it takes its own box, as it did, so "
+                               "below its centre it reaches only to its own bottom edge: half "
+                               "the tiny Button's 26px since #1430, where it was half of 36"),
+    "#finance-converter-target-trigger": (41.5, "the source row above it stacks at z-index 2 and "
+                                                "takes their shared gap first, as it did"),
+    "#finance-converter-amount": (32, "#1051, his to decide: it reached 44 only because the "
+                                      "triggers' floor stretched its row past the row's own "
+                                      "34px, and an <input> draws no ::before to keep it"),
+}
+
+
+def test_on_a_touch_screen_no_box_grows_and_no_reach_shrinks(open_panel):
+    """#1051's sweep. On a touch screen every button and input in the panel has a box no taller
+    than its Supabase component's, and a tap still reaches it across at least the 44px the
+    coarse-pointer floor gave it, through its hit area (design/components.css). The two
+    exception lists name every control that is not there yet, and why.
+
+    AND NO REACH TAKES ANOTHER CONTROL'S TAP. A hit area paints over what is under it, so a
+    reach longer than the gap to a neighbour takes the edge of the neighbour's box: Supabase
+    keeps adjacent reaches a gap apart for that reason
+    (apps/design-system/content/docs/components/table.mdx@86c813ec:197). Every point along
+    the inside edges of every control-like box on these screens is read, and a point the
+    control holds with every hit area off must still be its with them on (_SWEEP says why).
+    Measured in the web UI, a 2x2 grid of filters 4px apart failed it until
+    scrapex/webui/static/pages/schedules.css kept their floor on the box."""
+    page = open_panel(touch=True, signed_in=AN_OWNER, remembered_accounts=ANOTHER_ACCOUNT)
+    assert page.evaluate("() => matchMedia('(hover: none), (pointer: coarse)').matches"), (
+        "the page did not open as a touch screen, so nothing below is about one")
+    read = {"controls": {}, "stolen": [], "widened": []}
+    for scope, steps in _SWEEP_SCREENS:
+        for kind, target in steps:
+            if kind == "press":
+                page.keyboard.press(target)
+            else:
+                page.wait_for_selector(target, state="visible")
+                page.click(target)
+        page.wait_for_selector(scope, state="visible")
+        # Measured, so settled: a view's entry and the listbox's `select-menu-in` scale every
+        # box they hold while they run (settle_view says why), and the listbox's options read
+        # 47.04, 48 at 0.98, until it ends. An endless animation is not waited for.
+        page.wait_for_function(
+            """(scope) => document.querySelector(scope).getAnimations({subtree: true}).every(
+                 (a) => a.playState !== 'running' || a.effect.getComputedTiming().iterations === Infinity)""",
+            arg=scope, timeout=5_000)
+        read_the_sweep(page, scope, scope, read)
+    count = sum(map(len, read["controls"].values()))
+    assert count >= 100 and len(read["controls"]) >= 70, (
+        f"the sweep read {count} controls under {len(read['controls'])} names; a screen did not open")
+    assert_no_box_grows_and_no_reach_shrinks(read, _TALLER_THAN_SUPABASE, _SHORT_OF_THE_FLOOR)
+
+
+#: Each stack's spacing as the page computes it, from [[selector, property], ...] out of
+#: STACK_GAP: [selector, property, how many elements match, every distinct value]. A
+#: `margin-block` or `padding-block` is read on both its sides.
+STACK_GAPS = """(stacks) => stacks.map(([selector, prop]) => {
+  const sides = prop === 'row-gap' ? [prop] : [`${prop}-start`, `${prop}-end`];
+  const found = [...document.querySelectorAll(selector)];
+  const values = found.flatMap((el) => sides.map((side) => getComputedStyle(el).getPropertyValue(side)));
+  return [selector, prop, found.length, [...new Set(values)]];
+})"""
+
+
+def stacks_off_the_gap(page, stacks: list, label: str) -> list[str]:
+    """What STACK_GAPS reads for `stacks`, STACK_GAP's keys for one surface, on `page`, where
+    it is not his 18px on a touch screen, or half of it in a cell HALF_THE_GAP names."""
+    assert page.evaluate("() => matchMedia('(hover: none), (pointer: coarse)').matches"), (
+        f"{label}: the page is not a touch screen, so nothing read here is about one")
+    found = page.evaluate(STACK_GAPS, [[selector, prop] for _sheet, selector, prop in stacks])
+    expected = {(selector, prop): "9px" if (sheet, selector, prop) in HALF_THE_GAP else "18px"
+                for sheet, selector, prop in stacks}
+    return [f"{label}: {selector} {prop} matched {count} and computed {values}"
+            for selector, prop, count, values in found
+            if count == 0 or values != [expected[(selector, prop)]]]
+
+
+def test_on_a_touch_screen_the_panels_stacks_stand_18px_apart_at_the_widths_they_failed(
+        open_panel):
+    """His ruling on #1457, read in a browser: on a touch screen the Engine screen's Download
+    and Check again, and Run's Select all and Clear, stand 18px apart, at 320, 420 and 500px,
+    where the stacks took each other's taps before it. The static guard holds where each
+    stack reads --touch-stack-gap, and a later rule scoped to a width that set the gap back
+    to 8px passed it, and the sweep, which reads only 360px."""
+    stacks = [where for where in STACK_GAP if where[0] == APP]
+    assert len(stacks) == 2, stacks
+    page = open_panel(touch=True)
+    off = []
+    for width in (320, 420, 500):
+        page.set_viewport_size({"width": width, "height": 800})
+        off += stacks_off_the_gap(page, stacks, f"{width}px")
+    assert not off, "a stack does not stand his 18px apart on a touch screen:\n  " + "\n  ".join(off)
+
+
+@pytest.mark.parametrize("touch", [False, True], ids=["mouse", "touch"])
+def test_the_select_trigger_is_supabases_small_box_and_its_48px_is_a_touch_reach(
+        open_panel, touch):
+    """The panel's listbox trigger is Supabase's SelectTrigger, small, 34px
+    (select.tsx@86c813ec:31-38 at SIZE_VARIANTS_DEFAULT, constants.ts@86c813ec:62, :111).
+    Until #1051 it read --touch-target, a 48px box on every pointer.
+
+    34 IS A HEIGHT, NOT A FLOOR, and the value is one line, truncated, as Supabase's
+    `[&>span]:truncate` (select.tsx@86c813ec:53). As a floor, the 20px chevron stood the
+    trigger 38px, and on a 320px panel with a mouse the default mode's label wrapped and
+    stood it 54px. The value and the chevron stand on the box's middle line, as Supabase's
+    `items-center` line does (select.tsx@86c813ec:50): taller than the 16px inside the
+    padding, they sat 2px below it until the row was centred.
+
+    On a touch screen the 48px is its reach, through its hit area: a tap 23px from its centre
+    lands on it and one 25px away does not. With a mouse the box is the reach, as Supabase's
+    is, so a tap 2px past the box is not the trigger's."""
+    page = open_panel(view="run", touch=touch)
+    settle_view(page, "run")
+    trigger = page.locator("#run-mode-trigger")
+    trigger.scroll_into_view_if_needed()
+    box = trigger.bounding_box()
+    assert box and box["height"] == 34, box
+    middles = trigger.evaluate("""(el) => [el, el.querySelector('[data-select-label]'), el.querySelector('svg')]
+      .map((part) => { const r = part.getBoundingClientRect(); return r.top + r.height / 2; })""")
+    assert max(middles) - min(middles) < 0.5, (
+        f"the value and the chevron are off the trigger's middle line (box, value, chevron): {middles}")
+    cx, cy = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+    reach = 23 if touch else box["height"] / 2 - 1
+    beyond = 25 if touch else box["height"] / 2 + 2
+    taken = [page.evaluate(_TAKES_THE_TAP, [cx, cy + dy]) for dy in (-reach, reach)]
+    missed = [page.evaluate(_TAKES_THE_TAP, [cx, cy + dy]) for dy in (-beyond, beyond)]
+    assert taken == ["run-mode-trigger", "run-mode-trigger"], (touch, reach, taken)
+    assert "run-mode-trigger" not in missed, (
+        f"{'touch' if touch else 'mouse'}: a tap {beyond}px from the trigger's centre landed on "
+        f"it, so its reach is more than {'48px' if touch else 'its box'}: {missed}")
+
+    # The narrowest panel, with a value wider than the trigger: one line, inside a 34px box.
+    page.set_viewport_size({"width": 320, "height": 800})
+    narrow = trigger.evaluate("""(el) => {
+      const label = el.querySelector('[data-select-label]');
+      label.textContent = 'Update existing data from every source this panel reads';
+      // A line per distinct top: a truncated line is two rects, its text and its ellipsis.
+      const text = document.createRange();
+      text.selectNodeContents(label);
+      const lines = new Set([...text.getClientRects()].map((rect) => Math.round(rect.top))).size;
+      const r = el.getBoundingClientRect(), l = label.getBoundingClientRect();
+      return {box: r.height, lines,
+              inside: l.top >= r.top && l.bottom <= r.bottom, truncated: label.scrollWidth > label.clientWidth,
+              centred: Math.abs(l.top + l.height / 2 - (r.top + r.height / 2)) < 0.5};
+    }""")
+    assert narrow == {"box": 34, "lines": 1, "inside": True, "truncated": True, "centred": True}, (
+        f"{'touch' if touch else 'mouse'}, 320px: a long value no longer stays one truncated "
+        f"line in the trigger's 34px: {narrow}")
 
 
 def test_each_control_takes_its_supabase_components_default_size(open_panel):
     """A Button's floor is Supabase's tiny, 26px (Button.tsx@86c813ec:192), an Input's is
     small, 34px (input.tsx@86c813ec:31), and the `xs` and `compact` icon buttons are both the
-    tiny square, because Supabase's Button has no size below it (#1050).
+    tiny icon-only Button, 36x26, because Supabase's Button has no size below it (#1050, #1430).
 
     Read from the cascade, not the sheet: tests/test_the_control_heights_are_supabases_sizes.py
     holds each declaration, and a later rule that overrides one, in a surface's own sheet or a
-    media block, is seen only here. The squares are measured as boxes because `compact` brings
-    its own padding, which stood the 20px icon 30px tall in a 26px-wide box until
-    `.icon-button.compact` zeroed it."""
+    media block, is seen only here. The boxes are measured because `compact` brings its own
+    padding, which stood a 20px icon 30px tall in a 26px-wide box until `.icon-button.compact`
+    zeroed it; it is tiny's padding now, around tiny's 14px icon."""
     page = open_panel(signed_in=AN_OWNER, remembered_accounts=ANOTHER_ACCOUNT)
     page.wait_for_selector("#accounts-card .account-menu-button")
     settle_view(page, "profile")
@@ -7532,13 +8881,380 @@ def test_each_control_takes_its_supabase_components_default_size(open_panel):
     for selector in ("#signout", "#accounts-card .account-menu-button"):
         box = page.locator(selector).first.bounding_box()
         assert box, selector
-        assert (box["width"], box["height"]) == (pytest.approx(26, abs=0.01),
+        assert (box["width"], box["height"]) == (pytest.approx(36, abs=0.01),
                                                  pytest.approx(26, abs=0.01)), (selector, box)
 
     page.click(SOURCE_TAB)
     page.wait_for_selector("#view-source", state="visible")
     assert page.evaluate(
         "() => getComputedStyle(document.getElementById('url')).minHeight") == "34px"
+
+
+#: Supabase's SIZE height of the component a control is, at its default
+#: (constants.ts@86c813ec:61-62): a Button is tiny (Button.tsx@86c813ec:192), an Input small
+#: (input.tsx@86c813ec:31), and a Select small, the panel's own listbox trigger among them
+#: (select.tsx@86c813ec:37-38).
+_SIZE = {"button": 26, "field": 34}
+
+#: Every screen the size sweep reads, and how a person reaches it from the one before.
+_SIZE_SCREENS = (
+    ("#view-profile", ['nav.side-rail button[data-view="profile"]']),
+    ("#view-manage-account", ["#manage-account"]),
+    ("#view-engines", ["#tab-engines"]),
+    ("#view-engine-detail", ['#view-engines .engine-row[data-engine-id="scrapex-engine"]']),
+    ("#view-source", [SOURCE_TAB]),
+    ("#view-source", ['label[for="source-urls"]']),
+    ("#view-source", ['label[for="source-addsite"]']),
+    ("#view-run", [RUN_TAB]),
+    ("#view-jobs", ['nav.side-rail button[data-view="jobs"]']),
+    ("#view-data", [DATA_TAB]),
+    ("#view-data", ['.dataset-card[data-open="contractors"] .split-button-trigger']),
+    ("#view-finance", [FINANCE_TAB, ".finance-preferences-card > summary"]),
+    ("#view-appearance", ['nav.side-rail button[data-view="appearance"]']),
+    ("#view-sources", [SOURCES_TAB]),
+    ("#view-source-edit", ['[data-edit-source="SHORT"]']),
+    ("#view-console", ['nav.side-rail button[data-view="console"]']),
+    ("#view-database", ['nav.side-rail button[data-view="database"]']),
+    ("#view-settings", [SETTINGS_TAB]),
+    *(("#view-settings", [f'button.settings-toggle[data-sect="{section}"]'])
+      for section in ("s-engine", "s-storage", "s-sched", "s-output", "s-crawl", "s-timezone",
+                      "s-about")),
+    # A schedule row holds the panel's one native time field.
+    ("#view-settings", ["#view-settings details.sched-row > summary"]),
+    ("nav.side-rail", []),
+    ("#workspace-menu", ["#workspace-toggle"]),
+)
+
+#: Reads every Button and text field on one screen, as a name and a rendered box; `also`
+#: names Buttons drawn as another element. A name is the id, else the tag and its classes
+#: (state classes `is-*` left out). A visually hidden native <select>, 1px behind its own
+#: trigger, is not drawn and is not read; a <textarea> is Supabase's Textarea, which has no
+#: SIZE height (textarea.tsx@86c813ec:12). A Button that draws an icon and no text is an
+#: icon-only Button, `icon` its icon's width: a visually hidden label, in a box under 2px,
+#: draws none. `select` is a drop-down only: a list box, `multiple` or more than one row
+#: tall, keeps its rows and its padding (design/components.css `select[multiple]`).
+_READ_SIZES = """([scopeSelector, known, also = []]) => {
+  const FIELD = 'input:not([type=checkbox]):not([type=radio]):not([type=hidden])'
+    + ':not([type=range]):not([type=color]):not([type=file]), select, .sx-select-trigger';
+  const BUTTON = ['button', '.button', ...also].join(', ');
+  const name = (el) => el.id ? '#' + el.id : el.tagName.toLowerCase()
+    + [...el.classList].filter((c) => !c.startsWith('is-')).map((c) => '.' + c).join('');
+  const drawn = (box) => box.width >= 2 && box.height >= 2;
+  const drawsText = (el) => {
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      if (node.textContent.trim() && drawn(node.parentElement.getBoundingClientRect())) return true;
+    }
+    return false;
+  };
+  const out = [];
+  for (const el of document.querySelector(scopeSelector).querySelectorAll(`${BUTTON}, ${FIELD}`)) {
+    const r = el.getBoundingClientRect();
+    if (!el.checkVisibility({visibilityProperty: true}) || !drawn(r)) continue;
+    const icons = [...el.querySelectorAll('svg')].map((svg) => svg.getBoundingClientRect())
+      .filter(drawn);
+    const field = el.matches(FIELD);
+    out.push({name: name(el), kind: field ? 'field' : 'button',
+              height: Math.round(r.height * 100) / 100, width: Math.round(r.width * 100) / 100,
+              iconOnly: !field && icons.length > 0 && !drawsText(el),
+              icon: icons.length ? Math.max(...icons.map((box) => Math.round(box.width * 100) / 100)) : null,
+              select: el.tagName === 'SELECT' && !el.multiple && el.size <= 1,
+              padTop: parseFloat(getComputedStyle(el).paddingTop),
+              known: known.find((selector) => el.matches(selector)) || null});
+  }
+  return out;
+}"""
+
+#: AN ICON-ONLY BUTTON IS SUPABASE'S, 36x26 (#1430; his ruling on #1457): their "Only an icon"
+#: Button (button-icon.tsx@86c813ec:5) at tiny, px-2.5 py-1 around a 14px icon in a 1px border
+#: (constants.ts@86c813ec:54, :61, Button.tsx@86c813ec:127, :25), as (width, height, icon).
+_ICON_ONLY = (36, 26, 14)
+
+#: The panel's Buttons drawn as another element: the Data card's menu trigger is a <summary>,
+#: an icon-only Button with no primary half beside it. The split chevron beside one is #1059's.
+_ALSO = [".dataset-card .split-button-trigger"]
+
+#: Controls that are a Supabase component other than the plain Button or Input, each at that
+#: component's height.
+_ANOTHER_COMPONENT = {
+    ".engine-url-save": (24, "their InputGroupButton, h-6 (input-group.tsx@86c813ec:125, :130)"),
+    ".engine-url-field input": (32, "an InputGroupInput fills its group's 34px inside the "
+                                    "group's border (input-group.tsx@86c813ec:170, -m-px)"),
+    ".finance-converter-row input": (32, "an InputGroupInput, inside its group's border"),
+    ".finance-converter-select-trigger": (32, "a Select inside the converter's group, inside "
+                                              "its border"),
+    "#check": (34, "a Button at size small, h-[34px] (constants.ts@86c813ec:62), beside its "
+                   "34px field, by his ruling on #1457"),
+}
+
+#: Buttons and fields that are not at their Supabase SIZE height, each with why.
+#: THIS LIST ONLY SHRINKS: a selector that no longer matches a control off its size fails the
+#: test until it is taken out, and a control newly off its size fails until it is named here.
+_OFF_SIZE = {
+    ".side-rail .rail-item": _TOUCH_TARGET,
+    ".engine-action-row": _TOUCH_TARGET,
+    ".appearance-scheme-picker button": SCHEME_PICKER,
+    ".engine-row": _A_ROW,
+    ".workspace-destination": _A_ROW,
+    ".account-switch": _A_ROW,
+    ".accounts-disclosure": _A_ROW,
+    ".accounts-action": _A_ROW,
+    ".manage-account-row-button": _A_ROW,
+    ".settings-toggle": "a Settings section's disclosure header, a row",
+    ".appearance-palette-tile": "a palette's tile, which Supabase gives no control height",
+    ".split-button-option": ("their DropdownMenuItem, whose height is its padding and its text "
+                             "(dropdown-menu.tsx@86c813ec:104)"),
+    "button.link": "a text link drawn as a <button>, at the height of its line",
+    # The Add Site form's Fallback engines, `multiple size="3"` (extension/app.html).
+    "select[multiple]": "a list box, which Supabase gives no SIZE height: it keeps its rows",
+    ".coverage-open": "a line of a Data card's text that opens its coverage, drawn as text",
+}
+
+
+def test_every_button_is_26px_and_every_field_34px_tall(open_panel):
+    """#1430's test. A bare <button> draws 26px tall, Supabase's Button at tiny, and `#url`
+    34px, their Input at small; each failed on main, at 36 and 38.25, because the Button's
+    text and padding (15px on a 1.2 line, 8px by 16px) and the Input's (a 1.35 line) stood
+    them taller than the floor #1050 gave them.
+
+    Then every Button and text field on every screen, read from the boxes the panel draws, as
+    #1437 (finding 2) asks: each is at its SIZE height, at its own component's in
+    `_ANOTHER_COMPONENT`, or named in `_OFF_SIZE`, which only shrinks."""
+    page = open_panel(signed_in=AN_OWNER, remembered_accounts=ANOTHER_ACCOUNT)
+    page.wait_for_selector("#accounts-card .account-menu-button")
+    settle_view(page, "profile")
+    page.evaluate("""() => {
+      const probe = document.createElement('button');
+      probe.type = 'button';
+      probe.id = 'bare-button-probe';
+      probe.textContent = 'Probe';
+      document.querySelector('main').prepend(probe);
+    }""")
+    probe = page.locator("#bare-button-probe").bounding_box()
+    page.evaluate("() => document.getElementById('bare-button-probe').remove()")
+
+    known = [*_ANOTHER_COMPONENT, *_OFF_SIZE]
+    controls: dict[str, list[dict]] = {}
+
+    def read(scope):
+        page.wait_for_selector(scope, state="visible")
+        # Measured, so settled: a view's entry animation moves every box it holds while it
+        # runs (settle_view says why). An endless animation is not waited for.
+        page.wait_for_function(
+            """(scope) => document.querySelector(scope).getAnimations({subtree: true}).every(
+                 (a) => a.playState !== 'running' || a.effect.getComputedTiming().iterations === Infinity)""",
+            arg=scope, timeout=5_000)
+        for control in page.evaluate(_READ_SIZES, [scope, known, _ALSO]):
+            controls.setdefault(control["name"], []).append(control)
+
+    # The Add Site form opens only on a successful Test site, so no click in _SIZE_SCREENS
+    # reaches it: its fields, Add site and the panel's one list box (#1457's reviews).
+    _open_add_form(page)
+    read("#add-form")
+    for scope, steps in _SIZE_SCREENS:
+        for target in steps:
+            page.wait_for_selector(target, state="visible")
+            page.click(target)
+        read(scope)
+
+    assert {"a bare <button>": probe and round(probe["height"], 2),
+            "#url": {c["height"] for c in controls.get("#url", [])}} == {
+        "a bare <button>": _SIZE["button"], "#url": {_SIZE["field"]}}
+    seen = [c for found in controls.values() for c in found]
+    assert sum(c["select"] for c in seen) >= 3, "the sweep read no native <select>"
+    at_size = Counter(c["kind"] for c in seen if c["known"] is None)
+    # 70 Buttons and 32 fields read at their size when #1430 measured; fewer means a screen
+    # did not open.
+    assert at_size["button"] >= 60 and at_size["field"] >= 25, (
+        f"the sweep read {dict(at_size)} controls at their size; a screen did not open")
+
+    wrong = sorted({f"{c['name']} ({c['kind']}): {c['height']}px" for c in seen
+                    if c["known"] is None and abs(c["height"] - _SIZE[c["kind"]]) > 0.01})
+    assert not wrong, (
+        f"Buttons not {_SIZE['button']}px or fields not {_SIZE['field']}px tall, named nowhere: "
+        + "\n  ".join(["", *wrong]))
+    other = sorted({f"{c['name']}: {c['height']}px, not {_ANOTHER_COMPONENT[c['known']][0]}"
+                    for c in seen if c["known"] in _ANOTHER_COMPONENT
+                    and abs(c["height"] - _ANOTHER_COMPONENT[c["known"]][0]) > 0.01})
+    assert not other, "controls off their own component's height:\n  " + "\n  ".join(other)
+    unread = sorted(set(_ANOTHER_COMPONENT) - {c["known"] for c in seen})
+    assert not unread, f"named in _ANOTHER_COMPONENT and read on no screen: {unread}"
+    # Chromium lays a native <select> out at `line-height: normal`, a 21px line at 15px: with
+    # block padding inside 34px it cuts the descenders off (design/components.css).
+    padded = sorted({c["name"] for c in seen if c["select"] and c["padTop"]})
+    assert not padded, f"a native <select> with block padding inside its 34px: {padded}"
+    off = {c["known"] for c in seen if c["known"] in _OFF_SIZE
+           and abs(c["height"] - _SIZE[c["kind"]]) > 0.01}
+    assert off == set(_OFF_SIZE), (
+        "named in _OFF_SIZE and matching no control off its size, so take it out: "
+        f"{sorted(set(_OFF_SIZE) - off)}")
+
+    # Every icon-only Button is Supabase's 36x26 around its 14px icon, not a 26px square: the
+    # three back buttons, Sign out, each account's menu, the Workspace sheet's close and the
+    # Data card's menu, when #1430 measured.
+    icon_only = [c for c in seen if c["iconOnly"] and c["known"] is None]
+    assert len({c["name"] for c in icon_only}) >= 7, (
+        f"the sweep read {sorted({c['name'] for c in icon_only})} as icon-only Buttons; a "
+        f"screen did not open")
+    boxes = sorted({f"{c['name']}: {c['width']}x{c['height']}, its icon {c['icon']}px"
+                    for c in icon_only if (c["width"], c["height"], c["icon"]) != _ICON_ONLY})
+    assert not boxes, (f"icon-only Buttons not {_ICON_ONLY[0]}x{_ICON_ONLY[1]} around a "
+                       f"{_ICON_ONLY[2]}px icon:\n  " + "\n  ".join(boxes))
+
+
+#: (font-size, line-height, padding-top, padding-inline-start) of each control, read from the
+#: cascade. A probe stands for each shared variant, so a screen's own rule cannot hide it.
+_READ_TEXT = """(selectors) => Object.fromEntries(selectors.map((selector) => {
+  const el = document.querySelector(selector);
+  if (!el) return [selector, null];
+  const s = getComputedStyle(el);
+  return [selector, [s.fontSize, s.lineHeight, s.paddingTop, s.paddingInlineStart]];
+}))"""
+
+#: SIZE_VARIANTS.tiny is `text-xs px-2.5 py-1` and .small `text-base md:text-sm leading-4 px-3
+#: py-2` (constants.ts@86c813ec:47-48, :54-55): 12px on a 16px line, 4px by 10px, for a Button
+#: and a `compact` one and a split button's primary; 15px on a 16px line, 8px by 12px, for an
+#: Input, and the panel's listbox trigger, a Select. Their Textarea takes the text's own line
+#: (textarea.tsx@86c813ec:12): text-base's 1.5, and from md text-sm's calc(1.25 / 0.875). A
+#: native <select> has no block padding: Chromium lays it out at `line-height: normal`, and its
+#: line is centred in its 34px.
+_TINY = ("12px", "16px", "4px", "10px")
+_TEXT_AT_360 = {
+    "#p-button": _TINY, "#p-compact": _TINY, "#p-split": _TINY,
+    "#p-input": ("15px", "16px", "8px", "12px"),
+    "#p-select": ("15px", "normal", "0px", "12px"),
+    "#p-textarea": ("15px", "22.5px", "8px", "12px"),
+    "#run-mode-trigger": ("15px", "16px", "8px", "12px"),
+    # Test site is a Button at size small, SIZE_VARIANTS.small's text and padding (his ruling on
+    # #1457), not tiny's.
+    "#check": ("15px", "16px", "8px", "12px"),
+    # A list box is no drop-down: it keeps the Input's text and its padding, and its rows.
+    "#p-list": ("15px", "16px", "8px", "12px"),
+    # Rows drawn as <button>s are not Buttons: each keeps the text around it on a 1.2 line.
+    "button.accounts-action": ("15px", "18px", "12px", "16px"),
+    "button.accounts-disclosure": ("15px", "18px", "12px", "16px"),
+    "button.workspace-destination": ("15px", "18px", "8px", "8px"),
+    "button.manage-account-row-button": ("15px", "18px", "12px", "16px"),
+    "button.engine-action-row": ("13px", "15.6px", "8px", "16px"),
+    "button.engine-row": ("15px", "18px", "12px", "16px"),
+}
+
+
+def _text(page, expected: dict) -> dict:
+    return {selector: read and tuple(read)
+            for selector, read in page.evaluate(_READ_TEXT, list(expected)).items()}
+
+
+def test_a_button_and_a_field_take_supabases_tiny_and_small_text(open_panel):
+    """#1430: the text and padding of a Button are SIZE tiny's and a field's SIZE small's, at
+    the panel's width and from Tailwind's md, 48rem, where small's text-sm takes over: their
+    text-base is 15px and their text-sm 13px (apps/studio/styles/globals.css@86c813ec:56-57).
+    The heights are `test_every_button_is_26px_and_every_field_34px_tall`'s; a 1.2 line on a
+    12px label still stands inside the 26px floor, so only this sees the text."""
+    page = open_panel(signed_in=AN_OWNER, remembered_accounts=ANOTHER_ACCOUNT)
+    page.wait_for_selector("#accounts-card .account-menu-button")
+    page.evaluate("""() => {
+      const host = document.createElement('div');
+      host.innerHTML = '<button type="button" id="p-button">Button</button>'
+        + '<button type="button" id="p-compact" class="compact">Compact</button>'
+        + '<div class="split-button"><button type="button" id="p-split" '
+        + 'class="split-button-primary">Split</button></div>'
+        + '<input id="p-input"><select id="p-select"><option>One</option></select>'
+        + '<select id="p-list" multiple size="3"><option>One</option><option>Two</option>'
+        + '<option>Three</option></select>'
+        + '<textarea id="p-textarea"></textarea>';
+      document.querySelector('main').prepend(host);
+    }""")
+    assert _text(page, _TEXT_AT_360) == _TEXT_AT_360
+    # Taller than its three 16px rows, which the 34px a drop-down takes would cut to one.
+    rows = page.locator("#p-list").bounding_box()
+    assert rows and rows["height"] > 3 * 16, rows
+
+    page.set_viewport_size({"width": 768, "height": 800})
+    small = {"#p-input": ("13px", "16px", "8px", "12px"),
+             "#p-select": ("13px", "normal", "0px", "12px"),
+             "#p-textarea": ("13px", "18.5718px", "8px", "12px"),
+             "#run-mode-trigger": ("13px", "16px", "8px", "12px"), "#p-button": _TINY,
+             "#check": ("13px", "16px", "8px", "12px"),
+             "#p-list": ("13px", "16px", "8px", "12px")}
+    assert _text(page, small) == small
+
+
+#: The height, in CSS px, of what an element's screenshot draws inside its border and the edge
+#: of its inline padding: from the first row to the last that differs from its background. The
+#: harness stubs `fetch`, so the PNG is decoded from its bytes.
+_INK = """async ([png, scale]) => {
+  const bytes = Uint8Array.from(atob(png), (ch) => ch.charCodeAt(0));
+  const bitmap = await createImageBitmap(new Blob([bytes], {type: 'image/png'}));
+  const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+  const context = canvas.getContext('2d');
+  context.drawImage(bitmap, 0, 0);
+  const data = context.getImageData(0, 0, bitmap.width, bitmap.height).data;
+  const light = (i) => (0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2]) / 255;
+  const [top, side] = [Math.ceil(1.5 * scale), 4 * scale];
+  const ground = light(((bitmap.height >> 1) * bitmap.width + side) * 4);
+  const rows = [];
+  for (let y = top; y < bitmap.height - top; y++) {
+    for (let x = side; x < bitmap.width - side; x++) {
+      if (Math.abs(light((y * bitmap.width + x) * 4) - ground) > 0.12) { rows.push(y); break; }
+    }
+  }
+  return rows.length ? (rows[rows.length - 1] - rows[0] + 1) / scale : 0;
+}"""
+
+#: Text with marks over and under its letters: a shadda over a doubled lam, the harakat and
+#: Quranic brackets, and Latin accented capitals with descenders.
+_MARKED = ("عبد اللّه", "لِلْجُمْلَةِ ﴿ٱلْحَمْدُ﴾", "gjpqy ÁÉÍ")
+
+
+def _ink(page, selector: str, scale: int) -> float:
+    # The element's own screenshot, which waits for its box to stand still.
+    png = page.locator(selector).screenshot()
+    return page.evaluate(_INK, [base64.b64encode(png).decode(), scale])
+
+
+def test_a_field_draws_the_marks_over_and_under_its_letters(browser, tmp_path):
+    """#1457's tests pass, must fix 1. Supabase's Input is leading-4, a 16px line, with py-2 in
+    a fixed h-[34px] (constants.ts@86c813ec:48, :55, :62). On the 34px floor alone Chromium drew
+    the value only inside that 16px line: at 15px, below Tailwind's md, it cut the shadda off
+    عبد اللّه, the harakat off a phrase in Quranic brackets and 1.5px off the accents of ÁÉÍ,
+    where main's 1.35 line cut about 1px. At their fixed 34px, with the same py-2 and leading-4,
+    every mark draws whole, so a one-line field takes the 34px as its height
+    (design/components.css).
+
+    Each string's ink in the Add Site form's Arabic name field is read from a 4x screenshot and
+    compared with the same field on a `normal` line that is free to grow, where nothing is cut:
+    16 against 19px for the shadda on the floor, and 19 at the fixed height, when #1430
+    measured. At 800px the text is 13px."""
+    page_file = harness.build_page(tmp_path, harness.stub(), name="ink.html")
+    page = browser.new_page(viewport={"width": 360, "height": 900}, device_scale_factor=4)
+    try:
+        page.goto(page_file.as_uri())
+        harness.wait_until_settled(page)
+        _open_add_form(page)
+        page.evaluate("() => document.fonts.ready")
+        field = "#f-name-ar"
+        drawn, boxes = {}, set()
+        for width in (360, 800):
+            page.set_viewport_size({"width": width, "height": 900})
+            page.locator(field).scroll_into_view_if_needed()
+            for text in _MARKED:
+                page.fill(field, text)
+                page.evaluate("() => document.activeElement.blur()")
+                boxes.add(round(page.locator(field).bounding_box()["height"], 2))
+                cut = _ink(page, field, 4)
+                page.evaluate("""(sel) => Object.assign(document.querySelector(sel).style,
+                  {lineHeight: 'normal', height: 'auto', paddingBlock: '8px'})""", field)
+                whole = _ink(page, field, 4)
+                page.evaluate("(sel) => document.querySelector(sel).removeAttribute('style')", field)
+                drawn[(width, text)] = (cut, whole)
+    finally:
+        page.close()
+    assert boxes == {34}, f"the field's box is not Supabase's 34px Input: {boxes}"
+    # One device pixel at 4x is the rounding of a line centred rather than padded.
+    lost = {key: ink for key, ink in drawn.items() if ink[1] - ink[0] > 0.25}
+    assert not lost, ("a field cut the marks off its value, (drawn, whole) in px: "
+                      f"{lost}")
 
 
 def test_the_engine_power_disclosure_is_grouped_with_its_label(open_panel):
@@ -9236,6 +10952,62 @@ HARNESS_BUNDLE = {
 }
 
 
+def _backed_up_with(open_panel, **reply) -> str:
+    """Press Back up on Manage account with this build reply; return what it said."""
+    page = open_panel(
+        signed_in=ACCOUNT,
+        bundle={**HARNESS_BUNDLE, **reply},
+        drive={"folder": "folder-1", "files": [], "pointer": None},
+    )
+    page.wait_for_selector("#welcome-signed-in:visible")
+    page.click("#manage-account")
+    page.wait_for_selector("#view-manage-account:visible")
+    page.click("#manage-backup")
+    page.wait_for_function(
+        "() => /Backed up/.test("
+        "document.querySelector('#manage-backup-msg').innerText)",
+        timeout=30000)
+    return page.inner_text("#manage-backup-msg").strip()
+
+
+def test_a_backup_says_which_tables_its_offline_copy_left_out(open_panel):
+    """#1199: the light file never fails a backup, so a table it could not write is
+    said where he reads the result, or it is a silent failure."""
+    said = _backed_up_with(open_panel, light_error=None, light={"faults": [
+        {"kind": "price", "site_key": "ELSEWEDYSHOP", "key": "ELSEWEDYSHOP",
+         "problem": "RuntimeError: the second card"}]})
+
+    assert said.endswith(
+        "The offline copy of the Data page left out 1 table: ELSEWEDYSHOP."), said
+
+
+def test_a_backup_names_every_table_its_offline_copy_left_out(open_panel):
+    """Each by its key, a dataset's as well as a price source's, and counted."""
+    said = _backed_up_with(open_panel, light_error=None, light={"faults": [
+        {"kind": "price", "site_key": "ELSEWEDYSHOP", "key": "ELSEWEDYSHOP",
+         "problem": "RuntimeError: the second card"},
+        {"kind": "dataset", "site_key": "muqawil_org", "key": "contractor_profiles",
+         "problem": "LookupError: muqawil_org/contractor_profiles: listed, and its "
+                    "table resolves to nothing"}]})
+
+    assert said.endswith("The offline copy of the Data page left out 2 tables: "
+                         "ELSEWEDYSHOP, contractor_profiles."), said
+
+
+def test_a_backup_says_when_its_offline_copy_was_not_written(open_panel):
+    said = _backed_up_with(open_panel, light=None,
+                           light_error="OSError: [Errno 28] No space left on device")
+
+    assert said.endswith("The offline copy of the Data page was not written: "
+                         "OSError: [Errno 28] No space left on device."), said
+
+
+def test_a_whole_offline_copy_adds_nothing_to_the_sentence(open_panel):
+    said = _backed_up_with(open_panel, light={"faults": []}, light_error=None)
+
+    assert "offline copy" not in said, said
+
+
 def test_the_button_takes_a_whole_backup_and_the_list_below_it_updates(open_panel):
     """The path the owner actually walks, end to end, from the screen he is on.
 
@@ -10099,55 +11871,108 @@ def test_a_live_warehouse_that_could_not_be_counted_is_not_read_as_a_pass(
     assert "nothing here to compare it against" in said, said
 
 
-def test_cancel_asks_first_and_a_refused_question_sends_nothing(open_panel):
-    """CANCEL IS THE ONE IRREVERSIBLE CONTROL AND ITS ONLY QUESTION WAS UNTESTED.
+CANCEL_SENTENCE = "Cancelling stops it for good. What it already stored stays in the warehouse."
+# The names the panel gives the two jobs these tests cancel (`jobLabel`): kind · domain,
+# the domain from the stub's muqawil_org dataset card (`site_key`).
+PAUSED_ROW = "Interpretation · muqawil.org"
+PLAYER_JOB = "Profile fetch · muqawil.org"
 
-    `confirmedControl` guards both surfaces -- the row's Cancel and the mini-player's --
-    and replacing its whole body with `return true;` left the entire suite green. The
-    string it asks with appears exactly once in the repository: the production line.
-    Both existing control guards press `button.first`, which is Pause or Resume, so
-    nothing ever drove Cancel.
 
-    That matters most exactly where this page puts it: Cancel sits next to Resume in a
-    paused row, in a list of 163, and a mis-click terminally cancels a running crawl.
-    """
-    page = open_panel(jobs=HIS_JOBS)
+def _control_writes(page):
+    return [w for w in page.evaluate("() => window.__writes") if "/control" in w["path"]]
+
+
+def _the_cancel_question_is_open(page, named):
+    """The panel's own alertdialog, open, asking the one shared question about the job it
+    NAMES, with focus on the choice that changes nothing (WAI-ARIA APG alertdialog).
+
+    The copy is compared whole: the name is the only thing that says which job the
+    question is about, and an inclusion test passed a stale name left by the last open."""
+    page.wait_for_selector("#confirm-veil:not(.hidden)", timeout=2000)
+    dialog = page.locator("#confirm-dialog")
+    assert dialog.get_attribute("role") == "alertdialog"
+    assert dialog.get_attribute("aria-modal") == "true"
+    assert page.text_content("#confirm-title").strip() == "Cancel this job?"
+    assert page.text_content("#confirm-copy") == named + CANCEL_SENTENCE
+    assert page.text_content("#confirm-keep").strip() == "Keep job"
+    assert page.text_content("#confirm-go").strip() == "Cancel job"
+    assert page.evaluate("() => document.activeElement && document.activeElement.id") == "confirm-keep"
+
+
+def _open_paused_rows_cancel(page):
+    """The paused row's "Cancel job…", in its ⋮ menu (#1542). Returned as a callable,
+    because the menu closes on every press and has to be opened again."""
     page.click(JOBS_TAB)
     page.wait_for_timeout(300)
+    assert _menu_items(page, "job_0212decca681") == ["View log", "Cancel job…"]
+    page.keyboard.press("Escape")
 
-    paused = page.locator('#jobs-list .job-row[data-job="job_0212decca681"]')
-    # The controls live inside the row's <details>, so it has to be open to press one --
-    # which is the state a mis-click happens in anyway.
-    paused.locator("summary").click()
-    page.wait_for_timeout(300)
-    labels = paused.locator("button").all_text_contents()
-    assert labels == ["Resume", "Cancel"], (
-        f"this guard needs the paused row's Cancel button; it draws {labels}")
-    cancel = paused.locator("button").nth(1)
+    class Press:
+        def click(self):
+            _menu_item(page, "job_0212decca681", "Cancel job").click()
+    return Press()
 
-    # DISMISSED: the question was asked, and nothing was sent.
-    asked = []
-    page.once("dialog", lambda dialog: (asked.append(dialog.message), dialog.dismiss()))
+
+def test_cancel_asks_first_and_a_refused_question_sends_nothing(open_panel):
+    """CANCEL IS THE ONE IRREVERSIBLE CONTROL, and it asks in the panel's own dialog.
+
+    `confirmedControl` guards both surfaces -- the row's Cancel and the mini-player's.
+    It asked through the browser's `confirm()` until #1542: a window whose "Cancel"
+    button meant KEEP, which Supabase's ConfirmationModal (`variant="destructive"`,
+    `cancelLabel`/`confirmLabel`, ConfirmationModal.tsx@86c813ec:27-62) exists to avoid.
+    The sentence is the one true for every kind and status: a held job settles at its
+    boundary, a queued or paused one at once, and what was stored is never rolled back.
+    """
+    page = open_panel(jobs=HIS_JOBS)
+    native = []
+    page.on("dialog", lambda dialog: (native.append(dialog.message), dialog.dismiss()))
+    cancel = _open_paused_rows_cancel(page)
+
+    # KEEP: asked, nothing sent, focus back where he pressed.
     cancel.click()
-    page.wait_for_timeout(300)
+    _the_cancel_question_is_open(page, PAUSED_ROW)
+    page.click("#confirm-keep")
+    page.wait_for_timeout(200)
+    assert page.locator("#confirm-veil").is_hidden()
+    assert _control_writes(page) == [], "Keep job was chosen and the cancel was sent anyway"
+    # BACK ON THE ROW'S ⋮, which the menu returns focus to before the question opens.
+    assert (page.evaluate("() => document.activeElement && document.activeElement.getAttribute('aria-label')")
+            or "").startswith("More actions for Interpretation · muqawil.org")
 
-    assert asked, "Cancel was pressed and no question was asked before it was sent"
-    assert "Cancel this job?" in asked[0], (
-        f"the question does not name what it is about to do: {asked[0]!r}")
-    sent = [w for w in page.evaluate("() => window.__writes")
-            if "/control" in w["path"]]
-    assert sent == [], (
-        f"the question was refused and the cancel was sent anyway: {sent}")
-
-    # ACCEPTED: the same press goes through, so the guard has not broken the button.
-    page.once("dialog", lambda dialog: dialog.accept())
+    # ESCAPE: the same as Keep.
     cancel.click()
+    _the_cancel_question_is_open(page, PAUSED_ROW)
+    page.keyboard.press("Escape")
+    page.wait_for_timeout(200)
+    assert page.locator("#confirm-veil").is_hidden()
+    assert _control_writes(page) == [], "Escape closed the question and the cancel was sent"
+
+    # CANCEL JOB: the same press goes through, so the guard has not broken the button.
+    cancel.click()
+    _the_cancel_question_is_open(page, PAUSED_ROW)
+    page.click("#confirm-go")
     page.wait_for_timeout(400)
-
-    sent = [w for w in page.evaluate("() => window.__writes")
-            if "/control" in w["path"]]
+    sent = _control_writes(page)
     assert len(sent) == 1 and sent[0]["body"] == {"control": "cancel"}, (
-        f"an accepted Cancel did not reach the engine: {sent}")
+        f"a confirmed Cancel did not reach the engine: {sent}")
+    assert native == [], f"the browser's own confirm() was still used: {native}"
+
+
+def test_the_cancel_question_keeps_tab_inside_it(open_panel):
+    """aria-modal is a promise the page has to keep: Tab cycles the two choices and never
+    reaches the panel behind the veil (WAI-ARIA APG dialog, keyboard interaction)."""
+    page = open_panel(jobs=HIS_JOBS)
+    cancel = _open_paused_rows_cancel(page)
+    cancel.click()
+    _the_cancel_question_is_open(page, PAUSED_ROW)
+    seen = []
+    for _ in range(4):
+        page.keyboard.press("Tab")
+        seen.append(page.evaluate("() => document.activeElement && document.activeElement.id"))
+    assert seen == ["confirm-go", "confirm-keep", "confirm-go", "confirm-keep"], seen
+    page.keyboard.press("Shift+Tab")
+    assert page.evaluate("() => document.activeElement.id") == "confirm-go"
+    page.keyboard.press("Escape")
 
 
 def test_the_miniplayers_cancel_asks_the_same_question(open_panel):
@@ -10158,6 +11983,8 @@ def test_the_miniplayers_cancel_asks_the_same_question(open_panel):
     above the Jobs list on every tab, which is where a stray click lands.
     """
     page = open_panel(jobs=HIS_JOBS)
+    native = []
+    page.on("dialog", lambda dialog: (native.append(dialog.message), dialog.dismiss()))
     page.wait_for_function(
         "() => !document.getElementById('miniplayer').classList.contains('hidden')")
     # The player rests minimised, so its controls are hidden until he opens it -- which
@@ -10166,17 +11993,1370 @@ def test_the_miniplayers_cancel_asks_the_same_question(open_panel):
     page.wait_for_timeout(300)
     assert page.is_visible("#mini-cancel"), "the player's Cancel is not reachable"
 
-    asked = []
-    page.once("dialog", lambda dialog: (asked.append(dialog.message), dialog.dismiss()))
     page.click("#mini-cancel")
+    _the_cancel_question_is_open(page, PLAYER_JOB)
+    page.click("#confirm-keep")
     page.wait_for_timeout(300)
+    assert _control_writes(page) == [], (
+        "the question was refused and the cancel was sent anyway")
+    assert native == [], f"the browser's own confirm() was still used: {native}"
 
-    assert asked and "Cancel this job?" in asked[0], (
-        f"the mini-player cancelled without asking: {asked}")
-    sent = [w for w in page.evaluate("() => window.__writes")
-            if "/control" in w["path"]]
-    assert sent == [], (
-        f"the question was refused and the cancel was sent anyway: {sent}")
+
+def test_a_click_beside_the_question_answers_no(open_panel):
+    """THE VEIL ANSWERS NO. A stray click beside the card must never become the one
+    irreversible press; only "Cancel job" sends it."""
+    page = open_panel(jobs=HIS_JOBS)
+    cancel = _open_paused_rows_cancel(page)
+    cancel.click()
+    _the_cancel_question_is_open(page, PAUSED_ROW)
+    page.mouse.click(5, 5)   # the veil's corner, outside the card
+    page.wait_for_timeout(300)
+    assert page.locator("#confirm-veil").is_hidden()
+    assert _control_writes(page) == [], "a click beside the question cancelled the job"
+
+
+def test_the_players_cancel_goes_to_the_job_the_question_named(open_panel):
+    """THE QUESTION IS ASYNCHRONOUS NOW, AND THE POLL GOES ON UNDER IT. `controlJob` read
+    `state.jobRef` after the answer, so a crawl handing off to its interpretation while
+    the dialog was open sent the cancel to the interpretation -- a job he was never asked
+    about -- and a job ending sent it to `/api/jobs/null` (#1601's merge gate)."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.wait_for_function(
+        "() => !document.getElementById('miniplayer').classList.contains('hidden')")
+    page.locator("#miniplayer summary").click()
+    page.wait_for_timeout(200)
+    page.click("#mini-cancel")
+    _the_cancel_question_is_open(page, PLAYER_JOB)
+    # The handoff, while he reads the question: the crawl is gone, an interpretation runs.
+    page.evaluate("""() => { const real = window.fetch;
+        window.fetch = (u, o) => String(u).includes("active_only=true")
+          ? Promise.resolve(new Response(JSON.stringify({jobs: [{job_ref: "job_handoff",
+              status: "running", job_kind: "dataset_interpret",
+              source_keys: ["muqawil_org"]}]}),
+              {status: 200, headers: {"Content-Type": "application/json"}}))
+          : real(u, o); }""")
+    page.wait_for_function(
+        "() => (document.getElementById('mini-title').textContent || '').includes('Interpretation')",
+        timeout=4000)
+    page.click("#confirm-go")
+    page.wait_for_timeout(400)
+    sent = _control_writes(page)
+    assert [w["path"] for w in sent] == ["/api/jobs/job_034c51a29deb/control"], (
+        f"the cancel went to a job the question did not name: {sent}")
+
+TICK = "/api/jobs?active_only=true&limit=200"
+FAIL_TICKS = """(n) => {
+  window.__failTicks = n;
+  const real = window.fetch;
+  window.fetch = async (url, options) => {
+    if (String(url).includes("active_only=true&limit=200") && window.__failTicks > 0) {
+      window.__failTicks -= 1;
+      throw new TypeError("Failed to fetch");
+    }
+    return real(url, options);
+  };
+}"""
+
+
+def test_every_page_reads_what_is_running_the_same_way(open_panel):
+    """THE READ MODEL'S TICK (#1542): `active_only` up to the Jobs page's bound, on every
+    page. It read the newest five, so "N queued" stopped at 4 on Run and not on Jobs,
+    and a paused job older than the window vanished from the player on one page only."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.wait_for_function(
+        "() => !document.getElementById('miniplayer').classList.contains('hidden')")
+    calls = page.evaluate("() => window.__calls")
+    assert TICK in calls, f"the tick did not read active_only up to 200: {calls}"
+    assert not [c for c in calls if "active_only=true&limit=5" in c], (
+        "the newest-five read is still issued")
+
+
+def test_the_player_counts_only_the_jobs_still_to_settle(open_panel):
+    """THE TICK IS FILTERED ONCE, before the adoption and before the count. The harness
+    answers every `/api/jobs` with all seven of his jobs, settled ones included, as a
+    read the engine did not filter would: of the six beside the running one, three are
+    preparing, paused or queued and three have finished. "N queued" is the three."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.wait_for_function(
+        "() => !document.getElementById('miniplayer').classList.contains('hidden')")
+    sub = page.text_content("#mini-sub")
+    assert "3 queued" in sub, f"the player counted settled jobs as waiting: {sub!r}"
+
+
+def test_an_older_history_answer_never_draws_over_a_newer_one(open_panel):
+    """TWO HISTORY READS CAN BE IN FLIGHT (entry and a change in the active set, or a
+    press and one). The entry read is held back here and answers last, with the paused
+    job still in it; a change in the tick's active set issues a second read meanwhile,
+    which answers first without it. The page must keep the newer answer."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.evaluate("""() => { let n = 0; const real = window.fetch;
+        window.fetch = (u, o) => {
+          const path = String(u);
+          if (path.endsWith("/api/jobs?limit=201")) {
+            n += 1;
+            if (n === 1) return new Promise((done) => setTimeout(() => done(real(u, o)), 2500));
+            return real(u, o).then((r) => r.json()).then((body) => new Response(
+              JSON.stringify({...body, jobs: body.jobs.filter(
+                (job) => job.job_ref !== "job_0212decca681")}),
+              {status: 200, headers: {"Content-Type": "application/json"}}));
+          }
+          if (path.includes("active_only=true") && n >= 1) {
+            return real(u, o).then((r) => r.json()).then((body) => new Response(
+              JSON.stringify({...body, jobs: [...body.jobs, {job_ref: "job_new",
+                status: "queued", job_kind: "crawl", source_keys: ["x"]}]}),
+              {status: 200, headers: {"Content-Type": "application/json"}}));
+          }
+          return real(u, o); }; }""")
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(3500)
+    assert page.locator("#jobs-list .job-row").count() > 0, "the newer answer never drew"
+    assert _job_row(page, "job_0212decca681").count() == 0, (
+        "the older answer, issued first and landing last, drew over the newer one")
+
+
+MUQAWIL_SOURCE = [{"source_key": "muqawil_org", "source_name": "Saudi Contractors Authority",
+                   "base_url": "https://muqawil.org", "active": True, "implemented": True}]
+
+
+def test_the_player_names_the_source_by_its_domain_on_any_page(open_panel):
+    """ONE NAME FOR ONE JOB, wherever he is. The Sources payload was read only when Run
+    or Sources opened, so on Welcome or Jobs the player fell back to the key; a live job
+    now reads it once if the panel holds none."""
+    page = open_panel(jobs=HIS_JOBS, sources=MUQAWIL_SOURCE)
+    page.wait_for_function(
+        "() => (document.getElementById('mini-title').textContent || '')"
+        ".includes('muqawil.org')", timeout=5000)
+    assert page.text_content("#mini-title").startswith("Profile fetch · muqawil.org")
+    # AND THE LINE UNDER IT: the source the job is on now, by the same name.
+    page.wait_for_function(
+        "() => (document.getElementById('mini-sub').textContent || '')"
+        ".includes('now: muqawil.org')", timeout=5000)
+    assert "muqawil_org" not in page.text_content("#mini-sub")
+
+
+def test_a_failed_tick_tries_again_and_the_player_comes_back(open_panel):
+    """A FAILED TICK USED TO END POLLING FOR GOOD: the catch hid the player and returned
+    with no timer, so one timeout left it hidden until he navigated. It now backs off
+    (1.5 s, then 3 s) while there was a job to follow, and the first success redraws it.
+    The schedule itself is pinned in extension/tests/the-tick-keeps-asking.test.mjs."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.wait_for_function(
+        "() => !document.getElementById('miniplayer').classList.contains('hidden')")
+    page.evaluate(FAIL_TICKS, 2)
+    page.wait_for_function(
+        "() => document.getElementById('miniplayer').classList.contains('hidden')",
+        timeout=5000)
+    # Two failures, then a success: back within 1.5 s + 3 s plus a tick, never stuck.
+    page.wait_for_function(
+        "() => window.__failTicks === 0 && "
+        "!document.getElementById('miniplayer').classList.contains('hidden')",
+        timeout=10000)
+
+
+def test_a_press_is_followed_by_a_read_issued_after_it(open_panel):
+    """A PRESS GETS A FRESH READ, never one already in flight. `pollJob` handed back any
+    read in progress, so a press resolving during a tick was answered by a read taken
+    BEFORE it, and the player kept the job's old status (#1542, read model rule 3).
+
+    Each tick is held 2 s here and Pause is pressed while one is in flight. A fresh read
+    starts the moment that one lands, about 2 s after the press; reusing it leaves the
+    next read to the 1.5 s timer after it, about 3.5 s."""
+    page = open_panel(jobs=HIS_JOBS, route_delays={"/api/jobs?active_only": 2000})
+    page.wait_for_function(
+        "() => !document.getElementById('miniplayer').classList.contains('hidden')",
+        timeout=6000)
+    page.locator("#miniplayer summary").click()
+    page.evaluate("() => { window.__calls.length = 0; }")
+    page.wait_for_function(
+        "() => window.__calls.some((c) => c.includes('active_only=true&limit=200'))",
+        timeout=6000)
+    page.click("#mini-pause")
+    page.wait_for_function(
+        "() => window.__calls.some((c) => c.includes('/control'))", timeout=2000)
+    page.wait_for_function(
+        """() => { const at = window.__calls.findIndex((c) => c.includes('/control'));
+                   return at >= 0 && window.__calls.slice(at + 1)
+                     .some((c) => c.includes('active_only=true&limit=200')); }""",
+        timeout=2700)
+
+
+def test_with_nothing_running_one_small_read_every_thirty_seconds(browser, tmp_path):
+    """HIS CHOICE, 2026-10-09: while nothing is held or queued, `active_only&limit=1`
+    every 30 s, so a job the scheduler starts appears by itself; and when it finds one,
+    the full tick resumes. Driven on Playwright's clock, not by waiting 30 s."""
+    page_file = harness.build_page(tmp_path, harness.stub(jobs=[]), name="idle.html")
+    page = browser.new_page(viewport={"width": 360, "height": 800})
+    try:
+        page.goto(page_file.as_uri())
+        harness.wait_until_settled(page)
+        # The clock goes in AFTER boot (boot waits on timers of its own); a visibility
+        # change then runs a tick, which finds nothing and arms the probe on this clock.
+        page.clock.install()
+        page.evaluate("() => document.dispatchEvent(new Event('visibilitychange'))")
+        page.wait_for_function(
+            "() => window.__calls.filter((c) => c.includes('active_only=true&limit=200'))"
+            ".length >= 2", timeout=3000)
+        page.evaluate("() => { window.__calls.length = 0; }")
+        page.clock.run_for(29_000)
+        assert not [c for c in page.evaluate("() => window.__calls")
+                    if "active_only=true&limit=1" in c], "probed before 30 s"
+        page.clock.run_for(2_000)
+        page.wait_for_function(
+            "() => window.__calls.some((c) => c.includes('active_only=true&limit=1'))",
+            timeout=3000)
+        # The probe finds a job: the full tick follows at once.
+        page.evaluate("""() => { const real = window.fetch; window.fetch = (u, o) =>
+            String(u).includes("active_only=true&limit=1")
+              ? Promise.resolve(new Response(JSON.stringify({jobs: [{job_ref: "job_new",
+                  status: "queued", job_kind: "crawl", source_keys: ["x"]}]}),
+                  {status: 200, headers: {"Content-Type": "application/json"}}))
+              : real(u, o); }""")
+        page.evaluate("() => { window.__calls.length = 0; }")
+        page.clock.run_for(31_000)
+        page.wait_for_function(
+            "() => window.__calls.some((c) => c.includes('active_only=true&limit=200'))",
+            timeout=3000)
+    finally:
+        page.close()
+
+
+def test_the_jobs_page_rereads_its_history_when_a_job_starts_or_ends(open_panel):
+    """THE TICK TELLS THE PAGE. The Jobs page had no read of its own after entry, so a
+    job the scheduler started while he watched never got a row. A change in the tick's
+    active set, either way, re-reads the history while the page is on screen."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_selector("#jobs-list .job-row")
+    page.evaluate("""() => { window.__calls.length = 0; const real = window.fetch;
+        window.fetch = (u, o) => String(u).includes("active_only=true")
+          ? real(u, o).then((r) => r.json()).then((body) => new Response(JSON.stringify(
+              {...body, jobs: [...body.jobs, {job_ref: "job_new", status: "queued",
+                job_kind: "crawl", source_keys: ["x"]}]}),
+              {status: 200, headers: {"Content-Type": "application/json"}}))
+          : real(u, o); }""")
+    page.wait_for_function(
+        "() => window.__calls.some((c) => c === '/api/jobs?limit=201')", timeout=4000)
+
+
+# ---- the Jobs page's own design (#1542, confirmed 2026-10-09) -------------------------
+
+def _jobs_page_at(browser, tmp_path, width, scheme="light", **stub):
+    """The Jobs page in the real panel at one of his three widths, in one scheme."""
+    page_file = harness.build_page(tmp_path, harness.stub(**stub),
+                                   name=f"jobs-{width}-{scheme}.html")
+    page = browser.new_page(viewport={"width": width, "height": 900})
+    page.goto(page_file.as_uri())
+    harness.wait_until_settled(page)
+    if scheme == "dark":
+        page.click('nav.side-rail button[data-view="appearance"]')
+        page.click("[data-appearance-scheme-mode=dark]")
+    page.click(JOBS_TAB)
+    page.wait_for_selector("#jobs-list .job-row")
+    page.wait_for_timeout(300)
+    return page
+
+
+@pytest.mark.parametrize("width", [320, 400, 480])
+def test_at_his_three_widths_nothing_that_names_a_row_is_cut(browser, tmp_path, width):
+    """320, 400 AND 480 PX, HIS CHOICE. The domain and the keys identify a row, so in
+    Jobs they wrap -- after a dot -- where the shared identity ellipsizes (his choice
+    D); ⋮ holds the row's top corner (his choice A); and nothing makes the panel scroll
+    sideways."""
+    page = _jobs_page_at(browser, tmp_path, width, jobs=HIS_JOBS)
+    try:
+        cut = page.evaluate("""() => [...document.querySelectorAll(
+              '#jobs-list .source-identity-domain, #jobs-list .source-identity-key')]
+            .filter((el) => el.scrollWidth > el.clientWidth + 1).map((el) => el.textContent)""")
+        assert cut == [], f"at {width} px these are cut: {cut}"
+        # THE VIEW SCROLLS, NOT THE DOCUMENT: a row wider than the panel widens
+        # #view-jobs's scroller and leaves documentElement at the viewport.
+        sideways = page.evaluate("""() => { const box = document.querySelector('#view-jobs .view-scroll');
+            return box.scrollWidth - box.clientWidth; }""")
+        assert sideways <= 0, f"at {width} px the Jobs page scrolls sideways by {sideways} px"
+        corner = page.evaluate("""() => { const row = document.querySelector('#jobs-list .job-row');
+            const kebab = row.querySelector('[data-part="kebab"]').getBoundingClientRect();
+            const box = row.getBoundingClientRect();
+            return {top: kebab.top - box.top, right: box.right - kebab.right,
+                    width: Math.round(kebab.width)}; }""")
+        assert corner["top"] < 20 and corner["right"] < 20, f"⋮ is not in the corner: {corner}"
+        assert corner["width"] == 28, f"⋮ is not the registry's w-7: {corner}"
+    finally:
+        page.close()
+
+
+def test_a_rows_reading_order_is_identity_status_action_then_menu(open_panel):
+    """THE DOM IS THE READING ORDER (table.mdx@86c813ec:193, 201): a screen reader and
+    Tab reach what the job IS before what can be done to it, and the one action before
+    the menu of the rest. CSS alone puts ⋮ in the corner."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(300)
+    parts = page.evaluate("""() => [...document.querySelector(
+        '#jobs-list .job-row[data-job="job_034c51a29deb"]').querySelectorAll('[data-part]')]
+        .map((el) => el.dataset.part).filter((p) => ['identity', 'statusline', 'primary',
+        'kebab', 'menu', 'time'].includes(p))""")
+    assert parts == ["identity", "statusline", "primary", "kebab", "menu", "time"], parts
+
+
+@pytest.mark.parametrize("scheme", ["light", "dark"])
+def test_every_status_colour_on_the_page_is_readable(browser, tmp_path, scheme):
+    """MEASURED FROM THE DRAWN COLOURS (WCAG 2.2): words 4.5:1 against the row, glyphs
+    3:1. A warning glyph is --warning-600, which clears 3:1 only on --surface: the rows
+    are drawn on --surface, and this holds them to it."""
+    page = _jobs_page_at(browser, tmp_path, 400, scheme, jobs=HIS_JOBS)
+    try:
+        drawn = page.evaluate("""() => [...document.querySelectorAll('#jobs-list .job-status')]
+            .map((el) => { let bg = el; let colour = 'rgba(0, 0, 0, 0)';
+              while (bg && (colour === 'rgba(0, 0, 0, 0)' || colour === 'transparent')) {
+                colour = getComputedStyle(bg).backgroundColor; bg = bg.parentElement; }
+              return {words: getComputedStyle(el).color,
+                      glyph: getComputedStyle(el.querySelector('svg')).color,
+                      under: colour, text: el.textContent}; })""")
+        assert drawn, "no status was drawn"
+        for one in drawn:
+            assert _contrast(one["words"], one["under"]) >= 4.5, one
+            assert _contrast(one["glyph"], one["under"]) >= 3.0, one
+    finally:
+        page.close()
+
+
+def test_the_rows_menu_follows_the_menu_button_pattern(open_panel):
+    """WAI-ARIA APG MENU BUTTON. Enter opens it on the first item, the arrows move,
+    Escape closes it and gives focus back to ⋮; its items are not Tab stops."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(300)
+    row = _job_row(page, "job_0212decca681")
+    kebab = row.locator('[data-part="kebab"]')
+    assert kebab.get_attribute("aria-haspopup") == "menu"
+    kebab.focus()
+    page.keyboard.press("Enter")
+    page.wait_for_timeout(100)
+    assert kebab.get_attribute("aria-expanded") == "true"
+    active = "() => document.activeElement.textContent.trim()"
+    assert page.evaluate(active) == "View log"
+    page.keyboard.press("ArrowDown")
+    assert page.evaluate(active) == "Cancel job…"
+    page.keyboard.press("ArrowDown")
+    assert page.evaluate(active) == "View log", "the arrows do not wrap"
+    page.keyboard.press("End")
+    assert page.evaluate(active) == "Cancel job…"
+    assert row.locator('[role="menuitem"]').first.get_attribute("tabindex") == "-1"
+    page.keyboard.press("Escape")
+    assert row.locator('[data-part="menu"]').is_hidden()
+    assert page.evaluate("() => document.activeElement.dataset.part") == "kebab"
+
+
+def test_the_count_line_says_live_or_when_it_was_read(open_panel):
+    """WHILE A JOB IS IN PROGRESS OR QUEUED the page refreshes and says so; with nothing
+    running it does not, and says when it was read."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(300)
+    assert page.locator("#jobs-count").inner_text() == (
+        "7 jobs · Refreshes every 1.5s while a job is in progress or queued")
+    settled = [job for job in HIS_JOBS if job["status"] in ("completed", "failed", "cancelled")]
+    idle = open_panel(jobs=settled)
+    idle.click(JOBS_TAB)
+    idle.wait_for_timeout(300)
+    assert re.fullmatch(r"3 jobs · Read at \d{1,2}:\d{2} [AP]M",
+                        idle.locator("#jobs-count").inner_text()), (
+        idle.locator("#jobs-count").inner_text())
+
+
+def test_older_jobs_are_said_to_exist_only_when_one_does(open_panel):
+    """THE PAGE ASKS FOR 201 AND DRAWS 200: "older jobs are not listed" only when the
+    201st came back. At exactly 200 the sentence would be false."""
+    many = [dict(HIS_JOBS[3], job_ref=f"job_{n:012x}") for n in range(201)]
+    page = open_panel(jobs=many)
+    page.click(JOBS_TAB)
+    page.wait_for_selector("#jobs-list .job-row")
+    assert page.locator("#jobs-list .job-row").count() == 200
+    assert page.locator("#jobs-count").inner_text().startswith(
+        "Newest 200 jobs shown; older jobs are not listed")
+    exact = open_panel(jobs=many[:200])
+    exact.click(JOBS_TAB)
+    exact.wait_for_selector("#jobs-list .job-row")
+    assert exact.locator("#jobs-count").inner_text().startswith("200 jobs")
+
+
+def test_no_jobs_yet_says_where_to_start_one(open_panel):
+    """THE EMPTY STATE NAMES WHAT IS MISSING AND HOW TO ADD IT (copywriting.mdx), with
+    the action: Open Run."""
+    page = open_panel(jobs=[])
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(300)
+    said = page.locator("#jobs-state").inner_text()
+    assert "No jobs yet" in said and "Start one from the Run screen." in said
+    page.click("#jobs-state button")
+    page.wait_for_selector("#view-run", state="visible")
+
+
+def test_a_failed_live_read_keeps_the_list_and_says_so(open_panel):
+    """A LIVE READ THAT FAILS LEAVES THE LIST, says when it was read and what the engine
+    answered, and the banner goes when that read succeeds again."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(300)
+    page.evaluate("""() => { window.__failTicks = 1; const real = window.fetch;
+        window.fetch = (u, o) => (String(u).includes("active_only=true") && window.__failTicks > 0)
+          ? (window.__failTicks -= 1, Promise.resolve(new Response(
+              JSON.stringify({detail: "database not found at D:\\ScrapeX\\warehouse.db"}),
+              {status: 503, headers: {"Content-Type": "application/json"}})))
+          : real(u, o); }""")
+    page.wait_for_function(
+        "() => document.getElementById('jobs-state').textContent.includes('Unable to refresh data')",
+        timeout=4000)
+    said = page.locator("#jobs-state").inner_text()
+    assert "Showing the jobs as read at" in said and "database not found" in said, said
+    assert page.locator("#jobs-list .job-row").count() == 7, "the list was dropped"
+    page.wait_for_function(
+        "() => !document.getElementById('jobs-state').textContent.includes('Unable to refresh data')",
+        timeout=8000)
+
+
+def test_when_the_engine_stops_answering_the_rows_controls_wait_for_it(open_panel):
+    """NO ANSWER AT ALL, and the probe agrees the engine is down: the list stays, its
+    controls are aria-disabled with the reason said, and Start engine is offered."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(300)
+    page.evaluate("""() => { state.engineUp = false; const real = window.fetch;
+        window.fetch = (u, o) => String(u).includes("/api/jobs")
+          ? Promise.reject(new TypeError("Failed to fetch")) : real(u, o); }""")
+    page.wait_for_function(
+        "() => document.getElementById('jobs-state').textContent.includes('Engine stopped answering')",
+        timeout=4000)
+    said = page.locator("#jobs-state").inner_text()
+    assert "Their controls return when the engine answers." in said, said
+    row = _job_row(page, "job_034c51a29deb")
+    assert row.locator('[data-part="primary"] button').get_attribute("aria-disabled") == "true"
+    assert row.locator('[data-part="kebab"]').get_attribute("aria-disabled") == "true"
+    assert page.locator("#jobs-state button", has_text="Start engine").count() == 1
+
+
+def test_a_press_that_changes_the_verb_leaves_focus_on_the_rows_menu(open_panel):
+    """PAUSE BECOMES RESUME, so the control he pressed no longer does what he pressed: a
+    second Enter must not resume it. Focus moves to that row's ⋮, never to <body>."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(300)
+    # BOTH READS SAY PAUSED: the history and the fresh tick the press issues, as one
+    # engine would; patching only the history lets the newer tick redraw it running.
+    page.evaluate("""() => { const real = window.fetch;
+        window.fetch = (u, o) => String(u).includes("/api/jobs?")
+          ? real(u, o).then((r) => r.json()).then((body) => new Response(JSON.stringify({
+              ...body, jobs: body.jobs.map((job) => job.job_ref === "job_034c51a29deb"
+                ? {...job, status: "paused"} : job)}),
+              {status: 200, headers: {"Content-Type": "application/json"}}))
+          : real(u, o); }""")
+    row = _job_row(page, "job_034c51a29deb")
+    row.locator('[data-part="primary"] button').focus()
+    page.keyboard.press("Enter")
+    page.wait_for_timeout(800)
+    assert "Paused" in row.inner_text()
+    assert page.evaluate("() => document.activeElement.dataset.part") == "kebab"
+    assert page.evaluate(
+        "() => document.activeElement.closest('.job-row').dataset.job") == "job_034c51a29deb"
+
+#: The engine's log and tick, switchable from the test: a log that gained a line since it
+#: was first read, a log read that fails, and one tick that fails.
+_JOBS_ENGINE_MODES = """(mode) => {
+  const real = window.fetch;
+  window.__mode = mode;
+  window.fetch = async (url, options) => {
+    const path = String(url);
+    if (/\\/logs/.test(path) && window.__mode.log === 'fail') throw new TypeError('Failed to fetch');
+    if (/\\/logs/.test(path) && window.__mode.log === 'new') {
+      return new Response(JSON.stringify({entries: [{logged_at: '2026-07-30T11:00:00Z',
+        level: 'error', message: 'NEW LINE the job wrote later'}], total: 1}),
+        {status: 200, headers: {'Content-Type': 'application/json'}});
+    }
+    if (/active_only/.test(path) && window.__mode.tick === 'fail') {
+      window.__mode.tick = 'ok';
+      throw new TypeError('Failed to fetch');
+    }
+    return real(url, options);
+  };
+}"""
+
+
+def test_a_log_is_read_again_each_time_he_opens_it(open_panel):
+    """A LOG IS THE JOB'S RECORD SO FAR. Kept for the panel's session, a log opened while
+    the job ran stayed the pre-failure snapshot, without the line that explains the
+    failure. Hidden and opened again, it is read again."""
+    page = open_panel(jobs=HIS_JOBS, logs=_log_entries(2))
+    page.evaluate(_JOBS_ENGINE_MODES, {"log": "old"})
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(300)
+    assert "fetching" in _open_log(page, "job_034c51a29deb").inner_text()
+    page.evaluate("() => { window.__mode.log = 'new'; }")
+    _menu_item(page, "job_034c51a29deb", "Hide log").click()
+    page.click('nav.side-rail button[data-view="run"]')
+    page.wait_for_timeout(300)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(500)
+    again = _open_log(page, "job_034c51a29deb").inner_text()
+    assert "NEW LINE" in again, f"the log he reopened is the old read: {again!r}"
+
+
+def test_a_log_that_could_not_be_read_is_tried_again(open_panel):
+    """ONE FAILED READ IS NOT THE LOG. It was kept, so the row said "could not be read"
+    until the panel was reloaded; hidden and opened again, it is read again."""
+    page = open_panel(jobs=HIS_JOBS, logs=_log_entries(2))
+    page.evaluate(_JOBS_ENGINE_MODES, {"log": "fail"})
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(300)
+    assert "could not be read" in _open_log(page, "job_034c51a29deb").inner_text()
+    page.evaluate("() => { window.__mode.log = 'old'; }")
+    _menu_item(page, "job_034c51a29deb", "Hide log").click()
+    page.wait_for_timeout(200)
+    again = _open_log(page, "job_034c51a29deb").inner_text()
+    assert "fetching" in again, f"a failed log read is never retried: {again!r}"
+
+
+def test_try_again_that_gets_an_answer_takes_the_banner_down(open_panel):
+    """THE ENGINE ANSWERED. A failed tick put up "did not answer" and disabled every row;
+    Try again re-read the history and got an answer, and the banner stayed with the rows
+    disabled until the next tick -- up to 30 s with nothing running."""
+    page = open_panel(jobs=[job for job in HIS_JOBS
+                            if job["status"] in ("completed", "failed", "cancelled")])
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(400)
+    page.evaluate(_JOBS_ENGINE_MODES, {"tick": "fail"})
+    page.evaluate("() => pollJob()")
+    page.wait_for_timeout(300)
+    assert "did not answer" in page.locator("#jobs-state").inner_text()
+    page.locator("#jobs-state button", has_text="Try again").click()
+    page.wait_for_timeout(500)
+    assert page.locator("#jobs-state").inner_text().strip() == ""
+    assert page.locator('#jobs-list [data-part="kebab"][aria-disabled="true"]').count() == 0
+
+
+def test_a_selection_in_a_row_survives_the_live_reads(open_panel):
+    """WHAT HE SELECTS STAYS SELECTED. Every tick rewrote each row's text, the same words
+    included, so a selection -- in a failure he meant to copy, or a live job's line --
+    was cleared on the next read."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(400)
+    # A LIVE ROW: every tick refills it, as the engine's fresh JSON would (a failed row
+    # is not refilled at all, so selecting in one would test nothing).
+    page.evaluate(_JOBS_STATUS_REWRITE)
+    page.evaluate("""() => {
+      const node = document.querySelector('.job-row[data-job="job_034c51a29deb"] [data-part="time"]');
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      getSelection().removeAllRanges();
+      getSelection().addRange(range); }""")
+    before = page.evaluate("() => getSelection().toString()")
+    assert before, "nothing was selected"
+    page.wait_for_function(
+        "() => window.__calls.filter((c) => c.includes('active_only')).length >= 3", timeout=8000)
+    assert page.evaluate("() => getSelection().toString()") == before
+
+
+def test_a_press_that_gets_no_answer_says_so_in_its_row(open_panel):
+    """NO SILENT FAILURES. A press the engine never answered set a page failure, and the
+    next read that answered cleared it: the button read "Pause" again with nothing on
+    screen saying the press had failed."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(400)
+    page.evaluate("""() => { const real = window.fetch;
+        window.fetch = (u, o) => String(u).includes('/control')
+          ? Promise.reject(new TypeError('Failed to fetch')) : real(u, o); }""")
+    row = _job_row(page, "job_034c51a29deb")
+    row.locator('[data-part="primary"] button').click()
+    page.wait_for_timeout(1500)
+    said = row.locator('[data-part="refusal"]').inner_text()
+    assert said == "Pause got no answer from the engine. Try again once it answers.", said
+
+
+def test_the_banner_is_not_redrawn_by_the_reads_that_follow_it(open_panel):
+    """ONE ALERT, ONCE. The banner is role="alert"; drawn anew on every 1.5 s tick it was
+    announced again each time, and focus on its own Try again fell to <body>."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(400)
+    page.evaluate("""() => { const real = window.fetch;
+        window.fetch = (u, o) => String(u).includes('limit=201')
+          ? Promise.reject(new TypeError('Failed to fetch')) : real(u, o); }""")
+    page.click('nav.side-rail button[data-view="run"]')
+    page.wait_for_timeout(200)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(400)
+    assert "did not answer" in page.locator("#jobs-state").inner_text()
+    page.evaluate("""() => { window.__alert = document.querySelector('#jobs-state [role=alert]');
+        window.__added = 0;
+        new MutationObserver((records) => records.forEach((r) => r.addedNodes.forEach((n) => {
+          if (n.getAttribute && n.getAttribute('role') === 'alert') window.__added += 1; })))
+          .observe(document.getElementById('jobs-state'), {childList: true}); }""")
+    page.locator("#jobs-state button").focus()
+    page.wait_for_function(
+        "() => window.__calls.filter((c) => c.includes('active_only')).length >= 3", timeout=8000)
+    assert page.evaluate(
+        "() => window.__alert === document.querySelector('#jobs-state [role=alert]')")
+    assert page.evaluate("() => window.__added") == 0
+    assert page.evaluate("() => document.activeElement.textContent") == "Try again"
+
+
+def test_start_engine_on_the_jobs_page_says_it_is_starting_and_where_a_failure_is(open_panel):
+    """THE JOBS PAGE'S START ENGINE. In flight it said nothing and could be pressed again
+    for up to 60 s; failed, it kept saying "Start the engine" while the reason went only
+    to the Run page. It reads Starting… while it works, and a failed start sends him to
+    Run, where the reason is drawn."""
+    slow = open_panel(engine_up=False, native_mode="nonresponsive")
+    slow.click(JOBS_TAB)
+    slow.wait_for_timeout(300)
+    slow.locator("#jobs-state button", has_text="Start engine").click()
+    slow.wait_for_timeout(300)
+    button = slow.locator("#jobs-state button")
+    assert button.inner_text() == "Starting…"
+    assert button.get_attribute("aria-disabled") == "true"
+    button.dispatch_event("click")  # aria-disabled stays clickable; the handler must refuse
+    slow.wait_for_timeout(300)
+    assert slow.evaluate("() => window.__nativeCalls.length") == 1, "a second press started it again"
+
+    page = open_panel(engine_up=False)  # the helper is absent: the start fails at once
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(300)
+    page.locator("#jobs-state button", has_text="Start engine").click()
+    page.wait_for_function(
+        "() => document.getElementById('jobs-state').textContent.includes('did not start')",
+        timeout=5000)
+    assert "The engine did not start. Open Run to see why." in page.locator("#jobs-state").inner_text()
+    page.locator("#jobs-state button", has_text="Open Run").click()
+    assert page.locator("#view-run").is_visible()
+
+
+#: Rewrites what the engine's job reads report: `window.__status` maps a job_ref to the
+#: status they give it, and `window.__tickOnly` keeps the history read as it was.
+_JOBS_STATUS_REWRITE = """() => { const real = window.fetch;
+  window.__status = {}; window.__tickOnly = false;
+  window.fetch = (u, o) => { const url = String(u);
+    if (!url.includes('/api/jobs?') || (window.__tickOnly && !url.includes('active_only=true'))) {
+      return real(u, o);
+    }
+    return real(u, o).then((r) => r.json()).then((body) => new Response(JSON.stringify({...body,
+      jobs: body.jobs.map((job) => window.__status[job.job_ref]
+        ? {...job, status: window.__status[job.job_ref]} : job)}),
+      {status: 200, headers: {'Content-Type': 'application/json'}})); }; }"""
+
+#: Every text the job's status line has shown, in order, from now on.
+_WATCH_STATUS = """(ref) => { window.__seen = [];
+  const line = document.querySelector(`#jobs-list .job-row[data-job="${ref}"] [data-part="statusline"]`);
+  window.__seen.push(line.textContent);
+  new MutationObserver(() => window.__seen.push(line.textContent))
+    .observe(line, {childList: true, subtree: true, characterData: true}); }"""
+
+
+def _status_line(page, ref):
+    return _job_row(page, ref).locator('[data-part="statusline"]').inner_text()
+
+
+def _ticks(page):
+    return page.evaluate("() => window.__calls.filter((c) => c.includes('active_only=true')).length")
+
+
+def _after_a_tick(page):
+    """Wait for the next tick to be issued and answered."""
+    seen = _ticks(page)
+    page.wait_for_function(
+        f"() => window.__calls.filter((c) => c.includes('active_only=true')).length > {seen}",
+        timeout=5000)
+    page.wait_for_timeout(250)
+
+
+def test_the_tick_alone_keeps_a_row_live(open_panel):
+    """THE PAGE IS LIVE. A job's new status reaches its row from the panel's tick, with no
+    history read: the count line says "Refreshes every 1.5s", and that has to be true."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(400)
+    page.evaluate(_JOBS_STATUS_REWRITE)
+    page.evaluate("() => { window.__tickOnly = true; window.__calls.length = 0;"
+                  " window.__status.job_034c51a29deb = 'paused'; }")
+    page.wait_for_function("""() => document.querySelector(
+        '#jobs-list .job-row[data-job="job_034c51a29deb"] [data-part="statusline"]')
+        .textContent.includes('Paused')""", timeout=5000)
+    assert not [c for c in page.evaluate("() => window.__calls") if c.startswith("/api/jobs?limit=")]
+
+
+def test_an_older_history_answer_never_takes_a_row_back_from_a_newer_tick(open_panel):
+    """LATER-ISSUED WINS, PER ROW. A history read issued before a tick and answered after
+    it would draw the job as it was before the tick saw it pause."""
+    page = open_panel(jobs=HIS_JOBS, route_delays={"/api/jobs?limit=": 2500})
+    page.click(JOBS_TAB)
+    page.wait_for_selector('#jobs-list .job-row[data-job="job_034c51a29deb"]', timeout=6000)
+    page.evaluate(_JOBS_STATUS_REWRITE)
+    page.evaluate("() => { window.__tickOnly = true; window.__status.job_034c51a29deb = 'paused'; }")
+    page.evaluate(_WATCH_STATUS, "job_034c51a29deb")
+    page.click('nav.side-rail button[data-view="run"]')
+    page.click(JOBS_TAB)   # a history read, held 2.5 s, that still says running
+    page.wait_for_timeout(4000)
+    seen = page.evaluate("() => window.__seen")
+    first = next((i for i, text in enumerate(seen) if "Paused" in text), None)
+    assert first is not None, f"the tick never drew the pause: {seen}"
+    assert not [text for text in seen[first:] if "Running" in text], (
+        f"an older answer took the row back: {seen}")
+
+
+def test_nothing_is_redrawn_while_his_menu_is_open_and_it_is_when_it_closes(open_panel):
+    """A READ MUST NOT MOVE WHAT HE IS USING. While a row's menu is open the page holds
+    its redraw; the moment the menu closes, what the reads said is drawn."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(400)
+    page.evaluate(_JOBS_STATUS_REWRITE)
+    _menu_items(page, "job_034c51a29deb")
+    page.evaluate("() => { window.__tickOnly = true; window.__status.job_034c51a29deb = 'paused'; }")
+    _after_a_tick(page)
+    _after_a_tick(page)
+    assert "Running" in _status_line(page, "job_034c51a29deb"), "a read redrew under his menu"
+    assert _job_row(page, "job_034c51a29deb").locator('[data-part="menu"]').is_visible()
+    page.keyboard.press("Escape")
+    page.wait_for_timeout(100)   # well before the next tick
+    assert "Paused" in _status_line(page, "job_034c51a29deb"), "the held redraw never came"
+
+
+def test_nothing_is_redrawn_while_the_cancel_question_is_open_and_it_is_when_answered(open_panel):
+    """THE SAME HOLD FOR THE QUESTION. Cancel asks first; while it asks, nothing moves
+    behind it, and answering it draws what the reads said."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(400)
+    page.evaluate(_JOBS_STATUS_REWRITE)
+    _menu_item(page, "job_034c51a29deb", "Cancel job").click()
+    page.wait_for_selector("#confirm-veil:not(.hidden)", timeout=2000)
+    page.evaluate("() => { window.__tickOnly = true; window.__status.job_034c51a29deb = 'paused'; }")
+    _after_a_tick(page)
+    _after_a_tick(page)
+    assert "Running" in _status_line(page, "job_034c51a29deb"), "a read redrew behind the question"
+    page.click("#confirm-keep")
+    page.wait_for_timeout(100)
+    assert "Paused" in _status_line(page, "job_034c51a29deb"), "the held redraw never came"
+
+
+def test_a_press_in_flight_says_so_keeps_focus_and_cannot_be_sent_twice(open_panel):
+    """IN FLIGHT: "Pausing…", aria-disabled rather than disabled so focus stays on it,
+    and a second press while the first is out sends nothing."""
+    page = open_panel(jobs=HIS_JOBS, route_delays={"/api/jobs/job_034c51a29deb/control": 1500})
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(400)
+    button = _job_row(page, "job_034c51a29deb").locator('[data-part="primary"] button')
+    button.focus()
+    page.keyboard.press("Enter")
+    page.wait_for_timeout(200)
+    assert button.inner_text() == "Pausing…"
+    assert button.get_attribute("aria-disabled") == "true"
+    assert page.evaluate("() => document.activeElement.textContent") == "Pausing…"
+    button.dispatch_event("click")
+    page.wait_for_timeout(1800)
+    sent = [c for c in page.evaluate("() => window.__calls") if c.endswith("/control")]
+    assert len(sent) == 1, f"the press was sent {len(sent)} times"
+
+
+def test_a_rows_controls_do_nothing_while_the_engine_is_down(open_panel):
+    """ARIA-DISABLED IS A PROMISE. With the engine down, ⋮, the action and View log are
+    aria-disabled -- focusable, and inert: pressing them opens nothing and sends nothing."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(300)
+    page.evaluate("""() => { state.engineUp = false; const real = window.fetch;
+        window.fetch = (u, o) => String(u).includes("/api/jobs")
+          ? Promise.reject(new TypeError("Failed to fetch")) : real(u, o); }""")
+    page.wait_for_function(
+        "() => document.getElementById('jobs-state').textContent.includes('Engine stopped answering')",
+        timeout=4000)
+    page.evaluate("() => { window.__calls.length = 0; }")
+    running = _job_row(page, "job_034c51a29deb")
+    running.locator('[data-part="kebab"]').dispatch_event("click")
+    assert running.locator('[data-part="menu"]').is_hidden(), "⋮ opened its menu with the engine down"
+    running.locator('[data-part="primary"] button').dispatch_event("click")
+    failed = _job_row(page, "job_5155b86ba455")
+    toggle = failed.locator('[data-part="logtoggle"]')
+    assert toggle.get_attribute("aria-disabled") == "true"
+    toggle.dispatch_event("click")
+    page.wait_for_timeout(300)
+    assert failed.locator('[data-part="log"]').is_hidden(), "View log opened with the engine down"
+    sent = [c for c in page.evaluate("() => window.__calls") if "/control" in c or "/logs" in c]
+    assert sent == [], f"an inert control sent {sent}"
+
+
+def test_a_jobs_new_status_is_announced_once(open_panel):
+    """THE PAGE IS NOT A LIVE REGION; ONE SENTENCE IS. A job's change of status is said
+    once, in #jobs-announce, by name."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(400)
+    page.evaluate(_JOBS_STATUS_REWRITE)
+    page.evaluate("() => { window.__tickOnly = true; window.__status.job_034c51a29deb = 'paused'; }")
+    page.wait_for_function(
+        "() => document.getElementById('jobs-announce').textContent !== ''", timeout=5000)
+    assert page.locator("#jobs-announce").inner_text() == "Profile fetch · muqawil.org: paused"
+    assert page.locator("#jobs-announce").get_attribute("aria-live") == "polite"
+
+
+def test_the_rows_menu_keys_home_tab_arrow_up_and_a_press_outside(open_panel):
+    """THE REST OF THE APG MENU BUTTON: ArrowUp opens it on the last item, Home goes to
+    the first, Tab leaves and closes it, and a press anywhere outside closes it."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(300)
+    row = _job_row(page, "job_0212decca681")
+    kebab = row.locator('[data-part="kebab"]')
+    active = "() => document.activeElement.textContent.trim()"
+    kebab.focus()
+    page.keyboard.press("ArrowUp")
+    page.wait_for_timeout(100)
+    assert page.evaluate(active) == "Cancel job…"
+    page.keyboard.press("Home")
+    assert page.evaluate(active) == "View log"
+    page.keyboard.press("Tab")
+    page.wait_for_timeout(100)
+    assert row.locator('[data-part="menu"]').is_hidden(), "Tab left the menu open"
+    kebab.click()
+    page.wait_for_timeout(100)
+    assert row.locator('[data-part="menu"]').is_visible()
+    page.mouse.click(5, 5)
+    page.wait_for_timeout(100)
+    assert row.locator('[data-part="menu"]').is_hidden(), "a press outside left the menu open"
+
+
+def test_each_first_read_failure_says_what_failed_and_offers_its_own_action(open_panel):
+    """THE BANNERS ON FIRST LOAD, each an alert: an engine that answered with an error
+    says "Unable to read jobs" and Try again; one that did not answer, while it runs,
+    says so and offers Try again -- never Start engine for an engine that is up."""
+    page = open_panel(jobs=HIS_JOBS, fail_routes=("/api/jobs?limit=",))
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(400)
+    banner = page.locator("#jobs-state [role=alert]")
+    assert "Unable to read jobs" in banner.inner_text()
+    assert "the engine could not do that" in banner.inner_text()
+    before = len([c for c in page.evaluate("() => window.__calls") if c.startswith("/api/jobs?limit=")])
+    page.locator("#jobs-state button", has_text="Try again").click()
+    page.wait_for_timeout(300)
+    after = len([c for c in page.evaluate("() => window.__calls") if c.startswith("/api/jobs?limit=")])
+    assert after == before + 1, "Try again did not read the jobs again"
+
+    quiet = open_panel(jobs=HIS_JOBS)
+    quiet.evaluate("""() => { const real = window.fetch;
+        window.fetch = (u, o) => String(u).includes('limit=201')
+          ? Promise.reject(new TypeError('Failed to fetch')) : real(u, o); }""")
+    quiet.click(JOBS_TAB)
+    quiet.wait_for_timeout(400)
+    banner = quiet.locator("#jobs-state [role=alert]")
+    assert "The engine did not answer" in banner.inner_text()
+    assert quiet.locator("#jobs-state button").all_inner_texts() == ["Try again"]
+
+
+def test_a_log_line_names_its_level_and_its_source(open_panel):
+    """A JOB OF SEVERAL SOURCES otherwise reads "failed" with no hint of which; each line
+    carries its stamp, its level and the source that wrote it."""
+    entries = [{"logged_at": "2026-07-30T10:00:00Z", "level": "warning",
+                "source_key": "muqawil_org", "message": "the site slowed down"}]
+    page = open_panel(jobs=HIS_JOBS, logs=entries)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(300)
+    text = _open_log(page, "job_034c51a29deb").inner_text()
+    assert "warning" in text and "muqawil_org" in text and "the site slowed down" in text, text
+
+
+def test_a_tick_that_answers_after_one_that_did_not_takes_the_banner_down(open_panel):
+    """THE NEXT ANSWER CLEARS IT, with no press from him: one failed tick puts up "did not
+    answer"; the tick after it answers, and the banner goes and the rows come back."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(400)
+    page.evaluate(_JOBS_ENGINE_MODES, {"tick": "fail"})   # fails once, then answers
+    page.wait_for_function(
+        "() => document.getElementById('jobs-state').textContent.includes('did not answer')",
+        timeout=5000)
+    page.wait_for_function(
+        "() => document.getElementById('jobs-state').textContent.trim() === ''", timeout=8000)
+    assert page.locator('#jobs-list [data-part="kebab"][aria-disabled="true"]').count() == 0
+
+
+def test_a_tick_refills_only_the_rows_it_changed(open_panel):
+    """EVERY ROW ON EVERY TICK WAS A 0.5-1 S LONG TASK at 200 jobs (#1608's gate). A tick
+    hands over new job objects only for the jobs it carries, and only their rows are
+    filled again. The reads are passed through JSON, as the engine's are, so each tick's
+    jobs are new objects; the harness's own stub would hand back the same ones."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(400)
+    page.evaluate(_JOBS_STATUS_REWRITE)
+    page.evaluate("""() => { window.__filled = []; const real = fillJobRow;
+        fillJobRow = (row, job, options) => { window.__filled.push(job.job_ref);
+          return real(row, job, options); }; }""")
+    _after_a_tick(page)
+    page.evaluate("() => { window.__filled.length = 0; }")
+    _after_a_tick(page)
+    _after_a_tick(page)
+    filled = set(page.evaluate("() => window.__filled"))
+    carried = {job["job_ref"] for job in HIS_JOBS
+               if job["status"] not in ("completed", "failed", "cancelled")}
+    assert filled, "no row was refilled: a live job's row must take each tick's answer"
+    assert filled <= carried, f"a tick refilled rows it does not carry: {sorted(filled - carried)}"
+
+def test_start_engine_keeps_his_focus_on_the_banners_button(open_panel):
+    """THE BANNER'S OWN REDRAW, which he caused: Start engine becomes Starting…, and the
+    button he pressed is replaced. Focus goes to the new one, never to <body>."""
+    page = open_panel(engine_up=False, native_mode="nonresponsive")
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(300)
+    page.locator("#jobs-state button", has_text="Start engine").focus()
+    page.keyboard.press("Enter")
+    page.wait_for_timeout(300)
+    assert page.evaluate("() => [document.activeElement.tagName, document.activeElement.textContent]") \
+        == ["BUTTON", "Starting…"]
+
+
+def test_the_banner_says_its_time_in_the_zone_he_reads_in(open_panel):
+    """ONE INSTANT, ONE ZONE. The banner says when the list was read; after he changes
+    zone it says it in the new one, as the count line and the rows do."""
+    page = open_panel(jobs=[job for job in HIS_JOBS
+                            if job["status"] in ("completed", "failed", "cancelled")])
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(400)
+    page.evaluate(_JOBS_ENGINE_MODES, {"tick": "fail"})
+    page.evaluate("() => pollJob()")
+    page.wait_for_function(
+        "() => document.getElementById('jobs-state').textContent.includes('read at')", timeout=4000)
+    before = page.locator("#jobs-count").inner_text().split("Read at ")[-1].strip()
+    # The zone changes and the page draws again -- any read does that; drawn here
+    # directly, so the next tick cannot clear the banner first.
+    page.evaluate("() => { window.ScrapeXTime.set('Pacific/Kiritimati'); renderJobs(); }")
+    banner = page.locator("#jobs-state").inner_text()
+    count = page.locator("#jobs-count").inner_text()
+    read = count.split("Read at ")[-1].strip()
+    assert read and read != before, f"the zone did not change: {before!r} then {read!r}"
+    assert f"read at {read}" in banner, f"banner {banner!r} against count {count!r}"
+
+
+def test_formatting_a_time_builds_no_formatter_after_the_first(open_panel):
+    """A FORMATTER IS ~0.4 MS TO BUILD, and a page of 200 rows formats ~1,600 times when
+    it fills them. After the first call, formatting builds none: not for the shape, not
+    to resolve the zone, not to check it."""
+    page = open_panel(jobs=HIS_JOBS)
+    built = page.evaluate("""() => {
+        window.ScrapeXTime.format('2026-10-09T09:14:00Z', 'short');
+        const Real = Intl.DateTimeFormat; let made = 0;
+        Intl.DateTimeFormat = function (...args) { made += 1; return new Real(...args); };
+        Intl.DateTimeFormat.prototype = Real.prototype;
+        try { for (let i = 0; i < 100; i += 1) window.ScrapeXTime.format('2026-10-09T09:14:00Z', 'short'); }
+        finally { Intl.DateTimeFormat = Real; }
+        return made; }""")
+    assert built == 0, f"100 calls built {built} formatters"
+
+
+def test_a_press_note_goes_once_the_job_moves(open_panel):
+    """A PRESS WITH NO ANSWER MAY STILL HAVE REACHED THE ENGINE. Once the job is reported
+    paused, "Pause got no answer… Try again" would contradict the row it sits in."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(400)
+    page.evaluate(_JOBS_STATUS_REWRITE)
+    page.evaluate("""() => { const real = window.fetch;
+        window.fetch = (u, o) => {
+          if (!String(u).includes('/control')) return real(u, o);
+          window.__status.job_034c51a29deb = 'paused';   // it reached the engine after all
+          return Promise.reject(new TypeError('Failed to fetch')); }; }""")
+    row = _job_row(page, "job_034c51a29deb")
+    row.locator('[data-part="primary"] button').click()
+    page.wait_for_function("""() => document.querySelector(
+        '#jobs-list .job-row[data-job="job_034c51a29deb"] [data-part="statusline"]')
+        .textContent.includes('Paused')""", timeout=5000)
+    page.wait_for_timeout(200)
+    assert row.locator('[data-part="refusal"]').inner_text() == ""
+
+
+def test_a_job_of_several_sources_lists_every_key(open_panel):
+    """HIS CHOICE D: the keys identify a row, and in Jobs they are all shown. A job of
+    several sources leads with one identity, counts the rest, and lists every key."""
+    two = [dict(HIS_JOBS[1], job_ref="job_two_sources", source_keys=["muqawil_org", "balady_gov_sa"],
+                current_source_key=None)]
+    page = open_panel(jobs=two)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(400)
+    identity = _job_row(page, "job_two_sources").locator('[data-part="identity"]')
+    assert identity.locator(".source-identity-key").inner_text() == "muqawil_org, balady_gov_sa"
+    order = identity.evaluate("""(el) => [...el.querySelectorAll('.job-more, .source-identity-footer')]
+        .map((node) => node.className.split(' ')[0])""")
+    assert order == ["job-more", "source-identity-footer"], order
+
+
+def test_a_job_of_one_source_names_its_own_key_not_the_matched_datasets(open_panel):
+    """#1624: `muqawil_org` reaches Sources only through the `contractors` dataset's
+    `site_key`, and the row named that dataset's key under the site's domain, as if the
+    job had run on the dataset. The key line is the job's own, one source or several."""
+    page = open_panel(jobs=[HIS_JOBS[1]])
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(400)
+    identity = _job_row(page, HIS_JOBS[1]["job_ref"]).locator('[data-part="identity"]')
+    # THE MATCH IS THROUGH `site_key`, or this guards nothing: the domain is the dataset's.
+    assert identity.locator(".source-identity-domain").inner_text() == "muqawil.org"
+    assert identity.locator(".source-identity-key").inner_text() == "muqawil_org"
+    assert identity.locator(".job-more").count() == 0
+
+
+def test_a_failed_start_stays_said_while_the_list_is_shown(open_panel):
+    """THE READS AFTER A FAILED START FAIL TOO, and each put "Start the engine" back over
+    "The engine did not start" within a tick. With the list on screen, the sentence and
+    its Open Run stay until something answers."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(300)
+    page.evaluate("""() => { state.engineUp = false; const real = window.fetch;
+        window.fetch = (u, o) => String(u).includes("/api/jobs")
+          ? Promise.reject(new TypeError("Failed to fetch")) : real(u, o); }""")
+    page.wait_for_function(
+        "() => document.getElementById('jobs-state').textContent.includes('Engine stopped answering')",
+        timeout=4000)
+    page.locator("#jobs-state button", has_text="Start engine").click()
+    page.wait_for_function(
+        "() => document.getElementById('jobs-state').textContent.includes('did not start')",
+        timeout=5000)
+    page.wait_for_timeout(3500)   # two ticks' worth of failing reads
+    said = page.locator("#jobs-state").inner_text()
+    assert "The engine did not start. Open Run to see why." in said, said
+    assert page.locator("#jobs-state button").all_inner_texts() == ["Open Run"]
+
+
+def test_each_time_shape_keeps_its_own_formatter(open_panel):
+    """THE FORMATTER CACHE IS KEYED BY SHAPE AND ZONE. Keyed by zone alone, the first
+    shape asked for would answer for every other: a date where a time was due."""
+    page = open_panel(jobs=HIS_JOBS)
+    said = page.evaluate("""() => ['date', 'datetime', 'short', 'time', 'no-such-shape']
+        .map((mode) => window.ScrapeXTime.format('2026-07-30T08:05:00Z', mode))""")
+    date, datetime, short, time, unknown = said
+    assert ":" not in date, said
+    assert date in datetime and ":" in datetime, said
+    assert short != datetime and ":" in short, said
+    assert time != datetime and ":" in time and date not in time, said
+    assert unknown == datetime, f"an unknown shape is not drawn as datetime: {said}"
+
+
+def test_a_rows_identity_is_escaped_complete_and_follows_sources(open_panel):
+    """THE IDENTITY IS NOW MARKUP (the panel's one sourceIdentity), so what it draws is
+    tested here: a key Sources does not list stands as its own name, escaped, wrapped
+    after its dots; the others are counted and every key listed; and when Sources
+    answers late, the row takes the source's domain and names."""
+    evil = "evil.<img src=x onerror=alert(1)>.org"   # no "_": an unlisted key reads them as spaces
+    job = dict(HIS_JOBS[1], job_ref="job_identity", source_keys=[evil, "muqawil_org"],
+               current_source_key=None)
+    page = open_panel(jobs=[job], sources=[])
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(400)
+    identity = _job_row(page, "job_identity").locator('[data-part="identity"]')
+    assert identity.locator("img").count() == 0, "a key was drawn as markup"
+    domain = identity.locator(".source-identity-domain")
+    assert domain.inner_text() == evil, "a key Sources does not list was not drawn as itself"
+    assert domain.locator("wbr").count() == 2, "the name does not wrap after its dots"
+    assert identity.locator(".job-more").inner_text() == "and 1 other"
+    assert identity.locator(".source-identity-key").inner_text() == f"{evil}, muqawil_org"
+    # SOURCES ANSWERS LATE: the row takes the source's identity on the next draw.
+    page.evaluate("""(key) => { state.sources = [{source_key: key, source_name: 'Evil Org',
+        source_name_ar: 'منظمة', base_url: 'https://www.evil-org.example'}]; renderJobs(); }""",
+                  evil)
+    assert domain.inner_text() == "evil-org.example"
+    assert "Evil Org" in identity.inner_text() and "منظمة" in identity.inner_text()
+
+
+def test_the_banner_redraws_for_what_it_says_and_start_resets(open_panel):
+    """WHAT THE BANNER SAYS DEPENDS ON THE FAILURE'S KIND AND ON THE ENGINE BEING UP,
+    and it redraws when either changes. And Starting… is for one press: once an answer
+    has come and gone, a later stop offers Start engine again, not an inert Starting…"""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(300)
+    page.evaluate("() => { jobsFailed('tick', {kind: 'http', message: 'the engine said no'}); }")
+    assert "Unable to refresh data" in page.locator("#jobs-state").inner_text()
+    page.evaluate("() => { jobsFailed('tick', new TypeError('Failed to fetch')); }")
+    assert "The engine did not answer" in page.locator("#jobs-state").inner_text()
+    page.evaluate("() => { state.engineUp = false; renderJobs(); }")
+    assert "Engine stopped answering" in page.locator("#jobs-state").inner_text()
+
+    down = open_panel(engine_up=False)   # the helper is absent: the start fails at once
+    down.click(JOBS_TAB)
+    down.wait_for_timeout(300)
+    down.locator("#jobs-state button", has_text="Start engine").click()
+    down.wait_for_function(
+        "() => document.getElementById('jobs-state').textContent.includes('did not start')",
+        timeout=5000)
+    down.evaluate("() => { jobsPage.failure = null; jobsFailed('history', new TypeError('x')); }")
+    assert down.locator("#jobs-state button").all_inner_texts() == ["Start engine"]
+
+
+def test_the_status_filter_is_supabases_filter_popover(open_panel):
+    """FilterPopover (FilterPopover.tsx@86c813ec:180-295): a dashed Status button, a
+    dialog of the statuses present, Save applies and reads "Status: 1" on a solid
+    button, Escape closes without applying, Clear empties it. The result is announced."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(300)
+    button = page.locator("#jobs-status")
+    assert "dashed" in button.get_attribute("class")
+    button.click()
+    dialog = page.locator("#jobs-filter")
+    assert dialog.get_attribute("role") == "dialog"
+    assert page.evaluate("() => document.activeElement.type") == "checkbox"
+    words = [one.strip() for one in dialog.locator("label").all_text_contents()]
+    assert "Failed" in words and "Paused" in words and "Completed" in words, words
+    dialog.locator("label", has_text="Failed").locator("input").check()
+    page.keyboard.press("Escape")
+    assert dialog.is_hidden() and page.locator("#jobs-list .job-row").count() == 7, (
+        "Escape applied the filter")
+    assert page.evaluate("() => document.activeElement.id") == "jobs-status"
+    button.click()
+    dialog.locator("label", has_text="Failed").locator("input").check()
+    page.click("#jobs-filter-save")
+    page.wait_for_timeout(200)
+    assert page.locator("#jobs-list .job-row").count() == 1
+    assert button.inner_text().strip() == "Status: 1"
+    assert "dashed" not in button.get_attribute("class")
+    assert page.locator("#jobs-count").inner_text().startswith("1 of 7 jobs")
+    page.wait_for_timeout(100)
+    assert page.locator("#jobs-announce").inner_text() == "1 of 7 jobs"
+    button.click()
+    page.click("#jobs-filter-clear")
+    page.wait_for_timeout(200)
+    assert page.locator("#jobs-list .job-row").count() == 7
+    assert button.inner_text().strip() == "Status"
+
+
+def test_search_and_filter_say_which_one_emptied_the_list(open_panel):
+    """THREE CAUSES, THREE SENTENCES, ONE WAY BACK. Studio's wording for a search
+    (NoSearchResults.tsx@86c813ec:29-37), its `description` for the filter and for both,
+    and Reset filter clears the search and the filter together."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(300)
+    page.fill("#jobs-search", "tenders")
+    page.wait_for_timeout(200)
+    said = page.locator("#jobs-state").inner_text()
+    assert "No results found" in said
+    assert "Your search for “tenders” did not return any results" in said
+    page.click("#jobs-state button")
+    page.wait_for_timeout(200)
+    assert page.locator("#jobs-list .job-row").count() == 7
+    assert page.input_value("#jobs-search") == ""
+
+    # BOTH: muqawil's jobs, under Queued -- the queued job is balady_gov_sa's, so none.
+    page.fill("#jobs-search", "muqawil")
+    page.click("#jobs-status")
+    page.locator("#jobs-filter label", has_text="Queued").locator("input").check()
+    page.click("#jobs-filter-save")
+    page.wait_for_timeout(200)
+    assert page.locator("#jobs-list .job-row:visible").count() == 0
+    assert page.locator("#jobs-list").is_hidden(), "an empty list card stayed under the sentence"
+    assert "No job matches the search and the selected statuses" in (
+        page.locator("#jobs-state").inner_text())
+    # AND RESET CLEARS BOTH: every row, an empty search, and the filter unchosen.
+    reset = page.locator("#jobs-state button")
+    assert reset.inner_text() == "Reset filter"
+    reset.click()
+    page.wait_for_timeout(200)
+    assert page.locator("#jobs-list .job-row").count() == 7
+    assert page.input_value("#jobs-search") == ""
+    assert page.locator("#jobs-status-label").inner_text() == "Status"
+    assert "dashed" in page.locator("#jobs-status").get_attribute("class").split()
+    assert page.locator("#jobs-announce").inner_text() == "7 jobs"
+
+
+def test_the_no_results_sentence_follows_the_search_as_he_types(open_panel):
+    """TYPED LETTER BY LETTER, the list empties at one letter and the sentence must keep up
+    with every letter after it, not keep naming the term that first emptied it."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(300)
+    page.fill("#jobs-search", "tenders")
+    page.wait_for_timeout(200)
+    page.fill("#jobs-search", "tendersx")
+    page.wait_for_timeout(200)
+    assert "Your search for “tendersx” did not return any results" in (
+        page.locator("#jobs-state").inner_text())
+
+
+def test_a_press_outside_the_status_filter_closes_it_without_applying(open_panel):
+    """OUTSIDE, NOT SAVE: a press anywhere outside the filter closes it and what he ticked
+    is not applied."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(300)
+    page.click("#jobs-status")
+    page.locator("#jobs-filter label", has_text="Failed").locator("input").check()
+    page.click("#view-jobs .view-heading h1")
+    page.wait_for_timeout(200)
+    assert page.locator("#jobs-filter").is_hidden()
+    assert page.locator("#jobs-status").get_attribute("aria-expanded") == "false"
+    assert page.locator("#jobs-list .job-row").count() == 7, "an unsaved tick was applied"
+    assert page.locator("#jobs-status-label").inner_text() == "Status"
+
+
+def test_the_status_filters_ticks_are_drawn_in_the_foreground(open_panel):
+    """#1582: A CHECKED BOX FILLED WITH --accent IS 1.99:1 ON WHITE. Supabase fills it with
+    the foreground (checkbox.tsx@86c813ec:24), and so does the status filter."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(300)
+    page.click("#jobs-status")
+    accent, text = page.evaluate("""() => [
+        getComputedStyle(document.querySelector('#jobs-filter input[type=checkbox]')).accentColor,
+        getComputedStyle(document.body).color]""")
+    assert accent == text, f"the tick is {accent}, the foreground is {text}"
+
+
+def test_a_row_he_acted_on_stays_until_he_changes_the_filter(open_panel):
+    """PRESSED UNDER A FILTER, a row whose new status leaves the filter stays drawn, said
+    in the count, so focus has somewhere to stay; his next change of filter lets it go."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(300)
+    page.click("#jobs-status")
+    page.locator("#jobs-filter label", has_text="Running").locator("input").check()
+    page.click("#jobs-filter-save")
+    page.wait_for_timeout(200)
+    # BOTH READS SAY PAUSED: the history and the fresh tick the press issues, as one
+    # engine would; patching only the history lets the newer tick redraw it running.
+    page.evaluate("""() => { const real = window.fetch;
+        window.fetch = (u, o) => String(u).includes("/api/jobs?")
+          ? real(u, o).then((r) => r.json()).then((body) => new Response(JSON.stringify({
+              ...body, jobs: body.jobs.map((job) => job.job_ref === "job_034c51a29deb"
+                ? {...job, status: "paused"} : job)}),
+              {status: 200, headers: {"Content-Type": "application/json"}}))
+          : real(u, o); }""")
+    row = _job_row(page, "job_034c51a29deb")
+    row.locator('[data-part="primary"] button').focus()
+    page.keyboard.press("Enter")
+    page.wait_for_timeout(800)
+    assert row.count() == 1 and "Paused" in row.inner_text(), "the row left under his hand"
+    assert "1 kept until you change the filter" in page.locator("#jobs-count").inner_text()
+    # PAUSE BECAME RESUME, so the control he pressed is gone: focus is on the row's ⋮.
+    assert page.evaluate("() => document.activeElement.dataset.part") == "kebab"
+    page.click("#jobs-status")
+    page.click("#jobs-filter-save")
+    page.wait_for_timeout(200)
+    assert row.count() == 0
+
+
+def test_focus_leaving_the_status_filter_closes_it(open_panel):
+    """THE FILTER IS FilterPopover, A NON-MODAL POPOVER: focus leaving it closes it without
+    applying, as the row's menu closes on Tab. Left open, it held every redraw: his search
+    announced "0 of 7 jobs" while the screen still drew all seven, and another page
+    reached by the keyboard found it waiting over the Jobs page on his return."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(300)
+    page.locator("#jobs-status").focus()
+    page.keyboard.press("Enter")
+    page.wait_for_timeout(100)
+    assert page.locator("#jobs-filter").is_visible()
+    page.locator("#jobs-search").focus()   # Shift+Tab out of it, as he would
+    page.wait_for_timeout(100)
+    assert page.locator("#jobs-filter").is_hidden(), "focus left and the filter stayed open"
+    assert page.locator("#jobs-status").get_attribute("aria-expanded") == "false"
+    assert page.evaluate("() => document.activeElement.id") == "jobs-search", (
+        "closing took focus back from where he moved it")
+    page.keyboard.type("zzz")
+    page.wait_for_timeout(300)
+    assert page.locator("#jobs-list .job-row:visible").count() == 0, "the search drew nothing"
+
+    page.locator("#jobs-status").focus()
+    page.keyboard.press("Enter")
+    page.wait_for_timeout(100)
+    page.evaluate("() => showView('run')")   # the rail, by the keyboard: no pointerdown
+    page.click(JOBS_TAB)
+    assert page.locator("#jobs-filter").is_hidden(), "the filter waited open over the page"
+
+
+def test_a_change_of_search_announces_its_count_in_words(open_panel):
+    """THE ANNOUNCEMENT IS THE COUNT LINE'S WORDING: one job is "1 job", not "1 jobs"."""
+    page = open_panel(jobs=HIS_JOBS[:1])
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(300)
+    page.fill("#jobs-search", "m")
+    page.wait_for_function("() => document.getElementById('jobs-announce').textContent !== ''",
+                           timeout=3000)
+    assert page.locator("#jobs-announce").inner_text() == "1 job"
+
+
+def test_a_status_is_ticked_by_its_word_and_the_popover_holds_its_own_presses(open_panel):
+    """THE WORD IS THE LABEL. A press on "Failed", on the header or in the footer's gap is
+    inside the filter; with the popover itself unable to take focus, focus fell to the
+    page, the focus-leaving rule closed it, and the tick was lost. It takes focus as
+    Radix's popover content does (tabindex -1), so only a press outside closes it."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    page.wait_for_timeout(300)
+    page.click("#jobs-status")
+    page.locator("#jobs-filter-title").click()
+    assert page.locator("#jobs-filter").is_visible(), "a press on its header closed it"
+    page.locator("#jobs-filter").get_by_text("Failed", exact=True).click()
+    assert page.locator("#jobs-filter").is_visible(), "a press on a status word closed it"
+    assert page.locator("#jobs-filter label", has_text="Failed").locator("input").is_checked()
+    page.click("#jobs-filter-save")
+    page.wait_for_timeout(200)
+    assert page.locator("#jobs-list .job-row:visible").count() == 1
+    assert page.locator("#jobs-status-label").inner_text() == "Status: 1"
+
+
+def test_a_redraw_the_tick_starts_keeps_his_place_on_the_keyboard(open_panel):
+    """A JOB STARTING ELSEWHERE IS NOT HIS PRESS. The tick's change of active set re-reads
+    the history and redraws the page; the element he had focused stays focused -- the ⋮,
+    the second control, so a restore to the row's first control fails here, and the
+    action button -- and when the job he is on ends and its action is gone, focus moves
+    to that row's ⋮ rather than falling to <body>."""
+    page = open_panel(jobs=HIS_JOBS)
+    page.click(JOBS_TAB)
+    ref = "job_034c51a29deb"
+    page.wait_for_selector(f'#jobs-list .job-row[data-job="{ref}"]')
+    row = _job_row(page, ref)
+
+    def a_job_starts(new_ref, settled=None):
+        """The tick gains `new_ref`; with `settled`, every read then has that job
+        completed, as the engine would once it ended."""
+        page.evaluate("""([newRef, settled]) => { window.__calls.length = 0;
+            const real = window.fetch;
+            const json = (body) => new Response(JSON.stringify(body),
+              {status: 200, headers: {"Content-Type": "application/json"}});
+            const end = (jobs) => jobs.map((job) => job.job_ref === settled
+              ? {...job, status: "completed", finished_at: "2026-09-07T14:00:00Z"} : job);
+            window.fetch = (u, o) => {
+              const url = String(u);
+              if (url.includes("active_only=true")) {
+                return real(u, o).then((r) => r.json()).then((body) => json({...body,
+                  jobs: [...end(body.jobs).filter((job) => job.status !== "completed"),
+                    {job_ref: newRef, status: "queued", job_kind: "crawl",
+                     source_keys: ["x"]}]}));
+              }
+              if (url.includes("/api/jobs?limit=")) {
+                return real(u, o).then((r) => r.json()).then((body) =>
+                  json({...body, jobs: end(body.jobs)}));
+              }
+              return real(u, o); }; }""", [new_ref, settled])
+        page.wait_for_function(
+            "() => window.__calls.some((c) => c.startsWith('/api/jobs?limit='))", timeout=4000)
+        page.wait_for_timeout(300)
+
+    def focused():
+        return page.evaluate("""() => { const el = document.activeElement;
+            return [el.dataset.part || el.closest('[data-part]')?.dataset.part || el.tagName,
+              el.closest('.job-row')?.dataset.job || null]; }""")
+
+    row.locator('[data-part="kebab"]').focus()
+    a_job_starts("job_new")
+    assert focused() == ["kebab", ref], f"the redraw moved his focus: {focused()}"
+
+    row.locator('[data-part="primary"] button').focus()
+    a_job_starts("job_newer")
+    assert focused() == ["primary", ref], f"the redraw moved his focus: {focused()}"
+
+    # THE ACTION IS GONE: the job he was on ended, and a completed row offers none.
+    a_job_starts("job_newest", settled=ref)
+    assert "Completed" in row.inner_text(), "the job did not end"
+    assert focused() == ["kebab", ref], f"the redraw dropped his focus: {focused()}"
 
 
 def test_the_miniplayer_states_a_percentage_and_stops_claiming_one_it_lacks(open_panel):

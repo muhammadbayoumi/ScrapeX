@@ -93,6 +93,10 @@ RECIPES = {
     "pause": ("POST /api/sources/{key}/active", "post",
               f"/api/sources/{KEY}/active", {"active": False}),
     "sheet": ("GET /api/export/{key}", "get", f"/api/export/{KEY}", None),
+    # "Edit schedule", which replaces `pause` once the engine has the one switch (#1596).
+    # It opens the Schedules row, whose switch saves through this route.
+    "schedule": ("POST /api/schedules/{key}", "post", f"/api/schedules/{KEY}",
+                 {"frequency": "daily", "active": False}),
     # THE SAME ROUTE AS `update` AND A DIFFERENT VERB, which is the whole point of naming
     # the kind: `POST /api/jobs` infers a crawl from the source registry and cannot infer
     # which of the two things a caller wants over one key. Measured against the real
@@ -236,6 +240,16 @@ def test_the_engine_really_is_serving_a_dataset(client):
 
     assert [row["source_key"] for row in datasets] == [KEY]
     assert datasets[0]["observations"] > 0, "the dataset has no rows to serve"
+
+
+def test_a_dataset_card_carries_no_automation_switch(client):
+    """Nothing schedules a dataset's site yet, and his ruling (2026-10-09) is that the
+    panel draws no automation switch for it until directory scheduling is built. The
+    card said `active: True`, which the source manager drew as "Automation on"."""
+    rows = client.get("/api/sources").json()["sources"]
+    card = next(row for row in rows if row.get("kind") == "dataset")
+
+    assert "active" not in card
 
 
 # ---- the declarations are complete and legible ------------------------------

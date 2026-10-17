@@ -33,10 +33,13 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from .. import (
     bundle,
+    catalog,
     compaction,
     datasetjob,
     directories,
     directoryjob,
+    interpreter,
+    lightfile,
     localinbox,
     nativehost,
     pricehistory,
@@ -44,12 +47,14 @@ from .. import (
     provenance,
     rates,
     retention,
+    source_settings,
     sourceboard,
     taxonomy,
 )
 from .. import db as dbmod
 from .. import version as engine_version
 from ..capture import capture_source, crawl_settings
+from ..catalog_models import SiteCreate
 from ..changes import change_summary, recent_changes
 from ..config import SourceEntry, load_manifest, resolve_manifest_path
 from ..connectors.base import CrawlBlocked, HttpFetcher, resolve_user_agent
@@ -80,6 +85,7 @@ from ..fields import (
     set_visibility,
     visible_columns,
 )
+from ..ingest import get_source_id
 from ..jobs import (
     JobRunner,
     create_job,
@@ -91,7 +97,7 @@ from ..jobs import (
     worker_health,
 )
 from ..localsheets import workbook_bytes
-from ..manifest_io import DuplicateSourceError, add_source, remove_source, set_active, update_source
+from ..manifest_io import DuplicateSourceError, add_source, remove_source, update_source
 from ..matching import (
     ConflictError,
     Decision,
@@ -139,7 +145,7 @@ from ..reports import (
     table_payload,
     watch,
 )
-from ..scheduler import list_schedules, upsert_schedule, zone_exists
+from ..scheduler import get_schedule, list_schedules, upsert_schedule, zone_exists
 from ..settings import UnknownSettingError, get_state, public_settings
 from ..settings import get as settings_get
 from ..settings import save as save_settings
@@ -427,8 +433,15 @@ TEMPLATES.env.globals["workspace_navigation_groups"] = workspace_navigation_grou
 # once already, when completed_with_errors was introduced (migration 0020).
 TEMPLATES.env.globals["TERMINAL_JOB_STATUSES"] = sorted(
     status.value for status in TERMINAL_JOB_STATUSES)
+# "Did not finish cleanly": every terminal status but the two that are not trouble. A
+# skip (#1596) is a schedule passing over a busy source, so it raises no danger tile and
+# wears no `off` badge -- the panel draws it neutral too (`extension/jobsview.js`).
 TEMPLATES.env.globals["UNCLEAN_JOB_STATUSES"] = sorted(
-    status.value for status in TERMINAL_JOB_STATUSES if status is not JobStatus.COMPLETED)
+    status.value for status in TERMINAL_JOB_STATUSES
+    if status not in (JobStatus.COMPLETED, JobStatus.SKIPPED))
+# The one status /jobs draws differently by name: a skip never ran, so it states no
+# progress and its reason is a note, not an error (#1596).
+TEMPLATES.env.globals["SKIPPED_JOB_STATUS"] = JobStatus.SKIPPED.value
 STATIC_DIR = Path(__file__).parent / "static"
 PAGE_SIZE = 50
 AVAILABILITY_OPTIONS = ("in_stock", "out_of_stock", "unknown")
@@ -551,9 +564,9 @@ def create_app(
     app.state.db_path = str(price_path)
     app.state.databases = databases
     app.state.general_database = general_database
-    # RESOLVED TO A CONCRETE PATH, and not left as None: `set_active`,
-    # `add_source`, `update_source` and `remove_source` are all handed this value
-    # and all four default to MANIFEST_FILE, so a None reaching them becomes
+    # RESOLVED TO A CONCRETE PATH, and not left as None: `add_source`,
+    # `update_source` and `remove_source` are all handed this value
+    # and all three default to MANIFEST_FILE, so a None reaching them becomes
     # `Path(None)` — every source edit in the panel would raise. Resolving once,
     # here, also means every later reload reads the same file this one did.
     app.state.manifest_path = str(resolve_manifest_path(manifest_path))
@@ -578,14 +591,15 @@ def create_app(
         that existed on one machine, was reverted by a checkout, and went
         unnoticed for eleven days.
 
-        Nothing reads the stored flag to decide a crawl — the scheduler reads the
-        manifest — so this repairs no behaviour. It repairs what the owner's own
+        Nothing reads the stored flag to decide a crawl — the scheduler asks
+        `source_settings.effective`, the same answer written here (#1584) — so this
+        repairs no behaviour. It repairs what the owner's own
         database SAYS, which is what he queries, exports, and will read from the
         Console.
         """
         conn = read_conn()
         try:
-            return sorted(reconcile_active(conn))
+            return sorted(reconcile_active(conn, app.state.manifest))
         except Exception:
             # A warehouse that cannot be reconciled is a warehouse health
             # already reports on. Refusing to start over it would be worse.
@@ -845,13 +859,16 @@ def create_app(
         # may have stopped part-way, with runs it planned still unread, so it may not
         # count as a reading. Same column, opposite answers, because "did it leave pages
         # behind" and "did it read them all" are not one fact.
+        #
+        # EXCEPT A SKIP (#1596): a scheduled firing that did not run bought no pages,
+        # though `jobs._finish` stamps its finish time like any other.
         marks = ",".join("?" for _ in datasetjob.COLLECTING_KINDS)
         crawled = general.execute(
             "SELECT finished_at FROM crawl_job "
             f" WHERE job_kind IN ({marks}) AND source_keys LIKE ? "
-            "   AND finished_at IS NOT NULL "
+            "   AND finished_at IS NOT NULL AND status != ? "
             " ORDER BY finished_at DESC LIMIT 1",
-            (*datasetjob.COLLECTING_KINDS, like)).fetchone()
+            (*datasetjob.COLLECTING_KINDS, like, JobStatus.SKIPPED.value)).fetchone()
         if crawled:
             # `completed`, NOT "it has a finish time" -- and the difference is a silent
             # one. `jobs._finish` stamps `finished_at` for EVERY terminal status, so a
@@ -925,9 +942,9 @@ def create_app(
         """Every listed dataset, in the shape a source listing already speaks.
 
         WHICH DATASETS, AND THE FLAG THAT GATES THEM, are
-        `extract_service.listed_datasets`'s: one list for this listing and the engine's
-        own `/source/{key}` page. This adds what only a listing needs: the freshness and
-        the work waiting.
+        `extract_service.listed_datasets`'s: one list for this listing, the engine's
+        own `/source/{key}` page and the light file (#1199). This adds what only a
+        listing needs: the freshness and the work waiting.
 
         `kind` MARKS THEM, and the panel needs it: the row menu offers Update,
         Wipe and Rename, and every one of those is a price-path action that would
@@ -943,7 +960,10 @@ def create_app(
                 "source_key": row["dataset_key"],
                 "source_name": row["display_name"] or row["original_name"],
                 "source_name_ar": "", "base_url": row["base_url"],
-                "family": "generic", "active": True, "implemented": True,
+                # NO `active`: no schedule fires a dataset's site yet, and his ruling
+                # (2026-10-09) is that the panel draws no automation switch for it until
+                # directory scheduling is built. `True` here was drawn as "Automation on".
+                "family": "generic", "implemented": True,
                 "supports_history": False,
                 # `observations` is what the Data screen filters on, and for a
                 # directory the honest number is its rows. `products` has no
@@ -1049,10 +1069,10 @@ def create_app(
                 # price source. Same value a dataset card carries, for the same
                 # reason, rather than a second word meaning the same thing.
                 "family": "generic",
-                # NOT active: nothing is scheduled for it. `implemented` is True and
-                # that is the point of the row — a collector exists in this build, so
-                # the source is runnable by hand today.
-                "active": False,
+                # NO `active`: nothing schedules a directory yet, and his ruling
+                # (2026-10-09) is that the panel draws no automation switch for it until
+                # that is built. `implemented` is True and that is the point of the row
+                # — a collector exists in this build, so it is runnable by hand today.
                 "implemented": True,
                 "supports_history": False,
                 # Zero, and zero is the honest number. `_dataset_rows` carries the row
@@ -1146,7 +1166,8 @@ def create_app(
         if len(rows) < 2:
             return rows
         entries = {row["source_key"]: row for row in rows}
-        # WHICH CARD FOLDS INTO WHICH is `extract_service.dataset_folds`'s rule.
+        # WHICH CARD FOLDS INTO WHICH is `extract_service.dataset_folds`'s rule, so
+        # the light file's `folded_into` names the same ones.
         general = general_read_conn()
         try:
             folded_into = extract_service.dataset_folds(general, entries)
@@ -1178,9 +1199,19 @@ def create_app(
             } for child in children]))
         return listing
 
+    def _active_by_source(conn) -> dict[str, bool]:
+        """Every manifest source's EFFECTIVE `active` (#1584): his choice, else what it
+        ships with -- the answer `scheduler.fire_due` acts on, so every page that says
+        "on" or "off" says what the schedule will do."""
+        return {entry.source_key: source_settings.effective(
+                    conn, entry.source_key, entry).active
+                for entry in app.state.manifest.sources}
+
     def _source_catalog(conn):
         """Every configured source, split by whether it has warehouse data."""
         sources = _display_sources(conn)
+        # `active` is the effective one (#1584): his choice, else what it ships with.
+        active = _active_by_source(conn)
         source_sites = {entry.source_key: entry.base_url
                         for entry in app.state.manifest.sources}
         known = {source.source_key for source in sources}
@@ -1192,7 +1223,7 @@ def create_app(
             {"source_key": key, "source_name": entry.source_name,
              "source_name_ar": entry.source_name_ar,
              "base_url": entry.base_url,
-             "family": entry.family.value, "active": entry.active}
+             "family": entry.family.value, "active": active[key]}
             for entry in sorted(app.state.manifest.sources, key=lambda item: item.source_key)
             for key in [entry.source_key]
             if key not in known
@@ -1763,7 +1794,7 @@ def create_app(
 
         The same ownership rule as the HTML page: an offer that is not this
         source's answers 404 without confirming whether the id exists at all.
-        `reports.offer_card` builds it, so a copy (#1199) can store this same body.
+        `reports.offer_card` builds it, so the light file stores this same body.
         """
         conn = read_conn()
         try:
@@ -1835,6 +1866,8 @@ def create_app(
         conn = read_conn()
         try:
             saved = {s["source_key"]: s for s in list_schedules(conn)}
+            # The schedule fires on the EFFECTIVE `active` (#1584), so the page says it.
+            active = _active_by_source(conn)
         finally:
             conn.close()
         rows = []
@@ -1846,7 +1879,7 @@ def create_app(
                 "source_name": entry.source_name,
                 "source_name_ar": entry.source_name_ar,
                 "base_url": entry.base_url,
-                "active": entry.active,
+                "active": active[entry.source_key],
                 "supports_history": supports_history(entry.family),
                 "sched": saved.get(entry.source_key) or {},
             })
@@ -2088,7 +2121,12 @@ def create_app(
                 # panel only draws it, the split `/api/version` already makes.
                 # It needs no database, so it answers when the database cannot.
                 "sqlite": {"version": sqlite3.sqlite_version,
-                           "wal_reset_bug": dbmod.wal_reset_bug()}}
+                           "wal_reset_bug": dbmod.wal_reset_bug()},
+                # WHICH PYTHON THIS PROCESS RUNS, against the pin (#1321). The
+                # launcher names its interpreter once, so a pin move leaves a
+                # source engine below it; the same split as `sqlite` above, and
+                # it needs no database either.
+                "python": interpreter.report()}
 
     @app.get("/api/version")
     def api_version(extension_version: str | None = None):
@@ -2133,6 +2171,10 @@ def create_app(
         conn = read_conn()
         try:
             summaries = {s.source_key: s for s in list_sources(conn)}
+            # `active` IS THE EFFECTIVE ONE (#1584): his choice for the source, else
+            # what it ships with -- the answer the scheduler acts on. The dataset and
+            # directory cards below keep their own: no schedule fires a directory yet.
+            active = _active_by_source(conn)
         finally:
             conn.close()
         out = []
@@ -2148,7 +2190,8 @@ def create_app(
                 "source_key": entry.source_key, "source_name": entry.source_name,
                 "source_name_ar": entry.source_name_ar,
                 "base_url": entry.base_url, "family": entry.family.value,
-                "active": entry.active, "implemented": _is_implemented(entry),
+                "active": active[entry.source_key],
+                "implemented": _is_implemented(entry),
                 # A per-source CAPABILITY, not a universal mode: the panel
                 # offers History backfill only where this is true.
                 "supports_history": supports_history(entry.family),
@@ -2207,8 +2250,8 @@ def create_app(
         contractor's 22.9 interests are invisible on every screen. This is the read
         half of the filter his ruling asked for.
 
-        WHICH GROUPS, AND WHY NOT A 404, is `taxonomy.dataset_taxonomy`'s, so a copy
-        (#1199) can store this same body.
+        WHICH GROUPS, AND WHY NOT A 404, is `taxonomy.dataset_taxonomy`'s, so the
+        light file stores this same body.
 
         WHOLE AND UNPAGED, because it is 214 nodes. The membership table it counts
         against is 407,384 rows and is scanned once, not once per node.
@@ -2232,12 +2275,15 @@ def create_app(
         conn = read_conn()
         try:
             summaries = {s.source_key: s for s in list_sources(conn)}
+            # The status column says the EFFECTIVE `active` (#1584), not the manifest's.
+            active = _active_by_source(conn)
         finally:
             conn.close()
         rows = []
         for entry in app.state.manifest.sources:
             s = summaries.get(entry.source_key)
             rows.append({"entry": entry, "implemented": entry.family in _BUILDERS,
+                         "active": active[entry.source_key],
                          "observations": s.observations if s else 0})
         return TEMPLATES.TemplateResponse(request=request, name="manage.html", context={
             "rows": rows, "tab": "data", "source_key": None,
@@ -2260,26 +2306,34 @@ def create_app(
     def api_set_active(source_key: str, body: dict):
         """Flip one source's automation switch, from the panel.
 
-        Writes the manifest surgically (comments survive) and reloads it, so
-        the runner's next scheduler tick sees the new truth. Manual runs are
+        HIS CHOICE, IN THE WAREHOUSE (#1584), and no longer a write to `sources.yaml`:
+        the packaged engine deletes that file at exit, so a switch flipped here was gone
+        at the next restart (#1583). It is `POST /rules` with `active` alone, kept as
+        its own route because the source rows' Auto button calls it. Manual runs are
         never gated by this — active means "may run WITHOUT me".
         """
-        wanted = bool((body or {}).get("active"))
-        try:
-            set_active(source_key, wanted, app.state.manifest_path)
-        except KeyError:
-            raise HTTPException(status_code=404, detail=f"unknown source {source_key!r}")
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc))
-        except Exception as exc:  # pydantic refusals (e.g. a TBD-probe placeholder)
-            raise HTTPException(status_code=400, detail=str(exc))
-        app.state.manifest = load_manifest(app.state.manifest_path)
-        reconciled = _follow_the_manifest()
-        return {"source_key": source_key, "active": wanted,
-                "warehouse_updated": sorted(reconciled)}
+        wanted = (body or {}).get("active")
+        if type(wanted) is not bool:
+            raise HTTPException(status_code=400,
+                                detail=f"active must be true or false, not {wanted!r}")
+        answer = _save_rules(source_key, {"active": wanted})
+        return {"source_key": source_key, "active": answer["fields"]["active"]["value"],
+                "warehouse_updated": answer["warehouse_updated"]}
 
     @app.post("/api/sources")
     def api_add_source(body: dict):
+        # HIS PER-SOURCE CHOICES ARE NOT WRITTEN BY ADDING A SOURCE (#1584), for the
+        # reason /edit refuses them: they live in the warehouse, and a second writer
+        # for one field is how the copies drifted. Only `active: false` passes -- what
+        # the add form has always sent, and a new source's default anyway.
+        theirs = sorted(field for field in set(body or {}) & set(source_settings.FIELDS)
+                        if not (field == "active" and body[field] is False))
+        if theirs:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{', '.join(theirs)} are your per-source choices and are saved "
+                       "in the warehouse: add the source first, then choose them in "
+                       "its editor")
         try:
             entry = _entry_from_form(body or {})
         except (ValueError, KeyError) as exc:
@@ -2314,6 +2368,110 @@ def create_app(
         return {"source": json.loads(entry.model_dump_json()), "holds": holds,
                 "implemented": entry.family in _BUILDERS}
 
+    # ---- his choices for one source (#1584): read with their origin, write them ----
+
+    def _shipped_or_404(source_key: str):
+        """What a source ships with: its manifest entry or its directory. A key neither
+        names is not a source this build can crawl, so there is nothing to choose for."""
+        shipped = source_settings.shipped_with(app.state.manifest, source_key)
+        if shipped is None:
+            raise HTTPException(status_code=404, detail=f"unknown source {source_key!r}")
+        return shipped
+
+    def _rules_answer(conn, source_key: str, shipped) -> dict:
+        """Each field's value, its origin and what clearing returns to, beside the
+        general rules a field marked `general` follows."""
+        crawl = crawl_settings(conn)
+        fields = source_settings.explained(conn, source_key, shipped)
+        return {
+            "source_key": source_key,
+            "kind": "price" if isinstance(shipped, SourceEntry) else "directory",
+            "fields": fields,
+            "general": {"user_agent": resolve_user_agent(None, crawl),
+                        "crawl_pace_s": crawl["min_interval_s"],
+                        "obey_disallow": bool(crawl.get("obey_disallow"))},
+            # The agent the crawl presents: his, else the source's, else the general.
+            "agent_sent": resolve_user_agent(fields["user_agent"]["value"], crawl),
+        }
+
+    def _store_choices(conn, source_key: str, shipped, changes: dict) -> None:
+        """Register the source if it never was, then store his choices. No commit: the
+        caller's transaction holds it, so a schedule saved beside `active` is one write.
+
+        A SCHEDULE TURNED ON GETS A SLOT. Migration 0024 folded each paused schedule into
+        `active = 0` and left it `enabled` with no `next_run_at`; `fire_due` passes over
+        a NULL slot, so an activation from any route -- /active, /rules, or clearing his
+        choice where the source ships on -- would read as on and never fire. So one that
+        leaves the source active re-arms such a schedule from what it stores."""
+        if conn.execute("SELECT 1 FROM source_site WHERE source_key = ?",
+                        (source_key,)).fetchone() is None:
+            if isinstance(shipped, SourceEntry):
+                get_source_id(conn, shipped, shipped.currency)
+            else:
+                catalog.register_site(conn, SiteCreate(
+                    site_key=shipped.key, display_name=shipped.display_name,
+                    base_url=shipped.base_url))
+        source_settings.save(conn, source_key, shipped, changes)
+        sched = get_schedule(conn, source_key)
+        if ("active" in changes and sched and sched["enabled"]
+                and sched["frequency"] != ScheduleFrequency.MANUAL.value
+                and sched["next_run_at"] is None
+                and source_settings.effective(conn, source_key, shipped).active):
+            upsert_schedule(
+                conn, source_key, frequency=sched["frequency"], run_at=sched["run_at"],
+                tz_name=sched["timezone"], weekday=sched["weekday"],
+                run_mode=sched["run_mode"], missed_run_policy=sched["missed_run_policy"],
+                overlap_policy=sched["overlap_policy"])
+
+    def _save_rules(source_key: str, changes: dict) -> dict:
+        """Store a partial set of his choices and answer as `GET /rules` does.
+
+        A SOURCE NEVER CRAWLED HAS NO `source_site` ROW, and his choice hangs off one,
+        so it is registered first, the way its first crawl would: a price source by
+        `ingest.get_source_id`, a directory by `catalog.register_site`. Then
+        `reconcile_active` keeps `lifecycle` saying what the schedule acts on.
+        """
+        shipped = _shipped_or_404(source_key)
+
+        def write(conn):
+            _store_choices(conn, source_key, shipped, changes)
+            conn.commit()
+            moved = reconcile_active(conn, app.state.manifest)
+            return dict(_rules_answer(conn, source_key, shipped),
+                        warehouse_updated=sorted(moved))
+
+        try:
+            return _write(write)
+        except source_settings.SourceSettingError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+
+    @app.get("/api/sources/{source_key}/rules")
+    def api_source_rules(source_key: str):
+        """His per-source choices for any source, price or directory, each with its
+        origin: `choice` (his), `source` (what it ships with) or `general` (the
+        Settings page's rule, where the source ships no opinion)."""
+        shipped = _shipped_or_404(source_key)
+        conn = read_conn()
+        try:
+            return _rules_answer(conn, source_key, shipped)
+        except source_settings.SourceSettingError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        finally:
+            conn.close()
+
+    @app.post("/api/sources/{source_key}/rules")
+    def api_save_source_rules(source_key: str, body: dict):
+        """Store some of his choices for one source; a field sent as null clears his
+        choice and the field returns to what the source ships with.
+
+        THE WAREHOUSE AND NOT `sources.yaml` (#1583, #1584): these five fields are no
+        longer written to the manifest from anywhere. A refusal is a 400 with the
+        shared checker's sentence -- the one `SourceEntry` gives for the same value.
+        """
+        if not isinstance(body, dict):
+            raise HTTPException(status_code=400, detail="send the choices as an object")
+        return _save_rules(source_key, body)
+
     @app.get("/api/sources/{source_key}/robots")
     def api_source_robots(source_key: str):
         """LOOK BEFORE CHOOSING: what this site's robots.txt actually says.
@@ -2328,73 +2486,131 @@ def create_app(
         is true, choosing obey does not make this source polite, it makes it
         collect nothing while reporting success.
         """
-        import httpx
-
+        from ..connectors.base import general_fetcher, source_fetcher
         from ..robots import RobotsChoice, RobotsCustom, decide, inspect
 
-        try:
-            entry = app.state.manifest.get(source_key)
-        except KeyError:
-            raise HTTPException(status_code=404, detail=f"unknown source {source_key!r}")
+        # ANY SOURCE THIS BUILD CRAWLS, a directory as well as a price source (#1584):
+        # this answered 404 for muqawil_org and the Oman register, whose crawls read
+        # robots.txt like any other.
+        shipped = _shipped_or_404(source_key)
 
         conn = read_conn()
         try:
             crawl = crawl_settings(conn)
-            agent = resolve_user_agent(entry.user_agent, crawl)
+            # THE CRAWL'S OWN ANSWER for this source -- his choice, else what it shipped
+            # with (#1584) -- so the choice, rule and agent shown are the ones
+            # `capture_source` fetches with, not the manifest's alone. A rule that cannot
+            # be acted on is said, as a 400 with its sentence, never a 500.
+            try:
+                rules = source_settings.effective(conn, source_key, shipped)
+            except source_settings.SourceSettingError as exc:
+                raise HTTPException(status_code=400, detail=str(exc))
+            agent = resolve_user_agent(rules.user_agent, crawl)
             obeys_by_default = bool(crawl.get("obey_disallow"))
+            # Absent reads as HONOUR, exactly as `resolve_fetcher` reads it: the
+            # delay shown here is the delay the crawl applies (#1413).
+            honours_delay = crawl.get("honour_crawl_delay") is not False
         finally:
             conn.close()
 
-        text, unreadable = None, ""
+        # READ THROUGH THE CRAWL'S OWN FETCHER (#1585), so the pause reported here
+        # is the pause the crawl takes. This built its own client -- a 15s timeout
+        # against the crawl's 30s default, no browser headers, no HTTP/2, no
+        # retries -- and a slow or header-sensitive site read one way here and the
+        # other way in the crawl. `read_robots` is the read `_load_robots` makes:
+        # the same timeout, agent, headers, retries and classification.
+        #
+        # A BROWSER SOURCE GETS THE GENERAL FETCHER: `resolve_fetcher` would start
+        # Playwright for it. And the browser transport reads no robots.txt at all, so
+        # for that source the file is SHOWN and nothing is claimed about its crawl:
+        # no pause, no Disallow, no delay -- saying "the crawl pauses" there would be
+        # the disagreement this route exists to remove.
+        #
+        # ONE HOST: `base_url`'s. A source that reads another host too (heidelberg's
+        # API and corporate hosts) has each read by the crawl on first contact, and
+        # `robots_url` below says which one this answer is about.
+        #
+        # BUILT FROM `rules`, the crawl's own per-source answer (#1584): his agent,
+        # pace and robots choice where he set them, else what the source shipped with.
+        # A DIRECTORY IS FETCHED AS A PRICE SOURCE OVER HTTP IS: `source_fetcher(rules)`
+        # is what both `resolve_fetcher` and `contractors.make_fetch` build.
+        browser = (isinstance(shipped, SourceEntry)
+                   and shipped.fetcher == Fetcher.BROWSER)
+        fetcher = (general_fetcher(crawl, source_user_agent=rules.user_agent)
+                   if browser else source_fetcher(rules, crawl))
         try:
-            base = urlsplit(entry.base_url)
-            with httpx.Client(timeout=15.0, follow_redirects=True,
-                              headers={"User-Agent": agent}) as client:
-                answer = client.get(f"{base.scheme}://{base.netloc}/robots.txt")
-            if answer.status_code == 200:
-                text = answer.text
-            elif answer.status_code not in (404, 410):
-                # 404 means there is no file, which is an ANSWER. Anything else
-                # means we did not get to read one, and the two must not look
-                # alike on the screen.
-                unreadable = f"HTTP {answer.status_code}"
-        except Exception as exc:
-            # Any failure to READ robots.txt is reported as a failure to read
-            # it, never as an empty file: "the site asks nothing" and "we could
-            # not find out" lead the owner to opposite choices.
-            unreadable = f"{type(exc).__name__}: {exc}"
+            # PROMPTLY: the panel is waiting, with no timeout of its own. A long
+            # Retry-After is reported instead of waited (`retry_after_s`), and the
+            # retries stop at one timeout's budget (`cut_short`).
+            read = fetcher.read_robots(shipped.base_url, answer_promptly=True)
+        finally:
+            fetcher.close()
 
-        report = inspect(entry.base_url, text, user_agent=agent, unreadable=unreadable)
-        choice = RobotsChoice(entry.robots or "default")
+        report = inspect(shipped.base_url, read.text, user_agent=agent,
+                         unreadable=read.unreadable,
+                         unreachable=read.unreachable and not browser)
+        choice = rules.robots
         custom = None
-        if choice is RobotsChoice.CUSTOM and entry.robots_custom:
-            custom = RobotsCustom(
-                enforce_disallow=bool(entry.robots_custom.get("enforce_disallow")),
-                crawl_delay_s=entry.robots_custom.get("crawl_delay_s"))
+        if choice is RobotsChoice.CUSTOM and rules.robots_custom:
+            custom = RobotsCustom(**rules.robots_custom)
         # Shown as "what would happen on a disallowed path", because that is the
         # only case where the three choices differ at all.
-        try:
-            verdict = decide(report, choice, custom=custom,
-                             tool_default_obeys=obeys_by_default, url_disallowed=True)
-            outcome = {"may_fetch": verdict.may_fetch, "delay_s": verdict.delay_s,
-                       "reason": verdict.reason}
-        except ValueError as exc:
-            outcome = {"may_fetch": None, "delay_s": None, "error": str(exc)}
+        if browser:
+            outcome = {"may_fetch": True, "delay_s": None,
+                       "reason": f"{source_key} is crawled by a real browser, which "
+                                 "reads no robots.txt: no rule of this file, and no "
+                                 "pause, applies to its crawl"}
+        else:
+            try:
+                verdict = decide(report, choice, custom=custom,
+                                 tool_default_obeys=obeys_by_default,
+                                 honour_site_delay=honours_delay, url_disallowed=True)
+                outcome = {"may_fetch": verdict.may_fetch,
+                           "delay_s": verdict.delay_s, "reason": verdict.reason}
+            except ValueError as exc:
+                outcome = {"may_fetch": None, "delay_s": None, "error": str(exc)}
+        said = [report.summary()]
+        if read.retry_after_s is not None:
+            said.append(f"The site asked to be retried after {read.retry_after_s:g}s; "
+                        "the crawl waits that long and retries before this answer "
+                        "is final.")
+        if read.cut_short:
+            said.append("This check stopped retrying at its time limit; the crawl "
+                        "keeps retrying before this answer is final.")
+        if browser:
+            said.append(outcome["reason"] + ".")
 
         return {
             "source_key": source_key,
             "host": report.host,
             "found": report.found,
             "unreadable": report.unreadable,
+            # TRUE MEANS THE CRAWL PAUSES on this site (a 5xx or no answer, ES-2);
+            # `on_a_disallowed_path.reason` says so in words.
+            "unreachable": report.unreachable,
+            # WHICH FILE was read: a source whose crawl touches a second host has
+            # that host's robots.txt read by the crawl, not by this route.
+            "robots_url": read.url,
+            # The site asked to be retried after this many seconds -- longer than
+            # this route waits. The crawl waits it and retries before deciding.
+            "retry_after_s": read.retry_after_s,
+            # The retries ran out of this route's time budget before their attempts;
+            # the crawl would have kept going.
+            "cut_short": read.cut_short,
+            # FALSE for a browser source: its crawl reads no robots.txt.
+            "crawl_reads_robots": not browser,
             "names_us": report.names_us,
             "user_agent": agent,
-            "crawl_delay_s": report.crawl_delay_s,
-            "would_block_everything": report.obeying_would_block_everything,
-            "summary": report.summary(),
+            # NULL FOR A BROWSER SOURCE: its crawl applies no Crawl-delay, so a
+            # number here would be a pace the crawl never keeps.
+            "crawl_delay_s": None if browser else report.crawl_delay_s,
+            "would_block_everything": (report.obeying_would_block_everything
+                                       and not browser),
+            "summary": " ".join(said),
             "rules": [{"kind": r.kind, "value": r.value, "agent": r.agent}
                       for r in report.rules],
             "choice": str(choice),
-            "custom": entry.robots_custom,
+            "custom": rules.robots_custom,
             "tool_default_obeys": obeys_by_default,
             "on_a_disallowed_path": outcome,
         }
@@ -2415,21 +2631,23 @@ def create_app(
         """
         if source_key not in {s.source_key for s in app.state.manifest.sources}:
             raise HTTPException(status_code=404, detail=f"unknown source {source_key!r}")
+        # HIS PER-SOURCE CHOICES ARE NOT MANIFEST FIELDS ANY MORE (#1584). Refused here,
+        # by name, rather than routed: a request that wrote some fields to the file and
+        # others to the warehouse would succeed halfway when either refused, and two
+        # writers for one field is how the copies drifted. They have one route.
+        theirs = sorted(set(body or {}) & set(source_settings.FIELDS))
+        if theirs:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{', '.join(theirs)} are your per-source choices and are saved "
+                       f"in the warehouse: send them to POST /api/sources/{source_key}"
+                       "/rules")
         current = json.loads(app.state.manifest.get(source_key).model_dump_json())
         # MERGE, never rebuild: an edit that named two fields would otherwise
         # drop every field it did not mention, which is a wipe wearing the word
         # "edit". Only what the form actually sends changes.
         form = {**current, **{k: v for k, v in (body or {}).items() if v is not None}}
         form.setdefault("source_key", source_key)
-        # ENFORCED HERE, not trusted from the form. The merge above drops nulls
-        # on purpose -- a partial edit must not wipe fields it did not mention --
-        # so a client switching a source AWAY from `custom` cannot clear its
-        # custom rule by sending null. Left behind, the rule sits under a choice
-        # that ignores it and reads as "this site is customised" on every later
-        # open, until someone switches back and is silently governed by a rule
-        # they last saw weeks ago.
-        if form.get("robots") != "custom":
-            form["robots_custom"] = None
         if str(form.get("source_key")) != source_key:
             raise HTTPException(
                 status_code=400,
@@ -2562,11 +2780,25 @@ def create_app(
 
     @app.post("/api/schedules/{source_key}")
     def api_set_schedule(source_key: str, body: dict):
+        """Save one source's schedule and, when `active` is sent, its Active switch.
+
+        THE SWITCH ON THE SCHEDULES ROW (#1596, D1 option 2): `active` is still
+        `source_setting.active`, checked by `source_settings.save` -- so a TBD-probe
+        source is refused with the manifest's sentence -- and written in the SAME
+        transaction as the schedule, which is then always `enabled` (migration 0024
+        folded every `enabled = 0` into `active = 0`). The answer carries the effective
+        `active`, because `next_run_at` is armed either way and only that says the slot
+        will not fire. Without `active` the route saves as it did before.
+        """
         body = body or {}
         try:
-            app.state.manifest.get(source_key)
+            entry = app.state.manifest.get(source_key)
         except KeyError:
             raise HTTPException(status_code=404, detail=f"unknown source_key {source_key!r}")
+        active = body.get("active")
+        if "active" in body and type(active) is not bool:
+            raise HTTPException(status_code=400,
+                                detail=f"active must be true or false, not {active!r}")
         frequency = body.get("frequency", ScheduleFrequency.MANUAL.value)
         if frequency not in {f.value for f in ScheduleFrequency}:
             raise HTTPException(status_code=400, detail="frequency must be "
@@ -2578,18 +2810,29 @@ def create_app(
             raise HTTPException(status_code=400,
                                 detail=f"unknown timezone {tz_name!r} — use an "
                                        "IANA name like Africa/Cairo")
-        try:
-            saved = _write(lambda c: upsert_schedule(
+
+        def write(c):
+            if active is not None:
+                _store_choices(c, source_key, entry, {"active": active})
+            saved = upsert_schedule(
                 c, source_key, frequency=frequency,
                 run_at=body.get("run_at", "09:00"), tz_name=body.get("timezone", "UTC"),
                 weekday=body.get("weekday"), run_mode=body.get("run_mode", RunMode.UPDATE.value),
                 missed_run_policy=body.get("missed_run_policy",
                                            MissedRunPolicy.RUN_WHEN_AVAILABLE.value),
                 overlap_policy=body.get("overlap_policy", OverlapPolicy.QUEUE.value),
-                enabled=bool(body.get("enabled", True))))
+                enabled=True if active is not None else bool(body.get("enabled", True)))
+            if active is not None:
+                reconcile_active(c, app.state.manifest)
+            saved["active"] = source_settings.effective(c, source_key, entry).active
+            return saved
+
+        try:
+            return _write(write)
+        except source_settings.SourceSettingError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
         except sqlite3.IntegrityError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
-        return saved
 
     # ---- columns + saved views (spec 22: hiding is never deleting) ----------
 
@@ -3452,8 +3695,8 @@ def create_app(
     #: that decision.
     RECEIVED_PREFIX = "from-drive-"
 
-    #: The panel pack lifted out of the bundle, named so the two files of one
-    #: backup share a stamp and sort together.
+    #: The panel pack lifted out of the bundle, named so the files of one backup
+    #: share a stamp and sort together.
     PANEL_SUFFIX = "-panel.jsonl.gz"
 
     #: How many built bundles stay on disk. NOTHING pruned these before
@@ -3482,7 +3725,7 @@ def create_app(
     #: only add a stale one to clear.
     _bundle_build_lock = threading.Lock()
 
-    #: `%Y%m%d-%H%M%S`, the stamp both files of a backup share.
+    #: `%Y%m%d-%H%M%S`, the stamp every file of a backup shares.
     _BUNDLE_STAMP = re.compile(rf"^{re.escape(BUNDLE_PREFIX)}(\d{{8}}-\d{{6}})")
 
     def _bundle_folder(conn) -> Path:
@@ -3515,7 +3758,7 @@ def create_app(
     def _prune_old_bundles(folder: Path, keep: int = BUNDLE_KEEP) -> None:
         """Keep the newest `keep` backups; delete every file of the older ones.
 
-        BY STAMP RATHER THAN BY MTIME, because the two files of one backup do not
+        BY STAMP RATHER THAN BY MTIME, because the files of one backup do not
         share an mtime: `shutil.copy2` gives the panel pack the timestamp of the
         staged file it was copied from, minutes before the archive beside it is
         closed. Pruning each suffix on its own could therefore keep an archive
@@ -3661,6 +3904,7 @@ def create_app(
         stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
         staging = folder / f"{BUNDLE_PREFIX}{stamp}"
         archive = folder / f"{BUNDLE_PREFIX}{stamp}.zip"
+        light, light_error = None, None
         try:
             report = bundle.build(app.state.db_path, staging)
             if not report.ok:
@@ -3699,6 +3943,17 @@ def create_app(
                 except BaseException:
                     building.unlink(missing_ok=True)
                     raise
+            # THE LIGHT FILE (#1199), written from the copy inside this very zip and
+            # before the staging folder goes, so its parts describe exactly the
+            # warehouse.db the archive carries. It never fails the backup: the zip IS
+            # the backup, so a light file that could not be written is reported in
+            # the reply rather than raised. A table that failed is in its `faults`.
+            try:
+                light = lightfile.write(
+                    staging / "warehouse.db", folder / f"{BUNDLE_PREFIX}{stamp}",
+                    price_sources=app.state.manifest.sources)
+            except (OSError, sqlite3.Error) as error:
+                light_error = f"{type(error).__name__}: {error}"
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
         finally:
@@ -3724,6 +3979,9 @@ def create_app(
                 "bytes": panel_pack.stat().st_size,
                 "sha256": bundle.sha256_of(panel_pack),
             } if panel_pack.is_file() else None,
+            # The light file's index, or None and the reason it was not written.
+            "light": light.index if light is not None else None,
+            "light_error": light_error,
         }
 
     @app.get("/api/bundle/archive")
@@ -4459,6 +4717,9 @@ def create_app(
             refuse_writes(price)
             payload = dry_payload(source_key, general=general, price=price,
                                   manifest=app.state.manifest)
+        except source_settings.SourceSettingError as exc:
+            # His rules for this source cannot be read: said as a 400, never a 500.
+            raise HTTPException(status_code=400, detail=str(exc))
         finally:
             general.close()
             price.close()
@@ -4629,12 +4890,15 @@ def create_app(
             if asked not in offered:
                 # A COMPLETED RUN IS NOT RESUMABLE. Inheriting its ref would make this
                 # crawl skip every page it stored -- a crawl that reads nothing and
-                # reports success, which is the trap issue 642 rejected by name.
+                # reports success, which is the trap issue 642 rejected by name. Nor is
+                # a stopped run that a later crawl has completed past (issue 1503): what
+                # it kept was read again by that crawl, so there is nothing to save.
                 raise HTTPException(
                     status_code=409,
-                    detail=f"{asked!r} is not an interrupted run of {source_keys[0]!r}. "
-                           "A finished run is not resumable: continuing it would skip "
-                           "everything it stored and read nothing")
+                    detail=f"{asked!r} is not resumable for {source_keys[0]!r}: it "
+                           "completed, or a crawl created after it has completed since, "
+                           "so there is nothing left for it to continue. Start a new "
+                           "crawl instead")
             checkpoint = {**(checkpoint or {}), "resume_run_ref": asked}
         if job_kind == profilejob.JOB_KIND:
             # WHICH PROFILES, PASSED THROUGH RATHER THAN DECIDED HERE. The runner reads
@@ -4970,7 +5234,7 @@ def _queued_behind(job: dict, queue: dict | None) -> dict | None:
 #: which it did, and the comment is why this sentence names none.
 PROGRESS_UNITS: dict[str, str] = {
     "organization_enrichment": "organizations",
-    # `profilejob.py:29` -- "progress is counted in PAGES", and `:295` writes
+    # `profilejob.py:29` -- "progress is counted in PAGES", and `:296` writes
     # `progress_total = wanted * 2`, which is one page per locale per contractor.
     profilejob.JOB_KIND: "page(s)",
     # `datasetjob` counts page PAIRS: `approve` collapses the en/ar halves of one page,

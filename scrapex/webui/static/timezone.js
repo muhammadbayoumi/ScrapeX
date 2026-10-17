@@ -83,21 +83,35 @@
 
   function usable(zone) {
     if (!zone || typeof zone !== "string") return false;
-    try {
-      new Intl.DateTimeFormat(LOCALE, {timeZone: zone});
-      return true;
-    } catch (error) {
-      return false;   // RangeError: not a zone this browser's tz data knows.
+    // A zone's validity is fixed for the life of the page, so it is asked once per name:
+    // format() resolves the zone on every call, and each check built a formatter.
+    if (!usableZones.has(zone)) {
+      try {
+        new Intl.DateTimeFormat(LOCALE, {timeZone: zone});
+        usableZones.set(zone, true);
+      } catch (error) {
+        usableZones.set(zone, false);   // RangeError: not a zone this tz data knows.
+      }
     }
+    return usableZones.get(zone);
   }
+  const usableZones = new Map();
 
+  // THE MACHINE'S ZONE, READ AT MOST ONCE A MINUTE. It changes only when the laptop
+  // travels, and reading it builds a formatter; format() asks for it on every call.
+  let detectedZone = {zone: "", at: -Infinity};
   function detected() {
+    const now = Date.now();
+    if (now - detectedZone.at < 60_000) return detectedZone.zone;
+    let zone = "";
     try {
-      const zone = new Intl.DateTimeFormat().resolvedOptions().timeZone;
-      return usable(zone) ? zone : "";
+      const found = new Intl.DateTimeFormat().resolvedOptions().timeZone;
+      zone = usable(found) ? found : "";
     } catch (error) {
-      return "";
+      zone = "";
     }
+    detectedZone = {zone, at: now};
+    return zone;
   }
 
   /** This machine's UTC offset as a zone, for a browser that names none.
@@ -201,6 +215,20 @@
     return day || `${clock}${period}` || "";
   }
 
+  // ONE FORMATTER PER SHAPE AND ZONE, built once. Constructing an Intl.DateTimeFormat
+  // costs ~0.4 ms, and a page of 200 job rows formats ~1,600 instants when it fills
+  // them all (#1608's gate). With usable() and detected() above, a format() call builds
+  // none after the first. The zone is part of the key, so a new zone gets its own.
+  const formatters = new Map();
+  function formatterFor(mode, shape, active) {
+    const key = `${mode}\u0000${active}`;
+    if (!formatters.has(key)) {
+      if (formatters.size >= 64) formatters.clear();   // zones change rarely; stay bounded
+      formatters.set(key, new Intl.DateTimeFormat(LOCALE, {...shape, timeZone: active}));
+    }
+    return formatters.get(key);
+  }
+
   /** A stored UTC instant, as the active zone shows it.
    *
    * Anything that is not an instant is returned exactly as it arrived. That is
@@ -215,7 +243,7 @@
     const shape = SHAPES[mode] || SHAPES.datetime;
     const active = zone();
     try {
-      const parts = new Intl.DateTimeFormat(LOCALE, {...shape, timeZone: active})
+      const parts = formatterFor(SHAPES[mode] ? mode : "datetime", shape, active)
         .formatToParts(new Date(ms));
       return assemble(parts, shape.hour !== undefined);
     } catch (error) {

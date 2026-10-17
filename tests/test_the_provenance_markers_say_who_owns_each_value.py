@@ -203,6 +203,8 @@ MARKED_VALUES = frozenset({
     ("dark", "--line-control-hover"),
     ("dark", "--red"),
     ("dark", "--red-weak"),
+    ("dark", "--warning-600"),
+    ("dark", "--warning-button"),
     ("light", "--accent"),
     ("light", "--accent-active"),
     ("light", "--accent-hover"),
@@ -213,7 +215,11 @@ MARKED_VALUES = frozenset({
     ("light", "--focus"),
     ("light", "--line-control-hover"),
     ("light", "--red"),
+    ("light", "--warning-600"),
     ("light", "--red-weak"),
+    # #1596: Supabase's Switch thumb (`bg-white`) and its `warning` Button's fills.
+    ("light", "--switch-thumb-checked"),
+    ("light", "--warning-button-hover"),
 })
 
 ALL = _markers()

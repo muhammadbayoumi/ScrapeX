@@ -1760,10 +1760,10 @@ def offer_card(conn: sqlite3.Connection, source_key: str,
                offer_id: int) -> dict | None:
     """One offer's story, as the Data page's record card shows it.
 
-    ONE FUNCTION, SO A SECOND READER CAN CALL IT. `GET /api/offer/{source_key}/{offer_id}`
-    answers it, and the light file (#1199, not yet built) is to store it for a reader
-    with no engine. Inside the route, that copy could only have been a second copy of
-    five keys and their order.
+    ONE FUNCTION, TWO READERS. `GET /api/offer/{source_key}/{offer_id}` answers it,
+    and the light file (#1199) stores it for a reader with no engine. It lived inside
+    the route, where the copy could only have been a second copy of five keys and
+    their order.
 
     None when the offer is not this source's, without saying whether the id exists
     at all: the ownership rule the HTML page has, which the route turns into 404.
@@ -2684,6 +2684,10 @@ TABLE_GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
          ("crawl_job", "One row per job you started, with its controls and outcome."),
          ("job_log_entry", "The log lines behind a job."),
          ("schedule", "When a source should run by itself."),
+         ("source_setting", "What you chose for one source: active, robots, agent "
+                            "and pace. An empty field follows what the source shipped "
+                            "with or, where it shipped nothing, your general "
+                            "settings."),
          ("retention_policy", "How long raw material is kept."),
          ("retention_run", "What a retention pass actually removed."),
          ("retention_pin", "What you pinned so retention never touches it."),

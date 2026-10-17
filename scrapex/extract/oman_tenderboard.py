@@ -54,6 +54,11 @@ DATASET_NAME = "Oman registered vendors"
 #: was unique and present on 102 of 102 rows, the CR number blank on 1 of 102.
 IDENTITY_FIELD = "short_name"
 
+#: The field that names the same firm under ANY record key: the CR number. Not the
+#: identity -- it is blank on ~2% -- but what `contractors.mark_departures` looks a
+#: firm up by before it calls one gone whose key the register changed (#1333).
+REGISTRATION_FIELD = "cr_number"
+
 #: DECLARED AND ORDERED. See the module docstring: a derived list makes the schema a
 #: property of one page. A field the site ADDS is still kept -- appended after these, by
 #: `_candidate`, because a new column is news and dropping it silently is how it stays
@@ -78,13 +83,17 @@ FIELDS: tuple[str, ...] = (
     "reg_expiry",
     "company_type",
     "company_type_ar",
+    # WHY THIS ROW'S RECORD KEY IS IN DOUBT, empty on every row whose two keys agree --
+    # the owner's ruling on #1333, and the column he reads it in. LAST, so every column
+    # the Sheet already carries keeps its place.
+    "key_warning",
 )
 
 #: `R-12`: identifiers, numbers, dates and codes get no `_ar` twin. Named rather than
 #: implied, so a later field is placed deliberately.
 NO_ARABIC_TWIN = frozenset({
     "short_name", "cr_number", "telephone", "fax", "reg_expiry",
-    "registered_category_count", "registered_category_undecoded",
+    "registered_category_count", "registered_category_undecoded", "key_warning",
 })
 
 
@@ -117,6 +126,11 @@ def _row(english: Firm, arabic: Firm, vocabulary: dict[str, str]) -> dict[str, s
         "reg_expiry": english.expiry_raw,
         "company_type": english.company_type,
         "company_type_ar": arabic.company_type,
+        # EITHER VIEW'S DOUBT, ONCE. Each view carries its own activities argument, so
+        # the two can disagree apart; the same sentence from both is said once.
+        "key_warning": "; ".join(dict.fromkeys(
+            warning for warning in (english.key_warning, arabic.key_warning)
+            if warning)) or None,
     }
 
 
@@ -159,7 +173,10 @@ def bilingual_listing_candidate(english_html: str, arabic_html: str, *,
         # Every field on every row, absent ones as None rather than missing.
         rows=tuple({name: row.get(name) for name in names} for row in rows),
         confidence=1.0,
-        warnings=(),
+        # NAMED IN THE LOG AS WELL AS THE COLUMN: `contractors.approve` prints each
+        # beside the page it approved, so a run says which rows carry a doubt.
+        warnings=tuple(f"row {row['short_name']}: {row['key_warning']}"
+                       for row in rows if row["key_warning"]),
         approvable=bool(rows),
         truncated=False,
     )

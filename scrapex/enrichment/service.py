@@ -20,7 +20,14 @@ from ..catalog_models import (
     RelationshipReviewStatus,
 )
 from ..payload import utc_now_iso
-from ..vocab import JobControl, JobStage, JobStatus, LogLevel, RunMode
+from ..vocab import (
+    TERMINAL_JOB_STATUSES,
+    JobControl,
+    JobStage,
+    JobStatus,
+    LogLevel,
+    RunMode,
+)
 from .matching import email_domain, normalized_phone, registrable_domain
 from .models import (
     FIELD_ROLES,
@@ -49,6 +56,12 @@ class EnrichmentError(ValueError):
 _SOURCE_BATCH_SIZE = 50
 _PROVIDER_CIRCUIT_LIMIT = 3
 _RECORD_RETRY_LIMIT = 3
+# The statuses a job never leaves, read from `vocab.TERMINAL_JOB_STATUSES`, the one list.
+# The three "is one still active?" queries below each typed it out, so a status added
+# there -- `skipped`, #1596 -- read here as a job that stays active for ever and refuses
+# every later edit, status change and start of that definition.
+_SETTLED = tuple(sorted(status.value for status in TERMINAL_JOB_STATUSES))
+_SETTLED_MARKS = ",".join("?" for _ in _SETTLED)
 
 
 _ROLE_CANDIDATES = {
@@ -674,9 +687,9 @@ def update_definition(
         "SELECT j.job_ref FROM organization_enrichment_job AS e "
         "JOIN crawl_job AS j ON j.job_id = e.job_id "
         "WHERE e.enrichment_definition_id = ? AND j.status NOT IN "
-        "('cancelled','completed','completed_with_errors','partially_completed','failed') "
+        f"({_SETTLED_MARKS}) "
         "LIMIT 1",
-        (definition_id,),
+        (definition_id, *_SETTLED),
     ).fetchone()
     if active is not None:
         raise EnrichmentError(
@@ -780,9 +793,9 @@ def set_definition_status(
         "SELECT j.job_ref FROM organization_enrichment_job AS e "
         "JOIN crawl_job AS j ON j.job_id=e.job_id "
         "WHERE e.enrichment_definition_id=? AND j.status NOT IN "
-        "('cancelled','completed','completed_with_errors','partially_completed','failed') "
+        f"({_SETTLED_MARKS}) "
         "LIMIT 1",
-        (definition_id,),
+        (definition_id, *_SETTLED),
     ).fetchone()
     if active is not None:
         raise EnrichmentError(
@@ -1097,9 +1110,9 @@ def create_enrichment_job(
         "SELECT j.job_ref FROM organization_enrichment_job AS e "
         "JOIN crawl_job AS j ON j.job_id = e.job_id "
         "WHERE e.enrichment_definition_id = ? AND j.status NOT IN "
-        "('cancelled','completed','completed_with_errors','partially_completed','failed') "
+        f"({_SETTLED_MARKS}) "
         "ORDER BY j.job_id DESC LIMIT 1",
-        (definition_id,),
+        (definition_id, *_SETTLED),
     ).fetchone()
     if active is not None:
         raise EnrichmentError(

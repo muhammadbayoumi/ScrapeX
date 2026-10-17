@@ -277,11 +277,10 @@
   gap: var(--sp-1);
 }
 
+/* An icon-only Button: tiny's px-2.5 around its glyph, Supabase's tiny (#1430). Its glyph is
+   text, not tiny's 14px icon, so its width is its glyph's and the padding's. */
 .model-zoom .icon-button {
   display: grid;
-  width: 2.5rem;
-  height: 2.5rem;
-  padding: 0;
   place-items: center;
   font-size: 1.15rem;
 }

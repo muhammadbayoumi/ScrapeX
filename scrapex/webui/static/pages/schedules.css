@@ -145,3 +145,11 @@
   @media(prefers-reduced-motion:reduce){
     .schedule-advanced>summary::after,.schedule-switch-track,.schedule-switch-track::after{transition:none}
   }
+  /* The filters keep the touch floor on their box (#1051). Their 2x2 grid leaves .25rem
+     between rows, and a 32px filter's hit area reaches 6px past it, so the filter below
+     took the taps on the bottom 2px of the one above, measured. Supabase keeps adjacent
+     reaches a gap apart (components/table.mdx@86c813ec:197). */
+  @media(hover:none),(pointer:coarse){
+    .schedule-filter{min-height:var(--touch-floor)}
+    .schedule-filter::before{content:none}
+  }

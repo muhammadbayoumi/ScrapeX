@@ -6,6 +6,7 @@ family fails loud with a clear message — never a silent no-op.
 from __future__ import annotations
 
 from ..config import SourceEntry
+from ..source_settings import SourceRules
 from ..vocab import ConnectorFamily
 from .aramco import AramcoFuelConnector
 from .base import HttpFetcher, SiteConnector, resolve_fetcher
@@ -44,10 +45,14 @@ _BUILDERS = {
 }
 
 
-def build_connector(source: SourceEntry,
+def build_connector(source: SourceEntry, rules: SourceRules,
                     crawl_settings: dict | None = None) -> tuple[SiteConnector, HttpFetcher]:
     """Return (connector, fetcher) for a source. The caller owns the fetcher's
     lifetime (close it after the crawl) so request counts can be recorded.
+
+    `rules` is `source_settings.effective` for this source: what it is fetched AS --
+    agent, pace, robots -- which is his to choose, beside `source`, which says how
+    the site is read and is the manifest's.
 
     `crawl_settings` carries the owner's politeness and timeout choices (spec 33).
     They are passed in rather than read here, so this module keeps no opinion
@@ -60,5 +65,5 @@ def build_connector(source: SourceEntry,
             f"(source {source.source_key}); implemented: "
             f"{[f.value for f in _BUILDERS]}"
         )
-    fetcher = resolve_fetcher(source, crawl_settings)
+    fetcher = resolve_fetcher(source, rules, crawl_settings)
     return builder(fetcher), fetcher

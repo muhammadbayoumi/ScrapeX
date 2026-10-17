@@ -73,6 +73,10 @@ RUNTIME_DATA: tuple[tuple[str, str], ...] = (
     # is the quiet one: the function returns "" and the route answers 404 saying
     # the script "is not bundled", which was true of every build ever shipped.
     ("apps_script/StagingAppScript.txt", "apps_script"),
+    # The pin the engine's Python is judged against — `scrapex/interpreter.py`'s
+    # `PIN_FILE`. Without it `/api/health` says the floor is unknown on every
+    # installed engine.
+    (".python-version", "."),
 )
 
 

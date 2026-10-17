@@ -55,9 +55,10 @@ BUILD_RECIPE = ROOT / "packaging" / "build_engine.py"
 #: What the staged engine is asked to prove, and it is deliberately the whole of
 #: `_first_run` past the unpack: open the warehouse (`db`), load the contracts
 #: (`sources.yaml`), build the app (`scrapex/webui/static`, the one that crashed),
-#: find every page (`scrapex/webui/templates`) and hand over the Apps Script
-#: (`apps_script`). One report, so a single run names every gap rather than the
-#: first one.
+#: find every page (`scrapex/webui/templates`), hand over the Apps Script
+#: (`apps_script`) and read the pin its Python is judged against
+#: (`.python-version`). One report, so a single run names every gap rather than
+#: the first one.
 #:
 #: `sys.path` IS REPLACED, not appended to, because a bundle has exactly one
 #: import root and this test is worthless if it accidentally imports the working
@@ -77,6 +78,7 @@ import scrapex
 if not os.path.abspath(scrapex.__file__).startswith(os.path.abspath(stage)):
     raise SystemExit(f"LEAKED: imported {scrapex.__file__}, not the staged bundle")
 
+from scrapex import interpreter
 from scrapex.config import load_manifest
 from scrapex.databases.registry import DatabaseRegistry
 from scrapex.outputs import apps_script_script_text
@@ -107,6 +109,7 @@ report = {
     "base_html_compiles": bool(webui.TEMPLATES.get_template("base.html")),
     "sidebar_glyphs": sidebar and re.findall(r'<use href="[^"#]*#([^"]*)"', sidebar.group(0)),
     "apps_script_chars": len(apps_script_script_text()),
+    "python": interpreter.report(),
 }
 print("REPORT " + json.dumps(report))
 '''
@@ -275,6 +278,15 @@ def test_the_apps_script_the_owner_pastes_is_in_the_bundle(bundle):
     assert bundle["apps_script_chars"] == len(source.read_text(encoding="utf-8")), (
         "Copy Script would hand the owner an empty script from the shipped engine"
     )
+
+
+def test_the_pin_its_python_is_judged_against_is_in_the_bundle(bundle):
+    """QUIET LIKE THE APPS SCRIPT (#1321). `interpreter.report` never raises on the
+    health poll, so a bundle without `.python-version` starts and serves, and the
+    Engine page says only that the engine could not read which Python it needs."""
+    pin = (ROOT / ".python-version").read_text(encoding="utf-8").strip()
+    assert bundle["python"]["floor"] == pin, (
+        f"the shipped engine could not read its pin: {bundle['python']}")
 
 
 def test_a_bundle_missing_the_static_directory_is_caught_here(tmp_path):

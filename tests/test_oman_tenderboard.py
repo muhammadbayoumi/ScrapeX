@@ -386,11 +386,104 @@ def test_a_row_with_the_wrong_number_of_cells_raises():
         read_rows(_page([row]))
 
 
-def test_a_key_that_disagrees_with_the_rows_own_activities_argument_raises():
-    """Two independent copies of the record key; a disagreement means one of them has
-    stopped being it."""
-    with pytest.raises(RegisterShapeError, match="disagree beyond case"):
-        read_rows(_page([_row(short="00001234", echo="00009999")]))
+def test_a_key_that_disagrees_with_its_activities_argument_is_a_firm_with_a_warning():
+    """His ruling on #1333: record every such row, never skip it. It is keyed by its
+    COMMENTED key -- the one every other row is stored under -- and the doubt rides on
+    it, naming both keys so the Sheet says what disagreed."""
+    firms = read_rows(_page([_row(short="ALWASIT", echo="nabil"),
+                             _row(short="00005555", echo="00005555")]))
+
+    assert [f.short_name for f in firms] == ["ALWASIT", "00005555"]
+    warned = firms[0]
+    assert warned.activities_key == "nabil"
+    assert warned.key_warning is not None
+    assert "'ALWASIT'" in warned.key_warning and "'nabil'" in warned.key_warning, (
+        warned.key_warning)
+    assert "disagree beyond case" in warned.key_warning
+
+
+def test_a_row_whose_keys_agree_carries_no_warning():
+    firms = read_rows(_page([_row(short="00001234", echo="00001234"),
+                             _row(short="ZYPHARSPH", echo="zypharsph")]))
+    assert [f.key_warning for f in firms] == [None, None], (
+        "a case-only difference is the measured normal, not a doubt")
+    assert [f.activities_key for f in firms] == ["00001234", "zypharsph"]
+
+
+def test_many_disagreeing_rows_on_one_page_are_all_firms_with_warnings():
+    """NO PAGE THRESHOLD. #1537 raised on a second disagreeing row, which would lose a
+    whole page again; the owner removed that rule. Every row stays, every row warned."""
+    rows = [_row(short=f"0000{n}", echo=f"other{n}") for n in range(1, 6)]
+    rows.insert(2, _row(short="00009999", echo="00009999"))
+    firms = read_rows(_page(rows))
+
+    assert len(firms) == 6
+    assert [f.short_name for f in firms if f.key_warning] == [
+        "00001", "00002", "00003", "00004", "00005"]
+    assert next(f for f in firms if f.short_name == "00009999").key_warning is None
+
+
+def test_a_disagreeing_row_is_an_id_so_the_count_can_close():
+    """Left out of `read_ids`, its page declared one row the reader would never count,
+    and the register's proof could not close: D=1 on every crawl, two extra full
+    reads, and the firm missing (#1333)."""
+    page = _page([_row(short="00000001"), _row(short="ALWASIT", echo="nabil"),
+                  _row(short="00000003")])
+    assert read_ids(page) == ("00000001", "ALWASIT", "00000003")
+
+
+def test_the_partition_gives_each_rows_key_cr_number_and_second_key():
+    """The evidence `contractors.mark_departures` looks a firm up by before calling it
+    gone -- the CR number, and the activities argument, which is how `nabil` would be
+    found if it had been stored under that key."""
+    from scrapex.pagesource import RowIdentity
+
+    evidence = OmanPartition().identity_evidence(_page([
+        _row(short="ALWASIT", echo="nabil", cr="1234567"),
+        _row(short="00000002", cr="")]))
+
+    assert evidence == (
+        RowIdentity(key="ALWASIT", registration="1234567", second_key="nabil"),
+        RowIdentity(key="00000002", registration=None, second_key="00000002"),
+    ), "a blank CR is no evidence, so it is None and never an empty string"
+
+
+def test_a_register_holding_a_disagreeing_row_is_proven_complete_by_count(tmp_path):
+    """THE CRAWL, END TO END, ON THE REAL READER. Three rows declared, three read --
+    `ALWASIT` among them -- so the cell closes by count on its first read, and the
+    two extra full reads #1537 paid on every crawl are not made."""
+    from scrapex.databases import DatabaseRegistry, EngineDatabase
+    from scrapex.partitioncrawl import crawl_partition
+
+    pages = {1: [_row(short="00000001", cr="C1"),
+                 _row(short="ALWASIT", echo="nabil", cr="C2")],
+             2: [_row(short="00000003", cr="C3")]}
+
+    def fetch(url: str) -> str:
+        number = int(re.search(r"[?&]pageNo=(\d+)", url).group(1))
+        return _page(pages[number], pages=2)
+
+    registry = DatabaseRegistry(EngineDatabase(tmp_path / "scrapex-engine.db"),
+                                pointer_file=tmp_path / "databases.json")
+    registry.initialize()
+    conn = registry.engine.connect()
+    try:
+        conn.execute("INSERT INTO source_site (source_key, source_name, base_url, "
+                     "crawl_scope) VALUES ('oman_tenderboard','Oman',?,'listing_only')",
+                     (BASE_URL,))
+        conn.commit()
+        outcome = crawl_partition(conn, OmanPartition(), BASE_URL, fetch=fetch,
+                                  run_ref="run-1",
+                                  dataset_key="oman_registered_vendors",
+                                  resize_at_end=False)
+    finally:
+        conn.close()
+
+    only = outcome.cells[0]
+    assert only.size.declared == 3, str(only.size)
+    assert outcome.deficit == 0 and only.provably_complete, str(outcome)
+    assert "ALWASIT" in outcome.ids
+    assert len(only.attempts) == 1, "a proven cell is not read again"
 
 
 def test_the_two_copies_of_the_key_may_differ_in_case_and_that_is_not_a_failure():
@@ -897,8 +990,8 @@ def test_a_blank_full_name_is_a_field_and_the_page_still_reads():
     warehouse entirely, in a register whose total is known.
 
     Re-measured after the change over all 942 stored pages: 936 accepted before, 940
-    after, and the two still refused are page 368 in both locales -- the genuine
-    identifier disagreement, which must keep raising.
+    after, and the two still refused were page 368 in both locales -- the identifier
+    disagreement, which since #1333 is a firm with a warning instead.
     """
     blank = _row(short="CARITOR", name="", cat="المكاتب الإستــشــارية", vtype="عالمية")
     ordinary = _row(short="00009999", name="A REAL NAME LLC")
@@ -921,16 +1014,13 @@ def test_the_refusals_that_mean_the_reader_is_broken_still_raise():
     """SEPARATING THE TWO CAUSES IS THE POINT, so this is the other half of the pair.
 
     A field the site leaves blank for one class of registrant is data. A first cell that
-    is not an integer, a missing short name, and an activities argument that disagrees
-    with the commented key are all evidence that this reader's understanding of the page
-    has stopped being true -- and `ALWASIT` against `nabil` is a real one, found on page
-    368 of the owner's crawl, not a hypothetical.
+    is not an integer and a missing short name are evidence that this reader's
+    understanding of the page has stopped being true. `ALWASIT` against `nabil` -- page
+    368 of the owner's crawl, 369 of job 191 -- is neither since #1333: a firm with a
+    warning, pinned by its own tests above.
     """
     with pytest.raises(RegisterShapeError, match="no Company Short Name"):
         read_rows(_page([_row(short="")]))
-
-    with pytest.raises(RegisterShapeError, match="disagree beyond case"):
-        read_rows(_page([_row(short="ALWASIT", echo="nabil")]))
 
     # The blank name must not have made the OTHER cells lenient either. An uncommented
     # key raises about the COMMENT -- the record key is recovered from it, and a row

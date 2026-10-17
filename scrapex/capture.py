@@ -11,7 +11,7 @@ from collections.abc import Callable
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
 
-from . import settings
+from . import settings, source_settings
 from .config import SourceEntry
 from .connectors.base import fetch_slot
 from .connectors.factory import build_connector
@@ -209,7 +209,11 @@ def capture_source(conn: sqlite3.Connection, entry: SourceEntry,
     Connector/network errors propagate; per-row data errors are isolated (Q3)."""
     from . import localinbox
 
-    connector, fetcher = build_connector(entry, crawl_settings(conn))
+    # HIS CHOICES FOR THIS SOURCE, over what it shipped with (#1584). Read from the
+    # warehouse on every capture, so a choice he made in the panel reaches the next
+    # crawl without the manifest being touched.
+    rules = source_settings.effective(conn, entry.source_key, entry)
+    connector, fetcher = build_connector(entry, rules, crawl_settings(conn))
     if history:
         # The panel gates this per source, but a job is data and data can be
         # forged; the capability check here is the one that counts. Running
@@ -262,13 +266,15 @@ def capture_source(conn: sqlite3.Connection, entry: SourceEntry,
                                          token=t.page_token)
         requests_count = fetcher.requests_count
     except Exception as exc:
-        from .connectors.base import CrawlInterrupted
-        if journal and isinstance(exc, CrawlInterrupted):
+        from .connectors.base import CrawlBlocked
+        if journal and isinstance(exc, CrawlBlocked):
             # The journaled pages survive, but their warnings live only in
             # memory (the payload contract carries none) — flush them to the
             # job log now or the resume silently forgets e.g. which countries
             # published nothing this week. Politeness notes flush at INFO
-            # (owner robots ruling), data warnings at WARNING.
+            # (owner robots ruling), data warnings at WARNING. `CrawlBlocked`
+            # and not only the owner's `CrawlInterrupted` (its subclass): a
+            # block by the SITE keeps its pages for Resume too (#1448).
             from .jobs import append_log
             from .vocab import LogLevel
             flush = list(dict.fromkeys(

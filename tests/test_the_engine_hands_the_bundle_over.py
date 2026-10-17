@@ -23,6 +23,7 @@ import inspect
 import io
 import json
 import os
+import sqlite3
 import threading
 import zipfile
 from pathlib import Path
@@ -420,8 +421,8 @@ def module_keep() -> int:
     return int(found.group(1))
 
 
-def test_both_files_of_a_backup_are_pruned_together(client):
-    """The two files of one backup do NOT share an mtime — `shutil.copy2` gives
+def test_a_backups_archive_and_panel_pack_are_pruned_together(client):
+    """The files of one backup do NOT share an mtime — `shutil.copy2` gives
     the panel pack the timestamp of the staged file it came from, minutes before
     the archive beside it is closed. Pruning each suffix independently could keep
     an archive from one build and a pack from another, and the panel uploads the
@@ -436,6 +437,132 @@ def test_both_files_of_a_backup_are_pruned_together(client):
         stamp = path.name[len("scrapex-bundle-"):][:15]
         assert (backups / f"scrapex-bundle-{stamp}-panel.jsonl.gz").is_file(), (
             f"{path.name} survived without its panel pack")
+
+
+# ---- the light file beside every bundle (#1199) ------------------------------------
+
+def test_the_reply_describes_the_light_file_on_disk(client):
+    """PR-5's panel is to upload what this reply describes, so it must be the file."""
+    connected, backups = client
+
+    built = connected.post("/api/bundle").json()
+
+    light = built["light"]
+    assert built["light_error"] is None
+    assert light is not None and light["faults"] == []
+    stamp = built["name"][len("scrapex-bundle-"):][:15]
+    parts = backups / f"scrapex-bundle-{stamp}-light.gz"
+    index = backups / f"scrapex-bundle-{stamp}-light.json"
+    assert light["parts_file"] == {"name": parts.name, "bytes": parts.stat().st_size,
+                                   "sha256": bundle.sha256_of(parts)}
+    assert json.loads(index.read_text(encoding="utf-8")) == light
+    assert [p for p in backups.iterdir() if p.name.endswith(".part")] == []
+
+
+def test_the_light_file_is_pruned_with_its_stamp(client):
+    connected, backups = client
+    for stamp in ("20260101-000000", "20260102-000000", "20260103-000000"):
+        _fake_backup(backups, stamp)
+        (backups / f"scrapex-bundle-{stamp}-light.gz").write_bytes(b"old")
+        (backups / f"scrapex-bundle-{stamp}-light.json").write_text("{}")
+
+    connected.post("/api/bundle")
+
+    stamps = {path.name[len("scrapex-bundle-"):][:15]
+              for path in backups.glob("scrapex-bundle-*.zip")}
+    assert len(stamps) == 2
+    for suffix in ("-light.gz", "-light.json"):
+        kept = {path.name[len("scrapex-bundle-"):][:15]
+                for path in backups.glob(f"scrapex-bundle-*{suffix}")}
+        assert kept == stamps, f"{suffix} files outlived or missed their backups"
+
+
+@pytest.mark.parametrize("error", [
+    OSError(28, "No space left on device"),
+    # What a UNC backup folder raises: SQLite refuses the URI's authority.
+    sqlite3.OperationalError("invalid uri authority: nas"),
+], ids=["no-room", "sqlite"])
+def test_a_light_file_that_cannot_be_written_never_fails_the_backup(
+        client, monkeypatch, error):
+    """The zip IS the backup. The light file failing is said in the reply, not raised."""
+    connected, backups = client
+    from scrapex import lightfile
+
+    def cannot(*_args, **_kwargs):
+        raise error
+
+    monkeypatch.setattr(lightfile, "write", cannot)
+
+    response = connected.post("/api/bundle")
+
+    assert response.status_code == 200
+    built = response.json()
+    assert built["light"] is None
+    assert built["light_error"] == f"{type(error).__name__}: {error}"
+    assert (backups / built["name"]).is_file()
+
+
+def test_the_light_files_take_the_zips_stamp_when_the_build_crosses_a_second(
+        client, monkeypatch):
+    """The build takes 104 s on his warehouse. Light files stamped from a second reading
+    of the clock would be a backup of their own to `_prune_old_bundles`, which would
+    then delete the predecessor archive `BUNDLE_KEEP` keeps for an upload still running."""
+    import datetime as real
+
+    import scrapex.webui.app as module
+
+    class OneSecondPerReading(real.datetime):
+        readings = 0
+
+        @classmethod
+        def now(cls, tz=None):
+            cls.readings += 1
+            return real.datetime(2026, 1, 5, tzinfo=tz) + real.timedelta(
+                seconds=cls.readings)
+
+    monkeypatch.setattr(module, "datetime", OneSecondPerReading)
+    connected, backups = client
+    for old in ("20260101-000000", "20260102-000000"):
+        _fake_backup(backups, old)
+
+    built = connected.post("/api/bundle").json()
+
+    stamp = built["name"][len("scrapex-bundle-"):][:15]
+    assert built["light"]["parts_file"]["name"] == f"scrapex-bundle-{stamp}-light.gz"
+    assert (backups / f"scrapex-bundle-{stamp}-light.json").is_file()
+    assert (backups / "scrapex-bundle-20260102-000000.zip").is_file(), sorted(
+        path.name for path in backups.iterdir())
+
+
+def test_the_light_file_describes_the_zip_and_not_the_live_warehouse(client, monkeypatch):
+    """A crawl may store a row while Back up runs. The light file is read from the copy
+    the zip carries, so a row stored after that copy is in neither of them."""
+    from scrapex import db as dbmod
+    from scrapex.ingest import ingest_payloads
+    from tests.test_ingest import make_entry, make_payload, one_row
+
+    connected, _backups = client
+    real_pack = bundle.pack
+
+    def pack_while_a_crawl_stores_a_row(*args, **kwargs):
+        described = real_pack(*args, **kwargs)
+        conn = dbmod.connect(connected.app.state.db_path)
+        try:
+            ingest_payloads(conn, make_entry(), [make_payload([one_row()])])
+            conn.commit()
+        finally:
+            conn.close()
+        return described
+
+    monkeypatch.setattr(bundle, "pack", pack_while_a_crawl_stores_a_row)
+
+    built = connected.post("/api/bundle").json()
+
+    assert connected.get("/api/table/ELSEWEDYSHOP?fold=0").json()["total"] == 1, (
+        "the row was never stored, so this proves nothing")
+    [carried] = [table for table in built["light"]["tables"]
+                 if table["key"] == "ELSEWEDYSHOP"]
+    assert carried["rows"] == 0, "the light file read the live warehouse, not the copy"
 
 
 def test_a_staging_tree_left_by_a_killed_engine_is_swept(client):

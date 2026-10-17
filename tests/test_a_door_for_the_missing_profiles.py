@@ -312,7 +312,7 @@ def test_a_named_id_still_reaches_a_marked_contractor(warehouse, monkeypatch):
     conn.commit()
     fetched: list[str] = []
     monkeypatch.setattr(contractors, "make_fetch",
-                        lambda pace: (None, lambda url: fetched.append(url) or ""))
+                        lambda pace, rules: (None, lambda url: fetched.append(url) or ""))
 
     profilejob.run_profile_crawl_job_once(conn, job_ref)
 
@@ -499,7 +499,7 @@ def test_a_job_stopped_while_waiting_never_fetches(warehouse, monkeypatch):
     conn.commit()
     fetched: list[str] = []
     monkeypatch.setattr(contractors, "make_fetch",
-                        lambda pace: (None, lambda url: fetched.append(url) or ""))
+                        lambda pace, rules: (None, lambda url: fetched.append(url) or ""))
 
     class CancelWhileWaiting:
         """An admission whose lane cancels the job before it lets go -- which is exactly
@@ -566,7 +566,7 @@ def test_a_settled_row_stops_a_running_sweep_even_with_no_control_left(warehouse
         return "<html></html>"
 
     monkeypatch.setattr(contractors, "make_fetch",
-                        lambda pace: (None, settle_after_two))
+                        lambda pace, rules: (None, settle_after_two))
 
     profilejob.run_profile_crawl_job_once(conn, job_ref)
 
@@ -602,7 +602,7 @@ def test_the_beat_does_not_write_running_over_a_pending_stop(warehouse, monkeypa
         return "<html></html>"
 
     monkeypatch.setattr(contractors, "make_fetch",
-                        lambda pace: (None, cancel_after_one))
+                        lambda pace, rules: (None, cancel_after_one))
 
     profilejob.run_profile_crawl_job_once(conn, job_ref)
 
@@ -644,7 +644,7 @@ def test_a_paused_sweep_still_counts_the_pages_it_fetched(warehouse, monkeypatch
         return "<html></html>"
 
     monkeypatch.setattr(contractors, "make_fetch",
-                        lambda pace: (None, pause_after_one))
+                        lambda pace, rules: (None, pause_after_one))
 
     profilejob.run_profile_crawl_job_once(conn, job_ref)
 
@@ -684,7 +684,7 @@ def test_a_pause_before_the_first_page_still_corrects_the_total(warehouse, monke
     monkeypatch.setattr(profilejob, "BEAT_EVERY_PAGES", 1)
     seen: list[str] = []
     monkeypatch.setattr(contractors, "make_fetch",
-                        lambda pace: (None, lambda url: seen.append(url) or "<html/>"))
+                        lambda pace, rules: (None, lambda url: seen.append(url) or "<html/>"))
 
     profilejob.run_profile_crawl_job_once(conn, job_ref)
 
@@ -845,6 +845,38 @@ def test_a_finished_profile_sweep_sets_the_interpret_badge(served):
     assert waiting["interpret"]["interpreted_at"] == "2026-09-06T14:07:16Z"
 
 
+@pytest.mark.parametrize("kind", [directoryjob.JOB_KIND, profilejob.JOB_KIND])
+def test_a_skipped_firing_is_not_a_crawl_that_owes_a_press(served, kind):
+    """A SKIP BOUGHT NO PAGES (#1596). A scheduled firing that did not run is a finished
+    job of the kind it would have had, so its finish time lands after the
+    interpretation's like a crawl's would -- and counted, it would light the badge on a
+    dataset whose pages were all read."""
+    client, path = served
+    conn = dbmod.connect(path)
+    try:
+        conn.execute(
+            "INSERT INTO crawl_job (job_ref, run_mode, source_keys, job_kind, status, "
+            "                       finished_at) "
+            "VALUES ('job_read','update',?,?,'completed','2026-09-06T14:07:16Z')",
+            (f'["{SITE}"]', datasetjob.JOB_KIND))
+        conn.execute(
+            "INSERT INTO crawl_job (job_ref, run_mode, source_keys, job_kind, status, "
+            "                       finished_at, error_summary) "
+            "VALUES ('job_skip','update',?,?,'skipped','2026-09-07T14:23:50Z', "
+            "        'This site''s previous run was still going (job_x)')",
+            (f'["{SITE}"]', kind))
+        conn.commit()
+    finally:
+        conn.close()
+
+    rows = client.get("/api/sources").json()["sources"]
+    waiting = next(row["work_waiting"] for row in rows
+                   if row.get("site_key") == SITE and row.get("work_waiting"))
+
+    assert waiting["interpret"] is None, (
+        f"a skipped firing was counted as a crawl that owes a press: {waiting}")
+
+
 def test_the_two_collecting_kinds_are_named_once(served):
     """TWO READERS, ONE FACT. The selection and the badge both need to know which kinds
     collect pages, and issue 792 happened because only the first was widened. A third
@@ -922,7 +954,7 @@ def test_a_re_entered_sweep_says_so_and_says_what_it_costs(warehouse, monkeypatc
         ("2026-09-07T10:33:25Z", 620, job_ref))
     conn.commit()
     monkeypatch.setattr(contractors, "make_fetch",
-                        lambda pace: (None, lambda url: "<html></html>"))
+                        lambda pace, rules: (None, lambda url: "<html></html>"))
 
     profilejob.run_profile_crawl_job_once(conn, job_ref)
 
@@ -944,7 +976,7 @@ def test_a_first_sweep_says_nothing_about_a_restart(warehouse, monkeypatch):
     job_ref = jobs.create_job(conn, [SITE], job_kind=profilejob.JOB_KIND)
     conn.commit()
     monkeypatch.setattr(contractors, "make_fetch",
-                        lambda pace: (None, lambda url: "<html></html>"))
+                        lambda pace, rules: (None, lambda url: "<html></html>"))
 
     profilejob.run_profile_crawl_job_once(conn, job_ref)
 

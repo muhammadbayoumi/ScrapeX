@@ -185,6 +185,29 @@ def _records_with_status(conn: sqlite3.Connection, dataset_key: str,
     return found
 
 
+def stored_values(conn: sqlite3.Connection, dataset_key: str, *, id_field: str,
+                  field: str) -> dict[str, str]:
+    """`external_id -> field` for every ACTIVE row whose `field` is not blank. ONE PASS.
+
+    `stored_ids`' cost rule, for a second field: both values come out of one scan of
+    `data_json`, never a `json_extract` per id. A blank value is left out, because a
+    caller matching on it would otherwise find every blank row the same firm.
+    """
+    found: dict[str, str] = {}
+    for external_id, value in conn.execute(
+            "SELECT json_extract(r.data_json, '$.' || ?), "
+            "       json_extract(r.data_json, '$.' || ?) "
+            "  FROM generic_record AS r "
+            "  JOIN dataset_definition AS d "
+            "    ON d.dataset_definition_id = r.dataset_definition_id "
+            " WHERE d.dataset_key = ? AND r.status = 'active'",
+            (id_field, field, dataset_key)):
+        if external_id is None or value is None or not str(value).strip():
+            continue
+        found[str(external_id)] = str(value).strip()
+    return found
+
+
 def sighted_ids(conn: sqlite3.Connection, dataset_key: str) -> tuple[str, ...]:
     """Every id the SITE has shown us, in id order. The counterpart to `stored_ids`.
 
@@ -589,7 +612,8 @@ class Marking:
 
 
 def mark_unavailable(conn: sqlite3.Connection, dataset_key: str, *,
-                     id_field: str = "contractor_id") -> Marking:
+                     id_field: str = "contractor_id",
+                     spared: Iterable[str] = ()) -> Marking:
     """Write the status a proven absence earns, and take it back when the row returns.
 
     `OP-26`, RULED BY HIM ON 2026-08-21: a delisted contractor becomes
@@ -638,10 +662,15 @@ def mark_unavailable(conn: sqlite3.Connection, dataset_key: str, *,
     ledger, from rows predating `dataset_sighting` — and calling it a departure would
     invent one out of our own history.
 
+    `spared` ARE IDS THE CRAWL FOUND UNDER ANOTHER KEY (#1333), and none is marked. A
+    row proved absent by an EARLIER crawl still carries that `last_absent_at`, so
+    leaving it out of `record_absences` alone would not keep it active; this does.
+
     Returns a `Marking` naming both directions. Idempotent: a second pass over an
     unchanged warehouse reports nothing, because it compares the status it would write
     against the one already there.
     """
+    spare = {str(one) for one in spared}
     sighted = {
         str(external_id): (last_seen_at, last_absent_at)
         for external_id, last_seen_at, last_absent_at in conn.execute(
@@ -671,7 +700,7 @@ def mark_unavailable(conn: sqlite3.Connection, dataset_key: str, *,
         # So the rule lives where it acts: `unavailable` is what the SITE did and a crawl
         # may write it; `retired` is what a PERSON decided and no crawl may reach it, in
         # either direction.
-        if still_absent and status == "active":
+        if still_absent and status == "active" and external_id not in spare:
             marked.append(record_key)
         elif not still_absent and status == STATE_UNAVAILABLE:
             restored.append(record_key)

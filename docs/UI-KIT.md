@@ -109,10 +109,12 @@ Compose, do not invent.
 |---|---|
 | *(none)* | filled primary |
 | `ghost` | outlined, regular weight |
-| `icon-button` | square, at Supabase's tiny Button height (26px), with a mouse; on a touch screen the 44px coarse-pointer floor draws it 26×44 until #1051 |
-| `compact` | shorter, smaller type |
-| `icon-button compact` | the same 26px square — added 2026-08-05, because the two together drew a rectangle; Supabase's Button has no size below tiny. It stays square on a touch screen, under the 44px coarse-pointer floor, so it is for secondary icon controls |
+| `icon-button` | Supabase's icon-only Button, 36×26: tiny's padding around a 14px icon, on every pointer (#1430); on a touch screen it reaches 44px tall (`--touch-floor`) through its hit area, as every button does (#1051) |
+| `compact` | Supabase's tiny size by name, which a bare button draws by default too: 12px type, 26px tall (#1430) |
+| `icon-button compact` | the same 36×26 box — added 2026-08-05, because the two together drew a rectangle; Supabase's Button has no size below tiny |
 | `split-button` + `split-button-primary` / `-trigger` / `-menu` / `-option` | an action with a menu beside it |
+| `hit-area-2` | reaches 8px past each side through an invisible `::before`, the box unchanged: Supabase's for a table's action cell (`components/table.mdx@86c813ec:197`), where two side by side keep 8px apart |
+| `touch-reach` | a Button drawn as another element, a `<summary>` or an `<a>`: on a touch screen it reaches 44px tall through a Button's hit area, and with a mouse it keeps its box, as every button does (#1051, #1430) |
 
 **Surfaces** `card` · `card hi` · `card warn` · `banner` · `grid` · `row` ·
 `stack` · `cluster` · `srow` · `section-header` · `page-header` · `page-title` ·
