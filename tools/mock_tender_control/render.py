@@ -86,8 +86,9 @@ COST_LEFT = dict(COST_FIRST, requests=LEFT_REQUESTS, counted_at="2026-10-13",
                  basis="Counted from the Bank's own notice totals when the initial crawl "
                        "started. The notices changed since are not in these figures.")
 MIXED = "search.worldbank.org collects tenders and runs on its own. Start a.co separately."
-DUPLICATE = ("search.worldbank.org already has a tender crawl running. It reads every area "
-             "before it ends, so a second one would read the same notices.")
+# WORDED TO HOLD AT EVERY STATUS NOT SETTLED: running, paused, or queued behind another job.
+DUPLICATE = ("search.worldbank.org already has a crawl that has not finished. Follow or "
+             "cancel it on Jobs.")
 
 
 def job(status, *, ref="job_7c1e2a90b4d1", stage=None, requests=0, expected=None,
@@ -121,6 +122,25 @@ LONGEST = job("running", stage="reading Lao People's Democratic Republic",
 STARTING = job("running", stage="counting notices")
 PAUSED = job("paused", stage=f"reading {CURRENT}", requests=DONE_REQUESTS,
              expected=EXPECTED, done=DONE, total=AREAS, notices=DONE_NOTICES)
+# A TENDER CRAWL QUEUED BEHIND A PRICE CRAWL: the adopted job is the price crawl, which
+# holds the worker, and the tender crawl is only in the list. Newest first, as the engine
+# lists them.
+QUEUED = job("queued", ref="job_d3a8f05c61b2", started=iso(NOW - timedelta(minutes=2)))
+QUEUED["current_source_key"] = None
+QUEUED["started_at"] = None
+PRICE_RUNNING = {"job_ref": "job_6be2c94a07f1", "job_kind": "crawl", "status": "running",
+                 "run_mode": "update", "source_keys": ["LONG_AR"],
+                 "current_source_key": "LONG_AR", "stage": "fetching",
+                 "progress": {"done": 0, "total": 1},
+                 "created_at": iso(NOW - timedelta(minutes=9)),
+                 "started_at": iso(NOW - timedelta(minutes=9)), "finished_at": None,
+                 "updated_at": iso(NOW),
+                 "fetch": {"requests": 212, "expected": None, "basis": None,
+                           "sources": {"LONG_AR": {"state": "fetching", "requests": 212,
+                                                   "pace_s": 2.5, "honouring_delay": False,
+                                                   "retries": 0}}},
+                 "counters": {"observations": 1_830}, "error_summary": None,
+                 "queued_behind": None}
 UPDATE_AREAS = job("running", stage="reading Brazil", requests=13, expected=LEFT_REQUESTS,
                    done=DONE + 12, total=AREAS, notices=9_874)
 UPDATE_CHANGES = job("running", stage="reading changes", requests=LEFT_REQUESTS + 3,
@@ -133,7 +153,8 @@ HISTORY = [
         done=2, notices=1_611, new=37, unchanged=1_574),
     job("completed", ref="job_0b9f61c2d8e7", requests=15, unit="pages", done=3,
         notices=13_412, new=11_058, unchanged=2_354,
-        started="2026-10-13T08:00:01Z", finished="2026-10-13T08:00:14Z"),
+        # 15 REQUESTS AT 2.5 S APART TAKE AT LEAST 35 S.
+        started="2026-10-13T08:00:01Z", finished="2026-10-13T08:00:39Z"),
     job("completed_with_errors", ref="job_51d0aa7e3c22", requests=LEFT_REQUESTS - 9,
         expected=LEFT_REQUESTS, done=AREAS - 2, total=AREAS,
         notices=TOTAL - DONE_NOTICES - 21_000, errors=2,
@@ -187,16 +208,19 @@ def engine_jobs(cost=None, mixed=False, duplicate=False, started=None, moves=0):
         const body = JSON.parse(o.body || '{}'); window.__posts.push(body);
         if (%s && body.source_keys.length > 1) return answer(400, {detail: %s});
         if (%s) return answer(409, {detail: %s});
-        const cost = %s;
+        // ONE FIGURE FOR THE PAGE'S LIFE, as the engine's count is: once it moves it stays.
+        if (window.__cost === undefined) window.__cost = %s;
+        const cost = window.__cost;
         if (cost && body.accept_cost && !window.__moved && %d) {
-          window.__moved = true; cost.requests += %d; }
+          // A MOVED FIGURE WAS COUNTED AGAIN, so it carries the day of that count.
+          window.__moved = true; cost.requests += %d; cost.counted_at = %s; }
         if (cost && !(body.accept_cost && body.accept_cost.requests === cost.requests))
           return answer(409, {question: 'cost', detail: 'confirm the cost to start', cost});
         window.__started = true;
         return answer(200, {job_ref: 'job_7c1e2a90b4d1', status: 'queued'});
       };""" % (json.dumps(started), "true" if mixed else "false", json.dumps(MIXED),
                "true" if duplicate else "false", json.dumps(DUPLICATE), json.dumps(cost),
-               moves, moves))
+               moves, moves, json.dumps(NOW.strftime("%Y-%m-%d"))))
 
 
 def click(sel):
@@ -275,6 +299,15 @@ STATES = {
                                [click("#tab-run"), TICK_WB, wait(400),
                                 scroll("#run", "center")],
                                [(15, "#run-blocked")]),
+    "09d-its-own-crawl-paused": (dict(sources=SOURCES_CRAWLING, jobs=[PAUSED], logs=LOGS),
+                                 [click("#tab-run"), TICK_WB, wait(400),
+                                  scroll("#run", "center")],
+                                 [(15, "#run-blocked")]),
+    "09e-queued-behind-a-price-crawl": (dict(sources=SOURCES_CRAWLING,
+                                             jobs=[QUEUED, PRICE_RUNNING], logs=LOGS),
+                                        [click("#tab-run"), TICK_WB, wait(400),
+                                         scroll("#run", "center")],
+                                        [(15, "#run-blocked")]),
     "10-run-filtered-to-nothing": (dict(sources=SOURCES),
                                    [click("#tab-run"), fill("#site-search", "tenders")],
                                    [(16, "#sites .srow")]),

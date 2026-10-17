@@ -112,6 +112,9 @@ const state = {
   // the Schedules page is drawn by, which opening one of its rows waits for.
   schedules: null, schedulesLoad: null,
   job: null, jobRef: null, logs: [], logSignature: null, logAtBottom: true,
+  // EVERY JOB NOT SETTLED, from the same tick `job` was adopted from. `job` is the one
+  // doing the work; a queued or paused job of a selected source is in here only.
+  activeJobs: [],
   financeRates: [], financeSavedSettings: null, financeStatus: null,
   engineUp: false, engineState: "checking",
   // The two versions and what the engine says it deploys. `versionReport` is
@@ -5521,14 +5524,17 @@ function refreshRunButton() {
   const refusal = engineRefusal();
   let blocked = "";
   if (!refusal) {
-    // A SOURCE THE LIVE JOB IS CRAWLING IS NOT QUEUED BEHIND IT: the engine refuses a
-    // second tender crawl of it, so the queue promise would be false. Which sources the
-    // job holds is the jobs payload's fact; whether a press is refused stays the engine's.
-    const busy = state.job ? state.sources.filter((s) => state.selected.has(s.source_key)
-      && (state.job.source_keys || []).includes(s.source_key)) : [];
+    // A SELECTED SOURCE THAT ALREADY HAS A JOB NOT SETTLED gets that fact and no promise
+    // of a queue: the engine refuses a second tender crawl of it. Asked of every job not
+    // settled, not only the adopted one, so a paused crawl or one queued behind another
+    // job counts; and worded to hold at any of those statuses. Which sources a job holds
+    // is the jobs payload's fact; whether a press is refused stays the engine's.
+    const busy = state.sources.filter((s) => state.selected.has(s.source_key)
+      && state.activeJobs.some((job) => (job.source_keys || []).includes(s.source_key)));
     if (!n) blocked = "Select at least one site above.";
     else if (busy.length) blocked = `${busy.map((s) => sourceDomain(s.base_url)
-      || s.source_name).join(", ")} ${busy.length === 1 ? "is" : "are"} being crawled now.`;
+      || s.source_name).join(", ")} ${busy.length === 1 ? "already has a crawl that has"
+      : "already have crawls that have"} not finished.`;
     else if (state.job) blocked = "A job is already running. It will queue behind it.";
   }
   // The refusal disables the button as well as explaining it. A pressable
@@ -6070,6 +6076,7 @@ async function pollJobOnce() {
   // 620/938, and he read the panel as nothing working. `liveJob` ranks by status.
   const job = liveJob(jobs);
   state.job = job;
+  state.activeJobs = jobs;
   if (job) {
     await sourcesForJobNames();
     // A HANDOFF IS NOT A CONTINUATION, and until a crawl queued its own interpretation
