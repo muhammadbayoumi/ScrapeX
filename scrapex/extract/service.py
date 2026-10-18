@@ -20,8 +20,8 @@ from ..snapshotbody import decode, encode
 from .html_table import TableCandidate, candidate_by_index, detect_html_tables
 from .models import (
     DEFAULT_RECORD_PAGE_SIZE,
-    MAX_HTML_BYTES,
     MAX_RECORD_PAGE_SIZE,
+    MAX_STORED_BODY_BYTES,
     CandidateApproval,
     CandidateNotApprovable,
     ExtractionConflict,
@@ -120,9 +120,9 @@ def _snapshot_public(row: sqlite3.Row) -> dict[str, Any]:
 def save_snapshot(conn: sqlite3.Connection, request: SnapshotCreate) -> dict[str, Any]:
     """Persist immutable HTML evidence without creating a dataset candidate."""
     html_bytes = request.html_content.encode("utf-8")
-    if len(html_bytes) > MAX_HTML_BYTES:
+    if len(html_bytes) > MAX_STORED_BODY_BYTES:
         raise CandidateNotApprovable(
-            f"The saved HTML exceeds {MAX_HTML_BYTES:,} bytes. Save a smaller page "
+            f"The saved HTML exceeds {MAX_STORED_BODY_BYTES:,} bytes. Save a smaller page "
             "snapshot and try again."
         )
     source_url = str(request.source_url)

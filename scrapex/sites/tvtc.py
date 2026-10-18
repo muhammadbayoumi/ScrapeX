@@ -56,7 +56,7 @@ LOCALES = ("en", "ar")
 PRIMARY_LOCALE = "en"
 
 #: Measured: `limit=1000` is honoured, and 3,140 establishments are four pages. A page is
-#: about 3.65 MB of JSON, which is why `MAX_HTML_BYTES` was raised (`extract/models.py`).
+#: about 3.65 MB of JSON, which is why `MAX_STORED_BODY_BYTES` exists (`extract/models.py`).
 PAGE_SIZE = 1000
 
 

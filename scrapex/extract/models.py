@@ -14,14 +14,22 @@ from pydantic import (
 
 from ..catalog_models import CatalogKey, FieldType
 
-#: THE LARGEST PAGE BODY A SNAPSHOT HOLDS. It was 2 MB while every stored body was an HTML
-#: page; a directory read from a JSON API stores a page of rows, and TVTC's register measured
-#: 3.65 MB for 1,000 establishments and 9.4 MB for 1,000 training plans (`#1716`). 16 MB is
-#: that plan page with a 1.7x margin. Raised, not split into a second limit, because the
-#: guard is the same one -- how large a single stored body may be -- and the body is
-#: zstd-compressed at rest (`snapshotbody.py`), so the cost is transfer, not warehouse.
-#: A body over it is refused by name, never truncated (`service.save_snapshot`).
-MAX_HTML_BYTES = 16_000_000
+#: THE LARGEST BODY A SNAPSHOT HOLDS, whatever stored it. A directory read from a JSON API
+#: stores a page of rows: TVTC's training plans measured up to 10.96 MB a 1,000-row page over
+#: the full 84-page crawl (`#1716` step 2), so 16 MB left a 1.46x margin, and a page past the
+#: cap is not stored while its ids still count as read. 32 MB is that page with a 2.9x
+#: margin (his choice over a smaller page size). The body is zstd-compressed at rest
+#: (`snapshotbody.py`, 33x on these pages), so the cost is transfer, not warehouse. A body
+#: over it is refused by name, never truncated (`service.save_snapshot`).
+MAX_STORED_BODY_BYTES = 32_000_000
+
+#: THE LARGEST PAGE HE MAY SAVE BY HAND (`POST /api/general/extract/snapshots`), A SECOND
+#: LIMIT BECAUSE IT GUARDS A SECOND COST. That page's tables are found by BeautifulSoup inside
+#: the warehouse write (`service.approve_candidate` -> `detect_html_tables`), measured at
+#: 4.3 s and 245 MB for 1.99 MB and 29.9 s and 1.27 GB for 15.9 MB (#1739). It changes with
+#: parse cost; `MAX_STORED_BODY_BYTES` changes with page size. One number for both is what
+#: let a crawl's need raise the parse's exposure.
+MAX_HTML_BYTES = 2_000_000
 MAX_TABLES = 20
 MAX_TABLE_ROWS = 5_000
 MAX_TABLE_COLUMNS = 100
@@ -34,7 +42,7 @@ class SnapshotCreate(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     source_url: AnyHttpUrl
-    html_content: str = Field(min_length=1, max_length=MAX_HTML_BYTES)
+    html_content: str = Field(min_length=1, max_length=MAX_STORED_BODY_BYTES)
     #: Which crawl run fetched this page, so an interrupted one can resume
     #: without re-fetching what it already has. SET AT INSERT AND NEVER
     #: UPDATED -- `trg_generic_page_snapshot_immutable_update` forbids the
@@ -57,6 +65,13 @@ class SnapshotCreate(BaseModel):
     #: by hand, which has no class to share a dictionary with and nothing to
     #: gain. A crawl of 36,548 pages has both. See docs/STORAGE.md.
     body_class: str | None = None
+
+
+class SavedPageCreate(SnapshotCreate):
+    """A page he saves by hand, whose tables are then parsed: `MAX_HTML_BYTES`, not the
+    crawl's `MAX_STORED_BODY_BYTES`. The body model of the save-a-page route only."""
+
+    html_content: str = Field(min_length=1, max_length=MAX_HTML_BYTES)
 
 
 class ApprovalField(BaseModel):
