@@ -7063,7 +7063,7 @@ function openDataset(key) {
   openTab("/source/" + key);
 }
 
-// ---- settings --------------------------------------------------------------
+// ---- schedules: the words and rules every surface that names one shares --------
 const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday",
                   "Saturday", "Sunday"];   // 0=Monday, the server's convention
 
@@ -8596,8 +8596,8 @@ async function loadDatabase() {
 // ---- the Schedules page (#1631, option C, after Supabase's Cron Jobs) --------------
 // Designed through design-the-experience; the reference sheet, the states and his
 // confirmation are on #1631. One row per scheduled price source: its facts stacked under
-// it, the one Active switch, and a ⋮ menu. PART 1 of the four he approved: Edit schedule
-// and Create schedule open Settings' editor until part 2 moves them into a sheet here.
+// it, the one Active switch, and a ⋮ menu. Create schedule and Edit schedule open the
+// sheet below (part 2 of the four he approved).
 const schedulesPage = {
   saved: null,           // source_key -> stored schedule, as the last good read held it
   note: "",              // the engine's own note, drawn under the list
@@ -8611,8 +8611,9 @@ const schedulesPage = {
   rows: new Map(),       // row key -> element; an orphan's key is "lost:" + its source_key
   menuFor: null,         // the row whose ⋮ menu is open
   writesOff: false,      // the engine stopped answering over a good list
-  wrote: 0,              // Removes this page applied; a read sent before one keeps none
-                         // of its schedules (loadSchedulesPage, loadSources)
+  wrote: 0,              // writes this page applied (Remove, Create, Edit); a read sent
+                         // before one keeps none of its schedules (loadSchedulesPage,
+                         // loadSources)
 };
 
 // THE ENGINE'S OWN WAIT, AND ONE SECOND. The panel stops waiting for a write at 5 s
@@ -8891,7 +8892,7 @@ function drawSchedules() {
     page.rows.clear();
     let card = box.querySelector('[data-role="empty"]');
     if (!card) { card = scheduleEmptyCard(); box.append(card); }
-    if (atLimit) card.querySelector("button").setAttribute("aria-disabled", "true");
+    if (atLimit || page.writesOff) card.querySelector("button").setAttribute("aria-disabled", "true");
     else card.querySelector("button").removeAttribute("aria-disabled");
     // The last row left with focus in it: focus goes to the card's own action.
     if (hadFocus) card.querySelector("button").focus({ preventScroll: true });
@@ -9458,7 +9459,8 @@ function setScheduleSheetPanelInert(inert) {
 /** Open the sheet: `edit` on `key`'s schedule, or Create with `key` picked when it has no
  *  schedule yet. Focus goes back to whatever he pressed. */
 function openScheduleSheet({ key = null, edit = false } = {}) {
-  if (scheduleSheetIsOpen() || !schedulesPage.saved) return;
+  // Writes wait while the engine is not answering (marker 27b), from every opener.
+  if (scheduleSheetIsOpen() || !schedulesPage.saved || schedulesPage.writesOff) return;
   const offered = sourcesToSchedule();
   const edited = edit ? schedulesSources().find((item) => item.source_key === key) : null;
   if (edit ? !edited || !schedulesPage.saved.get(key) : !offered.length) return;
@@ -9585,10 +9587,20 @@ async function saveScheduleSheet(event) {
   const key = scheduleSheet.key;
   const fields = scheduleSheetFields();
   const stored = schedulesPage.saved.get(key) || {};
-  // An empty time or zone saves what the editor this replaces saved for one.
+  // AN EMPTY TIME OR ZONE IS REFUSED HERE, never saved as 09:00 or UTC: the engine refuses
+  // an empty zone itself, and would store an empty time and fire it at 09:00. What went
+  // wrong, then how to fix it (copywriting.mdx@86c813ec, "Error messages").
+  const empty = !fields.time ? ["time", "the time is empty. Enter a time."]
+    : !fields.zone.trim() ? ["zone", "the timezone is empty. Enter an IANA name like Africa/Cairo."]
+      : null;
+  if (empty) {
+    setScheduleSheetReason(`Unable to save: ${empty[1]}`, "err");
+    $(`sched-sheet-${empty[0]}`).focus({ preventScroll: true });
+    return;
+  }
   const body = {
-    frequency: fields.frequency, run_at: fields.time || "09:00",
-    timezone: fields.zone.trim() || "UTC", run_mode: fields.mode,
+    frequency: fields.frequency, run_at: fields.time,
+    timezone: fields.zone.trim(), run_mode: fields.mode,
     missed_run_policy: fields.missed,
     // NOT A CHOICE ANY MORE (#1596): an engine with `scheduled_skips` skips a busy slot
     // whatever this says, and an older one skips it because of it.
@@ -9670,7 +9682,7 @@ function wireScheduleSheet() {
 
 /** The Run card's chip, the Source manager's Edit schedule and Edit source's link land
  *  here. A link entry is a page show: it reads sources, so a site added since has its
- *  row. An unscheduled source opens the editor until part 2 brings Create here. */
+ *  row. An unscheduled source opens Create with it picked. */
 async function openScheduleRow(key) {
   showView("schedules");
   await schedulesPage.loading;

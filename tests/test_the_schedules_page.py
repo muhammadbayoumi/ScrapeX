@@ -912,6 +912,67 @@ def test_a_save_whose_read_fails_after_a_timeout_says_so(open_panel):
     assert not page.js_errors
 
 
+CARD = '#sched-state [data-role="empty"] button'
+
+
+def test_the_empty_cards_create_waits_while_writes_are_off(open_panel):
+    """Marker 27b: the engine stopped answering over a shown list, and every write waits --
+    the empty card's Create too, not only the header's (#1746 review B1)."""
+    page = open_panel(sources=with_sika(), schedules=sched([]))
+    show_schedules(page)
+    page.locator(CARD).wait_for()
+    answer(page, "/api/health", "body.worker_alive = false;")
+    page.evaluate("updateEngineState()")
+    page.evaluate("FAIL.push('/api/schedules')")
+    page.evaluate("loadSchedulesPage({ quiet: true })")
+    banner(page).wait_for()
+    assert page.get_attribute(CARD, "aria-disabled") == "true"
+    page.click(CARD, force=True)
+    page.wait_for_timeout(300)
+    assert page.locator(SHEET_VEIL).is_hidden()
+    assert writes(page) == []
+    assert not page.js_errors
+
+
+def test_a_link_to_create_waits_while_writes_are_off(open_panel):
+    """A Run link to an unscheduled source, the engine gone: the page says why, and no
+    sheet opens whose save could only fail."""
+    page = open_panel(sources=with_sika())
+    show_schedules(page)
+    page.evaluate("""() => { const real = window.fetch;
+        window.fetch = (url, options) => /\\/api\\//.test(String(url))
+          ? Promise.reject(new TypeError("Failed to fetch")) : real(url, options); }""")
+    page.evaluate("updateEngineState()")
+    page.click('nav.side-rail button[data-view="run"]')
+    page.evaluate("openScheduleRow('SIKAEGSHOP')")
+    banner(page).wait_for()
+    page.wait_for_timeout(300)
+    assert page.evaluate("schedulesPage.writesOff") is True
+    assert page.locator(SHEET_VEIL).is_hidden()
+    assert not page.js_errors
+
+
+@pytest.mark.parametrize("field,words", [
+    ("time", "Unable to save: the time is empty. Enter a time."),
+    ("zone", "Unable to save: the timezone is empty. Enter an IANA name like Africa/Cairo."),
+])
+def test_an_emptied_time_or_zone_is_refused_not_saved_as_a_default(open_panel, field, words):
+    """The engine refuses an empty zone, and would fire an empty time at 09:00: the sheet
+    says so and sends nothing, where the editor it replaced saved 09:00 or UTC in silence
+    (#1746 review B2)."""
+    page = open_panel()
+    show_schedules(page)
+    open_edit(page, "ELBUROJ")
+    page.fill(f"#sched-sheet-{field}", "  " if field == "zone" else "")
+    page.click("#sched-sheet-save")
+    page.locator("#sched-sheet-reason").wait_for()
+    assert text(page, "#sched-sheet-reason") == words
+    assert focus_is(page) == f"sched-sheet-{field}"
+    assert writes(page) == []
+    assert page.locator(SHEET).is_visible()
+    assert not page.js_errors
+
+
 def test_at_the_limit_create_waits_and_says_why(open_panel):
     every = [dict(s, frequency="daily") if s["source_key"] == "ADVANCEDCASTLE" else s
              for s in PRICE]
@@ -1037,6 +1098,8 @@ def test_settings_holds_no_schedules_editor_any_more(open_panel):
     page.click('nav.side-rail button[data-view="settings"]')
     page.wait_for_selector("#view-settings", state="visible")
     assert page.locator('[data-sect="s-sched"], #schedules, #sched-note').count() == 0
+    assert text(page, 'section[aria-labelledby="settings-operations-heading"] '
+                      '.settings-group-head p') == "Destinations and crawl pace"
     assert page.evaluate("[typeof openScheduleEditor, typeof loadSchedules]") == [
         "undefined", "undefined"]
     assert len(calls(page, "/api/schedules")) == before
