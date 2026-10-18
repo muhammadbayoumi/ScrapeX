@@ -1,0 +1,633 @@
+{
+  "about": "The release each fixture notice must become (tests/test_worldbank_notices.py). Written out by hand from notices.json, never computed by the converter: #1658's merge gate.",
+  "releases": {
+    "OP00012856": {
+      "contacts": {},
+      "payload": {
+        "classifications": [
+          {
+            "description": "Oil and Gas",
+            "id": "LC",
+            "scheme": "worldbank-sector"
+          },
+          {
+            "description": "Sewerage",
+            "id": "WS",
+            "scheme": "worldbank-sector"
+          },
+          {
+            "description": "Water Supply",
+            "id": "WC",
+            "scheme": "worldbank-sector"
+          }
+        ],
+        "date": "2021-03-29T03:51:56Z",
+        "id": "OP00012856",
+        "initiationType": "tender",
+        "language": "en",
+        "locations": [
+          {
+            "countryCode": "EG",
+            "sourceCountryCode": "EG",
+            "sourceCountryName": "Egypt, Arab Republic of"
+          }
+        ],
+        "ocid": "scrapex-worldbank:P095392:ICB16:LOT2;ITEM1",
+        "parties": [
+          {
+            "id": "worldbank",
+            "name": "World Bank",
+            "roles": [
+              "funder"
+            ]
+          }
+        ],
+        "planning": {
+          "budget": {
+            "project": "EG-Natural Gas Connections Project",
+            "projectID": "P095392"
+          }
+        },
+        "tag": [
+          "award"
+        ],
+        "tender": {
+          "id": "ICB 16: Lot 2; Item 1",
+          "procurementMethodDetails": "International Competitive Bidding",
+          "status": null,
+          "statusDetails": "Draft",
+          "title": "Copper Tubes, PE 80 Pipes and PE 80 Fittings"
+        },
+        "worldbank": {
+          "api_modified_date": "2021-03-29T03:51:56Z",
+          "bid_currency_code": "USD",
+          "contr_sgn_date": "2011-12-26T00:00:00Z",
+          "contract_id": "0",
+          "contract_usd_value": "0",
+          "notice_status": "Draft",
+          "notice_type": "Contract Award",
+          "notice_version_no": "0",
+          "noticetitle": "Copper Tubes, PE 80 Pipes and PE 80 Fittings",
+          "procurement_method_code": "ICB",
+          "prodline": "PE",
+          "regionname": "Middle East And North Africa"
+        }
+      },
+      "process_key": "P095392:ICB16:LOT2;ITEM1",
+      "project_ref": "P095392",
+      "source_modified_at": "2021-03-29T03:51:56Z"
+    },
+    "OP00033824": {
+      "contacts": {
+        "agency:Egyptian Electricity Transmission Company (EETC)": {
+          "email": "contact@example.org",
+          "fax_number": "+20 000 0001",
+          "job_title": "Procurement Officer",
+          "name": "Contact Person",
+          "telephone": "+20 000 0000",
+          "url": null
+        }
+      },
+      "payload": {
+        "classifications": [
+          {
+            "description": "Non-Renewable Energy Generation",
+            "id": "LN",
+            "scheme": "worldbank-sector"
+          },
+          {
+            "description": "Power",
+            "id": "LD",
+            "scheme": "worldbank-sector"
+          }
+        ],
+        "date": "2015-08-05T00:00:00Z",
+        "id": "OP00033824",
+        "initiationType": "tender",
+        "language": "en",
+        "locations": [
+          {
+            "countryCode": "EG",
+            "sourceCountryCode": "EG",
+            "sourceCountryName": "Egypt, Arab Republic of"
+          }
+        ],
+        "ocid": "scrapex-worldbank:P100047:ZAHRAAEL-MAADISUBSTATION-PACKAGEA",
+        "parties": [
+          {
+            "id": "worldbank",
+            "name": "World Bank",
+            "roles": [
+              "funder"
+            ]
+          },
+          {
+            "address": {
+              "countryCode": "EG",
+              "countryName": "Egypt, Arab Republic of",
+              "locality": "Cairo,",
+              "region": "EGYPT",
+              "streetAddress": "Extension of Ramsis St,\n\n\n\nAbbassia,"
+            },
+            "id": "agency:Egyptian Electricity Transmission Company (EETC)",
+            "name": "Egyptian Electricity Transmission Company (EETC)",
+            "roles": [
+              "procuringEntity"
+            ]
+          }
+        ],
+        "planning": {
+          "budget": {
+            "project": "EG-Ain Sokhna Power Project",
+            "projectID": "P100047"
+          }
+        },
+        "tag": [
+          "tenderAmendment"
+        ],
+        "tender": {
+          "id": "Zahraa El-Maadi Substation - Package A",
+          "procurementMethodDetails": "International Competitive Bidding",
+          "status": "active",
+          "statusDetails": "Revised",
+          "title": "turnkey bases"
+        },
+        "worldbank": {
+          "api_modified_date": "2021-03-29T03:52:40Z",
+          "bid_currency_code": "USD",
+          "contract_id": "0",
+          "contract_usd_value": "0",
+          "notice_status": "Revised",
+          "notice_type": "Invitation for Bids",
+          "notice_version_no": "0",
+          "noticetitle": "turnkey bases",
+          "procurement_method_code": "ICB",
+          "prodline": "PE",
+          "regionname": "Middle East And North Africa"
+        }
+      },
+      "process_key": "P100047:ZAHRAAEL-MAADISUBSTATION-PACKAGEA",
+      "project_ref": "P100047",
+      "source_modified_at": "2021-03-29T03:52:40Z"
+    },
+    "OP00158446": {
+      "contacts": {
+        "agency:Egypt Gas": {
+          "email": "contact@example.org",
+          "fax_number": "+20 000 0001",
+          "job_title": "Procurement Officer",
+          "name": "Contact Person",
+          "telephone": "+20 000 0000",
+          "url": "https://www.example.org"
+        }
+      },
+      "payload": {
+        "classifications": [
+          {
+            "description": "Oil and Gas",
+            "id": "LC",
+            "scheme": "worldbank-sector"
+          },
+          {
+            "description": "Oil and Gas",
+            "id": "LC",
+            "scheme": "worldbank-sector"
+          }
+        ],
+        "date": "2021-12-16T00:00:00Z",
+        "id": "OP00158446",
+        "initiationType": "tender",
+        "language": "en",
+        "locations": [
+          {
+            "countryCode": "EG",
+            "sourceCountryCode": "EG",
+            "sourceCountryName": "Egypt, Arab Republic of"
+          }
+        ],
+        "ocid": "scrapex-worldbank:P146007:EGICB1-2022",
+        "parties": [
+          {
+            "id": "worldbank",
+            "name": "World Bank",
+            "roles": [
+              "funder"
+            ]
+          },
+          {
+            "address": {
+              "countryCode": "EG",
+              "countryName": "Egypt, Arab Republic of",
+              "streetAddress": "Imbaba - Corniche El Nile - El Warrak"
+            },
+            "id": "agency:Egypt Gas",
+            "name": "Egypt Gas",
+            "roles": [
+              "procuringEntity"
+            ]
+          }
+        ],
+        "planning": {
+          "budget": {
+            "project": "EG: Household Natural Gas Connection Project",
+            "projectID": "P146007"
+          }
+        },
+        "tag": [
+          "tender"
+        ],
+        "tender": {
+          "id": "EG ICB 1-2022",
+          "items": [
+            {
+              "classification": {
+                "description": "Gas fitting installation service",
+                "id": "72101519",
+                "scheme": "UNSPSC"
+              },
+              "description": "Gas fitting installation service",
+              "id": "72101519"
+            }
+          ],
+          "mainProcurementCategory": "goods",
+          "procurementMethod": "open",
+          "procurementMethodDetails": "Request for Bids",
+          "status": "active",
+          "statusDetails": "Published",
+          "tenderPeriod": {
+            "endDateLocal": "2022-02-06",
+            "endTimeLocal": "10:00",
+            "endTimeZone": null
+          },
+          "title": "PE Pipes",
+          "value": {
+            "amount": 1620430.71,
+            "currency": "USD"
+          }
+        },
+        "worldbank": {
+          "api_modified_date": "2026-03-21T15:31:56Z",
+          "bid_currency_code": "USD",
+          "financing_ids": [
+            "IBRD84110"
+          ],
+          "market_approach_region_name": "International",
+          "notice_status": "Published",
+          "notice_type": "Invitation for Bids",
+          "notice_version_no": "1",
+          "noticetitle": "PE Pipes",
+          "procurement_group": "GO",
+          "procurement_method_code": "RFB",
+          "prodline": "PE",
+          "regionname": "Mid East,North Africa,Afg,Pak"
+        }
+      },
+      "process_key": "P146007:EGICB1-2022",
+      "project_ref": "P146007",
+      "source_modified_at": "2026-03-21T15:31:56Z"
+    },
+    "OP00184991": {
+      "contacts": {
+        "agency:Egypt Gas": {
+          "email": null,
+          "fax_number": null,
+          "job_title": null,
+          "name": null,
+          "telephone": null,
+          "url": null
+        }
+      },
+      "payload": {
+        "awards": [
+          {
+            "id": "1703070",
+            "status": "active",
+            "value": {
+              "amount": 1182355.99,
+              "currency": "USD",
+              "isConverted": true
+            }
+          }
+        ],
+        "classifications": [
+          {
+            "description": "Oil and Gas",
+            "id": "LC",
+            "scheme": "worldbank-sector"
+          },
+          {
+            "description": "Oil and Gas",
+            "id": "LC",
+            "scheme": "worldbank-sector"
+          }
+        ],
+        "contracts": [
+          {
+            "awardID": "1703070",
+            "dateSigned": "2022-03-30",
+            "id": "1703070"
+          }
+        ],
+        "date": "2022-06-23T00:00:00Z",
+        "id": "OP00184991",
+        "initiationType": "tender",
+        "language": "en",
+        "locations": [
+          {
+            "countryCode": "EG",
+            "sourceCountryCode": "EG",
+            "sourceCountryName": "Egypt, Arab Republic of"
+          }
+        ],
+        "ocid": "scrapex-worldbank:P146007:EGICB1-2022",
+        "parties": [
+          {
+            "id": "worldbank",
+            "name": "World Bank",
+            "roles": [
+              "funder"
+            ]
+          },
+          {
+            "id": "agency:Egypt Gas",
+            "name": "Egypt Gas",
+            "roles": [
+              "procuringEntity"
+            ]
+          }
+        ],
+        "planning": {
+          "budget": {
+            "project": "EG: Household Natural Gas Connection Project",
+            "projectID": "P146007"
+          }
+        },
+        "tag": [
+          "award"
+        ],
+        "tender": {
+          "id": "EG ICB 1-2022",
+          "items": [
+            {
+              "classification": {
+                "description": "Gas fitting installation service",
+                "id": "72101519",
+                "scheme": "UNSPSC"
+              },
+              "description": "Gas fitting installation service",
+              "id": "72101519"
+            }
+          ],
+          "mainProcurementCategory": "goods",
+          "procurementMethod": "open",
+          "procurementMethodDetails": "Request for Bids",
+          "status": "complete",
+          "statusDetails": "Published",
+          "title": "PE Pipes",
+          "value": {
+            "amount": 1620430.71,
+            "currency": "USD"
+          }
+        },
+        "worldbank": {
+          "api_modified_date": "2025-12-27T12:33:41Z",
+          "bid_currency_code": "USD",
+          "contr_sgn_date": "2022-03-30T00:00:00Z",
+          "contract_id": "1703070",
+          "contract_usd_value": "1182355.99",
+          "ctr_orig_notice_id": "OP00158446",
+          "financing_ids": [
+            "IBRD84110"
+          ],
+          "market_approach_region_name": "International",
+          "notice_status": "Published",
+          "notice_type": "Contract Award",
+          "notice_version_no": "1",
+          "procurement_group": "GO",
+          "procurement_method_code": "RFB",
+          "prodline": "PE",
+          "regionname": "Mid East,North Africa,Afg,Pak"
+        }
+      },
+      "process_key": "P146007:EGICB1-2022",
+      "project_ref": "P146007",
+      "source_modified_at": "2025-12-27T12:33:41Z"
+    },
+    "OP00208979": {
+      "contacts": {
+        "agency:Egyptian Holding Company for Silos and Storage": {
+          "email": "contact@example.org",
+          "fax_number": "+20 000 0001",
+          "job_title": "Procurement Officer",
+          "name": "Contact Person",
+          "telephone": "+20 000 0000",
+          "url": "https://www.example.org"
+        }
+      },
+      "payload": {
+        "classifications": [
+          {
+            "description": "Agricultural markets, commercialization and agri-business",
+            "id": "YA",
+            "scheme": "worldbank-sector"
+          },
+          {
+            "description": "Other Industry, Trade and Services",
+            "id": "YZ",
+            "scheme": "worldbank-sector"
+          },
+          {
+            "description": "Agricultural Extension, Research, and Other Support Activities",
+            "id": "AB",
+            "scheme": "worldbank-sector"
+          },
+          {
+            "description": "Public Administration - Agriculture, Fishing & Forestry",
+            "id": "AK",
+            "scheme": "worldbank-sector"
+          }
+        ],
+        "date": "2022-12-09T00:00:00Z",
+        "id": "OP00208979",
+        "initiationType": "tender",
+        "language": "en",
+        "locations": [
+          {
+            "countryCode": "EG",
+            "sourceCountryCode": "EG",
+            "sourceCountryName": "Egypt, Arab Republic of"
+          }
+        ],
+        "ocid": "scrapex-worldbank:notice:OP00208979",
+        "parties": [
+          {
+            "id": "worldbank",
+            "name": "World Bank",
+            "roles": [
+              "funder"
+            ]
+          },
+          {
+            "address": {
+              "countryCode": "EG",
+              "countryName": "Egypt, Arab Republic of",
+              "streetAddress": "1 El sawwah Square, Saray El Kobba - Cairo"
+            },
+            "id": "agency:Egyptian Holding Company for Silos and Storage",
+            "name": "Egyptian Holding Company for Silos and Storage",
+            "roles": [
+              "procuringEntity"
+            ]
+          }
+        ],
+        "planning": {
+          "budget": {
+            "project": "Emergency Food Security and Resilience Support Project",
+            "projectID": "P178926"
+          }
+        },
+        "tag": [
+          "planning"
+        ],
+        "tender": {
+          "status": "planned",
+          "statusDetails": "Published"
+        },
+        "worldbank": {
+          "api_modified_date": "2025-12-27T13:17:57Z",
+          "bid_currency_code": "USD",
+          "notice_status": "Published",
+          "notice_type": "General Procurement Notice",
+          "notice_version_no": "1",
+          "noticetitle": "General Procurement Notice",
+          "prodline": "PE",
+          "regionname": "Mid East,North Africa,Afg,Pak"
+        }
+      },
+      "process_key": "notice:OP00208979",
+      "project_ref": "P178926",
+      "source_modified_at": "2025-12-27T13:17:57Z"
+    },
+    "OP00473710": {
+      "contacts": {
+        "agency:Egyptian Environmental Affairs Agency": {
+          "email": "contact@example.org",
+          "fax_number": null,
+          "job_title": "Procurement Officer",
+          "name": "Contact Person",
+          "telephone": "+20 000 0000",
+          "url": "https://www.example.org"
+        }
+      },
+      "payload": {
+        "classifications": [
+          {
+            "description": "Waste Management",
+            "id": "WB",
+            "scheme": "worldbank-sector"
+          },
+          {
+            "description": "Urban Transport",
+            "id": "TC",
+            "scheme": "worldbank-sector"
+          },
+          {
+            "description": "Other Public Administration",
+            "id": "BZ",
+            "scheme": "worldbank-sector"
+          }
+        ],
+        "date": "2026-10-07T00:00:00Z",
+        "id": "OP00473710",
+        "initiationType": "tender",
+        "language": "en",
+        "locations": [
+          {
+            "countryCode": "EG",
+            "sourceCountryCode": "EG",
+            "sourceCountryName": "Egypt, Arab Republic of"
+          }
+        ],
+        "ocid": "scrapex-worldbank:P172548:EG-EEAA-559382-CS-QCBS",
+        "parties": [
+          {
+            "id": "worldbank",
+            "name": "World Bank",
+            "roles": [
+              "funder"
+            ]
+          },
+          {
+            "address": {
+              "countryCode": "EG",
+              "countryName": "Egypt, Arab Republic of",
+              "streetAddress": "15C El-Tawfek Building, El-Fostat, Old Cairo, Floor 5 Cairo, Egypt"
+            },
+            "id": "agency:Egyptian Environmental Affairs Agency",
+            "name": "Egyptian Environmental Affairs Agency",
+            "roles": [
+              "procuringEntity"
+            ]
+          }
+        ],
+        "planning": {
+          "budget": {
+            "project": "Greater Cairo Air Pollution Management and Climate Change Project",
+            "projectID": "P172548"
+          }
+        },
+        "tag": [
+          "tender"
+        ],
+        "tender": {
+          "id": "EG-EEAA-559382-CS-QCBS",
+          "items": [
+            {
+              "classification": {
+                "description": "Medical waste disposal",
+                "id": "76121901",
+                "scheme": "UNSPSC"
+              },
+              "description": "Medical waste disposal",
+              "id": "76121901"
+            }
+          ],
+          "mainProcurementCategory": "services",
+          "procurementMethod": "open",
+          "procurementMethodDetails": "Quality And Cost-Based Selection",
+          "status": "active",
+          "statusDetails": "Published",
+          "tenderPeriod": {
+            "endDateLocal": "2026-11-05",
+            "endTimeLocal": "14:00",
+            "endTimeZone": null
+          },
+          "title": "developing guidelines for healthcare waste management in Egypt - rebidding process related to activity ref EG-EEAA-474647-CS-CQS",
+          "value": {
+            "amount": 70000.0,
+            "currency": "USD"
+          }
+        },
+        "worldbank": {
+          "api_modified_date": "2026-10-09T16:07:56Z",
+          "bid_currency_code": "USD",
+          "financing_ids": [
+            "IBRD91660"
+          ],
+          "market_approach_region_name": "International",
+          "notice_status": "Published",
+          "notice_type": "Request for Expression of Interest",
+          "notice_version_no": "1",
+          "noticetitle": "developing guidelines for healthcare waste management in Egypt - rebidding process related to activity ref EG-EEAA-474647-CS-CQS",
+          "procurement_group": "CS",
+          "procurement_method_code": "QCBS",
+          "prodline": "PE",
+          "regionname": "Mid East,North Africa,Afg,Pak"
+        }
+      },
+      "process_key": "P172548:EG-EEAA-559382-CS-QCBS",
+      "project_ref": "P172548",
+      "source_modified_at": "2026-10-09T16:07:56Z"
+    }
+  }
+}
