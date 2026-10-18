@@ -1,4 +1,4 @@
-"""DRAFT TOOL, NOT FOR MERGE: the tender control's mock-up (milestone 51, part 2), seventh draft.
+"""DRAFT TOOL, NOT FOR MERGE: the tender control's mock-up (milestone 51, part 2), ninth draft.
 
 It renders the panel through tools/panel_harness.py with the part 3b engine stubbed as the
 study's contract describes it. The study, its reference sheet and the review rounds are on
@@ -297,9 +297,10 @@ STATES = {
     "03-confirm-first-crawl": (dict(sources=SOURCES),
                                [click("#tab-run"), TICK_WB, engine_jobs(cost=COST_FIRST),
                                 PRESS_RUN, wait(250)],
+                               # NO 10 HERE: Start's box would lie on Cancel's ring,
+                               # 8 px away. 03c marks it.
                                [(7, "#confirm-title"), (8, "#confirm-copy"),
-                                (8, "#confirm-facts"), (9, "#confirm-keep"),
-                                (10, "#confirm-go")]),
+                                (8, "#confirm-facts"), (9, "#confirm-keep")]),
     "03b-after-confirming": (dict(sources=SOURCES),
                              [click("#tab-run"), TICK_WB,
                               engine_jobs(cost=COST_FIRST, started=STARTING),
@@ -334,7 +335,14 @@ STATES = {
                                     [click("#tab-run"), TICK_WB, TICK_SHORT,
                                      engine_jobs(cost=COST_FIRST, mixed=True), click("#run"),
                                      wait(3600), scroll("#run", "center")],
-                                    [(15, "#run-blocked"), (14, "#run-refused")]),
+                                    # NO HINT BESIDE THE REFUSAL (row 15), so no marker 15.
+                                    [(14, "#run-refused")]),
+    # ROW 15'S QUEUE SENTENCE, drawn where it holds: a price source selected while a price
+    # crawl of another source runs, and nothing refused.
+    "09a-queues-behind-a-job": (dict(sources=SOURCES, jobs=[PRICE_RUNNING], logs=[]),
+                                [click("#tab-run"), TICK_SHORT, wait(400),
+                                 scroll("#run", "center")],
+                                [(15, "#run-blocked")]),
     "09b-start-while-it-crawls": (dict(sources=SOURCES_CRAWLING, jobs=[RUNNING], logs=LOGS),
                                   [click("#tab-run"), TICK_WB,
                                    engine_jobs(cost=COST_FIRST, duplicate=True),
@@ -530,10 +538,10 @@ def draw_marks(img, found):
         left, top, right, bottom = rect
         if bottom < 0 or top > img.height:
             continue
-        # 7 PX OUT, clear of the focus ring, which reaches 4 px out (`--focus-ring-offset`
+        # 6 PX OUT, clear of the focus ring, which reaches 4 px out (`--focus-ring-offset`
         # and `--focus-ring-width`, tokens.css:439-440): a marker must not hide the focus
         # a state shows.
-        left, top, right, bottom = left - 7, top - 7, right + 7, bottom + 7
+        left, top, right, bottom = left - 6, top - 6, right + 6, bottom + 6
         d.rectangle([left, top, right, bottom], outline=MARK, width=2)
         cx, cy = max(10, min(img.width - 10, right + 2)), max(10, min(img.height - 10, top - 2))
         d.ellipse([cx - 10, cy - 10, cx + 10, cy + 10], fill=MARK)

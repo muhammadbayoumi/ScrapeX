@@ -2591,6 +2591,12 @@
     justify-content: flex-end;
     gap: var(--sp-2);
   }
+  /* A choice scrolled into view keeps its focus ring in view: the ring reaches past the
+     border by its offset and width (tokens.css), and scrolling stops at the border.
+     `askToConfirm` reads this reach back. */
+  .modal-actions button {
+    scroll-margin-block-end: calc(var(--focus-ring-offset) + var(--focus-ring-width));
+  }
 
   /* Appearance is a complete Android-style destination. It uses the same
      persistent page model as Source, Data and Settings; it is not a modal
