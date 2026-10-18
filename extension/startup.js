@@ -27,7 +27,33 @@ export const STARTUP_DEADLINES = Object.freeze({
   // of a warehouse the engine already has open rather than the file this check
   // opens. It sits far above `localMutation` because this is not a poll: he pressed
   // a control and is watching it.
+  //
+  // AND THE NATIVE HOST'S PREFLIGHT IS THE SAME SCAN, so CHECK_STARTUP and
+  // START_ENGINE are bounded by this too (`transport.js`). RE-MEASURED 2026-10-17
+  // through the host on a copy of his 2,232,049,664-byte warehouse: 26.9, 27.7 and
+  // 66.8 s cold -- the worst near 30 s a gigabyte, so this is 1.8x his file today
+  // and covers one near 4 GB rather than the 6 GB above.
   integrityScan: 120000,
+  // DERIVED FROM A MEASUREMENT, and ONE NUMBER FOR EVERY REQUEST THAT COPIES THE
+  // WAREHOUSE BEFORE IT ANSWERS and has no bound of its own (#1706): the upgrade
+  // through either door -- the engine's `POST /api/databases/upgrade` and the native
+  // host's UPGRADE_DATABASE (`transport.js`), one guarded path that copies the file,
+  // migrates it and scans it -- and Erase data, `POST /api/sources/<key>/wipe`,
+  // which copies the file and then deletes. A restore and a bundle copy it too, and
+  // keep `restoreCopy` and `bundleBuild` below: they do several times this work.
+  //
+  // MEASURED 2026-10-17 on copies of his 2,232,049,664-byte warehouse. The upgrade,
+  // through the native host launched as Chrome launches it, v21 to v24: 32.0, 33.7,
+  // 57.2 and 146.0 s; one instrumented run split its 34.0 s into the copy 5.7 s, the
+  // migrations 7.3 s and three `health()` scans of 6.8-7.3 s. Erase data for
+  // AHRAMBC, `storage.wipe_source` itself: 6.05 and 6.15 s, the copy 5.8 of it.
+  // Both ran past the 5,000 ms they had. His upgrade that morning was reported "The
+  // database was not changed" after it had been; his Erase data answered "The
+  // request exceeded its 5000 ms deadline." three times, and left three copies.
+  //
+  // 300,000 is 2x the slowest of them. Running out is cheap to say and dear to
+  // read: what he does next is press again, and every press copies 2.2 GB.
+  warehouseCopy: 300000,
   // DERIVED FROM A MEASUREMENT, like `bundleBuild` and `integrityScan`, because a
   // restore is O(FILE SIZE) four times over and a chosen number expires as the
   // warehouse grows.
@@ -109,8 +135,16 @@ const LOCAL_POLICIES = [
   [/^\/api\/version(?:[/?]|$)/, STARTUP_DEADLINES.engineVersion],
   [/^\/api\/ui(?:[/?]|$)/, STARTUP_DEADLINES.uiContract],
   [/^\/api\/(?:appearance|timezone)(?:[/?]|$)/, STARTUP_DEADLINES.preferences],
-  [/^\/api\/(?:engine\/restart|databases\/upgrade)(?:[/?]|$)/,
-    STARTUP_DEADLINES.engineRepair],
+  [/^\/api\/engine\/restart(?:[/?]|$)/, STARTUP_DEADLINES.engineRepair],
+  // NOT `engineRepair` ANY MORE. A restart answers at once and leaves 1.5 s later;
+  // an upgrade copies the warehouse before it answers. The two shared one bound
+  // until the upgrade took the guarded path (#1635), and then it was 15 s for work
+  // measured at up to 146.
+  [/^\/api\/databases\/upgrade(?:[/?]|$)/, STARTUP_DEADLINES.warehouseCopy],
+  // ABOVE THE `sources` RULE AT THE END, WHICH SWALLOWED IT: that pattern ends
+  // `(?:[/?]|$)`, so Erase data's copy-then-delete was bounded like a page of rows,
+  // 5,000 ms for 6 s of work -- the trap the `storage/restore` row below records.
+  [/^\/api\/sources\/[^/?]+\/wipe(?:\?|$)/, STARTUP_DEADLINES.warehouseCopy, "POST"],
   // BEFORE THE `storage` RULE BELOW, WHICH WOULD OTHERWISE SWALLOW IT: that pattern
   // ends `(?:[/?]|$)`, so `/api/storage/integrity` matches it and would inherit the
   // 5,000 ms bound this whole change exists to get out from under.

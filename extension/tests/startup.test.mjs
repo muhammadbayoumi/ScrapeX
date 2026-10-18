@@ -31,6 +31,8 @@ test("local endpoints receive purpose-specific deadlines", () => {
                STARTUP_DEADLINES.localMutation);
   assert.equal(deadlineForLocalRequest("/api/engine/restart", "POST"),
                STARTUP_DEADLINES.engineRepair);
+  assert.equal(deadlineForLocalRequest("/api/databases/upgrade", "POST"),
+               STARTUP_DEADLINES.warehouseCopy);
   assert.equal(deadlineForLocalRequest("/api/bundle", "POST"),
                STARTUP_DEADLINES.bundleBuild);
   assert.equal(deadlineForLocalRequest("/api/storage/integrity", "POST"),
