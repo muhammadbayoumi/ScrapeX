@@ -1598,6 +1598,33 @@ def test_a_download_writes_the_rows_shown_in_order_and_leaves_built_ins_out(page
     assert rows == [{"Name": 'say "hi"', "Note": "x"}, {"Name": "b", "Note": {"k": 1}}]
 
 
+def test_a_download_defuses_a_value_a_spreadsheet_would_run_as_a_formula(page):
+    """CWE-1236 (#1308): the values are scraped, so a site controls them. A string
+    that begins with = + - @, a tab or a carriage return is written behind an
+    apostrophe, which a spreadsheet keeps as text; the title row too. A number
+    is written as it is, so a negative price stays a number. Only the first
+    character decides, so an inert formula stands for a harmful one."""
+    build(page, """{
+      columns: [{title: "=Title", field: "name"}, {title: "Price", field: "price"}],
+      data: [{name: "=SUM(1,2)", price: -5}, {name: "+1", price: 3}, {name: "-1", price: 0},
+             {name: "@SUM(1,2)", price: 1.5}, {name: "\\tlead", price: 2},
+             {name: "\\rlead", price: 2}, {name: "a=b", price: -0.5}],
+    }""")
+    csv = page.evaluate("grid.download('csv', 'rows.csv')")
+    assert csv.split("\n") == [
+        "\"'=Title\",\"Price\"",
+        "\"'=SUM(1,2)\",\"-5\"",
+        "\"'+1\",\"3\"",
+        "\"'-1\",\"0\"",
+        "\"'@SUM(1,2)\",\"1.5\"",
+        "\"'\tlead\",\"2\"",
+        "\"'\rlead\",\"2\"",
+        "\"a=b\",\"-0.5\"",
+    ]
+    rows = page.evaluate("JSON.parse(grid.download('json', 'rows.json'))")
+    assert rows[0] == {"=Title": "=SUM(1,2)", "Price": -5}, "JSON carries the value as it is"
+
+
 def test_a_download_unrolls_bands_and_carries_a_trees_closed_children(page):
     build(page, f"""{{
       columns: [{{title: "Name", field: "name"}}], data: {BRANDS}, groupBy: ["brand"],

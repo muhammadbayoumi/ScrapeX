@@ -120,12 +120,24 @@ function iconFrom(spec) {
   return typeof spec === "function" ? node : node.cloneNode(true);
 }
 
-/** A value for a CSV cell, exactly as the previous renderer wrote one. */
+// A SPREADSHEET RUNS A CELL THAT BEGINS LIKE A FORMULA (CWE-1236, #1308).
+// The values are scraped, so a site can publish "=HYPERLINK(...)" as a
+// product's name; a leading apostrophe makes a spreadsheet keep it as text.
+// These are OWASP's six starts: = + - @, tab and carriage return.
+const FORMULA_START = /^[=+\-@\t\r]/;
+
+/** A value for a CSV cell: quoted, its quotes doubled, a formula's start defused.
+ *
+ * Only a string is defused. A number carries no formula, and an apostrophe
+ * in front of -5 would turn a number column into text.
+ */
 function csvField(value) {
   let v = value;
   if (v === undefined) v = "";
   else if (typeof v === "object") v = v === null ? "" : JSON.stringify(v);
-  return '"' + String(v).split('"').join('""') + '"';
+  let cell = String(v);
+  if (typeof value === "string" && FORMULA_START.test(cell)) cell = "'" + cell;
+  return '"' + cell.split('"').join('""') + '"';
 }
 
 function px(value) {
