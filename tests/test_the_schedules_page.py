@@ -583,6 +583,11 @@ def open_edit(page, key):
     sheet_settled(page)
 
 
+def domain_of(page, identity):
+    """The domain an identity names, read whole (it breaks only after its dots)."""
+    return "".join(page.locator(f"{identity} .source-identity-domain").inner_text().split())
+
+
 def sheet_value(page, name):
     return page.input_value(f"#sched-sheet-{name}")
 
@@ -640,8 +645,8 @@ def test_create_offers_only_the_sources_without_a_schedule(open_panel):
     assert options == [["ADVANCEDCASTLE", "advancedcastle.com"],
                        ["SIKAEGSHOP", "sikaegshop.com"]]
     assert text(page, "#sched-sheet-source-hint") == "Sources that have no schedule yet."
-    picked = page.locator("#sched-sheet-source-identity").inner_text()
-    assert "advancedcastle.com" in picked and "القلعة المتقدمة" in picked
+    assert domain_of(page, "#sched-sheet-source-identity") == "advancedcastle.com"
+    assert text(page, "#sched-sheet-source-identity .source-identity-name") == "القلعة المتقدمة"
     assert not page.js_errors
 
 
@@ -662,7 +667,7 @@ def test_create_fills_a_removed_schedule_back_in_and_starts_a_new_one_daily(open
         == ["daily", "09:00", "UTC", "update", "run_when_available"]
     assert page.locator("#sched-sheet-weekday").is_hidden()
     assert page.locator("#sched-sheet-filled").is_hidden()
-    assert "sikaegshop.com" in page.locator("#sched-sheet-source-identity").inner_text()
+    assert domain_of(page, "#sched-sheet-source-identity") == "sikaegshop.com"
     # No overlap choice: a busy slot is skipped and listed, and the sheet says so (#1596).
     assert page.locator(f"{SHEET} select").count() == 5
     assert text(page, "#sched-sheet-skip-note") == (
@@ -709,7 +714,7 @@ def test_edit_opens_with_the_stored_schedule_and_saves_it_without_the_switch(ope
     show_schedules(page)
     open_edit(page, "ELBUROJ")
     assert text(page, "#sched-sheet-title") == "Edit schedule"
-    assert "elburoj.com" in page.locator("#sched-sheet-identity").inner_text()
+    assert domain_of(page, "#sched-sheet-identity") == "elburoj.com"
     assert page.locator("#sched-sheet-source").is_hidden()
     assert [sheet_value(page, n) for n in ("frequency", "time", "zone", "mode", "missed")] \
         == ["daily", "08:30", "Africa/Cairo", "full_rebuild", "skip"]
