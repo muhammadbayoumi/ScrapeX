@@ -1,0 +1,350 @@
+{
+ "source": "The World Bank: Procurement Notice: search.worldbank.org/api/v2/procnotices?fl=* (CC BY 4.0), read 2026-10-10 by #1647 (requests 13 and 14).",
+ "changed": "Every contact person and contact web address replaced by a placeholder; notice_text removed, because its award blocks name persons.",
+ "notices": [
+  {
+   "id": "OP00473710",
+   "notice_type": "Request for Expression of Interest",
+   "noticedate": "07-Oct-2026",
+   "notice_version_no": "1",
+   "notice_lang_name": "English",
+   "notice_lang_code": "EN",
+   "notice_status": "Published",
+   "submission_deadline_date": "2026-11-05T00:00:00Z",
+   "submission_deadline_time": "14:00",
+   "project_ctry_code": "EG",
+   "project_ctry_name": "Egypt, Arab Republic of",
+   "project_id": "P172548",
+   "project_name": "Greater Cairo Air Pollution Management and Climate Change Project",
+   "regionname": "Mid East,North Africa,Afg,Pak",
+   "prodline": "PE",
+   "credit": [
+    {
+     "financing_id": "IBRD91660"
+    }
+   ],
+   "sector": [
+    {
+     "sector_code": "WB",
+     "sector_description": "Waste Management"
+    },
+    {
+     "sector_code": "TC",
+     "sector_description": "Urban Transport"
+    },
+    {
+     "sector_code": "BZ",
+     "sector_description": "Other Public Administration"
+    }
+   ],
+   "agency_name": "Egyptian Environmental Affairs Agency",
+   "bid_reference_no": "EG-EEAA-559382-CS-QCBS",
+   "bid_currency_code": "USD",
+   "bid_estimate_amount": "70000",
+   "bid_description": "developing guidelines for healthcare waste management in Egypt - rebidding process related to activity ref EG-EEAA-474647-CS-CQS",
+   "procurement_group": "CS",
+   "procurement_group_desc": "Consultant Services",
+   "procurement_group_desc_srt": "Consultant Services",
+   "procurement_method_code": "QCBS",
+   "procurement_method_name": "Quality And Cost-Based Selection",
+   "contact_address": "15C El-Tawfek Building, El-Fostat, Old Cairo, Floor 5 Cairo, Egypt",
+   "contact_ctry_code": "EG",
+   "contact_ctry_name": "Egypt, Arab Republic of",
+   "contact_email": "contact@example.org",
+   "contact_job_title": "Procurement Officer",
+   "contact_name": "Contact Person",
+   "contact_organization": "Egyptian Environmental Affairs Agency",
+   "contact_phone_no": "+20 000 0000",
+   "contact_web_url": "https://www.example.org",
+   "unspsc_classification": [
+    {
+     "proc_voc_id": "76121901",
+     "proc_voc_title": "Medical waste disposal",
+     "seg_id": "76000000",
+     "seg_title": "Industrial Cleaning Services",
+     "family_id": "76120000",
+     "family_title": "Refuse disposal and treatment",
+     "class_id": "76121900",
+     "class_title": "Hazardous waste disposal",
+     "cmdty_id": "76121901",
+     "cmdty_title": "Medical waste disposal"
+    }
+   ],
+   "submission_date": "2026-10-07T00:00:00Z",
+   "noticetitle": "developing guidelines for healthcare waste management in Egypt - rebidding process related to activity ref EG-EEAA-474647-CS-CQS",
+   "api_modified_date": "2026-10-09T16:07:56Z",
+   "market_approach_code": "O",
+   "market_approach_name": "Open",
+   "market_approach_region_code": "I",
+   "market_approach_region_name": "International"
+  },
+  {
+   "id": "OP00158446",
+   "notice_type": "Invitation for Bids",
+   "noticedate": "16-Dec-2021",
+   "notice_version_no": "1",
+   "notice_lang_name": "English",
+   "notice_lang_code": "EN",
+   "notice_status": "Published",
+   "submission_deadline_date": "2022-02-06T00:00:00Z",
+   "submission_deadline_time": "10:00",
+   "project_ctry_code": "EG",
+   "project_ctry_name": "Egypt, Arab Republic of",
+   "project_id": "P146007",
+   "project_name": "EG: Household Natural Gas Connection Project",
+   "regionname": "Mid East,North Africa,Afg,Pak",
+   "prodline": "PE",
+   "credit": [
+    {
+     "financing_id": "IBRD84110"
+    }
+   ],
+   "sector": [
+    {
+     "sector_code": "LC",
+     "sector_description": "Oil and Gas"
+    },
+    {
+     "sector_code": "LC",
+     "sector_description": "Oil and Gas"
+    }
+   ],
+   "agency_name": "Egypt Gas",
+   "bid_reference_no": "EG ICB 1-2022",
+   "bid_currency_code": "USD",
+   "bid_estimate_amount": "1620430.71",
+   "bid_description": "PE Pipes",
+   "procurement_group": "GO",
+   "procurement_group_desc": "Goods",
+   "procurement_group_desc_srt": "Goods",
+   "procurement_method_code": "RFB",
+   "procurement_method_name": "Request for Bids",
+   "contact_address": "Imbaba - Corniche El Nile - El Warrak",
+   "contact_ctry_code": "EG",
+   "contact_ctry_name": "Egypt, Arab Republic of",
+   "contact_email": "contact@example.org",
+   "contact_fax_no": "+20 000 0001",
+   "contact_job_title": "Procurement Officer",
+   "contact_name": "Contact Person",
+   "contact_organization": "Egypt Gas",
+   "contact_phone_no": "+20 000 0000",
+   "contact_web_url": "https://www.example.org",
+   "unspsc_classification": [
+    {
+     "proc_voc_id": "72101519",
+     "proc_voc_title": "Gas fitting installation service",
+     "seg_id": "72000000",
+     "seg_title": "Building and Facility Construction and Maintenance Services",
+     "family_id": "72100000",
+     "family_title": "Building and facility maintenance and repair services",
+     "class_id": "72101500",
+     "class_title": "Building maintenance and repair services",
+     "cmdty_id": "72101519",
+     "cmdty_title": "Gas fitting installation service"
+    }
+   ],
+   "submission_date": "2021-12-16T00:00:00Z",
+   "noticetitle": "PE Pipes",
+   "api_modified_date": "2026-03-21T15:31:56Z",
+   "market_approach_code": "O",
+   "market_approach_name": "Open",
+   "market_approach_region_code": "I",
+   "market_approach_region_name": "International"
+  },
+  {
+   "id": "OP00184991",
+   "notice_type": "Contract Award",
+   "noticedate": "23-Jun-2022",
+   "notice_version_no": "1",
+   "notice_lang_name": "English",
+   "notice_lang_code": "EN",
+   "notice_status": "Published",
+   "project_ctry_code": "EG",
+   "project_ctry_name": "Egypt, Arab Republic of",
+   "project_id": "P146007",
+   "project_name": "EG: Household Natural Gas Connection Project",
+   "regionname": "Mid East,North Africa,Afg,Pak",
+   "prodline": "PE",
+   "credit": [
+    {
+     "financing_id": "IBRD84110"
+    }
+   ],
+   "sector": [
+    {
+     "sector_code": "LC",
+     "sector_description": "Oil and Gas"
+    },
+    {
+     "sector_code": "LC",
+     "sector_description": "Oil and Gas"
+    }
+   ],
+   "agency_name": "Egypt Gas",
+   "bid_reference_no": "EG ICB 1-2022",
+   "bid_currency_code": "USD",
+   "bid_estimate_amount": "1620430.71",
+   "bid_description": "PE Pipes",
+   "procurement_group": "GO",
+   "procurement_group_desc": "Goods",
+   "procurement_group_desc_srt": "Goods",
+   "procurement_method_code": "RFB",
+   "procurement_method_name": "Request for Bids",
+   "contr_sgn_date": "2022-03-30T00:00:00Z",
+   "contract_id": "1703070",
+   "contract_usd_value": "1182355.99",
+   "ctr_orig_notice_id": "OP00158446",
+   "unspsc_classification": [
+    {
+     "proc_voc_id": "72101519",
+     "proc_voc_title": "Gas fitting installation service",
+     "seg_id": "72000000",
+     "seg_title": "Building and Facility Construction and Maintenance Services",
+     "family_id": "72100000",
+     "family_title": "Building and facility maintenance and repair services",
+     "class_id": "72101500",
+     "class_title": "Building maintenance and repair services",
+     "cmdty_id": "72101519",
+     "cmdty_title": "Gas fitting installation service"
+    }
+   ],
+   "submission_date": "2022-06-23T00:00:00Z",
+   "api_modified_date": "2025-12-27T12:33:41Z",
+   "market_approach_code": "O",
+   "market_approach_name": "Open",
+   "market_approach_region_code": "I",
+   "market_approach_region_name": "International"
+  },
+  {
+   "id": "OP00208979",
+   "notice_type": "General Procurement Notice",
+   "noticedate": "09-Dec-2022",
+   "notice_version_no": "1",
+   "notice_lang_name": "English",
+   "notice_lang_code": "EN",
+   "notice_status": "Published",
+   "project_ctry_code": "EG",
+   "project_ctry_name": "Egypt, Arab Republic of",
+   "project_id": "P178926",
+   "project_name": "Emergency Food Security and Resilience Support Project",
+   "regionname": "Mid East,North Africa,Afg,Pak",
+   "prodline": "PE",
+   "sector": [
+    {
+     "sector_code": "YA",
+     "sector_description": "Agricultural markets, commercialization and agri-business"
+    },
+    {
+     "sector_code": "YZ",
+     "sector_description": "Other Industry, Trade and Services"
+    },
+    {
+     "sector_code": "AB",
+     "sector_description": "Agricultural Extension, Research, and Other Support Activities"
+    },
+    {
+     "sector_code": "AK",
+     "sector_description": "Public Administration - Agriculture, Fishing & Forestry"
+    }
+   ],
+   "bid_currency_code": "USD",
+   "contact_address": "1 El sawwah Square, Saray El Kobba - Cairo",
+   "contact_ctry_code": "EG",
+   "contact_ctry_name": "Egypt, Arab Republic of",
+   "contact_email": "contact@example.org",
+   "contact_fax_no": "+20 000 0001",
+   "contact_job_title": "Procurement Officer",
+   "contact_name": "Contact Person",
+   "contact_organization": "Egyptian Holding Company for Silos and Storage",
+   "contact_phone_no": "+20 000 0000",
+   "contact_web_url": "https://www.example.org",
+   "submission_date": "2022-12-09T00:00:00Z",
+   "noticetitle": "General Procurement Notice",
+   "api_modified_date": "2025-12-27T13:17:57Z"
+  },
+  {
+   "id": "OP00033824",
+   "notice_type": "Invitation for Bids",
+   "noticedate": "05-Aug-2015",
+   "notice_version_no": "0",
+   "notice_lang_name": "English",
+   "notice_lang_code": "EN",
+   "notice_status": "Revised",
+   "project_ctry_code": "EG",
+   "project_ctry_name": "Egypt, Arab Republic of",
+   "project_id": "P100047",
+   "project_name": "EG-Ain Sokhna Power Project",
+   "regionname": "Middle East And North Africa",
+   "prodline": "PE",
+   "sector": [
+    {
+     "sector_code": "LN",
+     "sector_description": "Non-Renewable Energy Generation"
+    },
+    {
+     "sector_code": "LD",
+     "sector_description": "Power"
+    }
+   ],
+   "bid_reference_no": "Zahraa El-Maadi Substation - Package A",
+   "bid_currency_code": "USD",
+   "bid_description": "turnkey bases",
+   "procurement_method_code": "ICB",
+   "procurement_method_name": "International Competitive Bidding",
+   "contract_id": "0",
+   "contract_usd_value": "0",
+   "contact_address": "Extension of Ramsis St,\n\n\n\nAbbassia,",
+   "contact_city": "Cairo,",
+   "contact_ctry_code": "EG",
+   "contact_ctry_name": "Egypt, Arab Republic of",
+   "contact_email": "contact@example.org",
+   "contact_fax_no": "+20 000 0001",
+   "contact_job_title": "Procurement Officer",
+   "contact_name": "Contact Person",
+   "contact_organization": "Egyptian Electricity Transmission Company (EETC)",
+   "contact_phone_no": "+20 000 0000",
+   "contact_region": "EGYPT",
+   "submission_date": "2015-08-05T00:00:00Z",
+   "noticetitle": "turnkey bases",
+   "api_modified_date": "2021-03-29T03:52:40Z"
+  },
+  {
+   "id": "OP00012856",
+   "notice_type": "Contract Award",
+   "notice_version_no": "0",
+   "notice_lang_name": "English",
+   "notice_lang_code": "EN",
+   "notice_status": "Draft",
+   "project_ctry_code": "EG",
+   "project_ctry_name": "Egypt, Arab Republic of",
+   "project_id": "P095392",
+   "project_name": "EG-Natural Gas Connections Project",
+   "regionname": "Middle East And North Africa",
+   "prodline": "PE",
+   "sector": [
+    {
+     "sector_code": "LC",
+     "sector_description": "Oil and Gas"
+    },
+    {
+     "sector_code": "WS",
+     "sector_description": "Sewerage"
+    },
+    {
+     "sector_code": "WC",
+     "sector_description": "Water Supply"
+    }
+   ],
+   "bid_reference_no": "ICB 16: Lot 2; Item 1",
+   "bid_currency_code": "USD",
+   "bid_description": "Copper Tubes, PE 80 Pipes and PE 80 Fittings",
+   "procurement_method_code": "ICB",
+   "procurement_method_name": "International Competitive Bidding",
+   "contr_sgn_date": "2011-12-26T00:00:00Z",
+   "contract_id": "0",
+   "contract_usd_value": "0",
+   "noticetitle": "Copper Tubes, PE 80 Pipes and PE 80 Fittings",
+   "api_modified_date": "2021-03-29T03:51:56Z"
+  }
+ ]
+}
