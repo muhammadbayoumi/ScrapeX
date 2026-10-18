@@ -1,6 +1,6 @@
-// Three native commands read the whole warehouse, and each one used to be judged
-// by a ping's five seconds (#1706, #1094). The host went on to finish what the
-// panel had already reported as not done.
+// Three native commands read the whole warehouse. Two were judged by a ping's
+// five seconds and START_ENGINE by 60 s (#1706, #1094), and the host went on to
+// finish what the panel had already reported as not done.
 //
 // THE DURATIONS BELOW ARE HIS, NOT CHOSEN. Measured 2026-10-17 through the host,
 // launched as Chrome launches it, on copies of his 2,232,049,664-byte warehouse:

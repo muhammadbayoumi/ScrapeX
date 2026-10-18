@@ -270,7 +270,14 @@ def test_a_host_that_exits_mid_upgrade_is_not_a_verdict_either(open_panel, found
     assert "CHECK_STARTUP" in page.evaluate("window.__nativeCalls")
 
 
-def test_an_engine_that_took_the_upgrade_is_not_sent_a_second_one(open_panel):
+@pytest.mark.parametrize("found, expected", [
+    pytest.param(FOUND_CURRENT, "v24 and healthy", id="upgraded"),
+    # An engine still copying reads as behind; its silence is a timeout, so the
+    # sentence says wait -- not the engine's "use the Upgrade database button".
+    pytest.param(FOUND_BEHIND, "still at v21. " + WAIT, id="still-behind"),
+])
+def test_an_engine_that_took_the_upgrade_is_not_sent_a_second_one(
+        open_panel, found, expected):
     """THE OTHER DOOR. The engine's route runs the same guarded upgrade, and it used to
     fall back to the native host whenever it did not answer -- so an engine still
     copying the warehouse would have been joined by a second upgrade of the same file.
@@ -278,14 +285,14 @@ def test_an_engine_that_took_the_upgrade_is_not_sent_a_second_one(open_panel):
     page = press_upgrade(
         open_panel, route_delays={"/api/databases/upgrade": 10 ** 9},
         host={"UPGRADE_DATABASE": {"after": 0, "reply": {"ok": True, "message": "again"}},
-              "CHECK_STARTUP": {"after": 0, "reply": FOUND_CURRENT}})
+              "CHECK_STARTUP": {"after": 0, "reply": found}})
 
     page.clock.run_for(FOREVER_MS)
     calls = page.evaluate("window.__nativeCalls")
     assert "UPGRADE_DATABASE" not in calls, (
         f"the engine had the upgrade and the native host was sent another: {calls}")
     never_said_unchanged(page)
-    wait_for_text(page, "runtime-note", "v24 and healthy")
+    wait_for_text(page, "runtime-note", expected)
 
 
 def test_the_engines_door_waits_as_long_as_his_upgrade_took(open_panel):
@@ -416,9 +423,10 @@ def test_a_card_drawn_mid_wait_is_live_again_when_the_wait_ends(open_panel):
 
 
 def test_no_start_runs_beside_an_upgrade(open_panel):
-    """The Jobs and Schedules banners draw a Start of their own, and each press during
-    the wait was another whole-file scan beside the upgrade's, ending in a Run line that
-    said "try again" while the upgrade still ran."""
+    """The Jobs and Schedules banners draw a Start of their own. Pressed during the
+    wait, each ended in a Run line that said "try again" while the upgrade still ran --
+    and once the last migration had committed, the host did not refuse: it scanned the
+    file and started an engine that scanned it twice more, beside the upgrade's own."""
     page = open_panel(engine_up=False, record=("engine-note",), host={
         "UPGRADE_DATABASE": {"after": None}, "START_ENGINE": {"after": 0,
                                                              "reply": FOUND_BEHIND}})
@@ -431,6 +439,71 @@ def test_no_start_runs_beside_an_upgrade(open_panel):
     assert "START_ENGINE" not in page.evaluate("window.__nativeCalls"), (
         "a Start ran beside the upgrade")
     assert page.text_content("#engine-note") == "Upgrading the database…"
+
+
+def test_an_upgrade_that_ended_lets_the_next_one_and_a_start_run(open_panel):
+    """The one-at-a-time flag must come down when an upgrade ends, or every later
+    Upgrade and every Start is swallowed until the panel is reloaded."""
+    page = press_upgrade(open_panel, engine_up=False, host={
+        "UPGRADE_DATABASE": {"after": 0, "reply": {
+            "ok": False, "error": "database_upgrade_failed", "action": "check_storage",
+            "detail": "the database was not upgraded because it is not behind"}},
+        "START_ENGINE": {"after": 0, "reply": {"ok": True, "confirmed": False}}})
+    page.clock.run_for(1000)
+    wait_for_text(page, "runtime-note", "The database was not upgraded")
+
+    page.click("#runtime-upgrade")
+    page.clock.run_for(1000)
+    page.evaluate("() => startEngineFromPanel()")
+    page.clock.run_for(1000)
+    calls = page.evaluate("window.__nativeCalls")
+    assert calls.count("UPGRADE_DATABASE") == 2, (
+        f"a second Upgrade press after the first ended did nothing: {calls}")
+    assert "START_ENGINE" in calls, f"a Start after the upgrade ended did nothing: {calls}"
+
+
+def test_the_database_page_does_not_offer_upgrade_again_mid_wait(open_panel):
+    """THE PAGE IS A SECOND WRITER OF THE BUTTON. Leaving the Database page and coming
+    back mid-upgrade re-read the schema and turned Upgrade back on -- and the press was
+    swallowed by the one-at-a-time guard without a word."""
+    for engine_up, kwargs in ((False, {}),
+                              (True, {"route_delays": {"/api/databases/upgrade": 10 ** 9}})):
+        page = press_upgrade(open_panel, engine_up=engine_up, host={
+            "UPGRADE_DATABASE": {"after": None}}, **kwargs)
+        page.clock.run_for(1000)
+        page.click('nav.side-rail button[data-view="run"]')
+        page.click('nav.side-rail button[data-view="database"]')
+        page.clock.run_for(2000)
+        page.wait_for_selector("#view-database", state="visible")
+        assert page.locator("#runtime-upgrade").is_disabled(), (
+            f"engine_up={engine_up}: Upgrade came back on mid-upgrade")
+
+
+@pytest.mark.parametrize("found, check, expected", [
+    pytest.param(FOUND_CURRENT, {"after": 0, "reply": FOUND_CURRENT},
+                 "v24 and healthy", id="upgraded"),
+    pytest.param(FOUND_BEHIND, {"after": None}, "did not answer either. " + WAIT,
+                 id="check-silent-too"),
+])
+def test_no_card_asks_for_an_upgrade_under_the_re_reads_sentence(
+        open_panel, found, check, expected):
+    """Run's main road: Start, blocked, the card's Upgrade, silence. Whatever the
+    re-read finds, the card that said "use the Upgrade database button" must not stay
+    up under it with its button live again."""
+    page = open_panel(engine_up=False, record=("runtime-note", "engine-note"), host={
+        "START_ENGINE": {"after": 0, "reply": FOUND_BEHIND},
+        "UPGRADE_DATABASE": {"after": None}, "CHECK_STARTUP": check})
+    page.click('nav.side-rail button[data-view="run"]')
+    page.click("#engine-start")
+    page.clock.run_for(1000)
+    page.locator("#engine-error [data-runtime-upgrade]").click()
+
+    page.clock.run_for(FOREVER_MS)
+    page.clock.run_for(FOREVER_MS)
+    wait_for_text(page, "runtime-note", expected)
+    assert not page.locator("#engine-error").is_visible(), (
+        "the card still asks for an upgrade under the re-read's sentence: "
+        + page.text_content("#engine-error"))
 
 
 def test_the_card_under_a_wait_does_not_say_press_again(open_panel):
@@ -579,6 +652,20 @@ def test_a_slow_answer_from_the_engine_that_came_back_is_taken_once(open_panel):
     page.clock.run_for(5_000)
     back = [t for t in said(page, "engine-restart-note") if t == "The engine is back."]
     assert len(back) == 1, f"the restart was ended {len(back)} times"
+
+
+def test_a_restart_the_check_refuses_gives_its_buttons_back(open_panel):
+    """With the engine running and the file behind, the check refuses and Restart is
+    not attempted -- and Upgrade database, the repair the refusal names, must be
+    pressable at once."""
+    page = press_restart(open_panel, host={
+        "CHECK_STARTUP": {"after": 0, "reply": FOUND_BEHIND}})
+    page.clock.run_for(2000)
+    wait_for_text(page, "engine-restart-note", "Restart was not attempted")
+
+    assert restart_posts(page) == [], "a restart was sent over the check's refusal"
+    for control in ("#runtime-restart", "#runtime-upgrade", "#runtime-check-action"):
+        assert not page.locator(control).is_disabled(), f"{control} stayed down"
 
 
 def test_a_preflight_as_slow_as_his_is_waited_for(open_panel):

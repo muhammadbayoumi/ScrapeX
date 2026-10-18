@@ -621,8 +621,8 @@ function renderIssueInto(box, error) {
   const action = box.querySelector("[data-runtime-upgrade]");
   if (action) {
     action.addEventListener("click", upgradeDatabaseFromPanel);
-    // A card redrawn while an upgrade runs (by Start, by Check again) must not
-    // offer a press the one-at-a-time guard would swallow without a word.
+    // A card redrawn while an upgrade runs (by a Start) must not offer a press
+    // the one-at-a-time guard would swallow without a word.
     action.disabled = upgradeRunning;
   }
 }
@@ -8788,7 +8788,9 @@ async function loadDatabase() {
     } else {
       $("db-schema-detail").textContent = "Up to date. Nothing to apply.";
     }
-    if (upgrade) upgrade.disabled = pending.length === 0;
+    // Not while one runs: re-entering this page mid-upgrade turned it back on,
+    // and the press was swallowed by the one-at-a-time guard without a word.
+    if (upgrade) upgrade.disabled = upgradeRunning || pending.length === 0;
 
     const health = s.health || {};
     $("db-health-status").textContent = health.status || "unknown";
@@ -8843,7 +8845,7 @@ async function loadDatabase() {
     // refuses anything that is not merely behind, backs up first without exception, and
     // says what it did. Offering it here asks that path the question rather than
     // answering it from a page that just failed to read anything.
-    if (upgrade) upgrade.disabled = false;
+    if (upgrade) upgrade.disabled = upgradeRunning;
     // AND THE SCAN CANNOT BE ASKED FOR WITHOUT THE ENGINE, unlike the upgrade above:
     // `POST /api/storage/integrity` has no native fallback because the native host does
     // not read the warehouse. A button that cannot work is worse than no button.
@@ -9973,8 +9975,9 @@ async function loadCurrentSite() {
 // only ever claims what a probe confirmed.
 async function startEngineFromPanel() {
   // NOT WHILE AN UPGRADE RUNS, from any of the three Start buttons (Run, Jobs,
-  // Schedules). The host would refuse it -- the file reads behind until the last
-  // migration commits -- after a whole-file scan beside the upgrade's own. Run's
+  // Schedules). While the file still reads behind the host refuses at once; once
+  // the last migration commits it does not refuse -- it scans the file and starts
+  // an engine that scans it twice more, beside the upgrade's own last scans. Run's
   // line says why; the banners send him there.
   if (upgradeRunning) {
     $("engine-note").textContent = "Upgrading the database…";
@@ -10043,8 +10046,8 @@ async function startEngineFromPanel() {
         " — Check again, or open Logs.";
     } else if (kind === "timeout") {
       // NOT "CHECK SETUP". A helper that is not installed is `absent`, above; this
-      // one was reached and is still working -- it scans the whole database before
-      // it starts anything (`transport.js`), and that has outrun its budget.
+      // one gave no answer -- most often because it scans the whole database before
+      // it starts anything (`transport.js`) and that outran its budget.
       note.textContent = `No answer from the helper${waitedSince(started)}. The engine ` +
         "may still be starting — press Check again in a few seconds.";
     } else if (!kind) {
@@ -10300,9 +10303,9 @@ function waitedSince(started) {
   return minutes < 1 ? "" : ` after ${minutes} minute${minutes === 1 ? "" : "s"}`;
 }
 
-// THE HOST DID NOT SAY NO; IT DID NOT ANSWER. `timeout` is the panel's own
-// budget running out, and `crashed` is a host that stopped before replying,
-// which can be halfway through. Neither is a verdict on the database, and
+// THE HOST DID NOT SAY NO; IT DID NOT ANSWER. `timeout` is no answer in the
+// budget (or a Chrome error `transport.js` cannot name), and `crashed` is a host
+// that stopped before replying, which can be halfway through. Neither is a verdict on the database, and
 // reading them as one is how a backed-up, migrated warehouse was reported "not
 // changed" (#1706). So these two re-read it rather than report it.
 const UPGRADE_NO_ANSWER = ["timeout", "crashed"];
@@ -10412,9 +10415,9 @@ async function rereadAfterSilentUpgrade(tell, waited, silence) {
   } catch (checkError) {
     const kind = checkError && checkError.kind;
     const behind = kind === "startup_blocked" && checkError.action === "upgrade_database";
-    // A HOST THAT TIMED OUT HAS NOT EXITED. It may still be copying, and a read
-    // beside it sees the file as it was, so pressing again is not the next step
-    // until it has had time. Only a host that stopped (`crashed`) is done.
+    // A HOST THAT TIMED OUT MAY NOT HAVE EXITED. It may still be copying, and a
+    // read beside it sees the file as it was, so pressing again is not the next
+    // step until it has had time. Only a host that stopped (`crashed`) is done.
     const wait = "The upgrade may still be running: wait a few minutes before "
       + "pressing Upgrade database again.";
     if (behind && silence === "timeout") {
@@ -10430,6 +10433,7 @@ async function rereadAfterSilentUpgrade(tell, waited, silence) {
       tell(`No answer from the upgrade${waited}, and the database is still behind. `
         + (engine.action || checkError.message));
     } else if (kind === "timeout") {
+      clearRuntimeIssue();
       tell(`No answer from the upgrade${waited}, and the database check did not `
         + `answer either. ${wait}`);
     } else if (["absent", "forbidden", "crashed"].includes(kind)) {
