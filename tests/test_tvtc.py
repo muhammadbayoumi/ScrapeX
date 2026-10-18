@@ -157,6 +157,13 @@ def test_the_url_writes_locale_limit_and_page_in_one_order():
         f"{BASE_URL}{LIST_PATH}?locale=ar&limit={PAGE_SIZE}&page=3")
 
 
+def test_the_page_size_is_the_measured_thousand():
+    """3,141 establishments are four pages per language at 1,000 (`#1716`); at 100 the
+    crawl would be ten times the requests, and at 5,000 a page would pass the 16 MB cap."""
+    assert PAGE_SIZE == 1000
+    assert "&limit=1000&" in listing_url(page=1)
+
+
 def test_the_url_refuses_page_zero_and_an_unknown_locale():
     with pytest.raises(ValueError, match="at least 1"):
         listing_url(page=0)

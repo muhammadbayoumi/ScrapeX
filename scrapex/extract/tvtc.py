@@ -12,10 +12,15 @@ so those two get an `_en` twin and nothing else does. Everything else bilingual 
 bilingual inside one response (`name`/`name_en`, `violation.description_ar/_en`,
 `week_day_ar/_en`) and is read from the Arabic view.
 
-EVERY VALUE IS STORED AS THE SITE SENT IT, AS TEXT. Nothing is parsed: a date stays its
-`YYYY-MM-DD` string, a coordinate its decimal string, a boolean `true`/`false`. Normalising
-money, units or digits would belong in `scrapex/normalize.py`, and none is needed: the
-census found no Arabic-Indic digit in any numeric field.
+EVERY VALUE IS STORED AS THE SITE SENT IT, AS TEXT: a date stays its `YYYY-MM-DD` string, a
+coordinate its decimal string, a boolean `true`/`false`. The census found no Arabic-Indic
+digit in any numeric field. THE ONE VALUE READ RATHER THAN COPIED is a working-hours time,
+whose date part is the fetch's own (`_clock`); its digits are folded by `normalize`.
+
+EVERY PATH IS READ STRICTLY (`_at`). A key this reader names that the row no longer carries,
+or an object that arrives as something else, refuses the page by name -- never a column of
+NULLs that reads as "no violation" or "no owner". An absent object is `None` or `[]`, the two
+forms the register was measured to publish for one; see `_at`.
 
 THE OWNER AND THE INVESTOR ARE STORED. His ruling on `#1716` Q1: the site's own search
 answers to the owner's ID number, and what reaches mbiX is reviewed separately.
@@ -29,8 +34,11 @@ WHAT IS DELIBERATELY NOT STORED, each with its reason:
   * `violation.penalty.color`, `.type` and the attachment's own metadata beyond its path
     -- presentation and storage bookkeeping, not facts about the establishment.
 
-A KEY THE SITE ADDS IS STILL KEPT: any top-level key this module does not know is appended
-after `FIELDS` as JSON text, because a new column is news (`extract/oman_tenderboard.py`).
+A KEY THE SITE ADDS IS STILL KEPT, in ONE column, `unknown_keys`, as a JSON object, and named
+in the candidate's warnings. One column and not one per key, because a key's own name is
+the site's to choose and the catalog's to refuse: `workingHours` already shows camelCase,
+which `ApprovalField`'s pattern rejects, a key named like a declared column would collide,
+and fourteen of them would pass `MAX_TABLE_COLUMNS`. Each of those refused EVERY page.
 """
 from __future__ import annotations
 
@@ -39,6 +47,7 @@ import re
 from collections.abc import Callable
 from typing import Any
 
+from .. import normalize
 from ..extract.html_table import InferredField, TableCandidate
 from ..sites.tvtc import read_page
 
@@ -60,12 +69,33 @@ def _text(value: Any) -> str | None:
     return str(value)
 
 
+class RowShapeError(ValueError):
+    """A row is not the shape this reader was written against: a key it reads is gone, or
+    an object arrived as something else. The page is refused and named, never stored as
+    empty columns."""
+
+
 def _at(row: dict[str, Any], *path: str) -> Any:
+    """The value at `path`, read strictly.
+
+    AN ABSENT OBJECT IS `None` OR `[]`, AND NOTHING ELSE -- both measured over the census of
+    3,141 rows in both views: `violation`, `file`, `city` and `establishment_type` arrive
+    as `null` when absent, and `region` on its one region-less row as `[]`, an empty PHP
+    array. A NON-EMPTY list where an object is read is refused: that is a one-to-one
+    relation turned one-to-many, the day an establishment gets its second violation.
+    """
     value: Any = row
+    walked: list[str] = []
     for key in path:
-        if not isinstance(value, dict):
+        if value is None or value == []:
             return None
-        value = value.get(key)
+        if not isinstance(value, dict):
+            raise RowShapeError(
+                f"{'.'.join(walked)} is a {type(value).__name__}, not an object")
+        if key not in value:
+            raise RowShapeError(f"{'.'.join([*walked, key])} is missing from the row")
+        value = value[key]
+        walked.append(key)
     return value
 
 
@@ -81,17 +111,26 @@ def _en(*path: str) -> Getter:
 
 
 def _activity_code(arabic: dict[str, Any], english: dict[str, Any]) -> Any:
-    # One code on every row of the census (0 of 3,140 hold two); joined rather than
-    # JSON-wrapped so the one value reads as itself.
-    codes = arabic.get("activity_list") or []
+    """The activity code(s), comma-joined. One code on 3,129 of 3,140 census rows and two
+    on none -- joined rather than JSON-wrapped so the one value reads as itself."""
+    codes = _at(arabic, "activity_list")
+    if codes is None:
+        return None
+    if not isinstance(codes, list) or not all(
+            isinstance(code, int) and not isinstance(code, bool) for code in codes):
+        raise RowShapeError(f"activity_list reads {codes!r}, not a list of integer codes")
     return ",".join(str(code) for code in codes) or None
 
 
 #: `2026-10-17T08:00:00.000000Z`: the date part is THE DAY THE PAGE WAS FETCHED, not a
 #: fact -- every time on a page carried that day's date -- so it is dropped, and only the
 #: clock is kept. The `Z` is not believed either: 08:00-22:00 reads as local opening
-#: hours, and the site states no zone it can be checked against. Kept as written, `HH:MM`.
-_CLOCK = re.compile(r"^\d{4}-\d{2}-\d{2}T(\d{2}:\d{2}):\d{2}(?:\.\d+)?Z$")
+#: hours, and the site states no zone it can be checked against. Kept as written: `HH:MM`,
+#: and `HH:MM:SS` when the seconds are not zero, so nothing the site said is dropped.
+#: `[0-9]` and not `\d`, which in Python also matches Arabic-Indic digits: those are folded
+#: by `normalize.fold_digits` first, so the stored clock is always ASCII.
+_CLOCK = re.compile(
+    r"[0-9]{4}-[0-9]{2}-[0-9]{2}T([0-9]{2}:[0-9]{2}):([0-9]{2})(?:\.[0-9]+)?Z")
 
 
 class WorkingHoursShapeError(ValueError):
@@ -99,10 +138,12 @@ class WorkingHoursShapeError(ValueError):
 
 
 def _clock(value: Any) -> str:
-    match = _CLOCK.match(value) if isinstance(value, str) else None
+    match = (_CLOCK.fullmatch(normalize.fold_digits(value))
+             if isinstance(value, str) else None)
     if match is None:
         raise WorkingHoursShapeError(f"a working-hours time reads {value!r}")
-    return match.group(1)
+    clock, seconds = match.groups()
+    return clock if seconds == "00" else f"{clock}:{seconds}"
 
 
 def _working_hours(arabic: dict[str, Any], english: dict[str, Any]) -> Any:
@@ -111,12 +152,20 @@ def _working_hours(arabic: dict[str, Any], english: dict[str, Any]) -> Any:
     WHY THE DATE MUST GO: stored whole, every one of the 781 establishments that publish
     hours would read as CHANGED on every crawl, because the date is the crawl's own.
     """
-    days = arabic.get("workingHours") or []
+    days = _at(arabic, "workingHours") or []
     if not isinstance(days, list):
         raise WorkingHoursShapeError(f"workingHours is a {type(days).__name__}")
-    return [{"day_ar": day.get("week_day_ar"), "day_en": day.get("week_day_en"),
-             "start": _clock(day.get("start_time")), "end": _clock(day.get("end_time"))}
-            for day in days]
+    week = []
+    for day in days:
+        if not isinstance(day, dict):
+            raise WorkingHoursShapeError(f"a workingHours entry is a {type(day).__name__}")
+        try:
+            week.append({"day_ar": day["week_day_ar"], "day_en": day["week_day_en"],
+                         "start": _clock(day["start_time"]),
+                         "end": _clock(day["end_time"])})
+        except KeyError as missing:
+            raise WorkingHoursShapeError(f"a workingHours entry has no {missing}") from None
+    return week
 
 
 #: DECLARED AND ORDERED: (column, how it is read). The order is the plan `#1716` approved.
@@ -213,6 +262,9 @@ COLUMNS: tuple[tuple[str, Getter], ...] = (
     ("investor_email", _ar("investor", "investor_email")),
     ("investor_nationality", _ar("investor", "investor_nationality_name")),
     ("investor_position", _ar("investor", "investor_position_user")),
+    # LAST, so a key the register adds never moves a declared column; filled by
+    # `bilingual_listing_candidate`. See the module docstring.
+    ("unknown_keys", lambda arabic, english: None),
 )
 FIELDS: tuple[str, ...] = tuple(name for name, _ in COLUMNS)
 
@@ -247,7 +299,9 @@ def _pairs(english_body: str, arabic_body: str) -> tuple[tuple[dict, dict], ...]
     REFUSED WHEN THE TWO VIEWS DIFFER, rather than joined on what they share: the two
     copies of a page are fetched seconds apart, and an establishment added between them
     shifts every row after it. A half-joined page would store rows whose `_en` columns
-    came from a neighbour, so the page is refused and the crawl's resume fetches it again.
+    came from a neighbour, so the page is refused. NOTHING FETCHES IT AGAIN: the crawl has
+    closed by the time approval runs, so that page's rows keep their previous values until
+    the next crawl, and the refusal is named in the approval log.
     """
     if not english_body or not arabic_body:
         raise LanguagesDisagree("one language copy of this page is missing")
@@ -276,11 +330,14 @@ def bilingual_listing_candidate(english_body: str, arabic_body: str, *,
     extra: set[str] = set()
     for arabic, english in _pairs(english_body, arabic_body):
         row = {name: _text(read(arabic, english)) for name, read in COLUMNS}
-        for key in sorted(set(arabic) - KNOWN_KEYS):
-            row[key] = _text(arabic[key])
-            extra.add(key)
+        # EITHER VIEW'S NEW KEYS, the Arabic value first: a key only the English view
+        # carries is still news.
+        unknown = {key: arabic[key] if key in arabic else english[key]
+                   for key in sorted((set(arabic) | set(english)) - KNOWN_KEYS)}
+        row["unknown_keys"] = _text(unknown)
+        extra.update(unknown)
         rows.append(row)
-    names = list(FIELDS) + sorted(extra)
+    names = list(FIELDS)
     rows_out = tuple({name: row.get(name) for name in names} for row in rows)
     fields = tuple(
         InferredField(
