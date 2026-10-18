@@ -5562,7 +5562,7 @@ function refreshRunButton() {
     if (!n) blocked = "Select at least one site above.";
     // THE ENGINE'S ANSWER TO THIS SELECTION STANDS IN FOR THE HINT: beside a refusal, a
     // hint either repeats it or promises the queue it has just refused.
-    else if (state.refusedFor) blocked = "";
+    else if (state.refusedFor && state.refusalAnswered) blocked = "";
     else if (busy.length) blocked = `${busy.map((s) => sourceDomain(s.base_url)
       || s.source_name).join(", ")} ${busy.length === 1 ? "already has a crawl that has"
       : "already have crawls that have"} not finished.`;
@@ -5586,9 +5586,11 @@ function runQuestion() {
 /** Say what the engine refused on this page, or clear it. It stays until the selection or
  *  the mode changes after it arrives: the answer to his press is never hidden, even when he
  *  changed them while the engine answered, and it names the domains it is about. */
-function showRunRefused(text) {
+function showRunRefused(text, answered = true) {
   $("run-refused").textContent = text;
   state.refusedFor = text ? runQuestion() : "";
+  // A press the engine never answered holds back no hint: the hint may be the truth.
+  state.refusalAnswered = Boolean(text) && answered;
 }
 
 /** The question a run asks before it reads a source it does not hold whole yet.
@@ -5658,7 +5660,9 @@ async function startRun() {
       "\n\nResume, on the site's own row, continues from them instead and " +
       "re-fetches none of them.\n\nDiscard them and start from the top?")) return;
   state.starting = true;
-  let asked = false;
+  // Whether the engine answered this press at all: a refusal is its answer, a request cut
+  // off at its deadline is none (`kind: "http"`, backend.js).
+  let answered = false;
   $("run").disabled = true;
   showRunRefused("");
   const body = { source_keys: keys, run_mode: mode };
@@ -5676,6 +5680,7 @@ async function startRun() {
       try {
         r = await post("/api/jobs", accepted ? { ...body, accept_cost: accepted } : body);
       } catch (e) {
+        answered = e.kind === "http";
         const cost = e.status === 409 && e.body && e.body.question === "cost" && e.body.cost;
         if (!cost) throw e;
         // EVERY PARSE ASSERTS ITS SHAPE: a question missing a figure would draw
@@ -5692,7 +5697,6 @@ async function startRun() {
           throw new Error(`the engine asked again about the ${requestCount(cost.requests)} `
             + "already accepted.");
         }
-        asked = true;
         if (!(await askToConfirm(costQuestion(cost, mode, accepted)))) return;
         accepted = { requests: cost.requests };
       }
@@ -5700,22 +5704,28 @@ async function startRun() {
     state.jobRef = r.job_ref;
     await pollJob();
   } catch (e) {
-    refused = "Couldn't start: " + e.message;
+    // ONLY THE ENGINE'S ANSWER IS A REFUSAL. A request cut off at its deadline, or one that
+    // never reached the engine, says nothing of the outcome, and the engine writes the job
+    // before it answers: so it is said as no answer, it holds back no hint, and the poll is
+    // asked once whether a job appeared.
+    refused = answered ? "Couldn't start: " + e.message
+      : `No answer to Start: ${e.message.charAt(0).toLowerCase()}${e.message.slice(1)} `
+        + "If the engine started the run, Activity shows it.";
+    if (!answered) pollJob();
   } finally {
     state.starting = false;
     // BEFORE THE REFRESH, so the hint is drawn knowing the engine's answer. The refresh
     // keeps it: it answers the selection on screen (#1332, #1656).
-    if (refused) showRunRefused(refused);
+    if (refused) showRunRefused(refused, answered);
     refreshRunButton();
     // FOCUS GOES BACK TO START. Disabling it for the request dropped focus to the body, so
     // the confirmation had nothing to return it to; and its own button, hidden with it,
-    // still holds focus here until the browser blurs it after this task. A press by mouse
-    // on the disabled button left focus on the page instead, and the question returned it
-    // there, so a press that asked a question always returns to Start. NEVER OUT OF AN OPEN
-    // QUESTION: another one asked since owns the focus it holds.
+    // still holds focus here until the browser blurs it after this task. NEVER FROM WHERE
+    // HE PUT IT while the engine answered, and never out of an open question: another one
+    // asked since owns the focus it holds.
     const at = document.activeElement;
     const asking = !$("confirm-veil").classList.contains("hidden");
-    if (!asking && (asked || !at || at === document.body || at.closest("#confirm-veil"))) {
+    if (!asking && (!at || at === document.body || at.closest("#confirm-veil"))) {
       $("run").focus({ preventScroll: true });
     }
   }

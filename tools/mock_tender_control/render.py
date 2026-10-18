@@ -1,4 +1,4 @@
-"""DRAFT TOOL, NOT FOR MERGE: the tender control's mock-up (milestone 51, part 2), ninth draft.
+"""DRAFT TOOL, NOT FOR MERGE: the tender control's mock-up (milestone 51, part 2), tenth draft.
 
 It renders the panel through tools/panel_harness.py with the part 3b engine stubbed as the
 study's contract describes it. The study, its reference sheet and the review rounds are on
@@ -256,6 +256,31 @@ def engine_jobs(cost=None, mixed=False, duplicate=False, started=None, moves=0):
                moves, moves, json.dumps(NOW.strftime("%Y-%m-%d"))))
 
 
+def engine_late(started, delay_ms=6000):
+    """POST /api/jobs as an engine that writes the job and then answers late, past the
+    panel's 5,000 ms deadline: the job is listed from the moment the press arrives. The
+    wait gives up when the panel aborts, as a real fetch does."""
+    return ("js", """window.__posts = []; const real = window.fetch;
+      const STARTED = %s;
+      window.fetch = async (u, o = {}) => {
+        const method = o.method || 'GET';
+        const path = String(u).replace(/^https?:\\/\\/[^/]+/, '');
+        if (window.__started && method === 'GET' && /^\\/api\\/jobs(\\?|$)/.test(path))
+          return {ok: true, status: 200, statusText: '200', json: async () => ({jobs: [STARTED]})};
+        if (!(path.startsWith('/api/jobs') && method === 'POST' && !path.includes('/control')))
+          return real(u, o);
+        window.__posts.push(JSON.parse(o.body || '{}'));
+        window.__started = true;
+        await new Promise((resolve, reject) => {
+          const timer = setTimeout(resolve, %d);
+          if (o.signal) o.signal.addEventListener('abort', () => {
+            clearTimeout(timer); reject(o.signal.reason); });
+        });
+        return {ok: true, status: 200, statusText: '200',
+                json: async () => ({job_ref: STARTED.job_ref, status: 'queued'})};
+      };""" % (json.dumps(started), delay_ms))
+
+
 def click(sel):
     return ("click", sel)
 
@@ -361,6 +386,12 @@ STATES = {
                                         [click("#tab-run"), TICK_WB, wait(400),
                                          scroll("#run", "center")],
                                         [(15, "#run-blocked")]),
+    # A PRESS THE ENGINE ANSWERED TOO LATE: written, then answered after the deadline. Said
+    # as no answer, with the hint the job makes true and the job itself in Activity.
+    "09f-no-answer": (dict(sources=SOURCES_DATA),
+                      [click("#tab-run"), TICK_WB, engine_late(HISTORY[0]), click("#run"),
+                       wait(6500), scroll("#run", "center")],
+                      [(14, "#run-refused"), (15, "#run-blocked")]),
     "10-run-filtered-to-nothing": (dict(sources=SOURCES),
                                    [click("#tab-run"), fill("#site-search", "tenders")],
                                    [(16, "#sites .srow")]),
@@ -433,7 +464,8 @@ SHORT = {
                                   # ONE SHIFT+TAB reaches the confirm button from the title
                                   # (320 px) and from Cancel (400, 480 px) alike.
                                   ("key", "Shift+Tab"), ("key", "Enter"), wait(400)],
-                                 [(8, "#confirm-copy")]),
+                                 # NO MARKER: 8's badge lay on the title's focus ring.
+                                 []),
     "22-short-panel-320-high": (dict(sources=SOURCES),
                                 [click("#tab-run"), TICK_WB, scroll("#run", "end")],
                                 [(5, "#run")]),
