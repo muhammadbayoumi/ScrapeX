@@ -4297,10 +4297,13 @@
 .sheet-identity:empty { display: none; }
 .sheet-header .sheet-identity { margin-top: var(--sp-2); }
 .sheet-identity .source-identity-domain,
-.sheet-identity .source-identity-names,
 .sheet-identity .source-identity-name,
 .sheet-identity .source-identity-name-en,
 .sheet-identity .source-identity-key { white-space: normal; overflow-wrap: break-word; }
+/* English over Arabic, each on lines of its own: two long names never squeeze into two
+   narrow columns, and no separator is left alone on a line between them. */
+.sheet-identity .source-identity-names { flex-direction: column; align-items: stretch; }
+.sheet-identity .source-identity-separator { display: none; }
 /* The facts stack under the identity, so every one is read at 320 px (Studio's columns
    need 1,170 px). Next run: the schedule's own zone first, his display zone under it. */
 .schedule-facts {

@@ -846,6 +846,11 @@ def test_the_sheet_names_a_long_site_in_full_at_320(open_panel):
     assert cut == [], cut
     shown = page.locator("#sched-sheet-identity").inner_text()
     assert "Building Materials" in shown and "والأدوات" in shown, shown
+    # Each name on lines of its own, never two narrow columns side by side.
+    english, arabic = (page.locator(f"#sched-sheet-identity {s}").bounding_box()
+                       for s in (".source-identity-name-en", ".source-identity-name"))
+    assert arabic["y"] >= english["y"] + english["height"] - 1, (english, arabic)
+    assert page.locator("#sched-sheet-identity .source-identity-separator").is_hidden()
     assert not page.js_errors
 
 
