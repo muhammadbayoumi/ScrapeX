@@ -289,6 +289,22 @@ def test_the_same_ids_in_another_order_are_refused():
         bilingual_listing_candidate(json.dumps(english), json.dumps(arabic))
 
 
+@pytest.mark.parametrize("english, arabic, said", [
+    (("en", 1), ("en", 1), "the Arabic copy carries no Arabic script"),   # locale=ar ignored
+    (("ar", 1), ("ar", 1), "the English copy carries Arabic script"),     # locale=en ignored
+    (("ar", 1), ("en", 1), "the Arabic copy carries no Arabic script"),   # the two swapped
+])
+def test_two_copies_that_are_not_two_languages_are_refused(english, arabic, said):
+    """Ids alone agree on all three, so only the language check stops them."""
+    with pytest.raises(LanguagesDisagree, match=re.escape(said)):
+        bilingual_listing_candidate(_raw(english[1], english[0]), _raw(arabic[1], arabic[0]))
+
+
+def test_the_real_pairs_pass_the_language_check():
+    for page in (1, 38):
+        assert _candidate(page).approvable
+
+
 def test_a_copy_of_another_shape_is_refused_by_the_reader():
     with pytest.raises(RegisterShapeError):
         bilingual_listing_candidate("<html></html>", _raw(1, "ar"))

@@ -318,7 +318,42 @@ def _pairs(english_body: str, arabic_body: str) -> tuple[tuple[dict, dict], ...]
         raise LanguagesDisagree(
             f"the two copies hold different establishments (Arabic only: {only_ar}, "
             f"English only: {only_en}, or the same ids in another order)")
+    _assert_two_languages(arabic, english)
     return tuple(zip(arabic, english, strict=True))
+
+
+_ARABIC_SCRIPT = re.compile(r"[؀-ۿ]")
+
+
+def _assert_two_languages(arabic: tuple[dict, ...], english: tuple[dict, ...]) -> None:
+    """Refuse a pair whose two copies are not the Arabic and the English view.
+
+    THE LANGUAGE TRAVELS IN `locale=` ALONE, and `lang=` was measured to be ignored
+    silently (`sites/tvtc.py`). Were `locale=ar` ignored too, the "Arabic" copy would come
+    back English, and `establishment_type_ar` and `city_ar` would store English on every
+    row of a page that approves. Measured over the census: every Arabic type name carries
+    Arabic script, and on 0 of 3,141 rows are the two views' type and city equal. So the
+    Arabic copy must carry Arabic script in its type or city names, and the English copy
+    must not carry it in all of them. A swapped pair fails both.
+    """
+    def names(rows: tuple[dict, ...]) -> list[str]:
+        found = []
+        for row in rows:
+            for path in (("establishment_type", "name"), ("city", "name")):
+                value = _at(row, *path)
+                if isinstance(value, str) and value.strip():
+                    found.append(value)
+        return found
+
+    in_arabic, in_english = names(arabic), names(english)
+    if in_arabic and not any(_ARABIC_SCRIPT.search(name) for name in in_arabic):
+        raise LanguagesDisagree(
+            "the Arabic copy carries no Arabic script in any type or city name, so the "
+            "site answered `locale=ar` in another language")
+    if in_english and all(_ARABIC_SCRIPT.search(name) for name in in_english):
+        raise LanguagesDisagree(
+            "the English copy carries Arabic script in every type and city name, so the "
+            "site answered `locale=en` in Arabic")
 
 
 def _uniqueness(rows: tuple[dict[str, str | None], ...], name: str) -> float:
