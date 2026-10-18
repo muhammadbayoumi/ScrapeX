@@ -72,7 +72,10 @@ REGISTERS: tuple[Register, ...] = (
         path="docs/ENGINEERING-SOURCES.md",
         prefix="ES",
         governs="engine",
-        searched=(("scrapex", "*.py"), ("extension", "*.js"), ("tests", "*.py")),
+        # `db/*.sql` SINCE ES-4: a table's shape is decided in its migration, so that is
+        # where the rule it follows is cited (#1616 §5).
+        searched=(("scrapex", "*.py"), ("extension", "*.js"), ("tests", "*.py"),
+                  ("db", "*.sql")),
     ),
     # The design row belongs to the design session's own change, not to this one: adding
     # it here would fail CI on a file that change has not written yet.
@@ -173,7 +176,7 @@ def _cited_paths(line: str) -> tuple[list[str], list[str]]:
     # so `scrapex/directoryjob.py:785` looked unreadable beside `scrapex/directoryjob.py`
     # and every correctly-spelled citation was refused. The readable set is matched with
     # the same pattern the paths come from, suffix included.
-    readable = re.compile(r"^[^`]+\.(?:py|js|css|mjs)(?::\d+)?$")
+    readable = re.compile(r"^[^`]+\.(?:py|js|css|mjs|sql)(?::\d+)?$")
     tokens = re.findall(r"`([^`]+)`", line)
     found = [one.split(":")[0] for one in tokens if readable.match(one)]
     return found, [one for one in tokens if not readable.match(one)]
