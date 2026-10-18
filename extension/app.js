@@ -1884,7 +1884,23 @@ function wireSourceColumns() {
   }
 }
 
+/** The editor before its source is read, or when it cannot be: its heading and Back, and
+ *  one card in place of the source's own -- a loader, a refusal (`warn`), or a fact. */
+function sourceEditorPending(key, html, warn = false) {
+  state.editingSourceKey = key;
+  $("view-source-edit").classList.add("is-pending");
+  const status = $("source-edit-status");
+  status.className = warn ? "card warn" : "card";
+  status.innerHTML = html;
+  status.hidden = false;
+  if (currentViewName() === "source-edit") return;
+  showView("source-edit");
+  requestAnimationFrame(() => $("source-edit-back").focus({preventScroll: true}));
+}
+
 function renderSourceEditor(source) {
+  $("view-source-edit").classList.remove("is-pending");
+  $("source-edit-status").hidden = true;
   state.editingSourceKey = source.source_key;
   state.editingRulesKey = source.site_key || source.source_key;
   state.sourceRules = null;
@@ -2520,8 +2536,11 @@ async function wipeSourceData() {
   }
 }
 
-/** Reads sources (and, for the switch's labels, schedules); true when it read them. */
-async function loadSources() {
+/** Reads sources (and, for the switch's labels, schedules); true when it read them.
+ *  `ownsRun` false is a read for another page, which leaves Run's cards alone while he is
+ *  on Run, as the Schedules page's read does: a redraw drops the focus he has there. */
+async function loadSources({ ownsRun = true } = {}) {
+  const drawsRun = () => ownsRun || currentViewName() !== "run";
   const wrote = schedulesPage.wrote;
   try {
     const [{ sources }, schedules] = await Promise.all([
@@ -2534,12 +2553,14 @@ async function loadSources() {
       state.schedules = schedules
         ? new Map(schedules.schedules.map((item) => [item.source_key, item])) : null;
     }
-    adoptSources(sources);
-    loadChangeSummaries();
+    adoptSources(sources, { run: drawsRun() });
+    loadChangeSummaries(drawsRun);
     return true;
   } catch (_) {
-    $("sites").innerHTML =
-      `<div class="srow"><span class="err">Couldn&#39;t reach the engine.</span></div>`;
+    if (drawsRun()) {
+      $("sites").innerHTML =
+        `<div class="srow"><span class="err">Couldn&#39;t reach the engine.</span></div>`;
+    }
     $("source-manager-count").textContent = "";
     $("source-manager-list").innerHTML =
       `<div class="source-manager-empty err">Couldn&#39;t reach the engine.</div>`;
@@ -2565,7 +2586,7 @@ const CHANGE_LABELS = {
   field_updated: "updated", unavailable: "unavailable", returned: "back", removed: "removed",
 };
 
-async function loadChangeSummaries() {
+async function loadChangeSummaries(drawsRun = () => true) {
   // One request per source is what the engine offers, but they were awaited one
   // after another AND each answer re-rendered the entire source list — so ten
   // sources meant ten serial round-trips and ten full rebuilds of the DOM the
@@ -2587,7 +2608,7 @@ async function loadChangeSummaries() {
   for (const [source, line] of summaries) {
     if (line && source.changes !== line) { source.changes = line; changed = true; }
   }
-  if (changed) renderSites();
+  if (changed && drawsRun()) renderSites();
 }
 
 // ---- run -------------------------------------------------------------------
@@ -6628,17 +6649,18 @@ const SOURCE_ACTIONS = [
   {action: "enrich", label: "Enrich organizations",
    why: "Create or update a linked organization enrichment dataset.",
    route: "GET /api/enrichment/sources/{key}", proof: RESOLVES_A_DATASET},
-  // THE ONE ACTION WHOSE ROUTE ANSWERS AND WHOSE PROMISE STILL DOES NOT HOLD:
-  // `/source/{key}` renders for a dataset (measured, 200 and 42 KB of grid), and
-  // the page carries no changes section for one — `browse_observations` and
-  // `changes_by_offer` are both skipped behind `is_dataset`. Excluded on that
-  // measurement rather than on the kind.
+  // THE WORKSPACE'S CHANGES PAGE FOR THIS SOURCE. It opened `/source/{key}#changes`,
+  // and no element on that page has the id (#380). The page renders for any key, and
+  // for a dataset key it lists nothing: `change_event` is the price path. Excluded on
+  // that measurement rather than on the kind.
   {action: "changes", label: "Recent changes",
-   why: "What moved since the last crawl.",
-   route: "GET /source/{key}", proof: NO_SECTION},
+   why: "The changes recorded for this source, newest first, in the Workspace.",
+   route: "GET /changes?source_key={key}", proof: NO_SECTION},
+  // THE PANEL'S OWN EDITOR, the one Library's Edit opens; this is its manifest read. It
+  // opened `/sources/{key}`, a route the engine never had (#380).
   {action: "settings", label: "Source settings",
    why: "Address, name and how this source is read.",
-   route: "GET /sources/{key}", proof: MANIFEST_ONLY},
+   route: "GET /api/sources/{key}", proof: MANIFEST_ONLY},
   {action: "pause", label: "Pause collecting",
    why: "Stop scheduled crawls without deleting anything.",
    route: "POST /api/sources/{key}/active", proof: MANIFEST_ONLY},
@@ -6913,8 +6935,34 @@ async function runSourceAction(action, key, siteKey = "", resumeRef = "") {
     return chrome.tabs.create({url: chrome.runtime.getURL(
       "data.html?source=" + encodeURIComponent(action.slice("table:".length)))});
   }
-  if (action === "changes") return openTab(`/source/${key}#changes`);
-  if (action === "settings") return openTab(`/sources/${key}`);
+  if (action === "changes") return openTab("/changes?source_key=" + encodeURIComponent(key));
+  if (action === "settings") {
+    // OPENED AT ONCE AND FILLED WHEN THE LIST LANDS, as Studio's card menu opens a
+    // project's settings page and that page loads what it shows (ProjectCard.tsx:109-118,
+    // WorkerDetail.tsx:71-84 at the pin). The list is read here because only Run and
+    // Library load it: opened cold from a card, the editor found nothing and said nothing.
+    // Studio's loader there is a skeleton; the words are for a screen reader.
+    sourceEditorPending(key, `<div class="skeleton"></div><div class="skeleton"></div>
+      <span class="visually-hidden">Loading ${esc(key)}'s settings…</span>`);
+    const read = await loadSources({ ownsRun: false });
+    // MOVED ON: he left the editor or opened another source, or the editor already holds
+    // a source -- this one, opened again from Library or by a second press -- and an
+    // answer landing now would redraw over what he typed.
+    if (currentViewName() !== "source-edit" || state.editingSourceKey !== key
+        || !$("view-source-edit").classList.contains("is-pending")) return;
+    if (!read) {
+      // The panel's refusal card, as `renderIssueInto` draws one: the title, then what to do.
+      return sourceEditorPending(key, "<div><strong>Couldn't load the source list from the "
+        + "engine</strong><p>Check that it's running, then open Source settings again.</p>"
+        + "</div>", true);
+    }
+    if (!state.sources.some((source) => source.source_key === key)) {
+      // Said plainly, as Studio says a worker does not exist (WorkerDetail.tsx:74-84).
+      return sourceEditorPending(key, `<span class="muted">The engine no longer lists `
+        + `${esc(key)}, so it has no settings to show.</span>`);
+    }
+    return openSourceEditor(key);
+  }
   if (action === "update") {
     // THE SITE KEY WHERE THERE IS ONE, and the card's own key otherwise. A price card's
     // key IS its source key; a dataset card's key is its DATASET key, which this route

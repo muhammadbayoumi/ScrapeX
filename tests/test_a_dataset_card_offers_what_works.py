@@ -34,6 +34,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from starlette.routing import Match
 
 from scrapex.config import MANIFEST_FILE
 from scrapex.databases import DatabaseRegistry, EngineDatabase
@@ -88,8 +89,10 @@ RECIPES = {
     "table": ("GET /api/table/{key}", "get", f"/api/table/{KEY}", None),
     "enrich": ("GET /api/enrichment/sources/{key}", "get",
                f"/api/enrichment/sources/{KEY}", None),
-    "changes": ("GET /source/{key}", "get", f"/source/{KEY}", None),
-    "settings": ("GET /sources/{key}", "get", f"/sources/{KEY}", None),
+    "changes": ("GET /changes?source_key={key}", "get", f"/changes?source_key={KEY}", None),
+    # The panel's own editor, whose manifest read this is: it opened `/sources/{key}`,
+    # a route the engine never had (#380).
+    "settings": ("GET /api/sources/{key}", "get", f"/api/sources/{KEY}", None),
     "pause": ("POST /api/sources/{key}/active", "post",
               f"/api/sources/{KEY}/active", {"active": False}),
     "sheet": ("GET /api/export/{key}", "get", f"/api/export/{KEY}", None),
@@ -347,14 +350,14 @@ def test_an_action_withheld_for_its_route_really_is_refused(client):
         # is the part this can honestly hold every route to.
 
 
-def test_an_action_withheld_for_its_page_opens_a_page_without_that_section(client):
+def test_an_action_withheld_for_its_page_opens_a_page_with_nothing_of_it(client):
     """The third proof, and the only one that is not a status code.
 
-    `changes` opens `/source/{key}`, which renders for a dataset — 200 and a full
-    grid. What is not there is any changes section: `browse_observations` and
-    `changes_by_offer` are both skipped behind `is_dataset` in
-    `scrapex/webui/app.py`, because a company has no offer and no price history.
-    Offering "Recent changes" would open a page that answers a different question.
+    `changes` opens the Workspace's Changes page for the card's key. It renders for any
+    key, its "Recent changes" heading included, and what it lists is `change_event`
+    joined through `source_product` and `source_site` (`scrapex/changes.py`): the price
+    path. A dataset key is in neither, so for a dataset the list is the empty state, and
+    offering "Recent changes" would open a page with nothing of what it promises.
     """
     values = proof_values()
     by_page = [entry for entry in declared_actions()
@@ -366,10 +369,31 @@ def test_an_action_withheld_for_its_page_opens_a_page_without_that_section(clien
         assert response.status_code == 200, (
             f"{entry['route']} no longer even renders; the reason this action is "
             f"withheld has changed and the declaration must change with it")
-        assert 'id="changes"' not in response.text, (
-            f"{entry['route']} now carries a changes section for a dataset, so "
+        assert "No changes recorded yet" in response.text, (
+            f"{entry['route']} now lists changes for a dataset, so "
             f"{entry['action']} can be offered")
-        assert "Recent changes" not in response.text
+
+
+def test_every_route_the_menu_declares_is_one_the_engine_serves(client):
+    """OP-51 (#380): Source settings declared `GET /sources/{key}`, and the engine has no
+    such route. It answered 404 for a price key as for a dataset key, and the refusal
+    test above read that 404 as its proof holding: only the dataset side was measured.
+
+    MATCHED AS THE ROUTER MATCHES A REQUEST, not by calling it: a handler's 404 for an
+    unknown key and the 404 for no route at all are the same status. A route inside an
+    included router counts, and a path no route takes must not, or this proves nothing.
+    """
+    def served(method: str, path: str) -> bool:
+        scope = {"type": "http", "method": method, "path": path, "root_path": "",
+                 "query_string": b"", "headers": []}
+        return any(route.matches(scope)[0] == Match.FULL
+                   for route in client.app.router.routes)
+
+    assert not served("GET", "/no-such-page"), "a route takes every path"
+    for entry in declared_actions():
+        method, path = entry["route"].split(" ", 1)
+        assert served(method, path.split("?", 1)[0].replace("{key}", "A_KEY")), (
+            f"{entry['action']} drives {entry['route']}, which the engine does not serve")
 
 
 # ---- the fourth proof, measured on both sides -------------------------------
