@@ -14,7 +14,14 @@ from pydantic import (
 
 from ..catalog_models import CatalogKey, FieldType
 
-MAX_HTML_BYTES = 2_000_000
+#: THE LARGEST PAGE BODY A SNAPSHOT HOLDS. It was 2 MB while every stored body was an HTML
+#: page; a directory read from a JSON API stores a page of rows, and TVTC's register measured
+#: 3.65 MB for 1,000 establishments and 9.4 MB for 1,000 training plans (`#1716`). 16 MB is
+#: that plan page with a 1.7x margin. Raised, not split into a second limit, because the
+#: guard is the same one -- how large a single stored body may be -- and the body is
+#: zstd-compressed at rest (`snapshotbody.py`), so the cost is transfer, not warehouse.
+#: A body over it is refused by name, never truncated (`service.save_snapshot`).
+MAX_HTML_BYTES = 16_000_000
 MAX_TABLES = 20
 MAX_TABLE_ROWS = 5_000
 MAX_TABLE_COLUMNS = 100
