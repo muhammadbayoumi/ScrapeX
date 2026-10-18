@@ -10371,7 +10371,7 @@ async function upgradeDatabaseFromPanel() {
     await render();
   } catch (err) {
     if (UPGRADE_NO_ANSWER.includes(err && err.kind)) {
-      await rereadAfterSilentUpgrade(tell, waitedSince(started), err.kind);
+      await rereadAfterSilentUpgrade(tell, waitedSince(started), err);
       return;
     }
     setRuntimeIssue(err);
@@ -10396,19 +10396,29 @@ async function upgradeDatabaseFromPanel() {
 // What the panel can still say when the upgrade went silent: ask the host what
 // the database IS now, with the same CHECK_STARTUP the engine's start asks, and
 // say that. Upgraded, still behind, something else wrong, or nothing known.
-async function rereadAfterSilentUpgrade(tell, waited, silence) {
+async function rereadAfterSilentUpgrade(tell, waited, silenceError) {
+  const silence = silenceError && silenceError.kind;
+  // SETTINGS HAS NO LINE OF ITS OWN for an upgrade's outcome -- the sentence goes to
+  // the Database page and Run -- so where the database is NOT upgraded, its card
+  // keeps saying the upgrade went unanswered, as it did before this change. Only the
+  // card under Run's sentence goes: it asks for the press that sentence says to hold.
+  const settle = () => {
+    renderIssueInto($("engine-error"), null);
+    renderIssueInto($("runtime-error"), silenceError);
+  };
   tell(`No answer from the upgrade${waited}. Checking the database…`);
   try {
     const found = await checkStartup();
     const engine = (found.databases || {}).engine || {};
-    clearRuntimeIssue();
     // `ok` on the ANSWER is "nothing blocks a start", which a Missing database
     // also passes; only the database's own `ok` is "healthy".
     if (!engine.ok) {
+      settle();
       tell(`No answer from the upgrade${waited}, and the database check reports: `
         + `${engine.status || "unknown"}. ${engine.action || ""}`.trim());
       return;
     }
+    clearRuntimeIssue();
     tell(`No answer from the upgrade${waited}, but the database is now at `
       + `v${engine.schema_version} and healthy.`);
     await render();
@@ -10421,9 +10431,7 @@ async function rereadAfterSilentUpgrade(tell, waited, silence) {
     const wait = "The upgrade may still be running: wait a few minutes before "
       + "pressing Upgrade database again.";
     if (behind && silence === "timeout") {
-      // And the card under Run's note goes: it still says "use the Upgrade
-      // database button", which is the press this sentence asks him to hold.
-      clearRuntimeIssue();
+      settle();
       const engine = (checkError.databases || {}).engine || {};
       tell(`No answer from the upgrade${waited}, and the database is still at `
         + `v${engine.schema_version}. ${wait}`);
@@ -10433,7 +10441,7 @@ async function rereadAfterSilentUpgrade(tell, waited, silence) {
       tell(`No answer from the upgrade${waited}, and the database is still behind. `
         + (engine.action || checkError.message));
     } else if (kind === "timeout") {
-      clearRuntimeIssue();
+      settle();
       tell(`No answer from the upgrade${waited}, and the database check did not `
         + `answer either. ${wait}`);
     } else if (["absent", "forbidden", "crashed"].includes(kind)) {

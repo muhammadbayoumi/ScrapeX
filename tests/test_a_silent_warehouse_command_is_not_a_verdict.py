@@ -506,6 +506,37 @@ def test_no_card_asks_for_an_upgrade_under_the_re_reads_sentence(
         + page.text_content("#engine-error"))
 
 
+SETTINGS_CARD = """() => { const box = document.getElementById("runtime-error");
+  return {shown: !box.classList.contains("hidden"), text: box.textContent}; }"""
+
+
+@pytest.mark.parametrize("check, sentence, unconfirmed", [
+    pytest.param({"after": 0, "reply": FOUND_BEHIND}, "still at v21", True, id="still-behind"),
+    pytest.param({"after": None}, "did not answer either", True, id="check-silent-too"),
+    pytest.param({"after": 0, "reply": FOUND_MISSING}, "reports: Missing", True, id="missing"),
+    pytest.param({"after": 0, "reply": FOUND_CURRENT}, "v24 and healthy", False, id="upgraded"),
+])
+def test_settings_does_not_look_like_a_success_when_nothing_was_confirmed(
+        open_panel, check, sentence, unconfirmed):
+    """SETTINGS HAS NO LINE OF ITS OWN for an upgrade's outcome. Before this change
+    every outcome but a success left a card there; the re-read cleared it in three
+    outcomes where the database was NOT upgraded, so Settings looked like a success."""
+    page = press_upgrade(open_panel, engine_up=False, host={
+        "UPGRADE_DATABASE": {"after": None}, "CHECK_STARTUP": check})
+    page.clock.run_for(FOREVER_MS)
+    page.clock.run_for(FOREVER_MS)
+    wait_for_text(page, "runtime-note", sentence)
+
+    card = page.evaluate(SETTINGS_CARD)
+    if unconfirmed:
+        assert card["shown"] and "did not answer" in card["text"], (
+            f"Settings shows nothing after an upgrade nobody confirmed: {card}")
+        assert "Upgrade database" not in card["text"], (
+            f"Settings' card offers the press the sentence says to hold: {card}")
+    else:
+        assert not card["shown"], f"a healthy re-read left a card on Settings: {card}"
+
+
 def test_the_card_under_a_wait_does_not_say_press_again(open_panel):
     """Run is the main road here: Start, blocked, the card's Upgrade. When the upgrade
     times out and the file still reads behind, the note says to wait -- and the card
