@@ -1881,7 +1881,6 @@ def test_the_fetch_button_goes_when_the_pages_are_already_on_disk(open_panel):
     assert card.locator('[data-split-action="interpret"]').count() == 1
 
 
-
 def test_a_live_interpretation_withholds_both_badges_and_narrates_nothing(open_panel):
     """THE FLAG WITHHOLDS, AND THAT IS ALL IT DOES.
 
@@ -3835,9 +3834,10 @@ def test_settings_cards_use_the_canonical_icon_sprite_instead_of_numbers(open_pa
     page.click(SETTINGS_TAB)
 
     icons = page.locator("#view-settings .settings-icon use")
-    assert icons.count() == 7
+    # No "Jobs and scheduling" card: schedules are made on their own page (#1631).
+    assert icons.count() == 6
     assert icons.evaluate_all("elements => elements.map(element => element.getAttribute('href'))") == [
-        "#material-dns", "#material-storage", "#material-schedule", "#material-file-download",
+        "#material-dns", "#material-storage", "#material-file-download",
         "#material-restart-alt", "#material-language", "#material-info",
     ]
     assert page.locator("#view-settings .settings-index").count() == 0
@@ -4864,6 +4864,50 @@ def test_a_key_in_the_wrong_spelling_is_refused_with_that_system_s_rule(open_pan
     assert "lower_snake_case" in page.text_content("#err-key")
 
 
+# ---- when a source runs is decided on the Schedules page (#1631, his option (c)) -------
+
+def test_add_site_has_no_schedule_select_and_records_no_cadence_he_did_not_choose(open_panel):
+    """#1415: the "Schedule" select wrote `cadence`, which nothing that schedules reads, and
+    without it the route writes `daily` (app.py, `form.get("cadence", ...)`). The form says
+    where a schedule is made, and sends `manual`."""
+    page = open_panel()
+    _open_add_form(page)
+    assert page.locator("#f-cadence").count() == 0
+    assert " ".join(text_of(page, "#add-schedule-hint").split()) == (
+        "Schedule it on the Schedules page once it is added.")
+    page.click("#add-btn")
+    page.wait_for_function("() => window.__writes.some((w) => w.path === '/api/sources')")
+    sent = [w["body"] for w in page.evaluate("window.__writes") if w["path"] == "/api/sources"]
+    assert sent[0]["cadence"] == "manual", sent
+    assert not page.js_errors
+
+
+def test_add_sites_link_opens_the_schedules_page(open_panel):
+    page = open_panel()
+    _open_add_form(page)
+    page.click("#add-schedule-link")
+    page.wait_for_selector("#view-schedules", state="visible")
+    assert not page.js_errors
+
+
+def test_edit_source_has_no_schedule_select_and_keeps_the_stored_cadence(open_panel):
+    """The route merges what it is sent over the stored block (app.py), so an edit that sends
+    no `cadence` keeps the manifest's: nothing about it changes on save."""
+    page = open_panel()
+    page.click(SOURCES_TAB)
+    page.click('[data-edit-source="SHORT"]')
+    page.wait_for_selector("#view-source-edit", state="visible")
+    assert page.locator("#source-edit-cadence").count() == 0
+    page.fill("#source-edit-name", "Renamed")
+    page.click("#source-edit-save")
+    page.wait_for_function(
+        "() => window.__writes.some((w) => w.path === '/api/sources/SHORT/edit')")
+    edits = [w["body"] for w in page.evaluate("window.__writes")
+             if w["path"] == "/api/sources/SHORT/edit"]
+    assert edits[0]["source_name"] == "Renamed" and "cadence" not in edits[0], edits
+    assert not page.js_errors
+
+
 # ---- the crawl pace is reachable from the panel, 2026-07-29 ---------------
 
 def test_the_crawl_pace_can_be_read_and_changed_from_the_panel(open_panel):
@@ -5497,84 +5541,6 @@ def test_the_raw_utc_stays_reachable_on_every_converted_time(open_panel):
     assert not page.js_errors
 
 
-def test_a_schedule_row_offers_no_overlap_choice_and_saves_skip(open_panel):
-    """#1596 step A. A busy slot is skipped and logged whatever the stored policy says,
-    so the row draws one line saying so instead of a select that would change nothing,
-    and its Save still sends `skip` -- the field an engine older than that change reads,
-    so it skips too, even for a schedule he saved with the old default, `queue`."""
-    page = open_panel(sources=[CLEAN_SITE], schedules=SCHEDULE_SOON)
-    page.click(SETTINGS_TAB)
-    page.click('[data-sect="s-sched"]')
-    page.wait_for_timeout(500)
-    row = page.locator(".sched-row").first
-    row.locator("summary").click()
-
-    assert row.locator('[data-role="overlap"]').count() == 0, "the overlap select is drawn"
-    assert row.locator('[data-role="skip-note"]').inner_text() == (
-        "If this site's previous run is still going, ScrapeX skips the slot and lists it on the Jobs page.")
-
-    row.locator('[data-role="save"]').click()
-    page.wait_for_timeout(300)
-    saves = [w for w in page.evaluate("window.__writes")
-             if w["path"].startswith("/api/schedules/")]
-    assert len(saves) == 1, saves
-    assert saves[0]["body"]["overlap_policy"] == "skip", saves[0]["body"]
-    assert not page.js_errors
-
-
-def _skip_note(page):
-    page.click(SETTINGS_TAB)
-    page.click('[data-sect="s-sched"]')
-    page.wait_for_timeout(500)
-    row = page.locator(".sched-row").first
-    row.locator("summary").click()
-    return row.locator('[data-role="skip-note"]')
-
-
-@pytest.mark.parametrize("policy", ["queue", "skip"])
-def test_an_engine_without_scheduled_skips_is_told_what_it_really_does(open_panel, policy):
-    """#1620 review S9 and round 2: a 0.4.57 engine writes no skip row, so the line does
-    not promise the Jobs page -- and it still READS the stored policy, so a row stored as
-    `queue` (every row saved before this change) starts a second run there."""
-    schedules = {**SCHEDULE_SOON, "schedules": [
-        {**SCHEDULE_SOON["schedules"][0], "overlap_policy": policy}]}
-    page = open_panel(sources=[CLEAN_SITE], schedules=schedules,
-                      engine_version="0.4.57", omit_capabilities=("scheduled_skips",))
-
-    note = _skip_note(page).inner_text()
-
-    assert "lists it on the Jobs page" not in note, note
-    assert "update the engine" in note.lower(), note
-    if policy == "queue":
-        assert "still starts a second run" in note and "Save this schedule" in note, note
-    else:
-        assert "skips the slot" in note and "second run" not in note, note
-    assert not page.js_errors
-
-
-def test_a_panel_that_cannot_read_its_own_version_is_not_told_to_update_the_engine(
-        open_panel):
-    """The line asks the ENGINE's report, not `capabilityRefusal`, which also refuses when
-    Chrome did not say this extension's version -- a fault no engine update fixes."""
-    page = open_panel(sources=[CLEAN_SITE], schedules=SCHEDULE_SOON, extension_version="")
-
-    note = _skip_note(page).inner_text()
-
-    assert "lists it on the Jobs page" in note, note
-    assert "update the engine" not in note.lower(), note
-
-
-def test_an_engine_whose_report_failed_is_promised_nothing(open_panel):
-    """Nothing known, nothing said: neither the Jobs page nor an update."""
-    page = open_panel(sources=[CLEAN_SITE], schedules=SCHEDULE_SOON,
-                      fail_routes=("/api/version",))
-
-    note = _skip_note(page)
-
-    assert note.is_hidden() and note.inner_text() == ""
-    assert not page.js_errors
-
-
 # ---- one switch for scheduled runs (#1596, D1 option 2) -------------------------
 
 OFF_SITE = {**CLEAN_SITE, "active": False}
@@ -5594,261 +5560,6 @@ def _lands_on_its_schedules_row(page, key):
     }""", arg=key, timeout=5_000)
 
 
-def _schedule_rows(page):
-    page.click(SETTINGS_TAB)
-    page.click('[data-sect="s-sched"]')
-    page.wait_for_timeout(500)
-    return page.locator(".sched-row")
-
-
-def _schedule_writes(page):
-    return [w for w in page.evaluate("window.__writes")
-            if w["path"].startswith("/api/schedules/")]
-
-
-def test_a_schedules_row_carries_one_active_switch_named_for_its_site(open_panel):
-    page = open_panel(sources=[CLEAN_SITE], schedules=SCHEDULE_SOON)
-    row = _schedule_rows(page).first
-    switch = row.locator('[data-role="sched-active"]')
-
-    assert switch.count() == 1
-    assert switch.get_attribute("role") == "switch"
-    assert switch.get_attribute("aria-checked") == "true"
-    assert switch.get_attribute("aria-label") == "Scheduled runs for madar.example.com"
-    assert "next" in row.locator('[data-role="next"]').inner_text()
-    # The old Enabled box is gone: one switch, not two.
-    row.locator("summary").click(position={"x": 4, "y": 4})
-    assert row.locator('[data-role="enabled"]').count() == 0
-    assert not page.js_errors
-
-
-def test_a_switched_off_row_reads_off_and_promises_no_next_run(open_panel):
-    """#1611 item 1: the row said "next …" for a slot that would never fire."""
-    page = open_panel(sources=[OFF_SITE], schedules=SCHEDULE_SOON)
-    row = _schedule_rows(page).first
-
-    words = row.locator('[data-role="next"]').inner_text()
-    # One formatter for the schedule (`scheduleLabel`), as the card and the manager say.
-    assert words == "Daily 09:00 · Off", words
-    assert row.locator('[data-role="sched-active"]').get_attribute("aria-checked") == "false"
-    assert "Auto is off" not in row.inner_text()
-    assert not page.js_errors
-
-
-@pytest.mark.parametrize("schedules", [None, {**SCHEDULE_SOON, "schedules": [
-    {**SCHEDULE_SOON["schedules"][0], "frequency": "manual", "next_run_at": None}]}],
-    ids=["missing", "manual"])
-def test_a_row_with_no_schedule_reads_not_scheduled_and_has_no_switch(open_panel, schedules):
-    page = open_panel(sources=[CLEAN_SITE], schedules=schedules)
-    row = _schedule_rows(page).first
-
-    assert row.locator('[data-role="next"]').inner_text() == "Not scheduled"
-    assert row.locator('[data-role="sched-active"]').count() == 0
-    assert not page.js_errors
-
-
-def test_the_switch_asks_first_and_cancel_changes_nothing(open_panel):
-    page = open_panel(sources=[CLEAN_SITE], schedules=SCHEDULE_SOON)
-    switch = _schedule_rows(page).first.locator('[data-role="sched-active"]')
-    switch.click()
-    page.wait_for_selector("#confirm-veil:not(.hidden)", timeout=2000)
-
-    assert text_of(page, "#confirm-title") == "Disable scheduled runs"
-    assert text_of(page, "#confirm-copy") == (
-        "Disable scheduled runs for madar.example.com? Its schedule is kept and stops "
-        "firing until you enable it. Manual runs still work.")
-    assert (text_of(page, "#confirm-keep"), text_of(page, "#confirm-go")) == (
-        "Cancel", "Disable")
-    # His choice B (2026-10-10, #1596): Studio's `warning` Button, not `danger` --
-    # foreground text on warning-300, the light theme's #fff4d5.
-    assert page.get_attribute("#confirm-go", "class") == "warning"
-    assert page.evaluate("""() => {
-        const s = getComputedStyle(document.getElementById('confirm-go'));
-        return [s.backgroundColor, s.color === getComputedStyle(document.body).color];
-    }""") == ["rgb(255, 244, 213)", True]
-    # The row stayed shut: the switch does not toggle the disclosure it sits in.
-    assert not page.evaluate("document.querySelector('.sched-row').open")
-
-    page.click("#confirm-keep")
-    page.wait_for_timeout(200)
-    assert page.locator("#confirm-veil").is_hidden()
-    assert _schedule_writes(page) == []
-    assert switch.get_attribute("aria-checked") == "true"
-    assert text_of(page, "#toast") == ""
-    assert not page.js_errors
-
-
-def test_disabling_saves_active_with_the_schedule_and_says_so(open_panel):
-    page = open_panel(sources=[CLEAN_SITE], schedules=SCHEDULE_SOON)
-    _schedule_rows(page).first.locator('[data-role="sched-active"]').click()
-    page.wait_for_selector("#confirm-veil:not(.hidden)", timeout=2000)
-    page.click("#confirm-go")
-    page.wait_for_function("() => document.getElementById('toast').textContent", timeout=3000)
-
-    saves = _schedule_writes(page)
-    assert [w["path"] for w in saves] == ["/api/schedules/MADAR"], saves
-    sent = saves[0]["body"]
-    assert sent["active"] is False, sent
-    # The schedule rides along as saved, so the switch changes nothing else about it.
-    assert (sent["frequency"], sent["run_at"], sent["timezone"], sent["run_mode"]) == (
-        "daily", "09:00", "Asia/Riyadh", "update"), sent
-    assert "enabled" not in sent, sent
-    assert text_of(page, "#toast") == "Disabled scheduled runs for madar.example.com"
-    assert page.get_attribute("#toast", "role") == "status"
-    # Updated where it stands: the line says Off, and focus stays on the same switch.
-    row = page.locator(".sched-row").first
-    assert row.locator('[data-role="next"]').inner_text() == "Daily 09:00 · Off"
-    assert row.locator('[data-role="sched-active"]').get_attribute("aria-checked") == "false"
-    assert page.evaluate("document.activeElement.dataset.role") == "sched-active"
-    assert not page.js_errors
-
-
-def _flip_switch(page, row):
-    row.locator('[data-role="sched-active"]').click()
-    page.wait_for_selector("#confirm-veil:not(.hidden)", timeout=2000)
-    page.click("#confirm-go")
-    page.wait_for_function("() => document.getElementById('toast').textContent", timeout=3000)
-
-
-def test_a_save_without_the_switch_sends_no_active(open_panel):
-    """#1630 review E1: a time change is not a choice about `active`, and a row 0024
-    left paused (its source never registered) stays paused."""
-    paused = {**SCHEDULE_SOON, "schedules": [
-        {**SCHEDULE_SOON["schedules"][0], "enabled": False}]}
-    page = open_panel(sources=[CLEAN_SITE], schedules=paused)
-    row = _schedule_rows(page).first
-    row.locator("summary").click(position={"x": 4, "y": 4})
-    row.locator('[data-role="time"]').fill("07:15")
-    row.locator('[data-role="save"]').click()
-    page.wait_for_timeout(300)
-
-    sent = _schedule_writes(page)[0]["body"]
-    assert "active" not in sent, sent
-    assert sent["enabled"] is False and sent["run_at"] == "07:15", sent
-    assert not page.js_errors
-
-
-def test_saving_a_row_whose_switch_is_off_says_off_and_promises_no_run(open_panel):
-    """#1630 review: a Save on an off row arms a slot the engine will not fire, so the
-    status must say Off -- never "Saved." alone, and never #1611's "Saved — next …"."""
-    page = open_panel(sources=[OFF_SITE], schedules=SCHEDULE_SOON)
-    row = _schedule_rows(page).first
-    row.locator("summary").click(position={"x": 4, "y": 4})
-    row.locator('[data-role="time"]').fill("07:15")
-    row.locator('[data-role="save"]').click()
-    status = row.locator('[data-role="status"]')
-    page.wait_for_function(
-        "() => document.querySelector('.sched-row [data-role=\"status\"]')"
-        ".textContent.startsWith('Saved')", timeout=3000)
-
-    words = status.inner_text()
-    assert words == "Saved — off.", words
-    assert "next" not in words.lower(), words
-    sent = _schedule_writes(page)[0]["body"]
-    assert "active" not in sent and sent["run_at"] == "07:15", sent
-    # The switch still reads off: the save did not turn it on.
-    assert row.locator('[data-role="sched-active"]').get_attribute("aria-checked") \
-        == "false"
-    assert not page.js_errors
-
-
-def test_a_failed_switch_says_so_where_he_is_looking(open_panel):
-    """The row may be shut, so its status line is not enough: a toast carries the
-    engine's sentence, and the switch keeps the state it had."""
-    page = open_panel(sources=[CLEAN_SITE], schedules=SCHEDULE_SOON,
-                      fail_routes=("/api/schedules/",))
-    row = _schedule_rows(page).first
-    _flip_switch(page, row)
-
-    assert text_of(page, "#toast") == (
-        "Couldn't change scheduled runs for madar.example.com: the engine could not do that")
-    switch = row.locator('[data-role="sched-active"]')
-    assert switch.get_attribute("aria-checked") == "true" and switch.is_enabled()
-    assert not page.js_errors
-
-
-def test_flipping_the_switch_keeps_an_edit_not_yet_saved(open_panel):
-    page = open_panel(sources=[CLEAN_SITE], schedules=SCHEDULE_SOON)
-    row = _schedule_rows(page).first
-    row.locator("summary").click(position={"x": 4, "y": 4})
-    row.locator('[data-role="time"]').fill("07:15")
-    _flip_switch(page, row)
-
-    assert row.evaluate("(node) => node.open")
-    assert row.locator('[data-role="time"]').input_value() == "07:15"
-    # The switch saved the schedule as STORED, not the edit he has not saved.
-    assert _schedule_writes(page)[0]["body"]["run_at"] == "09:00"
-    assert not page.js_errors
-
-
-@pytest.mark.parametrize("width", [320, 400, 480])
-def test_the_toast_never_covers_the_rail_or_its_row(open_panel, width):
-    page = open_panel(sources=[CLEAN_SITE], schedules=SCHEDULE_SOON)
-    page.set_viewport_size({"width": width, "height": 460})
-    row = _schedule_rows(page).first
-    # The switch starts out exactly where the toast will appear.
-    page.evaluate("""(el) => {
-        const box = el.getBoundingClientRect();
-        let node = el.parentElement;
-        while (node && !(node.scrollHeight > node.clientHeight
-                         && /auto|scroll/.test(getComputedStyle(node).overflowY))) {
-            node = node.parentElement;
-        }
-        (node || document.scrollingElement).scrollBy(0, box.top - (innerHeight - 55));
-    }""", row.locator('[data-role="sched-active"]').element_handle())
-    before = row.locator('[data-role="sched-active"]').bounding_box()
-    assert before["y"] > 460 - 90, ("the switch is not where the toast appears", before)
-    _flip_switch(page, row)
-
-    covered = page.evaluate("""() => [...document.querySelectorAll('nav.side-rail button')]
-        .filter((b) => b.offsetParent && b.getBoundingClientRect().top >= 0
-                && b.getBoundingClientRect().bottom <= window.innerHeight)
-        .map((b) => { const r = b.getBoundingClientRect();
-                      const hit = document.elementFromPoint(r.x + r.width / 2,
-                                                            r.y + r.height / 2);
-                      return hit && hit.closest('nav.side-rail') ? null : b.dataset.view; })
-        .filter(Boolean)""")
-    assert covered == [], covered
-    assert page.evaluate("""() => [...document.querySelectorAll('nav.side-rail button')]
-        .filter((b) => b.offsetParent && b.getBoundingClientRect().top >= 0
-                && b.getBoundingClientRect().bottom <= window.innerHeight).length""") >= 3
-    toast = page.locator("#toast").bounding_box()
-    rail = page.locator("nav.side-rail").bounding_box()
-    assert toast["x"] + toast["width"] <= rail["x"], (toast, rail)
-    switch = row.locator('[data-role="sched-active"]').bounding_box()
-    assert not (switch["y"] + switch["height"] > toast["y"]
-                and switch["y"] < toast["y"] + toast["height"]), (switch, toast)
-    assert page.evaluate("getComputedStyle(document.getElementById('toast')).pointerEvents") \
-        == "none"
-
-
-def test_a_switch_that_is_on_shows_its_edge_at_three_to_one(open_panel):
-    """WCAG 2.2 SC 1.4.11: brand on white is 1.96:1, so the edge carries the state in
-    Supabase's darker brand step, --accent-ink (brand-600)."""
-    page = open_panel(sources=[CLEAN_SITE], schedules=SCHEDULE_SOON)
-    switch = _schedule_rows(page).first.locator('[data-role="sched-active"]')
-    edge, ink = page.evaluate("""(el) => {
-        const probe = document.createElement('i');
-        probe.style.color = 'var(--accent-ink)';
-        document.body.append(probe);
-        const ink = getComputedStyle(probe).color;
-        probe.remove();
-        return [getComputedStyle(el).borderTopColor, ink];
-    }""", switch.element_handle())
-    assert edge == ink, (edge, ink)
-
-    def lum(rgb):
-        parts = [int(v) / 255 for v in rgb[rgb.index("(") + 1:-1].split(",")[:3]]
-        lin = [c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in parts]
-        return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
-    surface = page.evaluate("getComputedStyle(document.querySelector('.sched-row')"
-                            ".closest('.card, .settings-item') || document.body)"
-                            ".backgroundColor")
-    surface = surface if not surface.endswith(", 0)") else "rgb(255, 255, 255)"
-    high, low = sorted((lum(edge), lum(surface)), reverse=True)
-    assert (high + 0.05) / (low + 0.05) >= 3, (edge, surface)
-
-
 def test_the_editor_says_why_when_the_schedules_cannot_be_read(open_panel):
     page = open_panel(sources=[CLEAN_SITE], fail_routes=("/api/schedules",))
     page.click(SOURCES_TAB)
@@ -5859,25 +5570,6 @@ def test_the_editor_says_why_when_the_schedules_cannot_be_read(open_panel):
     assert page.is_hidden("#source-edit-schedule-link")
     assert text_of(page, "#source-edit-schedule-note") == (
         "The schedules couldn't be read from the engine, so this one isn't shown.")
-
-
-def test_enabling_uses_the_same_question_with_enable(open_panel):
-    page = open_panel(sources=[OFF_SITE], schedules=SCHEDULE_SOON)
-    _schedule_rows(page).first.locator('[data-role="sched-active"]').click()
-    page.wait_for_selector("#confirm-veil:not(.hidden)", timeout=2000)
-
-    assert text_of(page, "#confirm-title") == "Enable scheduled runs"
-    assert text_of(page, "#confirm-copy") == (
-        "Enable scheduled runs for madar.example.com? It runs daily 09:00 from the next "
-        "slot.")
-    assert text_of(page, "#confirm-go") == "Enable"
-    # Enabling harms nothing, so its confirm is primary, as Studio's toggle is.
-    assert "danger" not in (page.get_attribute("#confirm-go", "class") or "")
-    page.click("#confirm-go")
-    page.wait_for_function("() => document.getElementById('toast').textContent", timeout=3000)
-    assert _schedule_writes(page)[0]["body"]["active"] is True
-    assert text_of(page, "#toast") == "Enabled scheduled runs for madar.example.com"
-    assert not page.js_errors
 
 
 def test_the_run_card_shows_the_schedule_as_a_link_to_its_row(open_panel):
@@ -5952,76 +5644,6 @@ def test_the_datasets_menu_edits_the_schedule_instead_of_pausing(open_panel):
 
 LONG_HOST = {**CLEAN_SITE, "source_key": "LONG_AR",
              "base_url": "https://very-long-subdomain.example-store-name.com.sa"}
-
-
-@pytest.mark.parametrize("width", [320, 400, 480])
-def test_a_schedules_row_keeps_its_site_name_and_switch_on_one_line(open_panel, width):
-    """Nothing that identifies a row is cut at narrow widths: the name and the switch
-    share the first line, and the schedule's long "next …" goes under them."""
-    weekly = {**SCHEDULE_SOON["schedules"][0], "frequency": "weekly", "weekday": 2}
-    schedules = {**SCHEDULE_SOON, "schedules": [
-        weekly, {**weekly, "source_key": "LONG_AR", "schedule_id": 2}]}
-    page = open_panel(sources=[OFF_SITE, LONG_HOST], schedules=schedules)
-    page.set_viewport_size({"width": width, "height": 900})
-    rows = _schedule_rows(page)
-    assert rows.count() == 2
-    for i in range(2):
-        row = rows.nth(i)
-        name = row.locator(".source-identity-domain").bounding_box()
-        switch = row.locator('[data-role="sched-active"]').bounding_box()
-        assert name and name["width"] > 40, (width, i, name)
-        assert switch, (width, i)
-        # The switch sits beside the name, not on a line of its own.
-        assert switch["y"] < name["y"] + name["height"], (width, i, name, switch)
-        assert switch["x"] > name["x"] + name["width"] - 1, (width, i, name, switch)
-    assert not page.js_errors
-
-
-def test_an_engine_without_the_switch_keeps_todays_controls(open_panel):
-    """An older engine ignores `active` on the schedule route, so no switch is drawn."""
-    page = open_panel(sources=[OFF_SITE], schedules=SCHEDULE_SOON, engine_version="0.4.59",
-                      omit_capabilities=("schedule_active_switch",))
-    _run_tab(page)
-    assert page.locator('#sites [data-auto="MADAR"]').inner_text() == "Auto: off"
-    assert page.locator("#sites [data-sched-link]").count() == 0
-    row = _schedule_rows(page).first
-    assert row.locator('[data-role="sched-active"]').count() == 0
-    row.locator("summary").click()
-    assert row.locator('[data-role="enabled"]').count() == 1
-    assert "Auto is off for this site" in row.inner_text()
-    row.locator('[data-role="save"]').click()
-    page.wait_for_timeout(300)
-    sent = _schedule_writes(page)[0]["body"]
-    assert "active" not in sent and sent["enabled"] is True, sent
-    page.click(SOURCES_TAB)
-    page.wait_for_timeout(300)
-    assert "Automation off" in page.locator(".source-manager-card-meta").first.inner_text()
-    assert not page.js_errors
-
-
-def test_the_zone_is_named_beside_a_time_whose_reading_depends_on_it(open_panel):
-    """Spec 33 6.8, in the issue's own shape: "30 July 2026, 11:05 AM — Zone".
-
-    A schedule's next fire is the case that earned it: the row used to say
-    "UTC" in fixed text, so a 09:00 daily run read as 09:00 and fired at noon.
-    """
-    page = open_panel(sources=[CLEAN_SITE], schedules=SCHEDULE_SOON,
-                      timezone={"zone": "Asia/Riyadh", "updatedAt": 9_999_999_999_999})
-    page.click(SETTINGS_TAB)
-    page.click('[data-sect="s-sched"]')
-    page.wait_for_timeout(500)
-    next_run = page.locator('.sched-row [data-role="next"]')
-    assert next_run.count() >= 1, page.inner_text("#schedules")
-    shown = next_run.first.inner_text()
-
-    assert "— Asia/Riyadh" in shown, (
-        f"the zone is not named beside the time: {shown!r}")
-    assert "31 July 2026" in shown and "1:30 AM" in shown, (
-        f"expected the issue's shape for 22:30Z in Riyadh, got {shown!r}")
-    assert "UTC" not in shown, (
-        "the row still claims UTC while showing a converted time — the exact "
-        "misreading 6.8 exists to prevent")
-    assert not page.js_errors
 
 
 def test_an_invalid_zone_falls_back_down_the_chain_and_says_which_step(open_panel):
@@ -6162,7 +5784,6 @@ def test_the_shape_opens_on_who_you_are_and_what_is_installed(open_panel):
         assert views.index("engines") < views.index(works), (
             f"{works} is above Engine in the rail, so the panel offers work before it "
             "offers the engine that does it")
-
 
 
 def test_the_rail_groups_say_which_pages_need_an_engine(open_panel):
@@ -7644,7 +7265,6 @@ def test_the_engine_page_does_not_overflow_at_320px(open_panel):
     assert page.is_visible("#engine-recheck")
 
 
-
 def test_the_engine_actions_have_visible_keyboard_focus(open_panel):
     """Both Engine actions are focusable and show the shared focus outline."""
     page = open_panel(engine_manifest={
@@ -7666,7 +7286,6 @@ def test_the_engine_actions_have_visible_keyboard_focus(open_panel):
         outline = page.locator(selector).evaluate(
             "el => getComputedStyle(el).outlineWidth")
         assert outline not in ("0px", "", "0")
-
 
 
 def test_the_engine_page_scrolls_when_the_panel_is_short(open_panel):
@@ -7850,7 +7469,6 @@ def test_the_engine_verdict_does_not_say_available_with_no_engine_and_no_install
     assert "no installer attached" in text_of(page, "#engine-latest-detail")
 
 
-
 def test_the_engine_recheck_does_not_fetch_unrelated_routes(open_panel):
     """The Engine recheck must only refresh Engine health, version
     compatibility, and the release manifest. It must not pull in data for
@@ -8001,7 +7619,6 @@ def test_the_engine_power_switch_is_readable_at_320px(open_panel):
     overflow = page.evaluate(
         "() => document.documentElement.scrollWidth > document.documentElement.clientWidth")
     assert not overflow, "the Engine page overflows at 320px after adding the power switch"
-
 
 
 def test_the_engine_card_uses_outlined_cards(open_panel):
@@ -8524,6 +8141,10 @@ _SWEEP_SCREENS = (
     ("#view-source-edit", [("click", SOURCES_TAB), ("click", '[data-edit-source="SHORT"]')]),
     (".sx-select.is-open", [("click", RUN_TAB), ("click", "#run-mode-trigger")]),
     ("#workspace-menu", [("press", "Escape"), ("click", "#workspace-toggle")]),
+    # LAST: the schedule sheet makes the rail inert, so nothing after it could be reached.
+    ("#sched-sheet", [("click", "#workspace-close"),
+                      ("click", 'nav.side-rail button[data-view="schedules"]'),
+                      ("click", '#sched-state [data-role="empty"] button')]),
 )
 
 #: Reads every control on one screen: its box, how far a tap still reaches it straight up
@@ -8692,10 +8313,12 @@ _GROUP_BUTTON = ("#1456: Supabase's InputGroupButton, whose default is h-6, 24px
 #: fails, as a reach more than half a pixel below its least does.
 _TALLER_THAN_SUPABASE = {
     **dict.fromkeys([
-        "#jobs-search", "#site-search", "#source-edit-agent", "#source-edit-cadence",
-        "#source-edit-currency", "#source-edit-key", "#source-edit-name",
+        "#jobs-search", "#site-search", "#source-edit-agent", "#source-edit-currency", "#source-edit-key", "#source-edit-name",
         "#source-edit-name-ar", "#source-edit-pace", "#source-edit-robots", "#source-edit-url",
-        "#source-edit-vat", "#source-manager-filter"], (44, _NO_BEFORE)),
+        "#source-edit-vat", "#source-manager-filter",
+        # The schedule sheet's fields (#1631 part 2), the same 44px floor as these.
+        "#sched-sheet-frequency", "#sched-sheet-missed", "#sched-sheet-mode",
+        "#sched-sheet-source", "#sched-sheet-time", "#sched-sheet-zone"], (44, _NO_BEFORE)),
     **dict.fromkeys([
         "#tab-appearance", "#tab-console", "#tab-data", "#tab-database", "#tab-engines",
         "#tab-finance", "#tab-jobs", "#tab-profile", "#tab-run", "#tab-schedules",
@@ -8929,12 +8552,14 @@ _SIZE_SCREENS = (
     ("#view-database", ['nav.side-rail button[data-view="database"]']),
     ("#view-settings", [SETTINGS_TAB]),
     *(("#view-settings", [f'button.settings-toggle[data-sect="{section}"]'])
-      for section in ("s-engine", "s-storage", "s-sched", "s-output", "s-crawl", "s-timezone",
+      for section in ("s-engine", "s-storage", "s-output", "s-crawl", "s-timezone",
                       "s-about")),
-    # A schedule row holds the panel's one native time field.
-    ("#view-settings", ["#view-settings details.sched-row > summary"]),
     ("nav.side-rail", []),
     ("#workspace-menu", ["#workspace-toggle"]),
+    # The schedule sheet holds the panel's one native time field. LAST: it makes the rail
+    # inert, so nothing after it could be reached.
+    ("#sched-sheet", ["#workspace-close", 'nav.side-rail button[data-view="schedules"]',
+                      '#sched-state [data-role="empty"] button']),
 )
 
 #: Reads every Button and text field on one screen, as a name and a rendered box; `also`
@@ -11205,7 +10830,6 @@ def test_the_button_takes_a_whole_backup_and_the_list_below_it_updates(open_pane
 
     # And the button re-enables, or a second backup is impossible without a reload.
     assert page.is_enabled("#manage-backup")
-
 
 
 def _flip(page, report):
