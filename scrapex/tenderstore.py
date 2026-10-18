@@ -15,9 +15,10 @@ else. A second tender source writes a second site module and calls the same thre
 functions.
 
 PERSONS NEVER ENTER THE HISTORY. His ruling on #1647: every person is kept, in
-`tender_contact_points`, outside the append-only table, so a person can be removed later.
-A site module therefore hands them over beside the payload (`Release.contacts`), never
-inside it, and `store_release` refuses a payload that carries a contact point.
+`tender_contact_points` and `tender_beneficial_owners`, outside the append-only table,
+so a person can be removed later. A site module therefore hands them over beside the
+payload (`Release.contacts`), never inside it, and `store_release` refuses a payload
+that carries a contact point or beneficial owners anywhere in it.
 
 The caller owns the transaction: every function here writes through the connection it
 is given and commits nothing, so one job's response, release and compiled rows land
@@ -106,10 +107,20 @@ def _assert_release_shape(release: Release) -> None:
                          f"its process {release.ocid!r}")
     if not isinstance(payload["tag"], list):
         raise ValueError(f"release {payload['id']!r}: tag must be a list")
-    for party in payload.get("parties", []):
-        if "contactPoint" in party:
-            raise ValueError(f"release {payload['id']!r} carries a contact point inside "
-                             "the payload; persons go in Release.contacts")
+    # Wherever OCDS would put a person -- a contact point on any organisation (a party,
+    # the buyer, a tenderer, a supplier) or a party's beneficial owners -- at any depth,
+    # because once stored the history cannot be edited to take one out.
+    stack: list[Any] = [payload]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, dict):
+            carried = sorted({"contactPoint", "beneficialOwners"} & node.keys())
+            if carried:
+                raise ValueError(f"release {payload['id']!r} carries {carried} inside the "
+                                 "payload; persons are kept beside it, in their own tables")
+            stack.extend(node.values())
+        elif isinstance(node, list):
+            stack.extend(node)
 
 
 def store_release(conn: sqlite3.Connection, *, source_site_id: int, release: Release,
@@ -168,11 +179,13 @@ def store_release(conn: sqlite3.Connection, *, source_site_id: int, release: Rel
 
 def _merged(earlier: dict[str, Any], later: dict[str, Any]) -> dict[str, Any]:
     """OCDS's record rule for one object: what a later release states replaces what an
-    earlier one said, and what it leaves out stays. An award notice that names no
-    deadline therefore keeps the deadline its invitation stated."""
+    earlier one said, what it sets to null is removed, and what it leaves out stays. An
+    award notice that names no deadline therefore keeps the deadline its invitation
+    stated, while a draft's `status: None` leaves the tender with no status."""
     merged = dict(earlier)
     for key, value in later.items():
         if value is None:
+            merged.pop(key, None)
             continue
         if isinstance(value, dict) and isinstance(merged.get(key), dict):
             merged[key] = _merged(merged[key], value)
@@ -184,14 +197,25 @@ def _merged(earlier: dict[str, Any], later: dict[str, Any]) -> dict[str, Any]:
 def compile_process(conn: sqlite3.Connection, tender_process_id: int) -> None:
     """Rebuild one process's typed rows from its releases, oldest to newest.
 
-    The tender is every release's `tender` merged in that order (`_merged`); an items
-    list is replaced whole by the next release that states one. Parties, sectors and
-    countries gather from every release, a later release winning on the same party,
-    code or country, because a revision restates them.
+    A notice its source revised is stored as several versions of ONE release (one
+    `release_ref`), and only the newest version, by the source's own change stamp, is
+    compiled: a field the revision stopped stating does not survive from the version
+    it replaced. His ruling on #1658: the notice id stays the release id, where OCDS
+    asks for an id unique within the ocid (ES-3 records the departure).
+
+    The tender is every compiled release's `tender` merged in that order (`_merged`);
+    an items list is replaced whole by the next release that states one. Parties,
+    sectors and countries gather from every compiled release, a later release winning
+    on the same party, code or country, because a revision restates them.
     """
     releases = [(int(row[0]), json.loads(row[1])) for row in conn.execute(
-        "SELECT id, payload FROM tender_releases WHERE tender_process_id = ? "
-        "ORDER BY released_at, coalesce(source_modified_at, ''), id", (tender_process_id,))]
+        "SELECT r.id, r.payload FROM tender_releases r WHERE r.tender_process_id = ? "
+        "AND r.id = (SELECT v.id FROM tender_releases v "
+        "            WHERE v.tender_process_id = r.tender_process_id "
+        "              AND v.release_ref = r.release_ref "
+        "            ORDER BY coalesce(v.source_modified_at, '') DESC, v.id DESC LIMIT 1) "
+        "ORDER BY r.released_at, coalesce(r.source_modified_at, ''), r.id",
+        (tender_process_id,))]
     conn.execute("DELETE FROM tender_party_roles WHERE tender_party_id IN "
                  "(SELECT id FROM tender_parties WHERE tender_process_id = ?)",
                  (tender_process_id,))

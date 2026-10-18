@@ -2818,6 +2818,7 @@ def column_origin(key: str) -> str:
 
 _MODEL_GROUP_KEYS = {
     "What the source said": "source",
+    "Tenders": "tenders",
     "General extraction": "general",
     "What it costs": "pricing",
     "Your unified layer": "unified",

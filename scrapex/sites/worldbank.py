@@ -100,11 +100,14 @@ def iso_country(bank_code: str | None) -> str | None:
 
 
 def process_key(notice: dict[str, Any]) -> str:
-    """His rule (#1647 Q3): the project and the borrower's reference, else the notice."""
+    """His rule (#1647 Q3): the project and the borrower's reference, else the notice.
+
+    Built from the same stripped values `release_from_notice` checks, so a padded id or
+    project id is the same process, never a second one."""
     reference = re.sub(r"\s+", "", (notice.get("bid_reference_no") or "").upper())
     if not reference:
-        return f"notice:{notice['id']}"
-    return f"{notice['project_id']}:{reference}"
+        return f"notice:{_required(notice, 'id')}"
+    return f"{_required(notice, 'project_id')}:{reference}"
 
 
 def _required(notice: dict[str, Any], key: str) -> str:
@@ -140,7 +143,9 @@ def release_from_notice(notice: dict[str, Any]) -> Release:
     key = process_key(notice)
     ocid = f"scrapex-worldbank:{key}"
 
-    agency = (notice.get("agency_name") or notice.get("contact_organization") or "").strip()
+    # A blank agency name names nobody, so the contact's organisation is tried next.
+    agency = ((notice.get("agency_name") or "").strip()
+              or (notice.get("contact_organization") or "").strip())
     parties: list[dict[str, Any]] = [
         {"id": "worldbank", "name": "World Bank", "roles": ["funder"]}]
     contacts: dict[str, dict[str, str]] = {}
@@ -151,7 +156,8 @@ def release_from_notice(notice: dict[str, Any]) -> Release:
             ("locality", notice.get("contact_city")),
             ("region", notice.get("contact_region")),
             ("countryName", notice.get("contact_ctry_name")),
-            ("countryCode", iso_country(notice.get("contact_ctry_code")))) if v}
+            ("countryCode", iso_country((notice.get("contact_ctry_code") or "").strip())))
+            if v}
         party: dict[str, Any] = {"id": party_ref, "name": agency, "roles": ["procuringEntity"]}
         if address:
             party["address"] = address
@@ -163,10 +169,12 @@ def release_from_notice(notice: dict[str, Any]) -> Release:
 
     tender: dict[str, Any] = {"status": None if notice_status == "Draft" else _STATUS[stage],
                               "statusDetails": notice_status}
-    if notice.get("bid_reference_no"):
-        tender["id"] = notice["bid_reference_no"].strip()
-    if notice.get("bid_description"):
-        tender["title"] = notice["bid_description"].strip()
+    reference = (notice.get("bid_reference_no") or "").strip()
+    if reference:
+        tender["id"] = reference
+    title = (notice.get("bid_description") or "").strip()
+    if title:
+        tender["title"] = title
     if notice.get("market_approach_code") in _METHOD:
         tender["procurementMethod"] = _METHOD[notice["market_approach_code"]]
     if notice.get("procurement_method_name"):
@@ -197,12 +205,13 @@ def release_from_notice(notice: dict[str, Any]) -> Release:
     if items:
         tender["items"] = items
 
+    country = _required(notice, "project_ctry_code")
     payload: dict[str, Any] = {
         "ocid": ocid, "id": notice_id,
         "date": (f"{published.isoformat()}T00:00:00Z" if published is not None
                  else modified.strftime("%Y-%m-%dT%H:%M:%SZ")),
         "tag": [tag], "initiationType": "tender",
-        "language": notice.get("notice_lang_code", "").lower() or None,
+        "language": (notice.get("notice_lang_code") or "").strip().lower() or None,
         "parties": parties,
         "planning": {"budget": {"projectID": project_id,
                                 "project": notice.get("project_name")}},
@@ -214,12 +223,13 @@ def release_from_notice(notice: dict[str, Any]) -> Release:
             [{"scheme": "worldbank-major-sector", "id": notice["procurement_major_sector_code"],
               "description": notice.get("procurement_major_sector_name")}]
             if notice.get("procurement_major_sector_code") else []),
-        "locations": [{"sourceCountryCode": _required(notice, "project_ctry_code"),
+        "locations": [{"sourceCountryCode": country,
                        "sourceCountryName": notice.get("project_ctry_name"),
-                       "countryCode": iso_country(notice["project_ctry_code"])}],
+                       "countryCode": iso_country(country)}],
         "worldbank": {k: notice[k] for k in (
             "notice_type", "notice_status", "notice_version_no", "prodline", "regionname",
-            "procurement_method_code", "market_approach_region_name", "bid_currency_code",
+            "procurement_method_code", "procurement_group", "market_approach_region_name",
+            "bid_currency_code", "noticetitle",
             "contract_id", "contract_usd_value", "contr_sgn_date", "ctr_orig_notice_id",
             "api_modified_date") if notice.get(k) not in (None, "")},
     }

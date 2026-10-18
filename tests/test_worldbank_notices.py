@@ -212,3 +212,116 @@ def test_a_unspsc_entry_without_its_code_is_refused():
     changed["unspsc_classification"] = [{"proc_voc_title": "Medical waste disposal"}]
     with pytest.raises(wb.NoticeShapeError, match="no proc_voc_id"):
         wb.release_from_notice(changed)
+
+
+# ---- every field of every real notice, pinned (#1658's merge gate) -------------------------
+# The payload is the append-only history, and its digest decides whether a re-read is a
+# new release, so a converter change re-releases every notice: each real notice is pinned
+# whole, against `releases.json`, which is written out by hand from the notices.
+
+GOLDEN = json.loads((Path(__file__).parent / "fixtures" / "worldbank" / "releases.json")
+                    .read_text(encoding="utf-8"))["releases"]
+
+
+def test_every_fixture_notice_has_its_golden_release():
+    assert set(GOLDEN) == set(NOTICES)
+
+
+@pytest.mark.parametrize("notice_id", sorted(NOTICES))
+def test_each_real_notice_is_exactly_its_golden_release(notice_id):
+    want = GOLDEN[notice_id]
+    release = wb.release_from_notice(notice(notice_id))
+    # Compared as stored, so 70000 and 70000.0, or 1 and True, are told apart.
+    assert (json.dumps(release.payload, ensure_ascii=False, sort_keys=True)
+            == json.dumps(want["payload"], ensure_ascii=False, sort_keys=True))
+    assert release.contacts == want["contacts"]
+    assert (release.process_key, release.project_ref, release.source_modified_at) == (
+        want["process_key"], want["project_ref"], want["source_modified_at"])
+    assert release.ocid == f"scrapex-worldbank:{want['process_key']}"
+
+
+@pytest.mark.parametrize(("base", "field", "value", "path", "expected"), [
+    (OPEN_REOI, "procurement_group", "GO", ("tender", "mainProcurementCategory"), "goods"),
+    (OPEN_REOI, "procurement_group", "CW", ("tender", "mainProcurementCategory"), "works"),
+    (OPEN_REOI, "procurement_group", "CS", ("tender", "mainProcurementCategory"), "services"),
+    (OPEN_REOI, "procurement_group", "NC", ("tender", "mainProcurementCategory"), "services"),
+    (OPEN_REOI, "market_approach_code", "O", ("tender", "procurementMethod"), "open"),
+    (OPEN_REOI, "market_approach_code", "L", ("tender", "procurementMethod"), "limited"),
+    (OPEN_REOI, "market_approach_code", "D", ("tender", "procurementMethod"), "direct"),
+    (OPEN_REOI, "notice_type", "General Procurement Notice", ("tag",), ["planning"]),
+    (OPEN_REOI, "notice_type", "Invitation for Bids", ("tag",), ["tender"]),
+    (OPEN_REOI, "notice_type", "Request for Expression of Interest", ("tag",), ["tender"]),
+    (OPEN_REOI, "notice_type", "Invitation for Prequalification", ("tag",), ["tender"]),
+    (OPEN_REOI, "notice_type", "Contract Award", ("tag",), ["award"]),
+    (OPEN_REOI, "notice_type", "Goods and Works Award", ("tag",), ["award"]),
+    (OPEN_REOI, "notice_type", "Small Contracts Award", ("tag",), ["award"]),
+    (GPN_NO_REF, "notice_status", "Revised", ("tag",), ["planningUpdate"]),
+    (IFB, "notice_status", "Revised", ("tag",), ["tenderAmendment"]),
+    (ITS_AWARD, "notice_status", "Revised", ("tag",), ["awardUpdate"]),
+])
+def test_each_bank_code_is_its_ocds_code(base, field, value, path, expected):
+    """Every entry of the converter's maps, by the value the Bank writes (#1647 §5.1)."""
+    changed = notice(base)
+    changed[field] = value
+    got = wb.release_from_notice(changed).payload
+    for key in path:
+        got = got[key]
+    assert got == expected
+
+
+def test_consulting_and_non_consulting_stay_apart_in_the_release():
+    """Both are OCDS `services`, so the Bank's own code is what tells them apart: 156,964
+    consulting and 27,787 non-consulting notices world-wide (#1647)."""
+    consulting, other = notice(OPEN_REOI), notice(OPEN_REOI)
+    other["procurement_group"] = "NC"
+    one, two = (wb.release_from_notice(n).payload for n in (consulting, other))
+    assert one["tender"]["mainProcurementCategory"] == two["tender"]["mainProcurementCategory"]
+    assert (one["worldbank"]["procurement_group"], two["worldbank"]["procurement_group"]) == (
+        "CS", "NC")
+
+
+def test_a_major_sector_is_a_classification_of_its_own():
+    """280 of Egypt's 1,448 notices carry one (#1647 §5.1); no fixture notice does."""
+    changed = notice(OPEN_REOI)
+    changed["procurement_major_sector_code"] = "TX"
+    changed["procurement_major_sector_name"] = "Transportation"
+    assert wb.release_from_notice(changed).payload["classifications"] == [
+        *GOLDEN[OPEN_REOI]["payload"]["classifications"],
+        {"scheme": "worldbank-major-sector", "id": "TX", "description": "Transportation"}]
+
+
+# ---- a value is used as it is checked, stripped (#1658's merge gate) -----------------------
+
+@pytest.mark.parametrize(("notice_id", "field"), [(ITS_AWARD, "project_id"), (GPN_NO_REF, "id")])
+def test_a_padded_key_field_is_keyed_as_it_is_checked(notice_id, field):
+    """A padded project id once opened a second process for the same tender."""
+    padded = notice(notice_id)
+    padded[field] = f"  {padded[field]} "
+    release = wb.release_from_notice(padded)
+    assert release.process_key == GOLDEN[notice_id]["process_key"]
+    assert release.ocid == f"scrapex-worldbank:{GOLDEN[notice_id]['process_key']}"
+
+
+def test_padding_and_blanks_never_change_a_value():
+    padded = notice(OPEN_REOI)
+    padded["project_ctry_code"], padded["contact_ctry_code"] = " EG ", " EG "
+    padded["notice_lang_code"] = " EN "
+    payload = wb.release_from_notice(padded).payload
+    assert payload["locations"] == GOLDEN[OPEN_REOI]["payload"]["locations"]
+    assert payload["parties"][1]["address"]["countryCode"] == "EG"
+    assert payload["language"] == "en"
+
+    blank = notice(IFB)
+    blank["bid_reference_no"], blank["bid_description"] = "   ", "  "
+    release = wb.release_from_notice(blank)
+    assert "id" not in release.payload["tender"] and "title" not in release.payload["tender"]
+    assert release.process_key == f"notice:{IFB}"
+
+
+def test_a_blank_agency_name_falls_back_to_the_contacts_organisation():
+    """A whitespace agency name once dropped the procuring entity and its person."""
+    blank = notice(GPN_NO_REF)
+    blank["agency_name"] = "   "
+    release = wb.release_from_notice(blank)
+    assert release.payload["parties"] == GOLDEN[GPN_NO_REF]["payload"]["parties"]
+    assert release.contacts == GOLDEN[GPN_NO_REF]["contacts"]

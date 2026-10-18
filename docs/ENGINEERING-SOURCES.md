@@ -178,12 +178,17 @@ typed tables rebuilt from the releases by OCDS's merge rule.
 `tender_releases` keeps each release as JSON, append-only by trigger; `tenders`,
 `tender_parties`, `tender_items` and the rest are compiled from them by
 `tenderstore.compile_process`, which deletes and re-inserts them because they are derived.
-A notice read twice is one release; a notice that changed is a new release with the same
-id. Persons stay out of the releases (his ruling on #1647) so they can be removed.
+A notice read twice is one release. A notice that changed is a new version of the same
+release, under the notice's own id, and only each id's newest version is compiled, so a
+field the revision stopped stating does not survive. A field a later release sets to null
+is removed, as OCDS's merge removes it. Persons stay out of the releases (his ruling on
+#1647) so they can be removed; the store refuses a contact point or beneficial owners
+anywhere in a payload.
 The award tables (`tender_awards`, its suppliers, contracts and bids) are compiled the
 same way once part 4 of milestone 51 brings their writer; until then they stand empty.
 
-**Decided** by the owner on #1616 and #1647, 2026-10-10, and on #1658, 2026-10-17.
+**Decided** by the owner on #1616 and #1647, 2026-10-10, and on #1658, 2026-10-17 and
+2026-10-18.
 
 ### How to re-open this
 
@@ -194,9 +199,12 @@ the line that departs. 0025 records these: sectors kept in the source's own term
 country kept as the source's code when it has no ISO one; a deadline kept as a date and
 a local time, because the source states no instant; the Bank's US-dollar figure kept
 beside the signed price; a contract's duration in months, as ISO 8601; a bid's two
-evaluated prices and its scores; and a beneficial owner's nationality, residence and
-control as the source writes them. OCDS 1.2, when it is released, is read against this
-entry.
+evaluated prices and its scores; a beneficial owner's nationality, residence and
+control as the source writes them; and a revised notice kept as a new version of the
+same release id, where OCDS requires an id unique within its ocid. That last one is his
+ruling on #1658: the history keeps the Bank's own notice id, and the compile reads each
+id's newest version (`tenderstore.compile_process`). OCDS 1.2, when it is released, is
+read against this entry.
 
 ## ES-4 · New tables follow Supabase's Postgres style, as far as SQLite allows
 

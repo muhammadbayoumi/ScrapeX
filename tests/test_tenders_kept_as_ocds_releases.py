@@ -94,15 +94,17 @@ def test_every_new_table_is_strict_with_an_id_key():
 
 def test_every_foreign_key_is_named_after_its_table_and_indexed(conn):
     for table in TABLES:
-        indexed = {row[2] for index in conn.execute(f"PRAGMA index_list({table})")
-                   for row in conn.execute(f"PRAGMA index_info({index[1]})")}
+        # The LEADING column of an index: one whose first column is another cannot serve
+        # a lookup by this key (#1658's merge gate).
+        leading = {row[2] for index in conn.execute(f"PRAGMA index_list({table})")
+                   for row in conn.execute(f"PRAGMA index_info({index[1]})") if row[0] == 0}
         for fk in conn.execute(f"PRAGMA foreign_key_list({table})"):
             target, column = fk[2], fk[3]
             assert target in SINGULAR, f"{table}.{column} points at {target}: name its singular"
             # `<singular>_id`, or a role before it when it says which of two keys it is.
             assert column == f"{SINGULAR[target]}_id" or column.endswith(
                 f"_{SINGULAR[target]}_id"), f"{table}.{column} -> {target}"
-            assert column in indexed, f"{table}.{column} is a foreign key with no index"
+            assert column in leading, f"{table}.{column} leads no index"
 
 
 def test_every_table_definition_carries_a_comment():
@@ -211,10 +213,29 @@ def test_persons_live_in_their_own_table_and_can_be_removed(conn):
     assert conn.execute("SELECT count(*) FROM tender_releases").fetchone()[0] == 1
 
 
-def test_a_payload_that_carries_a_contact_point_is_refused(conn):
+#: Every place OCDS puts a person: a contact point on any organisation, and a party's
+#: beneficial owners. The history cannot be edited, so each is refused (#1658's gate).
+PERSONS_IN_A_PAYLOAD = {
+    "a party's contact point": lambda p: p["parties"][-1].update(
+        contactPoint={"name": "A Person"}),
+    "a party's beneficial owners": lambda p: p["parties"][-1].update(
+        beneficialOwners=[{"id": "1", "name": "A Person"}]),
+    "the procuring entity's contact point": lambda p: p["tender"].update(
+        procuringEntity={"id": "x", "contactPoint": {"name": "A Person"}}),
+    "the buyer's contact point": lambda p: p.update(
+        buyer={"id": "x", "contactPoint": {"email": "a.person@example.org"}}),
+    "a supplier's contact point": lambda p: p.update(
+        awards=[{"id": "1", "suppliers": [{"id": "s", "contactPoint": {"name": "A Person"}}]}]),
+    "a tenderer's contact point": lambda p: p["tender"].update(
+        tenderers=[{"id": "t", "contactPoint": {"name": "A Person"}}]),
+}
+
+
+@pytest.mark.parametrize("where", sorted(PERSONS_IN_A_PAYLOAD))
+def test_a_person_anywhere_in_the_payload_is_refused(conn, where):
     release = wb.release_from_notice(NOTICES[OPEN_REOI])
-    release.payload["parties"][-1]["contactPoint"] = {"name": "A Person"}
-    with pytest.raises(ValueError, match="persons go in Release.contacts"):
+    PERSONS_IN_A_PAYLOAD[where](release.payload)
+    with pytest.raises(ValueError, match="persons are kept beside it"):
         tenderstore.store_release(conn, source_site_id=_site(conn), release=release,
                                   fetched_response_id=None)
     assert conn.execute("SELECT count(*) FROM tender_releases").fetchone()[0] == 0
@@ -252,10 +273,14 @@ def test_an_open_notice_compiles_to_its_tender_with_the_deadline_it_states(conn)
     assert conn.execute("SELECT classification_scheme FROM tender_items").fetchone()[0] == "UNSPSC"
 
 
-def test_an_award_closes_its_tender_and_keeps_the_deadline_the_invitation_stated(conn):
-    """OCDS's record rule: what the award states replaces, what it leaves out stays."""
-    _store(conn, IFB)
-    _store(conn, ITS_AWARD)
+@pytest.mark.parametrize("order", [(IFB, ITS_AWARD), (ITS_AWARD, IFB)],
+                         ids=["invitation first", "award first"])
+def test_an_award_closes_its_tender_and_keeps_the_deadline_the_invitation_stated(conn, order):
+    """OCDS's record rule: what the award states replaces, what it leaves out stays. In
+    either order of arrival: a collector reading the newest first stores the award before
+    its invitation, and the compile follows the dates, not the arrival (#1658's gate)."""
+    for notice_id in order:
+        _store(conn, notice_id)
     assert conn.execute("SELECT count(*) FROM tender_processes").fetchone()[0] == 1
     row = conn.execute("SELECT status, tender_period_end, tender_period_end_local_time, "
                        "compiled_from_tender_release_id FROM tenders").fetchone()
@@ -378,3 +403,127 @@ def test_a_beneficial_owner_can_be_removed_and_the_history_stays(conn):
     assert conn.execute("SELECT count(*) FROM tender_beneficial_owners").fetchone()[0] == 0
     assert conn.execute("SELECT count(*) FROM tender_releases WHERE id = ?",
                         (rows["release"],)).fetchone()[0] == 1
+
+
+# ---- what the compile keeps, and what it lets go (#1658's merge gate) ---------------------
+
+def test_a_draft_after_its_invitation_leaves_the_tender_with_no_status(conn):
+    """OCDS's merge removes a field a later release sets to null. A draft states no status
+    the Bank has published (`worldbank.py`), so the invitation's `active` must not stay."""
+    _store(conn, IFB)
+    draft = copy.deepcopy(NOTICES[ITS_AWARD])
+    draft["notice_status"] = "Draft"
+    _store(conn, ITS_AWARD, draft)
+    assert tuple(conn.execute("SELECT status, status_details FROM tenders").fetchone()) == (
+        None, "Draft")
+
+
+def test_a_later_deadline_that_states_no_time_keeps_no_time(conn):
+    """A second notice of the same process moves the deadline and names no hour: the
+    invitation's 10:00 belonged to another day, so it must not be paired with this one."""
+    _store(conn, IFB)
+    later = copy.deepcopy(NOTICES[IFB])
+    later.update(id="OP00158447", notice_status="Revised",
+                 submission_date="2022-01-20T00:00:00Z", api_modified_date="2026-03-22T09:00:00Z",
+                 submission_deadline_date="2022-03-01T00:00:00Z")
+    del later["submission_deadline_time"]
+    _store(conn, "OP00158447", later)
+    assert conn.execute("SELECT count(*) FROM tender_processes").fetchone()[0] == 1
+    assert tuple(conn.execute("SELECT tender_period_end, tender_period_end_local_time "
+                              "FROM tenders").fetchone()) == ("2022-03-01", None)
+
+
+def test_a_revision_that_stops_stating_a_field_lets_it_go(conn):
+    """His ruling on #1658: a revised notice is a new version of the same release, and
+    only its newest version is compiled, so the version it replaced leaves nothing."""
+    _store(conn, OPEN_REOI)
+    revised = copy.deepcopy(NOTICES[OPEN_REOI])
+    revised.update(notice_status="Revised", api_modified_date="2026-10-11T08:00:00Z")
+    for field in ("bid_estimate_amount", "submission_deadline_date", "submission_deadline_time",
+                  "market_approach_code"):
+        del revised[field]
+    second = _store(conn, OPEN_REOI, revised)
+    assert tuple(conn.execute(
+        "SELECT status_details, value_amount, value_currency, procurement_method, "
+        "tender_period_end, tender_period_end_local_time, compiled_from_tender_release_id "
+        "FROM tenders").fetchone()) == ("Revised", None, None, None, None, None,
+                                        second.tender_release_id)
+    assert conn.execute("SELECT count(*) FROM tender_releases").fetchone()[0] == 2
+
+
+def test_the_six_real_notices_compile_to_exactly_these_rows(conn):
+    """Every compiled column the six real fixture notices fill, written out by hand."""
+    for notice_id in sorted(NOTICES):
+        _store(conn, notice_id)
+    assert [tuple(r) for r in conn.execute(
+        "SELECT p.source_record_id, t.tender_ref, t.title, t.status, t.status_details, "
+        "t.procurement_method, t.main_procurement_category, t.value_amount, t.value_currency, "
+        "t.tender_period_end, t.tender_period_end_local_time, t.tender_period_end_zone, "
+        "t.published_at, r.release_ref FROM tenders t "
+        "JOIN tender_processes p ON p.id = t.tender_process_id "
+        "JOIN tender_releases r ON r.id = t.compiled_from_tender_release_id "
+        "ORDER BY p.source_record_id")] == [
+        ("P095392:ICB16:LOT2;ITEM1", "ICB 16: Lot 2; Item 1",
+         "Copper Tubes, PE 80 Pipes and PE 80 Fittings", None, "Draft", None, None, None, None,
+         None, None, None, "2021-03-29T03:51:56Z", "OP00012856"),
+        ("P100047:ZAHRAAEL-MAADISUBSTATION-PACKAGEA", "Zahraa El-Maadi Substation - Package A",
+         "turnkey bases", "active", "Revised", None, None, None, None, None, None, None,
+         "2015-08-05T00:00:00Z", "OP00033824"),
+        # The award decides the state and the date; the deadline is the invitation's.
+        ("P146007:EGICB1-2022", "EG ICB 1-2022", "PE Pipes", "complete", "Published", "open",
+         "goods", 1620430.71, "USD", "2022-02-06", "10:00", None, "2022-06-23T00:00:00Z",
+         ITS_AWARD),
+        ("P172548:EG-EEAA-559382-CS-QCBS", "EG-EEAA-559382-CS-QCBS",
+         "developing guidelines for healthcare waste management in Egypt - rebidding process "
+         "related to activity ref EG-EEAA-474647-CS-CQS", "active", "Published", "open",
+         "services", 70000.0, "USD", "2026-11-05", "14:00", None, "2026-10-07T00:00:00Z",
+         OPEN_REOI),
+        ("notice:OP00208979", None, None, "planned", "Published", None, None, None, None, None,
+         None, None, "2022-12-09T00:00:00Z", "OP00208979"),
+    ]
+    assert [tuple(r) for r in conn.execute(
+        "SELECT p.source_record_id, x.party_ref, x.name, x.country_code, ro.role "
+        "FROM tender_parties x JOIN tender_processes p ON p.id = x.tender_process_id "
+        "JOIN tender_party_roles ro ON ro.tender_party_id = x.id "
+        "WHERE x.party_ref != 'worldbank' ORDER BY p.source_record_id")] == [
+        ("P100047:ZAHRAAEL-MAADISUBSTATION-PACKAGEA",
+         "agency:Egyptian Electricity Transmission Company (EETC)",
+         "Egyptian Electricity Transmission Company (EETC)", "EG", "procuringEntity"),
+        ("P146007:EGICB1-2022", "agency:Egypt Gas", "Egypt Gas", "EG", "procuringEntity"),
+        ("P172548:EG-EEAA-559382-CS-QCBS", "agency:Egyptian Environmental Affairs Agency",
+         "Egyptian Environmental Affairs Agency", "EG", "procuringEntity"),
+        ("notice:OP00208979", "agency:Egyptian Holding Company for Silos and Storage",
+         "Egyptian Holding Company for Silos and Storage", "EG", "procuringEntity"),
+    ]
+    # One person per notice that names one (4 of 6), none for the award, which names none,
+    # and each the contact of a party stored in its own process.
+    assert [tuple(r) for r in conn.execute(
+        "SELECT r.release_ref, c.party_ref, c.name, c.job_title, c.email, c.telephone, "
+        "c.fax_number, c.url, EXISTS (SELECT 1 FROM tender_parties x "
+        "  WHERE x.tender_process_id = r.tender_process_id AND x.party_ref = c.party_ref) "
+        "FROM tender_contact_points c JOIN tender_releases r ON r.id = c.tender_release_id "
+        "ORDER BY r.release_ref")] == [
+        ("OP00033824", "agency:Egyptian Electricity Transmission Company (EETC)",
+         "Contact Person", "Procurement Officer", "contact@example.org", "+20 000 0000",
+         "+20 000 0001", None, 1),
+        (IFB, "agency:Egypt Gas", "Contact Person", "Procurement Officer",
+         "contact@example.org", "+20 000 0000", "+20 000 0001", "https://www.example.org", 1),
+        ("OP00208979", "agency:Egyptian Holding Company for Silos and Storage",
+         "Contact Person", "Procurement Officer", "contact@example.org", "+20 000 0000",
+         "+20 000 0001", "https://www.example.org", 1),
+        (OPEN_REOI, "agency:Egyptian Environmental Affairs Agency", "Contact Person",
+         "Procurement Officer", "contact@example.org", "+20 000 0000", None,
+         "https://www.example.org", 1),
+    ]
+
+
+def test_a_process_read_again_is_seen_again(conn):
+    _store(conn, OPEN_REOI)
+    conn.execute("UPDATE tender_processes SET first_seen_at = '2000-01-01T00:00:00Z', "
+                 "last_seen_at = '2000-01-01T00:00:00Z'")
+    before = conn.execute("SELECT strftime('%Y-%m-%dT%H:%M:%SZ', 'now')").fetchone()[0]
+    _store(conn, OPEN_REOI)
+    first_seen, last_seen = conn.execute(
+        "SELECT first_seen_at, last_seen_at FROM tender_processes").fetchone()
+    assert first_seen == "2000-01-01T00:00:00Z"
+    assert last_seen >= before
