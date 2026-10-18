@@ -297,7 +297,13 @@ class LanguagesDisagree(ValueError):
     """The English and Arabic copies of one page do not hold the same establishments."""
 
 
-def _pairs(english_body: str, arabic_body: str) -> tuple[tuple[dict, dict], ...]:
+#: The names whose script tells the two views apart, for an establishments row.
+LANGUAGE_PATHS: tuple[tuple[str, ...], ...] = (("establishment_type", "name"), ("city", "name"))
+
+
+def _pairs(english_body: str, arabic_body: str, *,
+           language_paths: tuple[tuple[str, ...], ...] = LANGUAGE_PATHS,
+           ) -> tuple[tuple[dict, dict], ...]:
     """Each Arabic row with its English twin, joined on `id` IN PUBLISHED ORDER.
 
     REFUSED WHEN THE TWO VIEWS DIFFER, rather than joined on what they share: the two
@@ -318,14 +324,15 @@ def _pairs(english_body: str, arabic_body: str) -> tuple[tuple[dict, dict], ...]
         raise LanguagesDisagree(
             f"the two copies hold different establishments (Arabic only: {only_ar}, "
             f"English only: {only_en}, or the same ids in another order)")
-    _assert_two_languages(arabic, english)
+    _assert_two_languages(arabic, english, language_paths)
     return tuple(zip(arabic, english, strict=True))
 
 
 _ARABIC_SCRIPT = re.compile(r"[؀-ۿ]")
 
 
-def _assert_two_languages(arabic: tuple[dict, ...], english: tuple[dict, ...]) -> None:
+def _assert_two_languages(arabic: tuple[dict, ...], english: tuple[dict, ...],
+                          language_paths: tuple[tuple[str, ...], ...]) -> None:
     """Refuse a pair whose two copies are not the Arabic and the English view.
 
     THE LANGUAGE TRAVELS IN `locale=` ALONE, and `lang=` was measured to be ignored
@@ -339,7 +346,7 @@ def _assert_two_languages(arabic: tuple[dict, ...], english: tuple[dict, ...]) -
     def names(rows: tuple[dict, ...]) -> list[str]:
         found = []
         for row in rows:
-            for path in (("establishment_type", "name"), ("city", "name")):
+            for path in language_paths:
                 value = _at(row, *path)
                 if isinstance(value, str) and value.strip():
                     found.append(value)

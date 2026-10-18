@@ -43,6 +43,15 @@ SITE_KEY = "tvtc_establishments"
 BASE_URL = "https://pt-api.tvtc.gov.sa"
 LIST_PATH = "/api/v1/public-inquiries/licensed-establishments"
 
+#: THE SECOND LISTING ON THE SAME API: every training plan an establishment is licensed
+#: to run, one row per (establishment, plan) -- 41,694 rows on 2026-10-18. Its own
+#: directory and source key, because a `Directory` reads one listing into one dataset
+#: (`scrapex/directories.py`). The paginator, the locale parameter and the page shape
+#: are the establishments listing's, measured on both (`#1716`), so everything below is
+#: shared and only the path and the key differ.
+PLANS_SITE_KEY = "tvtc_training_plans"
+PLANS_PATH = "/api/v1/public-inquiries/licensed-establishments/plans"
+
 LOCALES = ("en", "ar")
 PRIMARY_LOCALE = "en"
 
@@ -120,8 +129,8 @@ def read_page(body: str) -> Page:
 
 
 def listing_url(base_url: str = BASE_URL, *, locale: str = PRIMARY_LOCALE, page: int = 1,
-                cell: Cell = WHOLE) -> str:
-    """One page of the register, in one language.
+                cell: Cell = WHOLE, path: str = LIST_PATH) -> str:
+    """One page of a listing (`LIST_PATH` or `PLANS_PATH`), in one language.
 
     THE PARAMETERS ARE ALWAYS WRITTEN IN ONE ORDER, because the URL is what a resume
     matches on (`snapshotcrawl.already_stored` compares `source_url`).
@@ -130,7 +139,9 @@ def listing_url(base_url: str = BASE_URL, *, locale: str = PRIMARY_LOCALE, page:
         raise ValueError(f"page must be at least 1, got {page}")
     if locale not in LOCALES:
         raise ValueError(f"locale must be one of {LOCALES}, got {locale!r}")
-    url = f"{base_url}{LIST_PATH}?locale={locale}&limit={PAGE_SIZE}&page={page}"
+    if path not in (LIST_PATH, PLANS_PATH):
+        raise ValueError(f"path must be one of the register's two listings, got {path!r}")
+    url = f"{base_url}{path}?locale={locale}&limit={PAGE_SIZE}&page={page}"
     for name, value in cell.params:
         url += f"&{name}={value}"
     return url
@@ -180,7 +191,8 @@ class TvtcPageSource:
     site_key = SITE_KEY
 
     def __init__(self, *, last_page: int, locales: Iterable[str] = LOCALES,
-                 cell: Cell = WHOLE) -> None:
+                 cell: Cell = WHOLE, site_key: str = SITE_KEY,
+                 path: str = LIST_PATH) -> None:
         if last_page < 1:
             raise ValueError(f"last_page must be at least 1, got {last_page}")
         self._last_page = last_page
@@ -188,13 +200,16 @@ class TvtcPageSource:
         if not self._locales:
             raise ValueError("a page source with no locale fetches nothing")
         self._cell = cell
+        self.site_key = site_key
+        self._path = path
 
     def listing_urls(self, base_url: str) -> Iterable[str]:
         """Page by page, both languages of a page together, so a run stopped half way holds
         both halves of every page it reached -- Oman's order, for Oman's reason."""
         for page in range(1, self._last_page + 1):
             for locale in self._locales:
-                yield listing_url(base_url, locale=locale, page=page, cell=self._cell)
+                yield listing_url(base_url, locale=locale, page=page, cell=self._cell,
+                                  path=self._path)
 
     def detail_urls(self, page: Any) -> Iterable[str]:
         """None. The detail endpoint adds only `active_training_plans`, and the plans
@@ -203,7 +218,7 @@ class TvtcPageSource:
 
     def belongs_to_slice(self, page: Any, row_index: int, slice_of: str) -> bool:
         raise SliceNotSupported(
-            f"{SITE_KEY} offers no slice scope; the register is crawled whole in "
+            f"{self.site_key} offers no slice scope; the register is crawled whole in "
             f"{PAGE_SIZE}-row pages (asked for {slice_of!r})")
 
 
@@ -212,6 +227,7 @@ class TvtcPartition:
     because its order is stable (see the module docstring)."""
 
     site_key = SITE_KEY
+    path = LIST_PATH
     locales = LOCALES
     primary_locale = PRIMARY_LOCALE
 
@@ -220,7 +236,7 @@ class TvtcPartition:
 
     def listing_url(self, base_url: str, *, locale: str, page: int,
                     cell: Cell = WHOLE) -> str:
-        return listing_url(base_url, locale=locale, page=page, cell=cell)
+        return listing_url(base_url, locale=locale, page=page, cell=cell, path=self.path)
 
     def read_last_page(self, html: str) -> int:
         return read_last_page(html)
@@ -232,4 +248,17 @@ class TvtcPartition:
         return identity_evidence(html)
 
     def in_cell(self, cell: Cell, *, last_page: int) -> TvtcPageSource:
-        return TvtcPageSource(last_page=last_page, locales=self.locales, cell=cell)
+        return TvtcPageSource(last_page=last_page, locales=self.locales, cell=cell,
+                              site_key=self.site_key, path=self.path)
+
+
+class TvtcPlansPartition(TvtcPartition):
+    """The training-plans listing: the same register, paginator and order, another path.
+
+    ONE `WHOLE` CELL FOR THE ESTABLISHMENTS' REASON, measured again here on 2026-10-18:
+    the first 20 ids of `plans?limit=20` equalled the first 20 of the `limit=1000` page
+    captured the day before, in both languages, and the 1,000 row ids were distinct.
+    """
+
+    site_key = PLANS_SITE_KEY
+    path = PLANS_PATH
