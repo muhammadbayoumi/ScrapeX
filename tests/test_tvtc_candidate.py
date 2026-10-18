@@ -499,6 +499,7 @@ def test_working_hours_store_each_day_as_the_site_published_it():
     ("2026-10-17T08:00:00.000000Z", "08:00"),
     ("2026-10-17T22:30:00Z", "22:30"),
     ("2026-10-17T07:05:59.5Z", "07:05:59"),             # seconds the site said are kept
+    ("2026-10-17T08:00:05Z", "08:00:05"),               # ...including ones under ten
     ("٢٠٢٦-١٠-١٧T٠٨:٣٠:٠٠.000000Z", "08:30"),        # folded by normalize, stored ASCII
 ])
 def test_a_working_hours_time_keeps_its_clock(value, kept):
@@ -516,6 +517,11 @@ def test_a_working_hours_time_of_another_shape_is_refused(value):
 
 
 @pytest.mark.parametrize("bad, said", [
+    # Falsy values that are not absence: each passed as "no hours" through `or []`.
+    (False, "workingHours is a bool"),
+    ("", "workingHours is a str"),
+    (0, "workingHours is a int"),
+    ({}, "workingHours is a dict"),
     ({"start_time": "x"}, "workingHours is a dict"),
     ("08:00-22:00", "workingHours is a str"),
     (["Sunday 08:00-22:00"], "entry is a str"),
@@ -541,7 +547,8 @@ def test_the_activity_code_is_the_published_code_and_two_codes_are_both_kept():
     assert later.rows[0]["activity_code"] == "853040,853041"
 
 
-@pytest.mark.parametrize("codes", ["853040", 853040, [{"id": 1}], [True]])
+@pytest.mark.parametrize("codes", ["853040", 853040, [{"id": 1}], [True], [853040.0],
+                                   [853040, "853041"], "", 0, {}])
 def test_an_activity_list_of_another_shape_is_refused(codes):
     english, arabic = _doc(1, "en"), _doc(1, "ar")
     arabic["data"][0]["activity_list"] = codes
@@ -589,3 +596,66 @@ def test_an_absent_object_is_null_or_an_empty_list_and_reads_as_empty_columns():
         row = bilingual_listing_candidate(
             *_changed(lambda r, a=absent: r.update(violation=a, file=a))).rows[0]
         assert row["violation_id"] is None and row["logo_path"] is None
+
+
+def test_a_nested_empty_list_is_an_absent_object_too():
+    """`_at`'s rule holds at every depth: `violation.penalty` as `[]` is no penalty."""
+    row = bilingual_listing_candidate(*_changed(lambda r: r.update(violation={
+        "id": 1, "number": "22", "description_ar": "x", "description_en": "x",
+        "penalty": [], "attachment": [], "is_stopped": True, "status": None,
+        "end_reason": None, "note": None}))).rows[0]
+    assert row["violation_id"] == "1"
+    assert row["violation_penalty_code"] is None and row["violation_attachment_path"] is None
+
+
+@pytest.mark.parametrize("change, said", [
+    (lambda r: r.update(violation={}), "violation.id is missing"),
+    (lambda r: r.update(owner=""), "owner is a str"),
+    (lambda r: r.update(region=0), "region is a int"),
+])
+def test_an_object_that_arrives_empty_or_falsy_is_refused_not_absent(change, said):
+    """Only `None` and `[]` were measured as absence; `{}`, `""` and `0` are not it."""
+    with pytest.raises(RowShapeError, match=re.escape(said)):
+        bilingual_listing_candidate(*_changed(change))
+
+
+@pytest.mark.parametrize("key", ["activity_list", "workingHours"])
+def test_a_key_read_by_its_own_function_is_still_read_strictly(key):
+    """The two readers that are not a `_ar`/`_en` getter go through `_at` as well."""
+    with pytest.raises(RowShapeError, match=re.escape(f"{key} is missing")):
+        bilingual_listing_candidate(*_changed(lambda r: r.pop(key)))
+
+
+@pytest.mark.parametrize("absent", [None, []])
+def test_an_absent_activity_list_is_an_empty_code(absent):
+    row = bilingual_listing_candidate(
+        *_changed(lambda r: r.update(activity_list=absent))).rows[0]
+    assert row["activity_code"] is None
+
+
+@pytest.mark.parametrize("dropped", ["week_day_ar", "week_day_en", "start_time", "end_time"])
+def test_each_key_of_a_working_hours_entry_is_required(dropped):
+    entry = {"week_day_ar": "الأحد", "week_day_en": "Sunday",
+             "start_time": "2026-10-17T08:00:00Z", "end_time": "2026-10-17T22:00:00Z"}
+    entry.pop(dropped)
+    english, arabic = _doc(38, "en"), _doc(38, "ar")
+    arabic["data"][0]["workingHours"] = [entry]
+    with pytest.raises(WorkingHoursShapeError, match=re.escape(f"has no '{dropped}'")):
+        bilingual_listing_candidate(json.dumps(english), json.dumps(arabic))
+
+
+def test_every_added_key_from_either_view_is_named_once_in_sorted_order():
+    """Eight keys, so a warning list left in set order is out of order on almost every
+    hash seed; one with a falsy value and one only the English view carries."""
+    added = {"zeta": 1, "alpha": 0, "mu": None, "kappa": 1, "beta": 1, "omega": 1,
+             "delta": 1, "eta": 1}
+    english, arabic = _doc(1, "en"), _doc(1, "ar")
+    for view, doc in (("ar", arabic), ("en", english)):
+        for row in doc["data"]:
+            row.update(added)
+            if view == "en":
+                row["english_only"] = "en"
+    candidate = bilingual_listing_candidate(json.dumps(english), json.dumps(arabic))
+    assert candidate.warnings == tuple(
+        f"the register added a key this reader does not know: {key}"
+        for key in sorted([*added, "english_only"]))

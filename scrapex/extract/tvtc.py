@@ -111,7 +111,7 @@ def _en(*path: str) -> Getter:
 
 
 def _activity_code(arabic: dict[str, Any], english: dict[str, Any]) -> Any:
-    """The activity code(s), comma-joined. One code on 3,129 of 3,140 census rows and two
+    """The activity code(s), comma-joined. One code on 3,130 of 3,141 census rows and two
     on none -- joined rather than JSON-wrapped so the one value reads as itself."""
     codes = _at(arabic, "activity_list")
     if codes is None:
@@ -152,7 +152,11 @@ def _working_hours(arabic: dict[str, Any], english: dict[str, Any]) -> Any:
     WHY THE DATE MUST GO: stored whole, every one of the 781 establishments that publish
     hours would read as CHANGED on every crawl, because the date is the crawl's own.
     """
-    days = _at(arabic, "workingHours") or []
+    # `None` IS THE ONLY ABSENCE, tested before the type: `or []` let `false`, `""`, `0` and
+    # `{}` pass as "no hours", and an establishment that publishes hours lost them silently.
+    days = _at(arabic, "workingHours")
+    if days is None:
+        days = []
     if not isinstance(days, list):
         raise WorkingHoursShapeError(f"workingHours is a {type(days).__name__}")
     week = []
@@ -269,7 +273,7 @@ COLUMNS: tuple[tuple[str, Getter], ...] = (
 FIELDS: tuple[str, ...] = tuple(name for name, _ in COLUMNS)
 
 #: Every top-level key the register published when this was written. One outside this
-#: set is appended as a column of its own; see the module docstring.
+#: set, from either view, is kept in the `unknown_keys` column; see the module docstring.
 KNOWN_KEYS = frozenset({
     "id", "name", "name_en", "notes", "skip_momra", "skip_momra_reason", "skip_momra_at",
     "charity_name", "phone", "cr_number", "fax", "mobile", "zip_code",
