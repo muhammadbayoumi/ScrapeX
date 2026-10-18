@@ -5679,6 +5679,7 @@ async function startRun() {
     while (!r) {
       try {
         r = await post("/api/jobs", accepted ? { ...body, accept_cost: accepted } : body);
+        answered = true;
       } catch (e) {
         answered = e.kind === "http";
         const cost = e.status === 409 && e.body && e.body.question === "cost" && e.body.cost;
@@ -5708,8 +5709,13 @@ async function startRun() {
     // never reached the engine, says nothing of the outcome, and the engine writes the job
     // before it answers: so it is said as no answer, it holds back no hint, and the poll is
     // asked once whether a job appeared.
+    // WHY THERE WAS NO ANSWER, as a clause. Fetch's own TypeError says only "Failed to
+    // fetch", and it comes both before the engine heard the press and after: a connection
+    // that dropped mid-answer may have started the run. A deadline says its own words.
+    const why = e.name === "TypeError" ? "the connection to the engine failed."
+      : `${e.message.charAt(0).toLowerCase()}${e.message.slice(1)}`;
     refused = answered ? "Couldn't start: " + e.message
-      : `No answer to Start: ${e.message.charAt(0).toLowerCase()}${e.message.slice(1)} `
+      : `No answer to Start: ${/[.!?]$/.test(why) ? why : `${why}.`} `
         + "If the engine started the run, Activity shows it.";
     if (!answered) pollJob();
   } finally {
@@ -5720,12 +5726,14 @@ async function startRun() {
     refreshRunButton();
     // FOCUS GOES BACK TO START. Disabling it for the request dropped focus to the body, so
     // the confirmation had nothing to return it to; and its own button, hidden with it,
-    // still holds focus here until the browser blurs it after this task. NEVER FROM WHERE
-    // HE PUT IT while the engine answered, and never out of an open question: another one
-    // asked since owns the focus it holds.
+    // still holds focus here until the browser blurs it after this task. A mouse press on
+    // the disabled Start leaves focus on what contains it, the Run page (`tabindex="0"`),
+    // and the question returns it there: anything that contains Start is the page. NEVER
+    // FROM WHERE HE PUT IT while the engine answered, and never out of an open question:
+    // another one asked since owns the focus it holds.
     const at = document.activeElement;
     const asking = !$("confirm-veil").classList.contains("hidden");
-    if (!asking && (!at || at === document.body || at.closest("#confirm-veil"))) {
+    if (!asking && (!at || at.contains($("run")) || at.closest("#confirm-veil"))) {
       $("run").focus({ preventScroll: true });
     }
   }
