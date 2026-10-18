@@ -2571,6 +2571,36 @@ TABLE_GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
          ("identity_alias", "Names and codes a product has been seen under, so a rename "
                             "on the site does not create a second product here."),
          ("raw_snapshot", "The untouched page or response behind a row, when kept."),
+         ("fetched_responses", "An API response kept exactly as it arrived, of any "
+                               "kind, compressed and never changed: the evidence behind "
+                               "a tender."),
+     ]),
+    ("Tenders", "Tender notices kept the way the Open Contracting Data Standard keeps "
+     "them: everything a source published, in order and never changed, and the "
+     "current state rebuilt from it.", [
+         ("tender_processes", "One row per contracting process: a tender and the "
+                              "notices that follow it."),
+         ("tender_releases", "Every notice as published, in order. Never changed; a "
+                             "revised notice is a new row."),
+         ("tenders", "The tender as it stands now: title, method, category, estimate "
+                     "and deadline."),
+         ("tender_parties", "The organisations in a process: who buys, who funds."),
+         ("tender_party_roles", "What each organisation is in a process."),
+         ("tender_contact_points", "The contact person a notice names. Kept apart so it "
+                                   "can be removed."),
+         ("tender_items", "What a tender buys, by its classification code."),
+         ("tender_classifications", "The source's own sectors for a process."),
+         ("tender_locations", "The countries a process is carried out in."),
+         ("tender_awards", "Who won a tender, at what signed price, and the Bank's "
+                           "figure for it in US dollars."),
+         ("tender_award_suppliers", "The firms an award went to, and each joint "
+                                    "venture member's share."),
+         ("tender_contracts", "When a contract was signed, and when the Bank approved it."),
+         ("tender_bids", "Every bid evaluated or rejected: its prices, scores and rank, "
+                         "and why a rejected bid was turned down."),
+         ("tender_beneficial_owners", "The people who own a firm that bid, as an award "
+                                      "notice names them. Kept apart so they can be "
+                                      "removed."),
      ]),
     ("General extraction", "The flexible branch for non-price data. It discovers a "
      "dataset and its fields first, then stores versioned records without forcing "
@@ -2788,6 +2818,7 @@ def column_origin(key: str) -> str:
 
 _MODEL_GROUP_KEYS = {
     "What the source said": "source",
+    "Tenders": "tenders",
     "General extraction": "general",
     "What it costs": "pricing",
     "Your unified layer": "unified",

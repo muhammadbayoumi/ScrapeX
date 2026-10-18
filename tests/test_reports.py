@@ -418,6 +418,28 @@ def test_the_table_catalogue_covers_every_table_the_schema_creates(conn):
         f"TABLE_GROUPS, so /data-model files them under Other with no purpose: {missing}")
 
 
+def test_every_described_group_is_a_lane_of_its_own_on_the_data_model(conn):
+    """The catalogue test above reads TABLE_GROUPS, which is what /schema shows; /data-model
+    also needs each group's title in `_MODEL_GROUP_KEYS`. #1658 added a Tenders group
+    without one, so its 14 tables fell under "Other tables" and the Tenders lane was a
+    heading with nothing under it (#1658's merge gate)."""
+    from scrapex.reports import _MODEL_GROUP_KEYS, TABLE_GROUPS, data_model_report
+
+    titles = [title for title, _note, _rows in TABLE_GROUPS]
+    keys = [_MODEL_GROUP_KEYS.get(title) for title in titles]
+    assert None not in keys, [title for title, key in zip(titles, keys) if key is None]
+    assert "other" not in keys and len(set(keys)) == len(keys), dict(zip(titles, keys))
+
+    model = data_model_report(conn, database_key="engine", database_label="Engine")
+    catalogued = {name for *_head, rows in TABLE_GROUPS for name, _purpose in rows}
+    lanes = {group["key"] for group in model["groups"]}
+    for table in model["tables"]:
+        if table["name"] in catalogued:
+            assert table["group_key"] != "other", table["name"]
+            assert table["group_key"] in lanes, table["name"]
+    assert "other" not in lanes, "a lane of undescribed tables appeared"
+
+
 def test_every_browsable_column_says_what_it_means():
     """The same decay as the table catalogue above, one level down.
 
