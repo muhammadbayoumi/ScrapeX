@@ -950,6 +950,23 @@ def test_a_link_to_an_unscheduled_source_opens_create_with_it_picked(open_panel)
     assert not page.js_errors
 
 
+def test_a_link_answered_after_he_moved_on_opens_nothing_there(open_panel):
+    """The page's read was out when he pressed Run's chip for an unscheduled source, and he
+    moved to Data before it landed: the sheet opens on the Schedules page only, never over
+    the page he went to (#1746 review A1)."""
+    page = open_panel(sources=with_sika())
+    load_run_first(page)
+    hold_next_read(page, "/api/schedules", 1_500)
+    page.click('#sites [data-sched-link="SIKAEGSHOP"]')
+    page.click('nav.side-rail button[data-view="data"]')
+    page.evaluate("schedulesPage.loading")
+    page.evaluate("new Promise((resolve) => setTimeout(resolve, 0))")
+    assert page.evaluate("currentViewName()") == "data"
+    assert page.locator(SHEET_VEIL).is_hidden()
+    assert page.evaluate("document.querySelector('main').inert") is False
+    assert not page.js_errors
+
+
 def test_an_engine_without_the_switch_edits_enabled_and_hears_what_a_slot_does(open_panel):
     queued = [dict(s, overlap_policy="queue") if s["source_key"] == "ELBUROJ" else s
               for s in PRICE]

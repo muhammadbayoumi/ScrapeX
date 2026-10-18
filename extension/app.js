@@ -9674,6 +9674,8 @@ function wireScheduleSheet() {
 async function openScheduleRow(key) {
   showView("schedules");
   await schedulesPage.loading;
+  // He may have moved on while the read was out: a row or a sheet opens on this page only.
+  if (currentViewName() !== "schedules") return;
   const row = schedulesPage.rows.get(key);
   if (row) {
     row.scrollIntoView({ block: "nearest" });
