@@ -2090,6 +2090,20 @@ def _editor_status(page) -> str:
     return text_of(page, "#source-edit-status")
 
 
+def _focus_settles_on(page, element_id: str) -> None:
+    """The editor moves focus on the next animation frame (`openSourceEditor`,
+    `sourceEditorPending`), and an answer can land before that frame on a slow runner:
+    so wait for it, bounded, rather than reading focus once."""
+    from playwright.sync_api import TimeoutError as PlaywrightTimeout
+
+    try:
+        page.wait_for_function("(id) => document.activeElement?.id === id",
+                               arg=element_id, timeout=2_000)
+    except PlaywrightTimeout:
+        where = page.evaluate("() => document.activeElement?.outerHTML.slice(0, 80)")
+        pytest.fail(f"focus never reached #{element_id}; it is on {where!r}")
+
+
 def test_source_settings_on_a_data_card_opens_the_panels_own_editor(open_panel):
     """#380. Source settings opened `/sources/{key}`, a route the engine never had: a
     blank tab answering 404, while the editor it promises was one view away. He met it
@@ -2114,7 +2128,7 @@ def test_source_settings_on_a_data_card_opens_the_panels_own_editor(open_panel):
     assert page.is_visible("#source-edit-schedule-link"), (
         "the editor says the schedules could not be read: "
         f"{text_of(page, '#source-edit-schedule-note')!r}")
-    assert page.evaluate("() => document.activeElement?.id") == "source-edit-back"
+    _focus_settles_on(page, "source-edit-back")
     assert page.js_errors == []
 
 
@@ -2132,7 +2146,7 @@ def test_source_settings_shows_the_editor_loading_at_once(open_panel):
     assert text_of(page, "#source-edit-status") == "Loading SHORT's settings…"
     assert page.locator("#source-edit-status .skeleton").count() == 2
     assert not page.is_visible("#source-edit-save"), "a control is drawn before its source"
-    assert page.evaluate("() => document.activeElement?.id") == "source-edit-back"
+    _focus_settles_on(page, "source-edit-back")
     page.wait_for_selector("#source-edit-status", state="hidden")
     assert page.input_value("#source-edit-key") == "SHORT"
 
@@ -2165,8 +2179,11 @@ def test_a_late_source_list_does_not_redraw_an_editor_he_already_opened(open_pan
     page.wait_for_selector("#view-source-edit", state="visible")
     page.click("#source-edit-back")
     page.click('[data-edit-source="SHORT"]')
+    # The editor puts focus on Back on its next frame; typing before that frame would
+    # have it moved by the editor itself, not by the late answer this test is about.
+    _focus_settles_on(page, "source-edit-back")
     page.fill("#source-edit-name", "typed by him")
-    page.wait_for_timeout(2_000)
+    page.wait_for_timeout(2_000)   # past the held read's 1.5 s
 
     assert page.input_value("#source-edit-name") == "typed by him"
     assert page.evaluate("() => document.activeElement?.id") == "source-edit-name"
@@ -2188,7 +2205,7 @@ def test_source_settings_when_the_engine_list_cannot_be_read_says_so(open_panel)
     assert text_of(page, "#source-edit-status.warn p") == (
         "Check that it's running, then open Source settings again.")
     assert not page.is_visible("#source-edit-save")
-    assert page.evaluate("() => document.activeElement?.id") == "source-edit-back"
+    _focus_settles_on(page, "source-edit-back")
     assert page.evaluate("() => window.__opened") == []
 
 
