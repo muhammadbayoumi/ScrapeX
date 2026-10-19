@@ -41,7 +41,9 @@ from scrapex.databases import DatabaseRegistry, EngineDatabase
 from scrapex.extract import service
 from scrapex.extract.models import ApprovalField, CandidateApproval, SnapshotCreate
 from scrapex.extract.muqawil import listing_candidate
+from scrapex.ingest import ingest_payloads
 from scrapex.webui.app import create_app
+from tests.test_ingest import make_entry, make_payload, one_row
 
 # Guards the extension: this file reads extension/ sources, so a change to the
 # menu must run it. See tests/test_the_extension_gate_is_complete.py.
@@ -54,6 +56,10 @@ LISTING = (ROOT / "tests" / "fixtures" / "muqawil" / "listing-en.html").read_tex
 
 #: The dataset every request below is made against.
 KEY = "contractors"
+
+#: A price source with one recorded change, so a page proven empty for the dataset is
+#: proven able to list one at all.
+PRICE_KEY = "ELSEWEDYSHOP"
 
 #: The proofs `app.js` may declare, and what each one MEANS as a request. A new one has
 #: to be added here before it can be used there, which is deliberate: the set of ways an
@@ -192,7 +198,11 @@ def proof_values() -> dict[str, str]:
 
 @pytest.fixture(scope="module")
 def client(tmp_path_factory) -> TestClient:
-    """An engine holding ONE APPROVED DATASET and no price rows.
+    """An engine holding ONE APPROVED DATASET, and one price source whose price moved.
+
+    The price source is there for the page-level proof: without a single recorded change
+    the Changes page is empty for every key, and its empty state for the dataset would
+    prove nothing about datasets.
 
     Module-scoped: approving the listing is the slow part and no test here
     writes, so one warehouse serves them all.
@@ -218,6 +228,11 @@ def client(tmp_path_factory) -> TestClient:
                                       identity=(f.field_key == "contractor_id"))
                         for f in candidate.fields]),
             candidate=candidate)
+        # Two crawls of one price source, 100 then 130: one recorded price change.
+        entry = make_entry()
+        ingest_payloads(conn, entry, [make_payload([one_row(price="100.00")])])
+        ingest_payloads(conn, entry, [make_payload([one_row(price="130.00")],
+                                                   scraped_at="2026-07-20T10:00:00Z")])
         conn.commit()
     finally:
         conn.close()
@@ -358,6 +373,10 @@ def test_an_action_withheld_for_its_page_opens_a_page_with_nothing_of_it(client)
     joined through `source_product` and `source_site` (`scrapex/changes.py`): the price
     path. A dataset key is in neither, so for a dataset the list is the empty state, and
     offering "Recent changes" would open a page with nothing of what it promises.
+
+    MEASURED AGAINST A PAGE THAT CAN LIST ONE. The same route for the price source, whose
+    price moved, must list its change: an empty state that every key shows says nothing
+    about datasets.
     """
     values = proof_values()
     by_page = [entry for entry in declared_actions()
@@ -372,6 +391,11 @@ def test_an_action_withheld_for_its_page_opens_a_page_with_nothing_of_it(client)
         assert "No changes recorded yet" in response.text, (
             f"{entry['route']} now lists changes for a dataset, so "
             f"{entry['action']} can be offered")
+        priced = client.get(RECIPES[entry["action"]][2].replace(KEY, PRICE_KEY))
+        assert priced.status_code == 200
+        assert "No changes recorded yet" not in priced.text, (
+            f"{entry['route']} lists nothing for {PRICE_KEY}, whose price moved, so its "
+            f"empty state for {KEY} proves nothing about datasets")
 
 
 def test_every_route_the_menu_declares_is_one_the_engine_serves(client):

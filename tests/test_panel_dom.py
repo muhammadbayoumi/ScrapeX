@@ -2145,6 +2145,10 @@ def test_source_settings_shows_the_editor_loading_at_once(open_panel):
 
     assert text_of(page, "#source-edit-status") == "Loading SHORT's settings…"
     assert page.locator("#source-edit-status .skeleton").count() == 2
+    # The skeleton is what he sees; the words are for a screen reader, in a live region.
+    assert text_of(page, "#source-edit-status .visually-hidden") == "Loading SHORT's settings…"
+    assert page.get_attribute("#source-edit-status", "role") == "status"
+    assert page.get_attribute("#source-edit-status", "aria-live") == "polite"
     assert not page.is_visible("#source-edit-save"), "a control is drawn before its source"
     _focus_settles_on(page, "source-edit-back")
     page.wait_for_selector("#source-edit-status", state="hidden")
@@ -2189,6 +2193,57 @@ def test_a_late_source_list_does_not_redraw_an_editor_he_already_opened(open_pan
     assert page.evaluate("() => document.activeElement?.id") == "source-edit-name"
 
 
+def test_a_late_source_list_does_not_open_the_source_he_pressed_first(open_panel):
+    """He presses Source settings on one card, goes back to Data and presses another while
+    the first read is still out. The first answer must not open the first source: he would
+    be shown, and could erase, a source he had moved away from."""
+    page = open_panel(view="data")
+    page.wait_for_selector('.dataset-card[data-open="LONG_AR"]')
+    page.evaluate("() => { ROUTE_DELAYS['/api/sources'] = 1500; }")
+
+    _press_a_card_entry(page, "SHORT", "settings")
+    page.wait_for_selector("#view-source-edit", state="visible")
+    page.click(DATA_TAB)
+    _press_a_card_entry(page, "LONG_AR", "settings")
+    page.wait_for_selector("#source-edit-status", state="hidden", timeout=5_000)
+
+    assert page.input_value("#source-edit-key") == "LONG_AR"
+
+
+def test_a_list_landing_on_the_loading_editor_leaves_the_focus_he_moved(open_panel):
+    """The press shows the editor and puts focus on Back; when the list lands, the source
+    is drawn in place. Entering the view again would close a menu he opened while it
+    loaded and pull his focus back to Back."""
+    page = open_panel(view="data")
+    page.wait_for_selector('.dataset-card[data-open="SHORT"]')
+    page.evaluate("() => { ROUTE_DELAYS['/api/sources'] = 1500; }")
+
+    _press_a_card_entry(page, "SHORT", "settings")
+    _focus_settles_on(page, "source-edit-back")
+    page.focus("#view-source-edit")
+    page.wait_for_selector("#source-edit-status", state="hidden")
+    page.wait_for_timeout(300)   # a frame for any focus move the drawing queued
+
+    assert page.input_value("#source-edit-key") == "SHORT"
+    assert page.evaluate("() => document.activeElement?.id") == "view-source-edit"
+
+
+def test_a_late_failure_leaves_the_focus_he_moved(open_panel):
+    """The same for a read that fails: the refusal is written into the card he is already
+    looking at, without entering the view again."""
+    page = open_panel(view="data")
+    page.wait_for_selector('.dataset-card[data-open="SHORT"]')
+    page.evaluate("() => { FAIL.push('/api/sources'); ROUTE_DELAYS['/api/sources'] = 1500; }")
+
+    _press_a_card_entry(page, "SHORT", "settings")
+    _focus_settles_on(page, "source-edit-back")
+    page.focus("#view-source-edit")
+    _editor_status(page)
+    page.wait_for_timeout(300)   # a frame for any focus move the refusal queued
+
+    assert page.evaluate("() => document.activeElement?.id") == "view-source-edit"
+
+
 def test_source_settings_when_the_engine_list_cannot_be_read_says_so(open_panel):
     """The list is read at the press, and a read that fails is said in the editor, with what
     to do -- not a silent nothing, and not a claim that the source is gone. Drawn as the
@@ -2224,6 +2279,7 @@ def test_source_settings_for_a_source_the_engine_no_longer_lists_says_so(open_pa
     assert _editor_status(page) == (
         "The engine no longer lists SHORT, so it has no settings to show.")
     assert page.locator("#source-edit-status.warn").count() == 0, "a fact, not a refusal"
+    assert page.locator("#source-edit-status .muted").count() == 1, "said plainly"
     assert not page.is_visible("#source-edit-save")
 
 
@@ -2242,6 +2298,25 @@ def test_a_failed_open_leaves_nothing_behind_for_the_next_editor(open_panel):
 
     assert page.is_hidden("#source-edit-status")
     assert page.is_visible("#source-edit-save")
+
+
+def test_a_loader_after_a_refusal_is_not_drawn_as_one(open_panel):
+    """A refused read, then he presses again: the loader is a plain card, not the refusal's
+    warning card carried over into it."""
+    page = open_panel(view="data")
+    page.wait_for_selector('.dataset-card[data-open="SHORT"]')
+    page.evaluate("() => FAIL.push('/api/sources')")
+    _press_a_card_entry(page, "SHORT", "settings")
+    _editor_status(page)
+    assert page.locator("#source-edit-status.warn").count() == 1
+
+    page.evaluate("() => { FAIL.length = 0; ROUTE_DELAYS['/api/sources'] = 1500; }")
+    page.click(DATA_TAB)
+    _press_a_card_entry(page, "SHORT", "settings")
+    page.wait_for_selector("#source-edit-status .skeleton")
+
+    assert page.locator("#source-edit-status.warn").count() == 0, (
+        "the loader is drawn in the refusal's warning card")
 
 
 def test_recent_changes_on_a_data_card_opens_that_sources_changes_page(open_panel):
@@ -2299,6 +2374,27 @@ def test_a_failed_read_for_the_editor_leaves_run_alone_too(open_panel):
 
     assert page.evaluate("() => document.activeElement?.dataset?.key") == "SHORT"
     assert "Couldn't reach the engine" not in text_of(page, "#sites")
+
+
+def test_the_editors_read_redraws_run_when_he_is_not_on_it(open_panel):
+    """The rule's other half: a read that lands while he is NOT on Run does redraw Run's
+    cards. Run's own read is spent for the session, so without it Run would go on showing a
+    source the engine no longer lists."""
+    page = open_panel(view="run")
+    page.wait_for_selector('#sites input[data-key="LONG_AR"]')
+    page.click(DATA_TAB)
+    page.wait_for_selector('.dataset-card[data-open="SHORT"]')
+    page.evaluate("""() => {
+        ROUTES['/api/sources'].sources = ROUTES['/api/sources'].sources
+            .filter((s) => s.source_key !== 'LONG_AR');
+    }""")
+
+    _press_a_card_entry(page, "SHORT", "settings")
+    page.wait_for_selector("#source-edit-status", state="hidden")
+    page.click(RUN_TAB)
+    page.wait_for_selector("#view-run", state="visible")
+
+    assert page.locator('#sites input[data-key="LONG_AR"]').count() == 0
 
 
 # Reads the topmost element at a point, and reports enough to diagnose a failure

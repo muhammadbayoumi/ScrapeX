@@ -6956,12 +6956,15 @@ async function runSourceAction(action, key, siteKey = "", resumeRef = "") {
         + "engine</strong><p>Check that it's running, then open Source settings again.</p>"
         + "</div>", true);
     }
-    if (!state.sources.some((source) => source.source_key === key)) {
+    const source = state.sources.find((item) => item.source_key === key);
+    if (!source) {
       // Said plainly, as Studio says a worker does not exist (WorkerDetail.tsx:74-84).
       return sourceEditorPending(key, `<span class="muted">The engine no longer lists `
         + `${esc(key)}, so it has no settings to show.</span>`);
     }
-    return openSourceEditor(key);
+    // DRAWN IN PLACE: the press already showed the editor and put focus on Back, so a
+    // menu he opened or focus he moved while it loaded stays where he left it.
+    return renderSourceEditor(source);
   }
   if (action === "update") {
     // THE SITE KEY WHERE THERE IS ONE, and the card's own key otherwise. A price card's
