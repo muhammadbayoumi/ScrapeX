@@ -252,12 +252,35 @@ def _tvtc() -> Directory:
     )
 
 
+def _tvtc_plans() -> Directory:
+    # Imported inside the function for `_muqawil`'s reason.
+    from .extract.tvtc_plans import DATASET_KEY, IDENTITY_FIELD, bilingual_listing_candidate
+    from .sites.tvtc import BASE_URL, PLANS_SITE_KEY, TvtcPlansPartition, locale_in_query
+
+    # THE SAME REGISTER'S SECOND LISTING, and so its own directory: a `Directory` reads one
+    # listing into one dataset. Same host, so the same `base_url`; `register_site` keys on
+    # the source key, and two keys on one host conflict on nothing. Off, for `_tvtc`'s
+    # reason; nothing schedules a directory yet (`webui/app.py`).
+    return Directory(
+        key=PLANS_SITE_KEY,
+        display_name="TVTC licensed training plans",
+        base_url=BASE_URL,
+        dataset_key=DATASET_KEY,
+        identity_field=IDENTITY_FIELD,
+        candidate=bilingual_listing_candidate,
+        locale_pairing=locale_in_query,
+        partition_factory=TvtcPlansPartition,
+        active=False,
+    )
+
+
 #: Every directory this build can crawl. Keyed by `site_key`, because that is what
 #: the warehouse joins on and what the crawl's scope lookup uses.
 BUILDERS: dict[str, Callable[[], Directory]] = {
     "muqawil_org": _muqawil,
     "oman_tenderboard": _oman_tenderboard,
     "tvtc_establishments": _tvtc,
+    "tvtc_training_plans": _tvtc_plans,
 }
 
 #: THE DEFAULT IS STILL MUQAWIL, AND STAYS SO. It exists to keep every command line that

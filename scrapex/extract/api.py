@@ -20,7 +20,7 @@ from .models import (
     CandidateNotApprovable,
     ExtractionConflict,
     ExtractionNotFound,
-    SnapshotCreate,
+    SavedPageCreate,
 )
 
 ReadConnection = Callable[[], sqlite3.Connection]
@@ -90,7 +90,7 @@ def create_extraction_router(
     @router.post(
         "/api/general/extract/snapshots", status_code=status.HTTP_201_CREATED
     )
-    def create_snapshot(request: SnapshotCreate):
+    def create_snapshot(request: SavedPageCreate):
         return write(lambda conn: service.save_snapshot(conn, request))
 
     @router.get("/api/general/extract/snapshots/{snapshot_id}/candidates")
