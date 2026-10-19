@@ -1,4 +1,4 @@
-"""TVTC's training plans: the second listing, its 77 declared columns, and a real approval.
+"""TVTC's training plans: the second listing, its 87 declared columns, and a real approval.
 
 No network. The fixtures are page 1 of `plans?limit=20` captured 2026-10-18 in both
 languages (`#1716`), with every person's name, ID, mobile and e-mail inside the nested
@@ -112,7 +112,7 @@ def test_the_entry_carries_its_facts_and_ships_off():
 def test_the_columns_are_the_declared_list_in_its_declared_order():
     candidate = _candidate()
     assert [f.field_key for f in candidate.fields] == list(FIELDS)
-    assert len(FIELDS) == 77 == len(set(FIELDS))
+    assert len(FIELDS) == 87 == len(set(FIELDS))
     assert FIELDS[:3] == ("establishment_plan_id", "establishment_id", "plan_id")
     assert FIELDS[-1] == "unknown_keys"
 
@@ -188,6 +188,17 @@ PATHS: dict[str, tuple[str, tuple[str, ...]]] = {
     "establishment_plan_status": ("ar", TP + ("establishment_training_plan", "status")),
     "frozen_at": ("ar", TP + ("establishment_training_plan", "frozen_at")),
     "plan_updated_at": ("ar", TP + ("establishment_training_plan", "updated_at")),
+    # His rulings on #1749: the activation's own ids, and the seven fields the census found.
+    "establishment_training_plan_id": ("ar", TP + ("establishment_training_plan", "id")),
+    "activation_establishment_id": ("ar", TP + ("establishment_training_plan",
+                                                "establishment_id")),
+    "activation_created_at": ("ar", TP + ("establishment_training_plan", "created_at")),
+    "activation_program_classification": ("ar", TP + ("establishment_training_plan",
+                                                      "program_classification")),
+    "cooperative_approved_units": ("ar", TP + ("cooperative_hours", "number_approved_units")),
+    "program_audience": ("ar", PROGRAM + ("audience",)),
+    "parent_plan_id": ("ar", TP + ("id_training_plan_parent",)),
+    "parent_plan": ("ar", TP + ("trainingPlanParent",)),
     **{name: ("ar", TP + (name,)) for name in (
         "enabled", "is_draft", "accreditation_status", "version_code",
         "training_plan_code", "request_id", "language", "parent_id",
@@ -198,7 +209,7 @@ PATHS: dict[str, tuple[str, tuple[str, ...]]] = {
         "hours_in_class", "total_lecture_hours", "total_practical_hours",
         "total_contact_hours", "calendar_type", "cooperative_semester_exists",
         "trainee_age", "number_of_trainers", "number_of_supervisors", "capacity",
-        "accessibility_certificate_no")},
+        "accessibility_certificate_no", "semester_duration", "total_exercise_hours")},
 }
 
 
@@ -303,8 +314,8 @@ def test_cooperative_hours_as_an_object_is_read():
 @pytest.mark.parametrize("change, said", [
     (lambda r: r["training_plan"].pop("total_credits"), "training_plan.total_credits is missing"),
     (lambda r: r["training_plan"].update(training_program=[{"id": 1}]),
-     "training_plan.training_program is a list"),
-    (lambda r: r.update(establishment=[{"id": 1}, {"id": 2}]), "establishment is a list"),
+     "training_plan.training_program is [{'id': 1}], but every plan row carries it"),
+    (lambda r: r.update(establishment=[{"id": 1}, {"id": 2}]), "establishment is [{'id': 1}"),
     (lambda r: r.pop("status"), "status is missing"),
 ])
 def test_a_row_whose_shape_changed_refuses_the_page_by_name(change, said):
@@ -440,3 +451,102 @@ def test_the_plans_listing_is_proven_complete_through_the_real_crawl(tmp_path):
     assert outcome.cells[0].provably_complete and outcome.deficit == 0
     assert set(outcome.ids) == {"1", "2", "3", "4", "5"}
     assert asked and all(f"{PLANS_PATH}?" in url for url in asked)
+
+
+# --- the objects every row carries are required (#1749's review) -------------------------
+
+REQUIRED = [("establishment",), ("status",), ("training_plan",),
+            ("training_plan", "training_program"),
+            ("training_plan", "training_program", "program_type"),
+            ("training_plan", "training_program", "specialization"),
+            ("training_plan", "modality"), ("training_plan", "product")]
+
+
+def _set(row: dict, path: tuple[str, ...], value) -> None:
+    for key in path[:-1]:
+        row = row[key]
+    row[path[-1]] = value
+
+
+@pytest.mark.parametrize("path", REQUIRED, ids=".".join)
+@pytest.mark.parametrize("empty", [None, [], {}], ids=["null", "empty-list", "empty-dict"])
+@pytest.mark.parametrize("view", ["ar", "en"])
+def test_an_object_every_row_carries_arriving_empty_refuses_the_page(path, empty, view):
+    """Measured: each is an object on 41,694 of 41,694 rows; empty, the row would be NULLs
+    with no join key, approvable and silent."""
+    english, arabic = _doc("en"), _doc("ar")
+    _set((arabic if view == "ar" else english)["data"][0], path, empty)
+    # Named either by the required-object check or, for the objects the language check
+    # reads first (`status`, `training_plan.modality`), by `_at` on the way in.
+    with pytest.raises(RowShapeError, match=re.escape(".".join(path))):
+        bilingual_listing_candidate(json.dumps(english), json.dumps(arabic))
+
+
+@pytest.mark.parametrize("path, absent", [
+    (("training_plan", "training_program", "domain"), None),          # null on 56 rows
+    (("training_plan", "establishment_training_plan"), None),          # null on 36,622
+    (("training_plan", "cooperative_hours"), []),                      # [] on 39,819
+])
+def test_an_object_measured_as_sometimes_absent_still_reads_as_empty(path, absent):
+    english, arabic = _doc("en"), _doc("ar")
+    for doc in (english, arabic):
+        _set(doc["data"][0], path, absent)
+    assert bilingual_listing_candidate(json.dumps(english), json.dumps(arabic)).approvable
+
+
+# --- the activation can belong to another establishment (his ruling on #1749) ----------
+
+def test_an_activation_of_another_establishment_is_stored_with_its_own_ids():
+    """59 census rows: the two ids stored beside the row's make the mismatch a comparison."""
+    english, arabic = _doc("en"), _doc("ar")
+    for doc in (english, arabic):
+        doc["data"][0]["training_plan"]["establishment_training_plan"] = {
+            "id": 777, "training_plan_id": doc["data"][0]["training_plan"]["id"],
+            "is_active_online": "ACTIVE", "is_active_in_class": "ACTIVE",
+            "is_active_hybrid": "PENDING", "establishment_id": 4242,
+            "program_classification": None, "status": "ACTIVE", "frozen_at": None,
+            "frozen_expired_at": None, "created_at": "2026-01-29 18:25:11",
+            "updated_at": "2026-07-20 10:27:56"}
+    row = bilingual_listing_candidate(json.dumps(english), json.dumps(arabic)).rows[0]
+    assert row["establishment_training_plan_id"] == "777"
+    assert row["activation_establishment_id"] == "4242" != row["establishment_id"]
+    assert row["is_active_online"] == "ACTIVE"
+    assert row["activation_created_at"] == "2026-01-29 18:25:11"
+
+
+# --- unknown keys: which view, and stored order (#1749's review) ------------------------
+
+def test_a_plan_key_only_the_arabic_view_carries_is_kept_and_arabic_wins():
+    english, arabic = _doc("en"), _doc("ar")
+    for row in arabic["data"]:
+        row["training_plan"].update(arabic_only="ar", both="ar")
+    for row in english["data"]:
+        row["training_plan"]["both"] = "en"
+    candidate = bilingual_listing_candidate(json.dumps(english), json.dumps(arabic))
+    assert json.loads(candidate.rows[0]["unknown_keys"]) == {
+        "training_plan.arabic_only": "ar", "training_plan.both": "ar"}
+
+
+def test_a_top_level_key_only_the_english_view_carries_is_kept():
+    english, arabic = _doc("en"), _doc("ar")
+    for row in english["data"]:
+        row["englishTop"] = "en"
+    candidate = bilingual_listing_candidate(json.dumps(english), json.dumps(arabic))
+    assert json.loads(candidate.rows[0]["unknown_keys"]) == {"englishTop": "en"}
+
+
+def test_the_stored_unknown_keys_text_is_sorted_so_every_crawl_writes_the_same():
+    """`json.loads` hides key order; the stored TEXT is what a revision compares."""
+    english, arabic = _doc("en"), _doc("ar")
+    for doc in (english, arabic):
+        for row in doc["data"]:
+            row.update(zTop=1, aTop=2)
+            row["training_plan"]["m"] = 3
+    row = bilingual_listing_candidate(json.dumps(english), json.dumps(arabic)).rows[0]
+    assert row["unknown_keys"] == '{"aTop":2,"training_plan.m":3,"zTop":1}'
+
+
+def test_the_language_refusal_names_the_paths_it_read():
+    with pytest.raises(LanguagesDisagree, match=re.escape("status.label or "
+                                                          "training_plan.modality.name")):
+        bilingual_listing_candidate(_raw("en"), _raw("en"))

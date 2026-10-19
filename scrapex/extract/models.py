@@ -19,7 +19,7 @@ from ..catalog_models import CatalogKey, FieldType
 #: the full 84-page crawl (`#1716` step 2), so 16 MB left a 1.46x margin, and a page past the
 #: cap is not stored while its ids still count as read. 32 MB is that page with a 2.9x
 #: margin (his choice over a smaller page size). The body is zstd-compressed at rest
-#: (`snapshotbody.py`, 33x on these pages), so the cost is transfer, not warehouse. A body
+#: (`snapshotbody.py`, 31x over the 84 plans pages), so the cost is transfer, not warehouse. A body
 #: over it is refused by name, never truncated (`service.save_snapshot`).
 MAX_STORED_BODY_BYTES = 32_000_000
 
@@ -72,6 +72,18 @@ class SavedPageCreate(SnapshotCreate):
     crawl's `MAX_STORED_BODY_BYTES`. The body model of the save-a-page route only."""
 
     html_content: str = Field(min_length=1, max_length=MAX_HTML_BYTES)
+
+    @field_validator("html_content")
+    @classmethod
+    def _within_the_byte_limit(cls, value: str) -> str:
+        """BYTES, NOT CHARACTERS. `max_length` counts code points, so a 2M-character Arabic
+        page -- about 4 MB as UTF-8 -- passed it (#1749's review, through the real route)."""
+        size = len(value.encode("utf-8"))
+        if size > MAX_HTML_BYTES:
+            raise ValueError(
+                f"the saved page is {size:,} bytes; a page saved by hand may be at most "
+                f"{MAX_HTML_BYTES:,}")
+        return value
 
 
 class ApprovalField(BaseModel):

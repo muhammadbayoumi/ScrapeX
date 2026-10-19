@@ -421,3 +421,45 @@ def test_the_stored_pages_of_both_locales_meet_in_pairs(tmp_path):
         conn.close()
     assert len(pairs) == 2
     assert all(set(halves) == {"en", "ar"} for halves in pairs.values())
+
+
+def test_the_stored_body_limit_is_counted_in_bytes_not_characters(tmp_path):
+    """#1749's review: under the character limit, over it in UTF-8 -- refused by name."""
+    from scrapex import db as dbmod
+    from scrapex.extract.models import (
+        MAX_STORED_BODY_BYTES,
+        CandidateNotApprovable,
+        SnapshotCreate,
+    )
+    from scrapex.extract.service import save_snapshot
+    body = "ب" * (MAX_STORED_BODY_BYTES // 2 + 1)
+    assert len(body) <= MAX_STORED_BODY_BYTES < len(body.encode("utf-8"))
+    conn = dbmod.connect(tmp_path / "engine.db")
+    try:
+        dbmod.migrate(conn)
+        with pytest.raises(CandidateNotApprovable, match="exceeds"):
+            save_snapshot(conn, SnapshotCreate(source_url=listing_url(page=1),
+                                               html_content=body))
+    finally:
+        conn.close()
+
+
+def test_a_multibyte_page_saved_by_hand_is_held_to_two_megabytes_of_bytes(tmp_path):
+    """Through the real route: 1M Arabic characters are ~2 MB of characters and ~4 MB of
+    UTF-8 -- it was a 201 while the limit counted characters."""
+    pytest.importorskip("fastapi")
+    from fastapi.testclient import TestClient
+
+    from scrapex.databases import DatabaseRegistry, EngineDatabase
+    from scrapex.extract.models import MAX_HTML_BYTES
+    from scrapex.webui.app import create_app
+    body = "<p>" + "ب" * (MAX_HTML_BYTES // 2) + "</p>"
+    assert len(body) <= MAX_HTML_BYTES < len(body.encode("utf-8"))
+    registry = DatabaseRegistry(EngineDatabase(tmp_path / "scrapex-engine.db"),
+                                pointer_file=tmp_path / "databases.json")
+    registry.initialize()
+    with TestClient(create_app(databases=registry)) as client:
+        refused = client.post("/api/general/extract/snapshots", json={
+            "source_url": "https://example.test/arabic", "html_content": body})
+    assert refused.status_code == 422, refused.text[:200]
+    assert "at most 2,000,000" in refused.text

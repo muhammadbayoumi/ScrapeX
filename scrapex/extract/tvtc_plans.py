@@ -7,13 +7,30 @@ the site sent it (`_text`), the two views joined on `id` in published order and 
 unless they are two languages (`_pairs`) -- because they are one register's one shape and
 would change together.
 
-WHAT THE TWO VIEWS ADD TO EACH OTHER, MEASURED on 20 rows of both views (`#1716`): the
-English view changes `status.label`, `training_plan.classification_status` and
-`training_plan.modality.name`, so those three get an `_en` twin. Programme, type, domain
-and specialization names are bilingual inside one response (`name_ar`/`name_en`) and are
-read from the Arabic view. The English `classification_status` is the site's own
-untranslated key -- `training_plans.program_classification.not_classified` -- and is
-stored as it came, because it is what the site says.
+WHAT THE TWO VIEWS ADD TO EACH OTHER, MEASURED over the census of 41,694 rows (#1749's
+review): the English view changes `status.label`, `training_plan.classification_status` and
+`training_plan.modality.name`, so those three get an `_en` twin. It also changes
+`program_type.name` (read instead from `name_ar`/`name_en`, which both views carry) and two
+`status_value` labels this module does not store. The English `classification_status` is
+the site's own untranslated key -- `training_plans.program_classification.not_classified`.
+
+THE `_en` NAME FIELDS ARE STORED AS THE SITE SENDS THEM, AND THE SITE OFTEN SENDS ARABIC IN
+THEM: `training_program.name_en` carries Arabic script on 28,318 of 41,689 filled rows and
+equals `name` on 29,764; `domain.name_en` on 3,809 and `specialization.name_en` on 603.
+`program_en` is therefore not an English name on most rows -- it is what the site put in
+its English field. `training_program` has no `name_ar`; `program_ar` is its `name`.
+
+THE OBJECTS EVERY ROW CARRIES ARE REQUIRED (`REQUIRED_OBJECTS`). `_at` reads `None` and `[]`
+as an absent object, which is right for `domain` (null on 56 rows), the activation
+(`establishment_training_plan`, null on 36,622) and `cooperative_hours` (`[]` on 39,819) --
+but `establishment`, `status`, `training_plan` and five more are objects on 41,694 of 41,694
+rows, and one arriving empty would be a mostly-NULL row whose join key is gone. So it
+refuses the page by name instead.
+
+THE ACTIVATION CAN BELONG TO ANOTHER ESTABLISHMENT, AND THAT IS STORED, NOT HIDDEN (his
+ruling on #1749): on 59 of the 5,072 rows that carry one, its `establishment_id` is not the
+row's. `establishment_training_plan_id` and `activation_establishment_id` are kept beside
+the activation columns, so the mismatch is visible as a comparison of two columns.
 
 WHAT IS DELIBERATELY NOT STORED:
 
@@ -22,13 +39,12 @@ WHAT IS DELIBERATELY NOT STORED:
   * `establishment.license` -- it belongs to the establishment, not to the plan (24 of 24
     establishments on a 1,000-row page carried one licence however many plans), and
     `#1716` step 3 moves it to the establishments table.
-  * `training_program.audience/description/objective/enrollment_requirements/
-    minimum_trainee_age`, `domain.saudi_major_codes`, `training_plan.trainingPlanParent`,
-    `show_export_pdf`, `can_edit_professional_certificate`, `class_type`,
-    `semester_duration`, `total_exercise_hours`, `id_training_plan_parent`,
-    `accessibility_certificate_end_date` -- null on 1,000 of 1,000 measured rows, or UI
-    switches. They are KNOWN keys, so a value appearing in them is not news; the
-    approved plan (`#1716`) left them out.
+  * `training_program.description/objective/enrollment_requirements/minimum_trainee_age`,
+    `domain.saudi_major_codes`, `show_export_pdf`, `can_edit_professional_certificate`,
+    `class_type`, `accessibility_certificate_end_date` -- null on 41,694 of 41,694 rows, or
+    UI switches. The seven the census found filled (`audience`, `semester_duration`,
+    `total_exercise_hours`, the parent plan, `number_approved_units`, the activation's
+    `created_at` and `program_classification`) are columns, by his ruling on #1749.
 
 `product.price` IS STORED AS THE SITE STATES IT and is not rendered on the site; what it
 is the price of is unproved (`#1716` §6), so it is a number named what the site names it.
@@ -42,7 +58,7 @@ from collections.abc import Callable
 from typing import Any
 
 from ..extract.html_table import InferredField, TableCandidate
-from .tvtc import _at, _pairs, _text, _uniqueness
+from .tvtc import RowShapeError, _ar, _at, _en, _pairs, _text, _uniqueness
 
 DATASET_KEY = "tvtc_training_plans"
 DATASET_NAME = "TVTC licensed training plans"
@@ -58,14 +74,20 @@ LANGUAGE_PATHS: tuple[tuple[str, ...], ...] = (
 Getter = Callable[[dict[str, Any], dict[str, Any]], Any]
 TP = "training_plan"
 PROGRAM = (TP, "training_program")
+ACTIVATION = (TP, "establishment_training_plan")
+
+#: Objects on 41,694 of 41,694 census rows in both views; see the module docstring.
+REQUIRED_OBJECTS: tuple[tuple[str, ...], ...] = (
+    ("establishment",), ("status",), (TP,), PROGRAM, (*PROGRAM, "program_type"),
+    (*PROGRAM, "specialization"), (TP, "modality"), (TP, "product"))
 
 
-def _ar(*path: str) -> Getter:
-    return lambda arabic, english: _at(arabic, *path)
-
-
-def _en(*path: str) -> Getter:
-    return lambda arabic, english: _at(english, *path)
+def _assert_required_objects(row: dict[str, Any]) -> None:
+    for path in REQUIRED_OBJECTS:
+        value = _at(row, *path)
+        if not isinstance(value, dict) or not value:
+            raise RowShapeError(
+                f"{'.'.join(path)} is {value!r}, but every plan row carries it as an object")
 
 
 #: DECLARED AND ORDERED: the plan `#1716` approved, with the three measured `_en` twins.
@@ -87,6 +109,9 @@ COLUMNS: tuple[tuple[str, Getter], ...] = (
     ("request_id", _ar(TP, "request_id")),
     ("language", _ar(TP, "language")),
     ("parent_id", _ar(TP, "parent_id")),
+    ("parent_plan_id", _ar(TP, "id_training_plan_parent")),
+    # An object on 6 of 41,694 rows, as JSON text: what the site says the parent is.
+    ("parent_plan", _ar(TP, "trainingPlanParent")),
     ("target_group_id", _ar(TP, "training_plan_target_group_id")),
     ("program_id", _ar(*PROGRAM, "id")),
     ("program_ar", _ar(*PROGRAM, "name")),
@@ -115,18 +140,21 @@ COLUMNS: tuple[tuple[str, Getter], ...] = (
     ("is_professional_certificate", _ar(TP, "is_professional_certificate")),
     ("program_description", _ar(TP, "program_description")),
     ("program_main_objective", _ar(TP, "program_main_objective")),
+    ("program_audience", _ar(*PROGRAM, "audience")),
     ("total_hours", _ar(TP, "total_hours")),
     ("total_credits", _ar(TP, "total_credits")),
     ("total_days", _ar(TP, "total_days")),
     ("days", _ar(TP, "days")),
     ("months", _ar(TP, "months")),
     ("semesters", _ar(TP, "semesters")),
+    ("semester_duration", _ar(TP, "semester_duration")),
     ("hours_per_day", _ar(TP, "number_of_trainingHours_day")),
     ("hours_in_class", _ar(TP, "hours_in_class")),
     ("hours_online_sync", _ar(TP, "hours_online_synchronize")),
     ("hours_online_async", _ar(TP, "hours_online_non_synchronize")),
     ("total_lecture_hours", _ar(TP, "total_lecture_hours")),
     ("total_practical_hours", _ar(TP, "total_practical_hours")),
+    ("total_exercise_hours", _ar(TP, "total_exercise_hours")),
     ("total_contact_hours", _ar(TP, "total_contact_hours")),
     ("calendar_type", _ar(TP, "calendar_type")),
     ("cooperative_semester_exists", _ar(TP, "cooperative_semester_exists")),
@@ -134,6 +162,7 @@ COLUMNS: tuple[tuple[str, Getter], ...] = (
     # reads the `[]` as an absent object.
     ("cooperative_call_hours", _ar(TP, "cooperative_hours", "number_call_hours")),
     ("cooperative_weeks", _ar(TP, "cooperative_hours", "number_weeks")),
+    ("cooperative_approved_units", _ar(TP, "cooperative_hours", "number_approved_units")),
     ("trainee_age", _ar(TP, "trainee_age")),
     ("number_of_trainers", _ar(TP, "number_of_trainers")),
     ("number_of_supervisors", _ar(TP, "number_of_supervisors")),
@@ -141,12 +170,18 @@ COLUMNS: tuple[tuple[str, Getter], ...] = (
     ("product_id", _ar(TP, "product", "id")),
     ("product_name", _ar(TP, "product", "name")),
     ("product_price", _ar(TP, "product", "price")),
+    # WHOSE ACTIVATION THIS IS: its own id and establishment, beside the row's -- they
+    # differ on 59 rows (see the module docstring).
+    ("establishment_training_plan_id", _ar(*ACTIVATION, "id")),
+    ("activation_establishment_id", _ar(*ACTIVATION, "establishment_id")),
     ("is_active_online", _ar(TP, "establishment_training_plan", "is_active_online")),
     ("is_active_in_class", _ar(TP, "establishment_training_plan", "is_active_in_class")),
     ("is_active_hybrid", _ar(TP, "establishment_training_plan", "is_active_hybrid")),
     ("establishment_plan_status", _ar(TP, "establishment_training_plan", "status")),
     ("frozen_at", _ar(TP, "establishment_training_plan", "frozen_at")),
     ("plan_updated_at", _ar(TP, "establishment_training_plan", "updated_at")),
+    ("activation_created_at", _ar(*ACTIVATION, "created_at")),
+    ("activation_program_classification", _ar(*ACTIVATION, "program_classification")),
     ("accessibility_certificate_no", _ar(TP, "accessibility_certificate_no")),
     # LAST, so a key the register adds never moves a declared column.
     ("unknown_keys", lambda arabic, english: None),
@@ -194,6 +229,8 @@ def bilingual_listing_candidate(english_body: str, arabic_body: str, *,
     rows = []
     extra: set[str] = set()
     for arabic, english in _pairs(english_body, arabic_body, language_paths=LANGUAGE_PATHS):
+        _assert_required_objects(arabic)
+        _assert_required_objects(english)
         row = {name: _text(read(arabic, english)) for name, read in COLUMNS}
         unknown = _unknown(arabic, english)
         row["unknown_keys"] = _text(unknown)
