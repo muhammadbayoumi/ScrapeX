@@ -1,4 +1,4 @@
-"""DRAFT TOOL, NOT FOR MERGE: the tender control's mock-up (milestone 51, part 2), twelfth draft.
+"""DRAFT TOOL, NOT FOR MERGE: the tender control's mock-up (milestone 51, part 2), thirteenth draft.
 
 It renders the panel through tools/panel_harness.py with the part 3b engine stubbed as the
 study's contract describes it. The study, its reference sheet and the review rounds are on
@@ -135,6 +135,9 @@ LONGEST = job("running", stage=f"reading {LONGEST_NAME}",
               requests=1 + sum(pages[:LONGEST_AT]), expected=EXPECTED, done=LONGEST_AT,
               total=AREAS, notices=sum(v["count"] for v in areas[:LONGEST_AT]))
 STARTING = job("running", stage="counting notices")
+# THE JOB A CONFIRMED PRESS STARTS, drawn a second after the press (03b).
+STARTED_AT_PRESS = job("running", stage="counting notices",
+                       started=iso(NOW - timedelta(seconds=1)))
 PAUSED = job("paused", stage=f"reading {CURRENT}", requests=DONE_REQUESTS,
              expected=EXPECTED, done=DONE, total=AREAS, notices=DONE_NOTICES)
 # A TENDER CRAWL QUEUED BEHIND A PRICE CRAWL: the adopted job is the price crawl, which
@@ -333,7 +336,7 @@ STATES = {
                                 (8, "#confirm-facts"), (9, "#confirm-keep")]),
     "03b-after-confirming": (dict(sources=SOURCES),
                              [click("#tab-run"), TICK_WB,
-                              engine_jobs(cost=COST_FIRST, started=STARTING),
+                              engine_jobs(cost=COST_FIRST, started=STARTED_AT_PRESS),
                               click("#run"), wait(250), click("#confirm-go"), wait(900),
                               scroll("#activity")],
                              [(17, "#act-state"), (18, "#act-progress-label")]),
