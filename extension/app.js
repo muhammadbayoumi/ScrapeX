@@ -108,9 +108,8 @@ const state = {
   // dataset or directory card's SITE key -- `contractors` is muqawil_org's dataset,
   // and his choices are about the site. `sourceRules` is GET /rules' last answer.
   editingRulesKey: null, sourceRules: null,
-  // GET /api/schedules by source key, for the schedule labels (#1596), and the load
-  // the Schedules page is drawn by, which opening one of its rows waits for.
-  schedules: null, schedulesLoad: null,
+  // GET /api/schedules by source key, for the schedule labels (#1596).
+  schedules: null,
   job: null, jobRef: null, logs: [], logSignature: null, logAtBottom: true,
   // A Start press the engine has not answered yet (`startRun`).
   starting: false,
@@ -387,7 +386,6 @@ function showView(name, animate = true) {
   if (name === "finance") loadGoogleFinance();
   if (name === "settings") {
     ensureTimeZoneControl();
-    state.schedulesLoad = loadSchedules();
     loadStorage();
     // THE OUTPUTS LIST LIVES ON THIS SCREEN AND WAS LOADED FROM THE OTHER ONE.
     // `loadOutputs` had exactly one caller — loadRunDestination — which returns
@@ -624,7 +622,12 @@ function renderIssueInto(box, error) {
       : "") + `</div>`;
   box.classList.remove("hidden");
   const action = box.querySelector("[data-runtime-upgrade]");
-  if (action) action.addEventListener("click", upgradeDatabaseFromPanel);
+  if (action) {
+    action.addEventListener("click", upgradeDatabaseFromPanel);
+    // A card redrawn while an upgrade runs (by a Start) must not offer a press
+    // the one-at-a-time guard would swallow without a word.
+    action.disabled = upgradeRunning;
+  }
 }
 
 function setRuntimeIssue(error) {
@@ -1953,7 +1956,6 @@ function renderSourceEditor(source) {
   $("source-edit-url").value = source.base_url || "";
   $("source-edit-key").value = source.source_key || "";
   $("source-edit-currency").value = source.currency || "";
-  if ($("source-edit-cadence")) $("source-edit-cadence").value = source.cadence || "manual";
   if ($("source-edit-vat")) $("source-edit-vat").value = source.vat_mode || "incl";
   out("source-edit-rename-result", "");
   out("source-edit-danger-result", "");
@@ -2327,7 +2329,6 @@ async function saveSourceEditor() {
     source_name_ar: $("source-edit-name-ar").value.trim(),
     base_url: $("source-edit-url").value.trim(),
     currency: $("source-edit-currency").value.trim(),
-    cadence: $("source-edit-cadence").value,
     vat_mode: $("source-edit-vat").value,
     fold_variants: $("source-edit-fold").checked,
   };
@@ -6232,12 +6233,13 @@ async function pollJobOnce() {
  * added.
  */
 async function redrawWhatTheJobChanged() {
-  const held = state.schedules;
   const read = await loadSources();
-  // loadSources read schedules when it wrote a Map (or null) of its own: neither the one
-  // held before it, nor the page's, which a Remove or the page's own read put there.
-  const readSchedules = state.schedules !== held && state.schedules !== schedulesPage.saved;
-  if (currentViewName() === "schedules") schedulesAfterJobEnd(read, readSchedules);
+  // loadSources read schedules when it wrote a Map (or null) of its own, not the page's:
+  // the page's own reads, and every write it makes (schedulesRunFollows), put that one
+  // there, and nothing else writes state.schedules.
+  if (currentViewName() === "schedules") {
+    schedulesAfterJobEnd(read, state.schedules !== schedulesPage.saved);
+  }
   if (currentViewName() === "data") await loadDatasets();
 }
 
@@ -7338,7 +7340,7 @@ function openDataset(key) {
   openTab("/source/" + key);
 }
 
-// ---- settings --------------------------------------------------------------
+// ---- schedules: the words and rules every surface that names one shares --------
 const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday",
                   "Saturday", "Sunday"];   // 0=Monday, the server's convention
 
@@ -7388,22 +7390,6 @@ function scheduleSummary(source) {
     ? label : label + " · Off";
 }
 
-// SETTINGS' EDITOR, until part 2 of #1631 moves Create and Edit into a sheet on the
-// Schedules page: this source's row expanded and focused, or the editor's first row for
-// a new schedule (`key` null).
-async function openScheduleEditor(key) {
-  showView("settings");
-  $("s-sched").classList.remove("hidden");
-  document.querySelector('[data-sect="s-sched"]').setAttribute("aria-expanded", "true");
-  await state.schedulesLoad;
-  const rows = [...document.querySelectorAll("#schedules .sched-row")];
-  const row = key ? rows.find((item) => item.dataset.sched === key) : rows[0];
-  if (!row) return;
-  if (key) row.open = true;
-  row.querySelector("summary").focus({preventScroll: true});
-  row.scrollIntoView({block: "nearest"});
-}
-
 let toastTimer = null;
 
 // A short confirmation in the corner, gone after Sonner's default 4 s
@@ -7414,80 +7400,6 @@ function showToast(text) {
   toastTimer = setTimeout(() => { $("toast").textContent = ""; }, 4000);
 }
 
-// A Schedules row's schedule line: the one formatter's label (`scheduleLabel`), then
-// whether and when it fires. `runsOn` matters only with the switch.
-function scheduleRowLine(sched, runsOn, switchOn) {
-  const label = scheduleLabel(sched);
-  const paused = sched.schedule_id != null && !sched.enabled;
-  // The next fire, in the display zone and NAMING it (§6.8). Display only: the
-  // scheduler stores the instant in UTC, and the row's Timezone field decides WHEN.
-  const next = label === "Not scheduled" ? ""
-    : switchOn && !runsOn ? "Off"
-    : paused ? "paused"
-    : sched.next_run_at
-      ? "next " + window.ScrapeXTime.markup(sched.next_run_at, "datetime", {zone: true})
-      : "";
-  return esc(label) + (next ? " · " + next : "");
-}
-
-// Ask, then turn this source's scheduled runs on or off with the schedule as saved.
-// The row is updated where it stands, so an edit he has not saved stays in its fields.
-// THE SWITCH'S QUESTION AND WHAT IT SENDS, one copy for both switches that turn a
-// source's scheduled runs on or off: the Schedules page's row and Settings' editor row.
-function askToSwitchScheduledRuns(source, sched, on) {
-  const site = siteName(source);
-  const verb = on ? "Disable" : "Enable";
-  const label = scheduleLabel(sched);
-  return askToConfirm({
-    title: `${verb} scheduled runs`,
-    copy: on
-      ? `Disable scheduled runs for ${site}? Its schedule is kept and stops firing until `
-        + "you enable it. Manual runs still work."
-      : `Enable scheduled runs for ${site}? It runs ${label[0].toLowerCase()}${label.slice(1)} `
-        + "from the next slot.",
-    // Studio's toggle: Disable in the warning tone, Enable primary
-    // (CronJobTableCell.tsx@86c813ec:210-253); his choice B, 2026-10-10 (#1596).
-    keep: "Cancel", go: verb, tone: on ? "warning" : "",
-  });
-}
-
-// The schedule as saved rides along, so the switch changes nothing else about it.
-function scheduleSwitchBody(sched, active) {
-  return {
-    frequency: sched.frequency, run_at: sched.run_at, timezone: sched.timezone,
-    weekday: sched.weekday, run_mode: sched.run_mode,
-    missed_run_policy: sched.missed_run_policy, overlap_policy: "skip", active,
-  };
-}
-
-async function toggleScheduledRuns(source, sched, button, status) {
-  const on = button.getAttribute("aria-checked") === "true";
-  const site = siteName(source);
-  if (!(await askToSwitchScheduledRuns(source, sched, on))) return;
-  button.disabled = true;
-  try {
-    const result = await post("/api/schedules/" + encodeURIComponent(source.source_key),
-      scheduleSwitchBody(sched, !on));
-    Object.assign(sched, result);
-    source.active = result.active;
-    const runsOn = scheduledRunsOn(source, sched);
-    button.setAttribute("aria-checked", String(runsOn));
-    button.closest(".sched-row").querySelector('[data-role="next"]').innerHTML =
-      scheduleRowLine(sched, runsOn, true);
-    showToast(`${result.active ? "Enabled" : "Disabled"} scheduled runs for ${site}`);
-    keepClearOfToast(button.closest(".sched-row"));
-    loadSources();
-  } catch (e) {
-    // SAID WHERE HE IS LOOKING: the row may be shut, and its status line with it.
-    status.textContent = "Couldn't save: " + e.message;
-    showToast(`Couldn't change scheduled runs for ${site}: ${e.message}`);
-  } finally {
-    button.disabled = false;
-    // Disabling it while saving dropped focus to the page; it goes back to the switch.
-    if (document.activeElement === document.body) button.focus({preventScroll: true});
-  }
-}
-
 // The toast must not sit over the row it reports on: scroll that row clear of it.
 function keepClearOfToast(row) {
   const toast = $("toast").getBoundingClientRect();
@@ -7495,180 +7407,6 @@ function keepClearOfToast(row) {
   if (box.bottom > toast.top && box.top < toast.bottom) {
     row.scrollIntoView({block: "center"});
   }
-}
-
-async function loadSchedules() {
-  // An EDITOR, not a list. The API could create schedules since spec 26 and
-  // the panel could only read them — so the section said "No schedules yet"
-  // forever, with no way to change that. One row per implemented site, its
-  // saved schedule merged in, defaults from the source's declared cadence.
-  const wrote = schedulesPage.wrote;
-  try {
-    const [d, src] = await Promise.all([api("/api/schedules"), api("/api/sources")]);
-    $("sched-note").textContent = d.note;
-    const saved = new Map(d.schedules.map((s) => [s.source_key, s]));
-    // A Remove on the Schedules page since this read left is newer than what it holds.
-    if (wrote === schedulesPage.wrote) state.schedules = saved;
-    const switchOn = scheduleSwitchOn();
-    const sites = src.sources.filter((s) => s.implemented);
-    if (!sites.length) {
-      $("schedules").innerHTML = `<span class="muted">No sites yet.</span>`;
-      return;
-    }
-    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-    // WHAT A BUSY SLOT DOES DEPENDS ON THE ENGINE, SO THE LINE ASKS ITS REPORT (#1596).
-    // One that deploys `scheduled_skips` skips and lists it. One KNOWN not to -- its
-    // report lacks the key, or it is too old to report -- still reads the row's stored
-    // policy: `skip` re-arms with no row, `queue` (every row saved before this change)
-    // starts a second run. Nothing known -- no report yet, or Chrome did not say this
-    // extension's version -- says nothing rather than tell him to update an engine.
-    const deployed = deployedFrom(state.versionReport);
-    const engineSkips = Boolean(deployed && deployed.scheduled_skips);
-    const engineIsOlder = engineKnownWithout("scheduled_skips");
-    const skipNote = (sched) => engineSkips
-      ? "If this site's previous run is still going, ScrapeX skips the slot and lists it on the Jobs page."
-      : !engineIsOlder ? ""
-        : sched.overlap_policy === "skip"
-          ? "If this site's previous run is still going, ScrapeX skips the slot. Update the engine to see skipped slots on the Jobs page."
-          : "This engine still starts a second run if this site's previous run is still going. Save this schedule to skip the slot instead, and update the engine to see skipped slots on the Jobs page.";
-    $("schedules").innerHTML = sites.map((s) => {
-      const sched = saved.get(s.source_key) || {};
-      const freq = sched.frequency || "manual";
-      const runAt = sched.run_at || "09:00";
-      const weekday = sched.weekday == null ? 0 : Number(sched.weekday);
-      const paused = sched.schedule_id != null && !sched.enabled;
-      // THE ONE SWITCH (#1596): drawn only on a saved schedule that can fire; off, the
-      // row says "Off" where it said "next …" for a slot that would never run (#1611).
-      const runsOn = scheduledRunsOn(s, sched);
-      const toggle = switchOn && sched.schedule_id != null && freq !== "manual"
-        ? `<button type="button" role="switch" class="switch" data-role="sched-active"
-             aria-checked="${runsOn}" aria-label="Scheduled runs for ${esc(siteName(s))}">
-             <span class="switch-thumb" aria-hidden="true"></span></button>` : "";
-      // The scheduler fires only ACTIVE sources (the Auto switch). A schedule
-      // saved on an inactive one is a real record that will not fire — the
-      // row says so instead of letting the owner wait for nothing.
-      const gate = s.active || switchOn ? "" :
-        `<span class="muted"> — Auto is off for this site, so this will not fire</span>`;
-      // Every knob the schedule model has, one disclosure per site so the
-      // 320px panel is not wallpapered with forms. This section is THE
-      // central control for automation (owner's ruling): nothing about a
-      // schedule is decided anywhere else.
-      return `<details class="sched-row" data-sched="${esc(s.source_key)}">
-        <summary class="row sched-summary">
-          ${sourceIdentity(s, true)}
-          <span class="muted" data-role="next">${scheduleRowLine(sched, runsOn, switchOn)}</span>
-          ${toggle}
-        </summary>
-        <div class="stack sched-body">
-          <div class="row sched-fields">
-            <select data-role="freq" aria-label="Frequency for ${esc(s.source_name)}">
-              ${["manual", "daily", "weekly"].map((f) =>
-                `<option value="${f}" ${f === freq ? "selected" : ""}>${f}</option>`).join("")}
-            </select>
-            <select data-role="weekday" class="${freq === "weekly" ? "" : "hidden"}"
-                    aria-label="Weekday">
-              ${WEEKDAYS.map((w, i) =>
-                `<option value="${i}" ${i === weekday ? "selected" : ""}>${w}</option>`).join("")}
-            </select>
-            <input type="time" data-role="time" value="${esc(runAt)}"
-                   aria-label="Run time" ${freq === "manual" ? "disabled" : ""}>
-          </div>
-          <div class="fieldset">
-            <label>Timezone <span class="muted">(IANA name — 09:00 means 09:00 there)</span></label>
-            <input data-role="tz" dir="ltr" spellcheck="false"
-                   value="${esc(sched.timezone || zone)}" aria-label="Timezone">
-          </div>
-          <div class="fieldset">
-            <label>What the run does</label>
-            <select data-role="mode" aria-label="Run mode">
-              <option value="update" ${(sched.run_mode || "update") === "update" ? "selected" : ""}>Update existing data</option>
-              <option value="full_rebuild" ${sched.run_mode === "full_rebuild" ? "selected" : ""}>Full rebuild (archives first)</option>
-              <option value="history_backfill" ${sched.run_mode === "history_backfill" ? "selected" : ""}
-                ${s.supports_history ? "" : "disabled"}>History backfill${s.supports_history ? "" : " — not published by this site"}</option>
-            </select>
-          </div>
-          <div class="two">
-            <div class="fieldset">
-              <label>If the machine was off</label>
-              <select data-role="missed" aria-label="Missed run policy">
-                <option value="run_when_available" ${(sched.missed_run_policy || "run_when_available") === "run_when_available" ? "selected" : ""}>Run when back</option>
-                <option value="skip" ${sched.missed_run_policy === "skip" ? "selected" : ""}>Skip that slot</option>
-              </select>
-            </div>
-            <p class="hint" data-role="skip-note" ${skipNote(sched) ? "" : "hidden"}>${esc(skipNote(sched))}</p>
-          </div>
-          ${switchOn ? "" : `<label class="check"><input type="checkbox" data-role="enabled"
-                 ${paused ? "" : "checked"}>
-            <span>Enabled <span class="muted">— untick to pause without losing these settings</span></span></label>`}
-          <div class="row">
-            <button class="ghost" data-role="save">Save</button>
-            <span class="hint" data-role="status" role="status" aria-live="polite">${gate}</span>
-          </div>
-        </div>
-      </details>`;
-    }).join("");
-
-    $("schedules").querySelectorAll(".sched-row").forEach((row) => {
-      const freq = row.querySelector('[data-role="freq"]');
-      const weekday = row.querySelector('[data-role="weekday"]');
-      const time = row.querySelector('[data-role="time"]');
-      const status = row.querySelector('[data-role="status"]');
-      const site = sites.find((item) => item.source_key === row.dataset.sched);
-      const toggle = row.querySelector('[data-role="sched-active"]');
-      if (toggle) {
-        // A button is its own activation target, so a press does not open the row.
-        toggle.addEventListener("click", () =>
-          toggleScheduledRuns(site, saved.get(site.source_key), toggle, status));
-      }
-      freq.addEventListener("change", () => {
-        weekday.classList.toggle("hidden", freq.value !== "weekly");
-        time.disabled = freq.value === "manual";
-      });
-      row.querySelector('[data-role="save"]').addEventListener("click", async (event) => {
-        const button = event.target;
-        button.disabled = true;
-        status.textContent = "Saving…";
-        try {
-          const body = {
-            frequency: freq.value,
-            run_at: time.value || "09:00",
-            timezone: row.querySelector('[data-role="tz"]').value.trim() || "UTC",
-            run_mode: row.querySelector('[data-role="mode"]').value,
-            missed_run_policy: row.querySelector('[data-role="missed"]').value,
-            // NOT A CHOICE ANY MORE (#1596): an engine with `scheduled_skips` skips a
-            // busy slot whatever this says, and an older one skips it because of it.
-            overlap_policy: "skip",
-          };
-          // THE SWITCH ALONE DECIDES `active` (#1630 review E1): a Save sends the
-          // schedule, so a time change records no choice, and a row 0024 left paused
-          // stays paused. Without the switch, the box says.
-          const stored = saved.get(site.source_key) || {};
-          body.enabled = switchOn ? Boolean(stored.enabled ?? true)
-            : row.querySelector('[data-role="enabled"]').checked;
-          if (freq.value === "weekly") body.weekday = Number(weekday.value);
-          const result = await post(
-            "/api/schedules/" + encodeURIComponent(row.dataset.sched), body);
-          // A textContent sink, so label() — the same formatter, returning the
-          // plain sentence instead of markup.
-          if (switchOn && result) {
-            // What the switch sends next is the schedule as saved now.
-            saved.set(site.source_key, Object.assign(stored, result));
-            site.active = result.active;
-          }
-          status.textContent = switchOn && result && !scheduledRunsOn(site, result)
-            ? "Saved — off."
-            : !switchOn && !body.enabled ? "Saved — paused."
-            : result && result.next_run_at
-              ? "Saved — next " + window.ScrapeXTime.label(result.next_run_at)
-              : "Saved.";
-        } catch (e) {
-          status.textContent = "Couldn't save: " + e.message;
-        } finally {
-          button.disabled = false;
-        }
-      });
-    });
-  } catch (_) { $("schedules").innerHTML = `<span class="err">Couldn't load schedules.</span>`; }
 }
 
 // ---- selected site cards (spec 12) -----------------------------------------
@@ -9059,7 +8797,9 @@ async function loadDatabase() {
     } else {
       $("db-schema-detail").textContent = "Up to date. Nothing to apply.";
     }
-    if (upgrade) upgrade.disabled = pending.length === 0;
+    // Not while one runs: re-entering this page mid-upgrade turned it back on,
+    // and the press was swallowed by the one-at-a-time guard without a word.
+    if (upgrade) upgrade.disabled = upgradeRunning || pending.length === 0;
 
     const health = s.health || {};
     $("db-health-status").textContent = health.status || "unknown";
@@ -9114,7 +8854,7 @@ async function loadDatabase() {
     // refuses anything that is not merely behind, backs up first without exception, and
     // says what it did. Offering it here asks that path the question rather than
     // answering it from a page that just failed to read anything.
-    if (upgrade) upgrade.disabled = false;
+    if (upgrade) upgrade.disabled = upgradeRunning;
     // AND THE SCAN CANNOT BE ASKED FOR WITHOUT THE ENGINE, unlike the upgrade above:
     // `POST /api/storage/integrity` has no native fallback because the native host does
     // not read the warehouse. A button that cannot work is worse than no button.
@@ -9139,8 +8879,8 @@ async function loadDatabase() {
 // ---- the Schedules page (#1631, option C, after Supabase's Cron Jobs) --------------
 // Designed through design-the-experience; the reference sheet, the states and his
 // confirmation are on #1631. One row per scheduled price source: its facts stacked under
-// it, the one Active switch, and a ⋮ menu. PART 1 of the four he approved: Edit schedule
-// and Create schedule open Settings' editor until part 2 moves them into a sheet here.
+// it, the one Active switch, and a ⋮ menu. Create schedule and Edit schedule open the
+// sheet below (part 2 of the four he approved).
 const schedulesPage = {
   saved: null,           // source_key -> stored schedule, as the last good read held it
   note: "",              // the engine's own note, drawn under the list
@@ -9154,8 +8894,9 @@ const schedulesPage = {
   rows: new Map(),       // row key -> element; an orphan's key is "lost:" + its source_key
   menuFor: null,         // the row whose ⋮ menu is open
   writesOff: false,      // the engine stopped answering over a good list
-  wrote: 0,              // Removes this page applied; a read sent before one keeps none
-                         // of its schedules (loadSchedulesPage, loadSources)
+  wrote: 0,              // writes this page applied (Remove, Create, Edit); a read sent
+                         // before one keeps none of its schedules (loadSchedulesPage,
+                         // loadSources)
 };
 
 // THE ENGINE'S OWN WAIT, AND ONE SECOND. The panel stops waiting for a write at 5 s
@@ -9374,7 +9115,9 @@ function scheduleEmptyCard() {
   card.innerHTML = `<p class="text-sm">No schedules yet</p>
     <p class="text-xs">Create one to run a source automatically.</p>
     <button type="button" class="ghost">Create schedule</button>`;
-  card.querySelector("button").addEventListener("click", () => openScheduleEditor(null));
+  card.querySelector("button").addEventListener("click", () => {
+    if (card.querySelector("button").getAttribute("aria-disabled") !== "true") openScheduleSheet();
+  });
   return card;
 }
 
@@ -9388,6 +9131,7 @@ function drawSchedules() {
     list.classList.add("hidden");
     $("sched-count").textContent = "";
     $("sched-dir-note").classList.add("hidden");
+    $("sched-limit").hidden = true;
     $("sched-engine-note").textContent = "";
     box.querySelectorAll(':scope > :not([data-role="banner"])').forEach((node) => node.remove());
     drawScheduleBanner(box);
@@ -9403,8 +9147,12 @@ function drawSchedules() {
   if ($("sched-count").textContent !== line) $("sched-count").textContent = line;
   $("sched-tools").classList.toggle("hidden", total === 0);
   page.writesOff = Boolean(page.failure) && !state.engineUp;
-  if (page.writesOff) $("sched-create").setAttribute("aria-disabled", "true");
+  // AT THE LIMIT (marker 30) Create waits, and says why: Studio pages an unbounded list,
+  // and this one runs out of sources to schedule.
+  const atLimit = !sourcesToSchedule().length;
+  if (page.writesOff || atLimit) $("sched-create").setAttribute("aria-disabled", "true");
   else $("sched-create").removeAttribute("aria-disabled");
+  $("sched-limit").hidden = !atLimit;
   const directories = schedulesSources().filter((source) => source.kind === "directory");
   $("sched-dir-note").classList.toggle("hidden", !directories.length);
   $("sched-dir-note").textContent = directories.length ? `Directory sources (${
@@ -9427,6 +9175,8 @@ function drawSchedules() {
     page.rows.clear();
     let card = box.querySelector('[data-role="empty"]');
     if (!card) { card = scheduleEmptyCard(); box.append(card); }
+    if (atLimit || page.writesOff) card.querySelector("button").setAttribute("aria-disabled", "true");
+    else card.querySelector("button").removeAttribute("aria-disabled");
     // The last row left with focus in it: focus goes to the card's own action.
     if (hadFocus) card.querySelector("button").focus({ preventScroll: true });
     return;
@@ -9636,11 +9386,23 @@ async function toggleScheduleRow(row) {
   // would save the schedule, ignore `active` and answer 200; a row that left (its schedule
   // removed elsewhere) would be saved back. Nothing is sent: the redraw that took the
   // switch or the row away is the answer on screen.
-  if (!(await askToSwitchScheduledRuns(source, sched, on)) || scheduleGated(row)
-      || !scheduleSwitchOn() || !row.isConnected) return;
+  const verb = on ? "Disable" : "Enable";
+  const label = scheduleLabel(sched);
+  const yes = await askToConfirm({
+    title: `${verb} scheduled runs`,
+    copy: on
+      ? `Disable scheduled runs for ${name}? Its schedule is kept and stops firing until `
+        + "you enable it. Manual runs still work."
+      : `Enable scheduled runs for ${name}? It runs ${label[0].toLowerCase()}${label.slice(1)} `
+        + "from the next slot.",
+    // Studio's toggle: Disable in the warning tone, Enable primary
+    // (CronJobTableCell.tsx@86c813ec:210-253); his choice B, 2026-10-10 (#1596).
+    keep: "Cancel", go: verb, tone: on ? "warning" : "",
+  });
+  if (!yes || scheduleGated(row) || !scheduleSwitchOn() || !row.isConnected) return;
   // THE SCHEDULE AS THE PAGE HOLDS IT NOW, not as it stood when he pressed: the route
-  // stores every field it is sent, so a save a read brought in while he answered (on
-  // Settings, or the engine's own page) is kept, not undone.
+  // stores every field it is sent, so a save a read brought in while he answered (the
+  // engine's own page, or this page's sheet) is kept, not undone.
   source = schedulesSources().find((item) => item.source_key === key);
   sched = schedulesPage.saved.get(key);
   const pressedAt = Date.now();
@@ -9648,8 +9410,12 @@ async function toggleScheduleRow(row) {
   button.setAttribute("aria-busy", "true");
   setScheduleRowStatus(row, "Saving…", "muted");
   try {
-    const result = await post("/api/schedules/" + encodeURIComponent(key),
-      scheduleSwitchBody(sched, !on));
+    // The schedule as saved rides along, so the switch changes nothing else about it.
+    const result = await post("/api/schedules/" + encodeURIComponent(key), {
+      frequency: sched.frequency, run_at: sched.run_at, timezone: sched.timezone,
+      weekday: sched.weekday, run_mode: sched.run_mode,
+      missed_run_policy: sched.missed_run_policy, overlap_policy: "skip", active: !on,
+    });
     Object.assign(sched, result);
     source.active = result.active;
     button.removeAttribute("aria-busy");
@@ -9721,7 +9487,7 @@ function openScheduleMenu(row, at = 0) {
   if (scheduleGated(row)) return;
   if (schedulesPage.menuFor && schedulesPage.menuFor !== row) closeScheduleMenu(false);
   const key = row.dataset.sched;
-  const items = [["material-tune", "Edit schedule", () => openScheduleEditor(key)]];
+  const items = [["material-tune", "Edit schedule", () => openScheduleSheet({ key, edit: true })]];
   // Only on an engine that records skips; even then a slot missed, or skipped for an off
   // source, is recorded nowhere (#1505).
   if ((deployedFrom(state.versionReport) || {}).scheduled_skips) {
@@ -9856,14 +9622,361 @@ function bindScheduleRow(row) {
   row.querySelector('[data-role="menu"]').addEventListener("keydown", (event) => scheduleMenuKeys(event, row));
 }
 
+// ---- the sheet: Create a schedule, and Edit one (#1631 part 2) ---------------------
+// Supabase's Sheet (components.css) laid out as Studio's CreateCronJobSheet
+// (CreateCronJobSheet.tsx@86c813ec:288-471), holding what `schedule` can store --
+// Daily or Weekly, a time and an IANA zone, what the run does, what a missed slot does
+// (db/engine/schema.sql) -- where Studio has a name and a cron expression. The reference
+// sheet (markers 19-23, 29t, 30, 32-34, 36, 42, 43) and his confirmation are on #1631.
+const scheduleSheet = {
+  mode: null,          // "create" or "edit"; null while it is closed
+  key: null,           // the source it saves: the one edited, or the one picked
+  trigger: null,       // what opened it; focus goes back there when it closes
+  opened: "",          // its fields as it opened, so a close can tell an entry from none
+  saving: false,       // a save is out: Cancel, × and a second press wait (marker 33/46)
+};
+
+function scheduleSheetIsOpen() {
+  return scheduleSheet.mode !== null;
+}
+
+// Price sources that can run and have no schedule that fires: none stored, or one a
+// Remove kept as `manual` (marker 20, "Sources that have no schedule yet.").
+function sourcesToSchedule() {
+  return schedulableSources().filter((source) => scheduleStatus(source) === "Not scheduled");
+}
+
+function scheduleSheetFields() {
+  return {
+    source: $("sched-sheet-source").value, frequency: $("sched-sheet-frequency").value,
+    weekday: $("sched-sheet-weekday").value, time: $("sched-sheet-time").value,
+    zone: $("sched-sheet-zone").value, mode: $("sched-sheet-mode").value,
+    missed: $("sched-sheet-missed").value, enabled: $("sched-sheet-enabled").checked,
+  };
+}
+
+// WHAT A BUSY SLOT DOES DEPENDS ON THE ENGINE, SO THE LINE ASKS ITS REPORT (#1596). One
+// that deploys `scheduled_skips` skips and lists it. One KNOWN not to still reads the
+// stored policy: `skip` re-arms with no row, `queue` (every row saved before #1596) starts
+// a second run. Nothing known says nothing rather than tell him to update an engine.
+function scheduleSkipNote(sched) {
+  const deployed = deployedFrom(state.versionReport);
+  if (deployed && deployed.scheduled_skips) {
+    return "If this site's previous run is still going, ScrapeX skips the slot and lists it on the Jobs page.";
+  }
+  if (!engineKnownWithout("scheduled_skips")) return "";
+  return sched.overlap_policy === "skip"
+    ? "If this site's previous run is still going, ScrapeX skips the slot. Update the engine to see skipped slots on the Jobs page."
+    : "This engine still starts a second run if this site's previous run is still going. Save this schedule to skip the slot instead, and update the engine to see skipped slots on the Jobs page.";
+}
+
+// Create TURNS THE SOURCE'S RUNS ON (it sends `active: true`, marker 42) and says so. An
+// engine without the switch ignores `active`, so an off source there will not fire.
+function scheduleRunsNote(source) {
+  if (scheduleSheet.mode !== "create") return "";
+  if (!scheduleSwitchOn()) {
+    return source.active ? "Scheduled runs start from the next slot."
+      : "Auto is off for this site, so this will not fire.";
+  }
+  return source.active === false
+    ? `Auto is off for ${siteName(source)}. Creating this schedule turns it on, and runs start `
+      + "from the next slot."
+    : "Scheduled runs start from the next slot.";
+}
+
+function setScheduleSheetReason(words, tone) {
+  const reason = $("sched-sheet-reason");
+  reason.textContent = words;
+  reason.className = `sheet-reason ${tone}`;
+  reason.hidden = !words;
+}
+
+// The fields from what is stored, or a new schedule's defaults: Daily at 09:00 in his
+// browser's zone, as the editor this replaces started one.
+function fillScheduleSheet(source, sched) {
+  const stored = sched || {};
+  // A KEPT WEEKDAY REOPENS AS WEEKLY (round-2 N-S6): a Remove stores `manual`, and the day
+  // it keeps is the only sign it was weekly.
+  const weekly = stored.frequency === "weekly"
+    || (stored.frequency === "manual" && stored.weekday != null);
+  $("sched-sheet-frequency").value = weekly ? "weekly" : "daily";
+  $("sched-sheet-weekday").value = String(stored.weekday == null ? 0 : Number(stored.weekday));
+  $("sched-sheet-weekday-field").hidden = !weekly;
+  $("sched-sheet-time").value = stored.run_at || "09:00";
+  $("sched-sheet-zone").value = stored.timezone
+    || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  const backfill = $("sched-sheet-mode").querySelector('option[value="history_backfill"]');
+  backfill.disabled = !source.supports_history;
+  backfill.textContent = "History backfill"
+    + (source.supports_history ? "" : " — not published by this site");
+  $("sched-sheet-mode").value = stored.run_mode || "update";
+  $("sched-sheet-missed").value = stored.missed_run_policy || "run_when_available";
+  // THE SWITCH ALONE DECIDES `active` (#1630 review E1); without it, this box is the on
+  // and off a stored `enabled = 0` pauses.
+  $("sched-sheet-enabled-field").hidden = scheduleSwitchOn();
+  $("sched-sheet-enabled").checked = !(stored.schedule_id != null && !stored.enabled);
+  const skip = scheduleSkipNote(stored);
+  $("sched-sheet-skip-note").textContent = skip;
+  $("sched-sheet-skip-note").hidden = !skip;
+  $("sched-sheet-runs-note").textContent = scheduleRunsNote(source);
+}
+
+// Create's source: its identity under the select, and its stored row filled back in.
+function pickScheduleSheetSource() {
+  const key = $("sched-sheet-source").value;
+  const source = schedulesSources().find((item) => item.source_key === key);
+  const sched = schedulesPage.saved.get(key);
+  scheduleSheet.key = key;
+  $("sched-sheet-source-identity").innerHTML = sourceIdentity(source, false, null, "Row",
+    { wrap: true });
+  $("sched-sheet-filled").hidden = !(sched && sched.schedule_id != null);
+  fillScheduleSheet(source, sched);
+  setScheduleSheetReason("", "");   // a reason is about the source it was said for (round-3 O4)
+}
+
+function setScheduleSheetPanelInert(inert) {
+  for (const node of [document.querySelector("main"), document.querySelector("nav.side-rail"),
+    $("miniplayer")]) node.inert = inert;
+}
+
+/** Open the sheet: `edit` on `key`'s schedule, or Create with `key` picked when it has no
+ *  schedule yet. Focus goes back to whatever he pressed. */
+function openScheduleSheet({ key = null, edit = false } = {}) {
+  // Writes wait while the engine is not answering (marker 27b), from every opener.
+  if (scheduleSheetIsOpen() || !schedulesPage.saved || schedulesPage.writesOff) return;
+  const offered = sourcesToSchedule();
+  const edited = edit ? schedulesSources().find((item) => item.source_key === key) : null;
+  if (edit ? !edited || !schedulesPage.saved.get(key) : !offered.length) return;
+  scheduleSheet.mode = edit ? "edit" : "create";
+  scheduleSheet.trigger = document.activeElement;
+  $("sched-sheet-title").textContent = edit ? "Edit schedule" : "Create a schedule";
+  $("sched-sheet-save").textContent = edit ? "Save schedule" : "Create schedule";
+  $("sched-sheet-source-field").hidden = edit;
+  const select = $("sched-sheet-source");
+  if (edit) {
+    scheduleSheet.key = key;
+    // The FULL names wrap, English and Arabic (marker 34): the shared identity would
+    // ellipsize them, as a row does.
+    $("sched-sheet-identity").innerHTML = sourceIdentity(edited, false, null, "Row",
+      { wrap: true });
+    select.replaceChildren();
+    fillScheduleSheet(edited, schedulesPage.saved.get(key));
+  } else {
+    $("sched-sheet-identity").replaceChildren();
+    select.replaceChildren(...offered.map((source) => {
+      const option = document.createElement("option");
+      option.value = source.source_key;
+      option.textContent = siteName(source);   // the domain alone (marker 20)
+      return option;
+    }));
+    select.value = offered.some((source) => source.source_key === key) ? key
+      : offered[0].source_key;
+    pickScheduleSheetSource();
+  }
+  setScheduleSheetReason("", "");
+  holdScheduleSheet(false);
+  scheduleSheet.opened = JSON.stringify(scheduleSheetFields());
+  setScheduleSheetPanelInert(true);
+  $("sched-sheet-veil").classList.remove("hidden");
+  (edit ? $("sched-sheet-frequency") : select).focus({ preventScroll: true });
+}
+
+function closeScheduleSheet() {
+  if (!scheduleSheetIsOpen()) return;
+  scheduleSheet.mode = null;
+  $("sched-sheet-veil").classList.add("hidden");
+  setScheduleSheetPanelInert(false);
+  // Back to what he pressed; one that left the page (an empty card's Create once a schedule
+  // exists, or Run's chip, which leaves with Run and makes <body> the trigger) hands focus
+  // to the page's own Create, which is the empty card's while the list has none.
+  const back = scheduleSheet.trigger;
+  scheduleSheet.trigger = null;
+  const create = [$("sched-create"), document.querySelector('#sched-state [data-role="empty"] button')]
+    .find((node) => node?.checkVisibility());
+  const to = back && back !== document.body && back.isConnected && back.checkVisibility()
+    ? back : create;
+  to?.focus({ preventScroll: true });
+}
+
+// Escape, the veil, × and Cancel all come here: the APG dialog closes on each, and a sheet
+// he typed into asks first (Studio's useConfirmOnClose, CreateCronJobSheet.tsx@86c813ec:169).
+// The words are the documentation's: the consequence, never "Are you sure"
+// (copywriting.mdx@86c813ec:193-209); the buttons are Studio's
+// (DiscardChangesConfirmationDialog.tsx@86c813ec:31-32, the action `danger`, :73).
+async function requestCloseScheduleSheet() {
+  if (!scheduleSheetIsOpen() || scheduleSheet.saving) return;
+  if (JSON.stringify(scheduleSheetFields()) === scheduleSheet.opened) {
+    closeScheduleSheet();
+    return;
+  }
+  const discard = await askToConfirm({
+    title: "Discard changes?", copy: "Discarding loses what you entered in this sheet.",
+    keep: "Keep editing", go: "Discard changes", tone: "danger",
+  });
+  if (discard) closeScheduleSheet();
+}
+
+/** Keep Tab inside the sheet while it is open, and its question is not. */
+function trapScheduleSheetFocus(event) {
+  if (event.key !== "Tab" || !scheduleSheetIsOpen() || confirmIsOpen()) return;
+  const stops = [...$("sched-sheet").querySelectorAll("button, select, input")]
+    .filter((node) => !node.disabled && node.checkVisibility());
+  const at = stops.indexOf(document.activeElement);
+  event.preventDefault();
+  const next = event.shiftKey ? (at <= 0 ? stops.length - 1 : at - 1) : (at + 1) % stops.length;
+  stops[next].focus({ preventScroll: true });
+}
+
+// A SAVE IN FLIGHT HOLDS THE SHEET (marker 33/46): its press reads "Creating schedule…",
+// and Cancel, × and the press itself are aria-disabled -- focusable, never `disabled`
+// (#1542) -- so nothing closes it or sends it twice.
+function holdScheduleSheet(saving) {
+  const create = scheduleSheet.mode === "create";
+  scheduleSheet.saving = saving;
+  $("sched-sheet-save").textContent = saving
+    ? (create ? "Creating schedule…" : "Saving schedule…")
+    : (create ? "Create schedule" : "Save schedule");
+  for (const id of ["sched-sheet-save", "sched-sheet-cancel", "sched-sheet-close"]) {
+    if (saving) $(id).setAttribute("aria-disabled", "true");
+    else $(id).removeAttribute("aria-disabled");
+  }
+  if (saving) $("sched-sheet-save").setAttribute("aria-busy", "true");
+  else $("sched-sheet-save").removeAttribute("aria-busy");
+}
+
+// The engine holds what was sent: every field of the schedule, and `enabled` where it is
+// the only on and off (R3-S5); Create's `active` is the source's, in /api/sources.
+function scheduleHolds(sched, body) {
+  if (!sched) return false;
+  const same = ["frequency", "run_at", "timezone", "run_mode", "missed_run_policy"]
+    .every((field) => sched[field] === body[field])
+    && (body.frequency !== "weekly" || Number(sched.weekday) === body.weekday);
+  return same && (scheduleSwitchOn() || Boolean(sched.enabled) === body.enabled);
+}
+
+// The save landed: the Map takes the saved row, Run follows, and the sheet closes.
+function scheduleSheetSaved(key, row, create) {
+  const name = siteName(schedulesSources().find((item) => item.source_key === key));
+  schedulesPage.saved.set(key, { ...(schedulesPage.saved.get(key) || {}), ...row });
+  schedulesPage.wrote += 1;   // a read sent before this save holds none of it
+  holdScheduleSheet(false);
+  // DRAWN BEFORE IT CLOSES, so focus goes back to what is still on the page: the empty
+  // card's Create leaves with the card, and the page's own Create takes it.
+  schedulesRunFollows();
+  drawSchedules();
+  closeScheduleSheet();
+  scheduleToast(`${create ? "Created" : "Saved"} the schedule for ${name}`,
+    schedulesPage.rows.get(key));
+}
+
+async function saveScheduleSheet(event) {
+  event.preventDefault();
+  if (!scheduleSheetIsOpen() || scheduleSheet.saving) return;
+  const create = scheduleSheet.mode === "create";
+  const key = scheduleSheet.key;
+  const fields = scheduleSheetFields();
+  const stored = schedulesPage.saved.get(key) || {};
+  // AN EMPTY TIME OR ZONE IS REFUSED HERE, never saved as 09:00 or UTC: the engine refuses
+  // an empty zone itself, and would store an empty time and fire it at 09:00. What went
+  // wrong, then how to fix it (copywriting.mdx@86c813ec, "Error messages").
+  const empty = !fields.time ? ["time", "the time is empty. Enter a time."]
+    : !fields.zone.trim() ? ["zone", "the timezone is empty. Enter an IANA name like Africa/Cairo."]
+      : null;
+  if (empty) {
+    setScheduleSheetReason(`Unable to save: ${empty[1]}`, "err");
+    $(`sched-sheet-${empty[0]}`).focus({ preventScroll: true });
+    return;
+  }
+  const body = {
+    frequency: fields.frequency, run_at: fields.time,
+    timezone: fields.zone.trim(), run_mode: fields.mode,
+    missed_run_policy: fields.missed,
+    // NOT A CHOICE ANY MORE (#1596): an engine with `scheduled_skips` skips a busy slot
+    // whatever this says, and an older one skips it because of it.
+    overlap_policy: "skip",
+    // The stored `enabled` rides along (M3), so a save records no choice; without the
+    // switch, the box says.
+    enabled: scheduleSwitchOn() ? Boolean(stored.enabled ?? true) : fields.enabled,
+  };
+  if (fields.frequency === "weekly") body.weekday = Number(fields.weekday);
+  if (create && scheduleSwitchOn()) body.active = true;
+  const label = create ? "Create schedule" : "Save schedule";
+  setScheduleSheetReason("", "");
+  holdScheduleSheet(true);
+  try {
+    const result = await post("/api/schedules/" + encodeURIComponent(key), body);
+    if (create) {
+      const source = schedulesSources().find((item) => item.source_key === key);
+      if (source && result.active !== undefined) source.active = result.active;
+    }
+    scheduleSheetSaved(key, result, create);
+    // Create also changed the source's `active`, which /api/sources holds (marker 11b).
+    if (create) loadSchedulesPage({ quiet: true, sourcesToo: true });
+  } catch (error) {
+    if (!isTimeoutError(error)) {
+      holdScheduleSheet(false);
+      // IN THE FOOTER, ABOVE THE BUTTONS, so a 320 px-high panel shows it (round-2 N-S8).
+      setScheduleSheetReason(`Unable to save: ${error.message}`, "err");
+      return;
+    }
+    // ONE READ AFTER A TIMEOUT (marker 29t): a second press of Create saves the same row,
+    // and Edit's says what the engine holds now.
+    await loadSchedulesPage({ quiet: true, sourcesToo: create });
+    if (schedulesPage.failure) {
+      holdScheduleSheet(false);
+      setScheduleSheetReason("No answer from the engine in 5 s, and it could not be read "
+        + `again. Press ${label} to try again.`, "muted");
+      return;
+    }
+    const held = schedulesPage.saved.get(key);
+    if (scheduleHolds(held, body)) {
+      scheduleSheetSaved(key, held, create);
+      return;
+    }
+    holdScheduleSheet(false);
+    setScheduleSheetReason("No answer from the engine, and the schedule is not saved yet "
+      + `(checked at ${window.ScrapeXTime.format(new Date().toISOString(), "time")}). `
+      + `Press ${label} to try again.`, "muted");
+  }
+}
+
+function wireScheduleSheet() {
+  const weekday = $("sched-sheet-weekday");
+  weekday.replaceChildren(...WEEKDAYS.map((day, i) => {
+    const option = document.createElement("option");
+    option.value = String(i);
+    option.textContent = day;
+    return option;
+  }));
+  $("sched-sheet-source").addEventListener("change", pickScheduleSheetSource);
+  $("sched-sheet-frequency").addEventListener("change", () => {
+    $("sched-sheet-weekday-field").hidden = $("sched-sheet-frequency").value !== "weekly";
+  });
+  $("sched-sheet-form").addEventListener("submit", saveScheduleSheet);
+  $("sched-sheet-cancel").addEventListener("click", requestCloseScheduleSheet);
+  $("sched-sheet-close").addEventListener("click", requestCloseScheduleSheet);
+  // The veil, not the sheet: a press on the sheet's own labels must not close it. Its
+  // mousedown keeps focus where he was in the sheet, so Keep editing returns him there,
+  // never to <body>.
+  $("sched-sheet-veil").addEventListener("mousedown", (event) => {
+    if (event.target === $("sched-sheet-veil")) event.preventDefault();
+  });
+  $("sched-sheet-veil").addEventListener("click", (event) => {
+    if (event.target === $("sched-sheet-veil")) requestCloseScheduleSheet();
+  });
+  document.addEventListener("keydown", trapScheduleSheetFocus, true);
+}
+
 // ---- "open its schedule", from anywhere in the panel ------------------------------
 
 /** The Run card's chip, the Source manager's Edit schedule and Edit source's link land
  *  here. A link entry is a page show: it reads sources, so a site added since has its
- *  row. An unscheduled source opens the editor until part 2 brings Create here. */
+ *  row. An unscheduled source opens Create with it picked. */
 async function openScheduleRow(key) {
   showView("schedules");
   await schedulesPage.loading;
+  // He may have moved on while the read was out: a row or a sheet opens on this page only.
+  if (currentViewName() !== "schedules") return;
   const row = schedulesPage.rows.get(key);
   if (row) {
     row.scrollIntoView({ block: "nearest" });
@@ -9871,16 +9984,18 @@ async function openScheduleRow(key) {
     return;
   }
   if (!schedulesPage.saved) return;   // the banner says why
-  if (schedulableSources().some((source) => source.source_key === key)) {
-    openScheduleEditor(key);
+  // An unscheduled source opens Create with it picked (marker 44/45).
+  if (sourcesToSchedule().some((source) => source.source_key === key)) {
+    openScheduleSheet({ key });
     return;
   }
   showToast("This source can't be scheduled here.");   // never a press that does nothing
 }
 
 function wireSchedulesPage() {
+  $("add-schedule-link").addEventListener("click", () => showView("schedules"));
   $("sched-create").addEventListener("click", () => {
-    if ($("sched-create").getAttribute("aria-disabled") !== "true") openScheduleEditor(null);
+    if ($("sched-create").getAttribute("aria-disabled") !== "true") openScheduleSheet();
   });
   // A press outside the open menu closes it, applying nothing.
   document.addEventListener("pointerdown", (event) => {
@@ -10075,7 +10190,6 @@ async function probe() {
     $("f-currency").value = s.currency || "";
     $("f-region").value = s.default_region || "*";
     $("f-vat").value = s.vat_mode || "incl";
-    $("f-cadence").value = s.cadence || "daily";
     $("f-kind").value = s.kind || "product_prices";
     $("f-scope").value = s.scope || "census";
     // The probe suggests a price-capture key. Re-spell it for the chosen kind:
@@ -10189,7 +10303,9 @@ async function addSite() {
     base_url: $("url").value.trim(), family: $("f-family").value,
     fetcher: $("f-fetcher").value, currency: $("f-currency").value.trim(),
     default_region: $("f-region").value.trim() || "*", vat_mode: $("f-vat").value,
-    cadence: $("f-cadence").value, kind: $("f-kind").value, scope: $("f-scope").value,
+    // "manual", never the route's default `daily` (app.py, `form.get("cadence", ...)`):
+    // when it runs is decided on the Schedules page (#1631, his option (c)).
+    cadence: "manual", kind: $("f-kind").value, scope: $("f-scope").value,
     auth_required: $("f-auth").checked, active: false,
     fallback_families: [...$("f-fallback").selectedOptions].map((o) => o.value),
     identity: {
@@ -10243,11 +10359,21 @@ async function loadCurrentSite() {
 // button's promise is not the source of truth — the poll below is. The button
 // only ever claims what a probe confirmed.
 async function startEngineFromPanel() {
+  // NOT WHILE AN UPGRADE RUNS, from any of the three Start buttons (Run, Jobs,
+  // Schedules). While the file still reads behind the host refuses at once; once
+  // the last migration commits it does not refuse -- it scans the file and starts
+  // an engine that scans it twice more, beside the upgrade's own last scans. Run's
+  // line says why; the banners send him there.
+  if (upgradeRunning) {
+    $("engine-note").textContent = "Upgrading the database…";
+    return;
+  }
   const button = $("engine-start");
   const note = $("engine-note");
   button.disabled = true;
   button.textContent = "Starting…";
   clearRuntimeIssue();
+  const started = Date.now();
   try {
     await startEngine();
     // Sixty seconds, not fourteen. A cold interpreter opening two databases is
@@ -10304,8 +10430,11 @@ async function startEngineFromPanel() {
       note.textContent = "The helper could not start the engine: " + (err.message || "") +
         " — Check again, or open Logs.";
     } else if (kind === "timeout") {
-      note.textContent = "The local helper did not answer. Check Setup below, " +
-        "then try again.";
+      // NOT "CHECK SETUP". A helper that is not installed is `absent`, above; this
+      // one gave no answer -- most often because it scans the whole database before
+      // it starts anything (`transport.js`) and that outran its budget.
+      note.textContent = `No answer from the helper${waitedSince(started)}. The engine ` +
+        "may still be starting — press Check again in a few seconds.";
     } else if (!kind) {
       note.textContent = "The engine is taking longer than usual to answer. " +
         "It may still be starting — press Check again in a few seconds.";
@@ -10551,13 +10680,46 @@ const ENGINE_TOO_OLD =
   "yet, so it cannot be asked to replace itself from here. ScrapeX does this " +
   "on its own once the updater is installed; that work is under way.";
 
+// How long he has been waiting, in his units, measured by the panel's own clock
+// so it cannot disagree with what he sat through. Nothing under a minute: a
+// sentence saying "after 0 minutes" is noise.
+function waitedSince(started) {
+  const minutes = Math.round((Date.now() - started) / 60000);
+  return minutes < 1 ? "" : ` after ${minutes} minute${minutes === 1 ? "" : "s"}`;
+}
+
+// THE HOST DID NOT SAY NO; IT DID NOT ANSWER. `timeout` is no answer in the
+// budget (or a Chrome error `transport.js` cannot name), and `crashed` is a host
+// that stopped before replying, which can be halfway through. Neither is a verdict on the database, and
+// reading them as one is how a backed-up, migrated warehouse was reported "not
+// changed" (#1706). So these two re-read it rather than report it.
+const UPGRADE_NO_ANSWER = ["timeout", "crashed"];
+// ONE UPGRADE AT A TIME. The issue card draws its own Upgrade button, on Run and in
+// Settings, and every press copies the whole warehouse before it waits for the
+// write lock -- for up to five minutes of waiting now, not five seconds.
+let upgradeRunning = false;
+
 async function upgradeDatabaseFromPanel() {
+  if (upgradeRunning) return;
+  upgradeRunning = true;
   const note = $("runtime-note");
   const upgrade = $("runtime-upgrade");
-  const actionButtons = [upgrade, $("runtime-restart"), $("runtime-check-action")]
-    .filter(Boolean);
+  const actionButtons = [upgrade, $("runtime-restart"), $("runtime-check-action"),
+    $("engine-start"), $("setup-recheck"), $("engine-recheck"),
+    ...document.querySelectorAll("[data-runtime-upgrade]")]
+    // ONLY WHAT IS LIVE NOW, so `finally` gives back only what this took: a Start
+    // still scanning holds its own button, and its own `finally` releases it.
+    .filter((button) => button && !button.disabled);
+  // `#runtime-note` is on the Database page and `#engine-note` on Run; each
+  // sentence below is whole on its own, because neither page shows the other.
+  const tell = (text) => {
+    note.textContent = text;
+    const engineNote = $("engine-note");
+    if (engineNote) engineNote.textContent = text;
+  };
+  const started = Date.now();
   actionButtons.forEach((button) => { button.disabled = true; });
-  note.textContent = "Upgrading the database…";
+  tell("Upgrading the database…");
   try {
     let result;
     let httpAnswered = false;
@@ -10577,6 +10739,12 @@ async function upgradeDatabaseFromPanel() {
       // the same forward-only migration. This is the missing repair path that
       // left the owner staring at a dead Restart button.
       if (httpAnswered) throw httpError;
+      // AN ENGINE THAT TOOK THE REQUEST AND HAS NOT ANSWERED IS UPGRADING. Asking
+      // the native host now would start a second upgrade beside the first, under
+      // the one write lock (CLAUDE.md), so its silence is read like the host's.
+      if (isTimeoutError(httpError)) {
+        throw Object.assign(new Error(httpError.message), {kind: "timeout"});
+      }
       result = await upgradeDatabase();
     }
     clearRuntimeIssue();
@@ -10587,12 +10755,88 @@ async function upgradeDatabaseFromPanel() {
     }
     await render();
   } catch (err) {
+    if (UPGRADE_NO_ANSWER.includes(err && err.kind)) {
+      await rereadAfterSilentUpgrade(tell, waitedSince(started), err);
+      return;
+    }
     setRuntimeIssue(err);
-    note.textContent = "The database was not changed. The reason is shown above.";
-    const engineNote = $("engine-note");
-    if (engineNote) engineNote.textContent = note.textContent;
+    // THE REASON IN THE SENTENCE, NOT "SHOWN ABOVE". Neither page this is written
+    // to has the issue card above it: `#runtime-error` is in Settings and
+    // `#engine-error` sits BELOW `#engine-note` on Run. And "not changed" only
+    // where the host never ran: an answered failure can arrive after the
+    // migration (`native.upgrade_database`), so it is said in the host's words.
+    const reason = ["absent", "forbidden"].includes(err && err.kind)
+      ? `The database was not changed: ${hostFailureReason(err)}.`
+      : issueCopy(err).body;
+    tell(reason.charAt(0).toUpperCase() + reason.slice(1));
   } finally {
+    upgradeRunning = false;
     actionButtons.forEach((button) => { button.disabled = false; });
+    // AND ANY CARD DRAWN MID-WAIT, which `renderIssueInto` drew with its button down.
+    document.querySelectorAll("[data-runtime-upgrade]")
+      .forEach((button) => { button.disabled = false; });
+  }
+}
+
+// What the panel can still say when the upgrade went silent: ask the host what
+// the database IS now, with the same CHECK_STARTUP the engine's start asks, and
+// say that. Upgraded, still behind, something else wrong, or nothing known.
+async function rereadAfterSilentUpgrade(tell, waited, silenceError) {
+  const silence = silenceError && silenceError.kind;
+  // SETTINGS HAS NO LINE OF ITS OWN for an upgrade's outcome -- the sentence goes to
+  // the Database page and Run -- so where the database is NOT upgraded, its card
+  // keeps saying the upgrade went unanswered, as it did before this change. Only the
+  // card under Run's sentence goes: it asks for the press that sentence says to hold.
+  const settle = () => {
+    renderIssueInto($("engine-error"), null);
+    renderIssueInto($("runtime-error"), silenceError);
+  };
+  tell(`No answer from the upgrade${waited}. Checking the database…`);
+  try {
+    const found = await checkStartup();
+    const engine = (found.databases || {}).engine || {};
+    // `ok` on the ANSWER is "nothing blocks a start", which a Missing database
+    // also passes; only the database's own `ok` is "healthy".
+    if (!engine.ok) {
+      settle();
+      tell(`No answer from the upgrade${waited}, and the database check reports: `
+        + `${engine.status || "unknown"}. ${engine.action || ""}`.trim());
+      return;
+    }
+    clearRuntimeIssue();
+    tell(`No answer from the upgrade${waited}, but the database is now at `
+      + `v${engine.schema_version} and healthy.`);
+    await render();
+  } catch (checkError) {
+    const kind = checkError && checkError.kind;
+    const behind = kind === "startup_blocked" && checkError.action === "upgrade_database";
+    // A HOST THAT TIMED OUT MAY NOT HAVE EXITED. It may still be copying, and a
+    // read beside it sees the file as it was, so pressing again is not the next
+    // step until it has had time. Only a host that stopped (`crashed`) is done.
+    const wait = "The upgrade may still be running: wait a few minutes before "
+      + "pressing Upgrade database again.";
+    if (behind && silence === "timeout") {
+      settle();
+      const engine = (checkError.databases || {}).engine || {};
+      tell(`No answer from the upgrade${waited}, and the database is still at `
+        + `v${engine.schema_version}. ${wait}`);
+    } else if (behind) {
+      // The engine's own sentence: it names both versions and the button.
+      const engine = (checkError.databases || {}).engine || {};
+      tell(`No answer from the upgrade${waited}, and the database is still behind. `
+        + (engine.action || checkError.message));
+    } else if (kind === "timeout") {
+      settle();
+      tell(`No answer from the upgrade${waited}, and the database check did not `
+        + `answer either. ${wait}`);
+    } else if (["absent", "forbidden", "crashed"].includes(kind)) {
+      tell(`No answer from the upgrade${waited}, and the database could not be `
+        + `checked: ${hostFailureReason(checkError)}.`);
+    } else {
+      setRuntimeIssue(checkError);
+      tell(`No answer from the upgrade${waited}, and the database check found a `
+        + `problem: ${issueCopy(checkError).body}`);
+    }
   }
 }
 
@@ -10631,11 +10875,30 @@ function wireRuntimeRepair() {
   restart.addEventListener("click", async () => {
     [restart, upgrade, $("runtime-check-action")].filter(Boolean)
       .forEach((button) => { button.disabled = true; });
-    say("Restarting — the engine goes quiet for a few seconds.");
+    const release = () => [restart, upgrade, $("runtime-check-action")]
+      .filter(Boolean).forEach((button) => { button.disabled = false; });
+    say("Checking the database before restarting…");
     clearRuntimeIssue();
+    // IS THERE AN ENGINE TO RESTART AT ALL. The POST below cannot tell: a
+    // refused connection and an engine leaving mid-answer both arrive as one
+    // thrown fetch, and that throw was read as success -- so with nothing
+    // running, the panel announced a restart and waited two minutes for an
+    // engine nobody was starting (#1094). Asked first, because it is cheap and
+    // the check below is not.
+    try {
+      await raw("/api/health", {cache: "no-store"});
+    } catch (probeError) {
+      say(isTimeoutError(probeError)
+        ? "The engine did not answer, so Restart was not sent. Press Check again to ask it."
+        : "No engine is running, so there is nothing to restart. Start it on the Run page.");
+      release();
+      return;
+    }
     // Check the CURRENT build's database expectations before asking the old
     // process to leave. Without this gate, a newer process could die during
     // startup and the panel would only be able to say "two minutes".
+    const checking = Date.now();
+    let before = "Restarting — the engine goes quiet for a few seconds.";
     try {
       await checkStartup();
     } catch (startupError) {
@@ -10644,14 +10907,18 @@ function wireRuntimeRepair() {
         setRuntimeIssue(startupError);
         say("Restart was not attempted. Fix the issue shown above first.",
             "Restart was not attempted: " + issueCopy(startupError).body);
-        [restart, upgrade, $("runtime-check-action")].filter(Boolean)
-          .forEach((button) => { button.disabled = false; });
+        release();
         return;
       }
       // The engine is already reachable in this path, so HTTP restart remains
-      // useful even when the native helper is unavailable or slow.
-      say("Native helper unavailable — restarting through the engine.");
+      // useful even when the native helper is unavailable or slow. SLOW IS NOT
+      // UNAVAILABLE: the check scans the whole file, and its budget running out
+      // says that and no more.
+      before = startupError.kind === "timeout"
+        ? `The database check did not answer${waitedSince(checking)} — restarting through the engine.`
+        : "Native helper unavailable — restarting through the engine.";
     }
+    say(before);
     // A thrown fetch is the SUCCESS path — the engine exits mid-answer and the
     // socket dies. An answered fetch that is not ok is the opposite, and the
     // first version of this treated both the same: it looked only for 404 and
@@ -10684,6 +10951,10 @@ function wireRuntimeRepair() {
     // Poll until it answers again, then re-render so every version and status
     // on this screen comes from the engine that is now running.
     let attempts = 0;
+    // A probe can outlast the 1 s interval (a refused connection measured up to
+    // 2 s here), so ticks overlap, and each one that finished after the last
+    // ran the whole ending: up to three two-minute scans at once. One ends it.
+    let settled = false;
     const timer = setInterval(async () => {
       attempts += 1;
       try {
@@ -10696,7 +10967,9 @@ function wireRuntimeRepair() {
         // asks until it answers -- so the status must not throw. What it gains is
         // a deadline it never had, on the one screen where a person is waiting.
         const probe = await raw("/api/health", {cache: "no-store"});
+        if (settled) return;
         if (probe.ok) {
+          settled = true;
           clearInterval(timer);
           [restart, upgrade, $("runtime-check-action")].filter(Boolean)
             .forEach((button) => { button.disabled = false; });
@@ -10711,13 +10984,16 @@ function wireRuntimeRepair() {
           return;
         }
       } catch (_) { /* still down, which is expected */ }
+      if (settled) return;
       if (attempts >= RESTART_CONFIRM_ATTEMPTS) {
+        settled = true;
         clearInterval(timer);
-        [restart, upgrade, $("runtime-check-action")].filter(Boolean)
-          .forEach((button) => { button.disabled = false; });
         // The process may have failed before it could expose /api/health. Ask
         // the native host for the same current-build preflight so a schema
-        // error, missing registry, or other startup blocker is not lost.
+        // error, missing registry, or other startup blocker is not lost. It
+        // scans the whole file, so it is said, and the buttons stay down, until
+        // it answers.
+        say("The engine has not answered in two minutes. Checking the database…");
         try {
           await checkStartup();
           const timeout = Object.assign(
@@ -10727,16 +11003,23 @@ function wireRuntimeRepair() {
           say("The engine has not answered in two minutes. Check the reason above.",
               "The engine has not answered in two minutes. It may still be starting.");
         } catch (startupError) {
-          setRuntimeIssue(startupError);
-          const helperGone = startupError
-            && ["absent", "forbidden", "crashed", "timeout"].includes(startupError.kind);
-          say(helperGone
-            ? "The engine did not confirm its restart because the local helper is unavailable."
-            : "The engine stopped during startup. The reason is shown above.",
-            helperGone
+          if (startupError && startupError.kind === "timeout") {
+            // SLOW IS NOT UNAVAILABLE, here as before the restart.
+            say("The engine has not answered in two minutes, and the database check "
+              + "did not answer either.");
+          } else {
+            setRuntimeIssue(startupError);
+            const helperGone = startupError
+              && ["absent", "forbidden", "crashed"].includes(startupError.kind);
+            say(helperGone
               ? "The engine did not confirm its restart because the local helper is unavailable."
-              : "The engine stopped during startup. " + issueCopy(startupError).body);
+              : "The engine stopped during startup. The reason is shown above.",
+              helperGone
+                ? "The engine did not confirm its restart because the local helper is unavailable."
+                : "The engine stopped during startup. " + issueCopy(startupError).body);
+          }
         }
+        release();
       }
     }, 1000);
   });
@@ -10812,6 +11095,12 @@ function wireStartupShell() {
     if (confirmIsOpen()) {
       event.stopPropagation();
       answerConfirm(false);
+      return;
+    }
+    if (scheduleSheetIsOpen()) {
+      event.stopPropagation();
+      event.preventDefault();
+      requestCloseScheduleSheet();
       return;
     }
     if (restoreDialogIsOpen()) {
@@ -11570,6 +11859,7 @@ function wireDeferredControls() {
   // THE JOBS PAGE IS LIVE, so it has no Refresh: the panel's one tick feeds it (#1542).
   wireJobsPage();
   wireSchedulesPage();
+  wireScheduleSheet();
 
   runModeSelectUi = setupRunModeSelect();
   $("run-mode").addEventListener("change", refreshMode);

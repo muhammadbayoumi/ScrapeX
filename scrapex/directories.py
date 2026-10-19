@@ -227,11 +227,60 @@ def _oman_tenderboard() -> Directory:
     )
 
 
+def _tvtc() -> Directory:
+    # Imported inside the function for `_muqawil`'s reason.
+    from .extract.tvtc import DATASET_KEY, IDENTITY_FIELD, bilingual_listing_candidate
+    from .sites.tvtc import BASE_URL, SITE_KEY, TvtcPartition, locale_in_query
+
+    # NO `profiles` AND NO `registration_field`, and both are measurements (`#1716`). The
+    # list row carries the whole record, so there is no detail page to read; and the
+    # unified CR number is shared by up to 60 branches, so it cannot say "the same
+    # establishment under another key" -- see `sites/tvtc.identity_evidence`.
+    return Directory(
+        key=SITE_KEY,
+        display_name="TVTC licensed training establishments",
+        base_url=BASE_URL,
+        dataset_key=DATASET_KEY,
+        identity_field=IDENTITY_FIELD,
+        candidate=bilingual_listing_candidate,
+        locale_pairing=locale_in_query,
+        partition_factory=TvtcPartition,
+        # OFF UNTIL HE TURNS IT ON. `CLAUDE.md`: no source is made active without his
+        # word, and `active` here means the schedule crawls it. "Update now" works
+        # either way; the switch on the Schedules row is his.
+        active=False,
+    )
+
+
+def _tvtc_plans() -> Directory:
+    # Imported inside the function for `_muqawil`'s reason.
+    from .extract.tvtc_plans import DATASET_KEY, IDENTITY_FIELD, bilingual_listing_candidate
+    from .sites.tvtc import BASE_URL, PLANS_SITE_KEY, TvtcPlansPartition, locale_in_query
+
+    # THE SAME REGISTER'S SECOND LISTING, and so its own directory: a `Directory` reads one
+    # listing into one dataset. Same host, so the same `base_url`; `register_site` keys on
+    # the source key, and two keys on one host conflict on nothing. Off, for `_tvtc`'s
+    # reason; nothing schedules a directory yet (`webui/app.py`).
+    return Directory(
+        key=PLANS_SITE_KEY,
+        display_name="TVTC licensed training plans",
+        base_url=BASE_URL,
+        dataset_key=DATASET_KEY,
+        identity_field=IDENTITY_FIELD,
+        candidate=bilingual_listing_candidate,
+        locale_pairing=locale_in_query,
+        partition_factory=TvtcPlansPartition,
+        active=False,
+    )
+
+
 #: Every directory this build can crawl. Keyed by `site_key`, because that is what
 #: the warehouse joins on and what the crawl's scope lookup uses.
 BUILDERS: dict[str, Callable[[], Directory]] = {
     "muqawil_org": _muqawil,
     "oman_tenderboard": _oman_tenderboard,
+    "tvtc_establishments": _tvtc,
+    "tvtc_training_plans": _tvtc_plans,
 }
 
 #: THE DEFAULT IS STILL MUQAWIL, AND STAYS SO. It exists to keep every command line that

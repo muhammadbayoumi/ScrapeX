@@ -14,6 +14,21 @@ from pydantic import (
 
 from ..catalog_models import CatalogKey, FieldType
 
+#: THE LARGEST BODY A SNAPSHOT HOLDS, whatever stored it. A directory read from a JSON API
+#: stores a page of rows: TVTC's training plans measured up to 10.96 MB a 1,000-row page over
+#: the full 84-page crawl (`#1716` step 2), so 16 MB left a 1.46x margin, and a page past the
+#: cap is not stored while its ids still count as read. 32 MB is that page with a 2.9x
+#: margin (his choice over a smaller page size). The body is zstd-compressed at rest
+#: (`snapshotbody.py`, 31x over the 84 plans pages), so the cost is transfer, not warehouse. A body
+#: over it is refused by name, never truncated (`service.save_snapshot`).
+MAX_STORED_BODY_BYTES = 32_000_000
+
+#: THE LARGEST PAGE HE MAY SAVE BY HAND (`POST /api/general/extract/snapshots`), A SECOND
+#: LIMIT BECAUSE IT GUARDS A SECOND COST. That page's tables are found by BeautifulSoup inside
+#: the warehouse write (`service.approve_candidate` -> `detect_html_tables`), measured at
+#: 4.3 s and 245 MB for 1.99 MB and 29.9 s and 1.27 GB for 15.9 MB (#1739). It changes with
+#: parse cost; `MAX_STORED_BODY_BYTES` changes with page size. One number for both is what
+#: let a crawl's need raise the parse's exposure.
 MAX_HTML_BYTES = 2_000_000
 MAX_TABLES = 20
 MAX_TABLE_ROWS = 5_000
@@ -27,7 +42,7 @@ class SnapshotCreate(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     source_url: AnyHttpUrl
-    html_content: str = Field(min_length=1, max_length=MAX_HTML_BYTES)
+    html_content: str = Field(min_length=1, max_length=MAX_STORED_BODY_BYTES)
     #: Which crawl run fetched this page, so an interrupted one can resume
     #: without re-fetching what it already has. SET AT INSERT AND NEVER
     #: UPDATED -- `trg_generic_page_snapshot_immutable_update` forbids the
@@ -50,6 +65,25 @@ class SnapshotCreate(BaseModel):
     #: by hand, which has no class to share a dictionary with and nothing to
     #: gain. A crawl of 36,548 pages has both. See docs/STORAGE.md.
     body_class: str | None = None
+
+
+class SavedPageCreate(SnapshotCreate):
+    """A page he saves by hand, whose tables are then parsed: `MAX_HTML_BYTES`, not the
+    crawl's `MAX_STORED_BODY_BYTES`. The body model of the save-a-page route only."""
+
+    html_content: str = Field(min_length=1, max_length=MAX_HTML_BYTES)
+
+    @field_validator("html_content")
+    @classmethod
+    def _within_the_byte_limit(cls, value: str) -> str:
+        """BYTES, NOT CHARACTERS. `max_length` counts code points, so a 2M-character Arabic
+        page -- about 4 MB as UTF-8 -- passed it (#1749's review, through the real route)."""
+        size = len(value.encode("utf-8"))
+        if size > MAX_HTML_BYTES:
+            raise ValueError(
+                f"the saved page is {size:,} bytes; a page saved by hand may be at most "
+                f"{MAX_HTML_BYTES:,}")
+        return value
 
 
 class ApprovalField(BaseModel):

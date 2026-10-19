@@ -273,33 +273,6 @@ def test_a_meaningless_chosen_mode_is_moved_not_run():
     assert 'select.value = withData > 0 ? "update" : "initial_crawl"' in JS
 
 
-# ---- schedules are EDITABLE from the panel -----------------------------------
-
-def test_the_schedules_section_is_an_editor_not_a_list():
-    """The API could create schedules since spec 26; the panel could only read
-    them — so the section said "No schedules yet" forever with no way to
-    change that, which the owner reported verbatim."""
-    assert '/api/schedules/' in JS.replace('"', "'"), "no save path — still read-only"
-    # FULL control (owner's ruling: this section is THE central place for
-    # scheduling) — every knob the schedule model has must be present.
-    for role in ("freq", "weekday", "time", "save", "tz", "mode",
-                 "missed", "enabled"):
-        assert f'data-role="{role}"' in JS, f"the {role} control is missing"
-    # NO OVERLAP CHOICE ANY MORE (#1596): a busy slot is skipped and logged whatever
-    # the stored policy says, so a select offering "Queue behind it" would be a
-    # control that changes nothing. One line says what happens instead, and the save
-    # still sends `skip`, so an engine older than that change skips too.
-    assert 'data-role="overlap"' not in JS, "the panel still offers an overlap choice"
-    assert "If this site's previous run is still going, ScrapeX skips the slot and lists it on the Jobs page." in JS
-    assert 'overlap_policy: "skip"' in JS
-    # The scheduler fires only ACTIVE sources; a schedule that will not fire
-    # must say so on its own row.
-    assert "Auto is off for this site" in JS
-    # 0=Monday, the server's convention — a drifted weekday list would fire
-    # runs a day away from what the owner picked.
-    assert '"Monday", "Tuesday"' in JS
-
-
 def test_the_autostart_control_says_which_failure_it_hit():
     """Two silences in one control, both of them shipped.
 
@@ -391,7 +364,7 @@ def _show_view_body() -> str:
 #: that paints a skeleton and never replaces it is indistinguishable from a slow
 #: engine, so this is asserted rather than left to a reader of two files.
 SCREEN_LOADERS = {
-    "settings": ["loadSchedules", "loadStorage", "loadOutputs"],
+    "settings": ["loadStorage", "loadOutputs"],
     "data": ["loadDatasets"],
     "sources": ["loadSources"],
 }

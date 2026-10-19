@@ -318,8 +318,7 @@ test("a price source's crawl rules go to /rules as numbers, never to /edit", asy
   const {saveSourceEditor, posts} = saver(answer(), source, {
     "source-edit-robots": {value: "custom"}, "source-edit-robots-enforce": {checked: true},
     "source-edit-robots-delay": {value: "2"}, "source-edit-pace": {value: "3"},
-    "source-edit-name": {value: "Shop"}, "source-edit-cadence": {value: ""},
-    "source-edit-vat": {value: ""},
+    "source-edit-name": {value: "Shop"}, "source-edit-vat": {value: ""},
   });
 
   await saveSourceEditor();

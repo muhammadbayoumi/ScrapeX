@@ -111,6 +111,8 @@
             <button id="sched-create" type="button">Create schedule</button>
           </span>
         </div>
+        <p class="muted text-xs" id="sched-limit" hidden>Every price source that can run has
+          a schedule. Add a source in Library to schedule another.</p>
         <p class="muted text-xs jobs-count" id="sched-count">&nbsp;</p>
         <div id="sched-state"></div>
         <div id="sched-list" class="card jobs-list hidden"></div>
@@ -129,7 +131,7 @@
       <div id="setup" class="card warn hidden">
         <div class="setup-title">Engine not running</div>
         <div class="muted steps mb-2">
-          <span id="engine-note">Start it from here — no terminal needed.</span>
+          <span id="engine-note" role="status">Start it from here — no terminal needed.</span>
           <!-- The rich form of the same news. setRuntimeIssue() renders a title,
                a sentence and, where one exists, the button that repairs it —
                and it has been reaching for this element since 04687f3 while
@@ -525,20 +527,17 @@
           <div class="fieldset"><label for="f-region">Default region</label>
             <input id="f-region" class="tech" placeholder="SA / EG / *"></div>
         </div>
-        <div class="two">
-          <div class="fieldset"><label for="f-vat">VAT</label>
-            <select id="f-vat">
-              <option value="incl">Prices include VAT</option>
-              <option value="excl">Prices exclude VAT</option>
-            </select></div>
-          <div class="fieldset"><label for="f-cadence">Schedule</label>
-            <select id="f-cadence">
-              <option value="manual">Manual only</option>
-              <option value="daily" selected>Daily</option>
-              <option value="weekly">Weekly</option>
-              <option value="monthly">Monthly</option>
-            </select></div>
-        </div>
+        <div class="fieldset"><label for="f-vat">VAT</label>
+          <select id="f-vat">
+            <option value="incl">Prices include VAT</option>
+            <option value="excl">Prices exclude VAT</option>
+          </select></div>
+        <!-- WHEN IT RUNS IS DECIDED ON ONE PAGE (#1631, his option (c) for #1575): the
+             "Schedule" select that wrote `cadence`, which nothing that schedules reads
+             (#1415), is gone, and this says where a schedule is made. -->
+        <p class="hint" id="add-schedule-hint">Schedule it on the
+          <button type="button" class="link" id="add-schedule-link">Schedules page</button>
+          once it is added.</p>
         <label class="check"><input type="checkbox" id="f-auth">
           <span>This site requires a signed-in session
             <span class="hint muted">Recorded, never bypassed — the run reports it.</span></span></label>
@@ -723,17 +722,10 @@
             <label for="source-edit-url">Base URL</label>
             <input id="source-edit-url" class="tech" dir="ltr">
           </div>
-          <div class="two">
-            <div class="fieldset"><label for="source-edit-currency">Currency</label>
-              <input id="source-edit-currency" class="tech"></div>
-            <div class="fieldset"><label for="source-edit-cadence">Schedule</label>
-              <select id="source-edit-cadence">
-                <option value="manual">Manual only</option>
-                <option value="daily">Daily</option>
-                <option value="weekly">Weekly</option>
-                <option value="monthly">Monthly</option>
-              </select></div>
-          </div>
+          <!-- No "Schedule" select (#1631, option (c)): its schedule is the line
+               "Scheduled runs: …" below, opening its row on the Schedules page. -->
+          <div class="fieldset"><label for="source-edit-currency">Currency</label>
+            <input id="source-edit-currency" class="tech"></div>
           <div class="fieldset">
             <label for="source-edit-vat">VAT</label>
             <select id="source-edit-vat">
@@ -2197,27 +2189,9 @@
       <section class="settings-group" aria-labelledby="settings-operations-heading">
         <div class="settings-group-head">
           <h2 id="settings-operations-heading">Automation &amp; output</h2>
-          <p>Schedules and destinations</p>
+          <p>Destinations and crawl pace</p>
         </div>
         <div class="settings-list">
-          <article class="settings-item">
-            <button class="link sect settings-toggle" data-sect="s-sched" aria-expanded="false">
-              <span class="settings-icon" aria-hidden="true">
-                <svg class="sx-icon"><use href="#material-schedule"></use></svg>
-              </span>
-              <span class="settings-toggle-copy">
-                <span class="settings-title">Jobs and scheduling</span>
-                <span class="settings-description">Run cadence and worker availability</span>
-              </span>
-              <svg class="settings-chevron sx-icon" aria-hidden="true">
-                <use href="#material-chevron-right"></use>
-              </svg>
-            </button>
-            <div id="s-sched" class="settings-panel hidden">
-              <div id="schedules" class="muted text-sm">Loading…</div>
-              <div class="muted text-xs mt-2" id="sched-note"></div>
-            </div>
-          </article>
           <article class="settings-item">
             <button class="link sect settings-toggle" data-sect="s-output" aria-expanded="false">
               <span class="settings-icon" aria-hidden="true">
@@ -2706,6 +2680,91 @@
   <!-- A short confirmation after a change (#1596). Empty is hidden; always present,
        so a screen reader hears what is written into it. -->
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <!-- CREATE A SCHEDULE, AND EDIT ONE (#1631 part 2): Supabase's Sheet from the right
+       (sheet.tsx@86c813ec), laid out as Studio's CreateCronJobSheet
+       (CreateCronJobSheet.tsx@86c813ec:288-471). Modal: the veil covers the rail, which
+       is inert while it is open, and Escape, the veil, × and Cancel all close it through
+       the discard question when something was entered (WAI-ARIA APG dialog).
+       `openScheduleSheet` in app.js fills and opens it. -->
+  <div id="sched-sheet-veil" class="sheet-veil hidden">
+    <div class="sheet" id="sched-sheet" role="dialog" aria-modal="true"
+         aria-labelledby="sched-sheet-title">
+      <div class="sheet-header">
+        <h2 class="sheet-title" id="sched-sheet-title">Create a schedule</h2>
+        <div class="sheet-identity" id="sched-sheet-identity"></div>
+      </div>
+      <form class="sheet-body" id="sched-sheet-form" novalidate>
+        <div class="sheet-section stack" id="sched-sheet-source-field">
+          <div class="fieldset">
+            <label for="sched-sheet-source">Source</label>
+            <select id="sched-sheet-source"></select>
+            <p class="hint" id="sched-sheet-source-hint">Sources that have no schedule yet.</p>
+          </div>
+          <div class="sheet-identity" id="sched-sheet-source-identity"></div>
+          <p class="hint" id="sched-sheet-filled" hidden>Filled in from its removed schedule.</p>
+        </div>
+        <div class="sheet-section stack">
+          <div class="two">
+            <div class="fieldset">
+              <label for="sched-sheet-frequency">Frequency</label>
+              <select id="sched-sheet-frequency">
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+              </select>
+            </div>
+            <div class="fieldset" id="sched-sheet-weekday-field" hidden>
+              <label for="sched-sheet-weekday">Day</label>
+              <select id="sched-sheet-weekday"></select>
+            </div>
+          </div>
+          <div class="fieldset">
+            <label for="sched-sheet-time">Time</label>
+            <input type="time" id="sched-sheet-time" required>
+          </div>
+          <div class="fieldset">
+            <label for="sched-sheet-zone">Timezone
+              <span class="muted">(IANA name — 09:00 means 09:00 there)</span></label>
+            <input id="sched-sheet-zone" dir="ltr" spellcheck="false" autocomplete="off">
+          </div>
+        </div>
+        <div class="sheet-section stack">
+          <div class="fieldset">
+            <label for="sched-sheet-mode">What the run does</label>
+            <select id="sched-sheet-mode">
+              <option value="update">Update existing data</option>
+              <option value="full_rebuild">Full rebuild (archives first)</option>
+              <option value="history_backfill">History backfill</option>
+            </select>
+          </div>
+          <div class="fieldset">
+            <label for="sched-sheet-missed">If the machine was off</label>
+            <select id="sched-sheet-missed">
+              <option value="run_when_available">Run when back</option>
+              <option value="skip">Skip that slot</option>
+            </select>
+          </div>
+          <p class="hint" id="sched-sheet-skip-note" hidden></p>
+          <label class="check" id="sched-sheet-enabled-field" hidden>
+            <input type="checkbox" id="sched-sheet-enabled">
+            <span>Enabled <span class="muted">— untick to pause without losing these settings</span></span>
+          </label>
+          <p class="hint" id="sched-sheet-runs-note"></p>
+        </div>
+      </form>
+      <div class="sheet-footer">
+        <p class="sheet-reason err" id="sched-sheet-reason" role="status" hidden></p>
+        <div class="sheet-actions">
+          <button class="ghost" type="button" id="sched-sheet-cancel">Cancel</button>
+          <button type="submit" form="sched-sheet-form" id="sched-sheet-save">Create schedule</button>
+        </div>
+      </div>
+      <button class="ghost icon-button sheet-close" type="button" id="sched-sheet-close"
+              aria-label="Close">
+        <svg class="sx-icon sm" aria-hidden="true"><use href="#material-close"></use></svg>
+      </button>
+    </div>
+  </div>
 
   <div id="confirm-veil" class="modal-veil hidden">
     <div class="modal-card" role="alertdialog" aria-modal="true"
