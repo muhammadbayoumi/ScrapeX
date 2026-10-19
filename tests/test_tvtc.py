@@ -159,7 +159,7 @@ def test_the_url_writes_locale_limit_and_page_in_one_order():
 
 def test_the_page_size_is_the_measured_thousand():
     """3,141 establishments are four pages per language at 1,000 (`#1716`); at 100 the
-    crawl would be ten times the requests, and at 5,000 a page would pass the 16 MB cap."""
+    crawl would be ten times the requests, and at 5,000 a page would pass the 32 MB cap."""
     assert PAGE_SIZE == 1000
     assert "&limit=1000&" in listing_url(page=1)
 
@@ -283,14 +283,14 @@ def test_the_shipped_switch_reaches_the_settings_he_reads(tmp_path):
 
 # --- a stored page this size is kept ------------------------------------------------
 
-def test_a_page_the_size_of_the_measured_plans_page_is_stored(tmp_path):
-    """1,000 training plans measured 9.4 MB (`#1716`); at the old 2 MB cap every such
-    page was refused and its rows never reached approval."""
+def test_a_page_twice_the_largest_measured_plans_page_is_stored(tmp_path):
+    """The largest 1,000-plan page measured 10.96 MB over the full crawl (`#1716` step 2);
+    at 16 MB a page with less than 1.5x growth was refused, its ids still counted read."""
     from scrapex import db as dbmod
     from scrapex.extract.models import SnapshotCreate
     from scrapex.extract.service import save_snapshot
     body = _body(_rows(1), total=1, per_page=1, current=1)
-    body = body[:-1] + ', "pad": "' + "x" * 9_400_000 + '"}'
+    body = body[:-1] + ', "pad": "' + "x" * 22_000_000 + '"}'
     conn = dbmod.connect(tmp_path / "engine.db")
     try:
         dbmod.migrate(conn)
@@ -304,10 +304,55 @@ def test_a_page_the_size_of_the_measured_plans_page_is_stored(tmp_path):
 def test_a_page_over_the_cap_is_refused_by_name_not_truncated(tmp_path):
     from pydantic import ValidationError
 
-    from scrapex.extract.models import MAX_HTML_BYTES, SnapshotCreate
+    from scrapex.extract.models import MAX_STORED_BODY_BYTES, SnapshotCreate
+    assert MAX_STORED_BODY_BYTES == 32_000_000
     with pytest.raises(ValidationError, match="at most"):
         SnapshotCreate(source_url=listing_url(page=1),
-                       html_content="x" * (MAX_HTML_BYTES + 1))
+                       html_content="x" * (MAX_STORED_BODY_BYTES + 1))
+
+
+def test_a_page_saved_by_hand_keeps_the_two_megabyte_limit_its_parse_needs():
+    """#1739: the hand-saved page's tables are parsed inside a write, measured at 29.9 s and
+    1.27 GB for 15.9 MB. The crawl's limit must not reach it."""
+    from pydantic import ValidationError
+
+    from scrapex.extract.models import MAX_HTML_BYTES, SavedPageCreate, SnapshotCreate
+    assert MAX_HTML_BYTES == 2_000_000
+    page = "<table><tr><td>x</td></tr></table>"
+    assert SavedPageCreate(source_url="https://example.test/",
+                           html_content=page + " " * (MAX_HTML_BYTES - len(page)))
+    with pytest.raises(ValidationError, match="at most 2000000"):
+        SavedPageCreate(source_url="https://example.test/",
+                        html_content="x" * (MAX_HTML_BYTES + 1))
+    assert issubclass(SavedPageCreate, SnapshotCreate)
+
+
+def test_the_save_a_page_route_refuses_a_page_over_two_megabytes(tmp_path):
+    """Through the real route: a 2 MB + 1 body is a 422, and nothing is stored."""
+    pytest.importorskip("fastapi")
+    from fastapi.testclient import TestClient
+
+    from scrapex.databases import DatabaseRegistry, EngineDatabase
+    from scrapex.extract.models import MAX_HTML_BYTES
+    from scrapex.webui.app import create_app
+    registry = DatabaseRegistry(EngineDatabase(tmp_path / "scrapex-engine.db"),
+                                pointer_file=tmp_path / "databases.json")
+    registry.initialize()
+    with TestClient(create_app(databases=registry)) as client:
+        refused = client.post("/api/general/extract/snapshots", json={
+            "source_url": "https://example.test/big",
+            "html_content": "<p>" + "x" * MAX_HTML_BYTES + "</p>"})
+        kept = client.post("/api/general/extract/snapshots", json={
+            "source_url": "https://example.test/small",
+            "html_content": "<table><tr><td>x</td></tr></table>"})
+    assert refused.status_code == 422, refused.text[:200]
+    assert kept.status_code == 201, kept.text[:200]
+    conn = registry.engine.connect()
+    try:
+        urls = [u for (u,) in conn.execute("SELECT source_url FROM generic_page_snapshot")]
+    finally:
+        conn.close()
+    assert urls == ["https://example.test/small"]
 
 
 # --- end to end -------------------------------------------------------------------------
@@ -376,3 +421,46 @@ def test_the_stored_pages_of_both_locales_meet_in_pairs(tmp_path):
         conn.close()
     assert len(pairs) == 2
     assert all(set(halves) == {"en", "ar"} for halves in pairs.values())
+
+
+def test_the_stored_body_limit_is_counted_in_bytes_not_characters(tmp_path):
+    """#1749's review: under the character limit, over it in UTF-8 -- refused by name."""
+    from scrapex import db as dbmod
+    from scrapex.extract.models import (
+        MAX_STORED_BODY_BYTES,
+        CandidateNotApprovable,
+        SnapshotCreate,
+    )
+    from scrapex.extract.service import save_snapshot
+    body = "ب" * (MAX_STORED_BODY_BYTES // 2 + 1)
+    assert len(body) <= MAX_STORED_BODY_BYTES < len(body.encode("utf-8"))
+    conn = dbmod.connect(tmp_path / "engine.db")
+    try:
+        dbmod.migrate(conn)
+        with pytest.raises(CandidateNotApprovable, match="exceeds"):
+            save_snapshot(conn, SnapshotCreate(source_url=listing_url(page=1),
+                                               html_content=body))
+    finally:
+        conn.close()
+
+
+def test_a_multibyte_page_saved_by_hand_is_held_to_two_megabytes_of_bytes(tmp_path):
+    """Through the real route: 1M Arabic characters are 1,000,007 characters and 2,000,007
+    bytes of UTF-8 -- under the character limit, 7 bytes over the byte limit. It was a 201
+    while the limit counted characters."""
+    pytest.importorskip("fastapi")
+    from fastapi.testclient import TestClient
+
+    from scrapex.databases import DatabaseRegistry, EngineDatabase
+    from scrapex.extract.models import MAX_HTML_BYTES
+    from scrapex.webui.app import create_app
+    body = "<p>" + "ب" * (MAX_HTML_BYTES // 2) + "</p>"
+    assert len(body) <= MAX_HTML_BYTES < len(body.encode("utf-8"))
+    registry = DatabaseRegistry(EngineDatabase(tmp_path / "scrapex-engine.db"),
+                                pointer_file=tmp_path / "databases.json")
+    registry.initialize()
+    with TestClient(create_app(databases=registry)) as client:
+        refused = client.post("/api/general/extract/snapshots", json={
+            "source_url": "https://example.test/arabic", "html_content": body})
+    assert refused.status_code == 422, refused.text[:200]
+    assert "at most 2,000,000" in refused.text

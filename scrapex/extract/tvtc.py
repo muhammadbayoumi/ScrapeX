@@ -297,7 +297,13 @@ class LanguagesDisagree(ValueError):
     """The English and Arabic copies of one page do not hold the same establishments."""
 
 
-def _pairs(english_body: str, arabic_body: str) -> tuple[tuple[dict, dict], ...]:
+#: The names whose script tells the two views apart, for an establishments row.
+LANGUAGE_PATHS: tuple[tuple[str, ...], ...] = (("establishment_type", "name"), ("city", "name"))
+
+
+def _pairs(english_body: str, arabic_body: str, *,
+           language_paths: tuple[tuple[str, ...], ...] = LANGUAGE_PATHS,
+           ) -> tuple[tuple[dict, dict], ...]:
     """Each Arabic row with its English twin, joined on `id` IN PUBLISHED ORDER.
 
     REFUSED WHEN THE TWO VIEWS DIFFER, rather than joined on what they share: the two
@@ -316,16 +322,22 @@ def _pairs(english_body: str, arabic_body: str) -> tuple[tuple[dict, dict], ...]
         only_ar = sorted(set(ids_ar) - set(ids_en))[:5]
         only_en = sorted(set(ids_en) - set(ids_ar))[:5]
         raise LanguagesDisagree(
-            f"the two copies hold different establishments (Arabic only: {only_ar}, "
+            f"the two copies hold different rows (Arabic only: {only_ar}, "
             f"English only: {only_en}, or the same ids in another order)")
-    _assert_two_languages(arabic, english)
+    _assert_two_languages(arabic, english, language_paths)
     return tuple(zip(arabic, english, strict=True))
 
 
 _ARABIC_SCRIPT = re.compile(r"[؀-ۿ]")
 
 
-def _assert_two_languages(arabic: tuple[dict, ...], english: tuple[dict, ...]) -> None:
+def _named(language_paths: tuple[tuple[str, ...], ...]) -> str:
+    """The paths the check read, for the refusal the approval log prints."""
+    return " or ".join(".".join(path) for path in language_paths)
+
+
+def _assert_two_languages(arabic: tuple[dict, ...], english: tuple[dict, ...],
+                          language_paths: tuple[tuple[str, ...], ...]) -> None:
     """Refuse a pair whose two copies are not the Arabic and the English view.
 
     THE LANGUAGE TRAVELS IN `locale=` ALONE, and `lang=` was measured to be ignored
@@ -339,7 +351,7 @@ def _assert_two_languages(arabic: tuple[dict, ...], english: tuple[dict, ...]) -
     def names(rows: tuple[dict, ...]) -> list[str]:
         found = []
         for row in rows:
-            for path in (("establishment_type", "name"), ("city", "name")):
+            for path in language_paths:
                 value = _at(row, *path)
                 if isinstance(value, str) and value.strip():
                     found.append(value)
@@ -348,12 +360,12 @@ def _assert_two_languages(arabic: tuple[dict, ...], english: tuple[dict, ...]) -
     in_arabic, in_english = names(arabic), names(english)
     if in_arabic and not any(_ARABIC_SCRIPT.search(name) for name in in_arabic):
         raise LanguagesDisagree(
-            "the Arabic copy carries no Arabic script in any type or city name, so the "
-            "site answered `locale=ar` in another language")
+            f"the Arabic copy carries no Arabic script in {_named(language_paths)}, so "
+            "the site answered `locale=ar` in another language")
     if in_english and all(_ARABIC_SCRIPT.search(name) for name in in_english):
         raise LanguagesDisagree(
-            "the English copy carries Arabic script in every type and city name, so the "
-            "site answered `locale=en` in Arabic")
+            f"the English copy carries Arabic script in every {_named(language_paths)}, "
+            "so the site answered `locale=en` in Arabic")
 
 
 def _uniqueness(rows: tuple[dict[str, str | None], ...], name: str) -> float:
