@@ -481,7 +481,9 @@ def test_the_web_page_points_at_the_panels_switch_not_auto(client):
     client.post(f"/api/schedules/{off.source_key}", json={"frequency": "daily"})
     page = client.get("/schedules").text
     assert "Scheduled runs are off for this source." in page
-    assert "under Settings, Jobs and scheduling" in page
+    # The switch lives on the panel's Schedules page; Settings' editor is gone (#1631).
+    assert "turn on its switch on the Schedules page in the extension" in page
+    assert "under Settings" not in page
     assert "until Auto is enabled" not in page
 
 

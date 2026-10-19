@@ -121,6 +121,8 @@ STACK_GAP = {
     (APP, "#site-search + .toolbar-spaced", "margin-block"): (
         "Run's Select all and Clear, under the site search and over the site list"),
     (APP, ".engine-detail-actions", "row-gap"): "the Engine screen's Download and Check again",
+    ("design/components.css", ".sheet-actions", "row-gap"): (
+        "a sheet's footer, its primary over Cancel at panel widths (#1631)"),
     (f"{PAGES}/overview.css", ".overview-hero-actions", "row-gap"): "/'s two hero links",
     (f"{PAGES}/exports.css", ".exports-hero-actions", "row-gap"): (
         "/exports' hero link and Open folder"),

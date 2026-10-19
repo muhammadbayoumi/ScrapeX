@@ -62,6 +62,9 @@
     /* An overlay drawn open needs room, or it covers the markup underneath it
        and the reader sees a bug that is not there. */
     .g-demo-tall { padding-block-end: 8rem; }
+    /* A fixed Sheet drawn inside its demo: a transformed box is the containing block of a
+       fixed descendant, so the sheet and its veil fill this box, not the page. */
+    .g-demo-sheet { position: relative; height: 30rem; overflow: hidden; transform: translateZ(0); }
     .g-note { padding: var(--sp-3) var(--sp-4); border-inline-start: 3px solid var(--accent);
               background: var(--accent-weak); color: var(--text); font-size: var(--fs-sm); }
     .g-swatches { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
@@ -460,6 +463,46 @@
       </button>
     </div>
     <pre>&lt;button class="sect"&gt;&lt;span&gt;Storage&lt;/span&gt; …chevron… &lt;/button&gt;</pre>
+  </div>
+
+  <div class="g-item">
+    <h3>Sheet — a modal panel from the inline end</h3>
+    <p class="g-why">
+      Supabase's Sheet (sheet.tsx@86c813ec), as the panel's Create a schedule uses it: a
+      <code class="code">sheet-veil</code> over everything, the
+      <code class="code">sheet</code> with its <code class="code">sheet-header</code>,
+      <code class="code">sheet-title</code>, a scrolling <code class="code">sheet-body</code>
+      of <code class="code">sheet-section</code>s, and a
+      <code class="code">sheet-footer</code> holding a <code class="code">sheet-reason</code>
+      above its <code class="code">sheet-actions</code>, and × as
+      <code class="code">sheet-close</code>. Opening, focus and closing are the screen's.
+    </p>
+    <div class="g-demo g-demo-sheet">
+      <div class="sheet-veil">
+        <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="g-sheet-title">
+          <div class="sheet-header">
+            <h2 class="sheet-title" id="g-sheet-title">Create a schedule</h2>
+          </div>
+          <div class="sheet-body">
+            <div class="sheet-section">
+              <label for="g-sheet-time">Time</label>
+              <input type="time" id="g-sheet-time" value="09:00">
+            </div>
+            <div class="sheet-section"><p class="text-sm">A second section.</p></div>
+          </div>
+          <div class="sheet-footer">
+            <p class="sheet-reason err">Unable to save: the engine could not do that</p>
+            <div class="sheet-actions">
+              <button type="button" class="ghost">Cancel</button>
+              <button type="button">Create schedule</button>
+            </div>
+          </div>
+          <button type="button" class="ghost icon-button sheet-close" aria-label="Close">
+            <svg class="sx-icon sm" aria-hidden="true"><use href="#material-close"></use></svg>
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div class="g-item">

@@ -1827,3 +1827,115 @@ button::before,
 @media (prefers-reduced-motion: reduce) {
   .split-button-options { animation: none; }
 }
+
+/* ==========================================================================
+ * Sheet — a panel from the inline end, over a veil (#1631 part 2).
+ *
+ * Supabase's Sheet, side right (packages/ui/src/components/shadcn/ui/sheet.tsx@86c813ec):
+ * the content `fixed h-full inset-y-0 right-0 border-l bg-popover shadow-lg` (:62-75),
+ * its header `px-5 py-4 border-b` (:197-203), a section `px-5 py-4` (:205-207), the footer
+ * `px-5 py-3 border-t flex flex-col-reverse sm:flex-row sm:justify-end gap-2` (:210-218),
+ * the title `text-lg text-foreground` (:226), and × `absolute right-4 top-4` (:182-190).
+ * The overlay is `bg-alternative/90 backdrop-blur-xs` (:53): `--background-alternative-
+ * default` is `--background` (compat.css@86c813ec:24), and Tailwind v4's `--blur-xs` is
+ * 4px. A screen places it: `--sheet-inset-end` leaves a rail beside it uncovered by the
+ * sheet, while the veil still covers the rail. Opening, focus and closing are the
+ * screen's (the WAI-ARIA APG dialog pattern).
+ * ======================================================================== */
+:root {
+  /* Supabase's px-5, 1.25rem. The panel's scale has no 1.25rem step (--sp-5 is 1.5rem),
+     so the sheet names the one it uses. */
+  --sheet-pad-x: calc(var(--sp-1) * 5);
+}
+.sheet-veil {
+  position: fixed;
+  inset: 0;
+  /* Above a rail at --z-modal; below a question asked over the sheet, at +10. */
+  z-index: calc(var(--z-modal) + 5);
+  background: color-mix(in srgb, var(--bg) 90%, transparent);
+  backdrop-filter: blur(4px);
+}
+.sheet {
+  position: fixed;
+  inset-block: 0;
+  inset-inline-end: var(--sheet-inset-end, 0px);
+  display: flex;
+  flex-direction: column;
+  width: calc(100% - var(--sheet-inset-end, 0px));
+  border-inline-start: 1px solid var(--line);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-lg);
+  /* slide-in-from-right; the panel's slow step for Supabase's duration-300. */
+  animation: sheet-in var(--dur-slow) var(--ease);
+}
+@keyframes sheet-in {
+  from { transform: translateX(100%); }
+}
+.sheet-header {
+  /* Room at the inline end for ×: 1rem in, and the icon button's 36px (9 steps). */
+  padding: var(--sp-4) calc(var(--sp-4) + var(--sp-1) * 9) var(--sp-4) var(--sheet-pad-x);
+  border-bottom: 1px solid var(--line);
+}
+/* RESETS, as .modal-title's are: a screen's own `h2` rule (a small uppercase section
+   label) would otherwise title the sheet in grey small caps. */
+.sheet-title {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-regular);
+  letter-spacing: normal;
+  text-transform: none;
+  overflow-wrap: break-word;
+}
+.sheet-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.sheet-section {
+  padding: var(--sp-4) var(--sheet-pad-x);
+}
+/* Studio's <Separator /> between the sections (CreateCronJobSheet.tsx@86c813ec:322-324). */
+.sheet-section + .sheet-section {
+  border-top: 1px solid var(--line);
+}
+.sheet-footer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sheet-pad-x);
+  border-top: 1px solid var(--line);
+}
+.sheet-actions {
+  display: flex;
+  flex-direction: column-reverse;
+  gap: var(--sp-2);
+}
+/* Tailwind's sm, 640px: below it the primary sits above Cancel, full width. */
+@media (min-width: 40rem) {
+  .sheet-actions {
+    flex-direction: row;
+    justify-content: flex-end;
+  }
+}
+.sheet-reason {
+  margin: 0;
+  font-size: var(--fs-xs);
+}
+.sheet-close {
+  position: absolute;
+  inset-block-start: var(--sp-4);
+  inset-inline-end: var(--sp-4);
+}
+/* On a touch screen the footer's stacked Buttons stand --touch-stack-gap apart: their 44px
+   reaches, 9px past each box, meet at the midpoint and do not overlap (his ruling on #1457;
+   table.mdx@86c813ec:197). At gap-2's 8px the primary took the taps on Cancel's top edge. */
+@media (hover: none), (pointer: coarse) {
+  .sheet-actions { row-gap: var(--touch-stack-gap); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet { animation: none; }
+}

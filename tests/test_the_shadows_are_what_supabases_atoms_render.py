@@ -64,6 +64,7 @@ TOAST = "sonner.tsx@86c813ec:42 shadow-lg"
 #: (authored sheet, selector) -> (the token it reads, the atom that says so).
 OVERLAYS = {
     ("design/components.css", ".split-button-options"): ("--shadow-md", MENU),
+    ("design/components.css", ".sheet"): ("--shadow-lg", SHEET),
     ("design/data-workspace.css", ".dataset-menu-popover"): ("--shadow-md", MENU),
     ("design/data-workspace.css", ".dataset-popover"): ("--shadow-md", POPOVER),
     ("design/grid-theme.css", ".dg-menu, .dg-popup"): ("--shadow-md", MENU),
