@@ -445,8 +445,9 @@ def test_the_stored_body_limit_is_counted_in_bytes_not_characters(tmp_path):
 
 
 def test_a_multibyte_page_saved_by_hand_is_held_to_two_megabytes_of_bytes(tmp_path):
-    """Through the real route: 1M Arabic characters are ~2 MB of characters and ~4 MB of
-    UTF-8 -- it was a 201 while the limit counted characters."""
+    """Through the real route: 1M Arabic characters are 1,000,007 characters and 2,000,007
+    bytes of UTF-8 -- under the character limit, 7 bytes over the byte limit. It was a 201
+    while the limit counted characters."""
     pytest.importorskip("fastapi")
     from fastapi.testclient import TestClient
 
