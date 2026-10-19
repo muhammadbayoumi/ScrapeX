@@ -225,6 +225,7 @@ A conflict exists only where Supabase **specifies** something different. Where i
 | Job-state words the copywriting page is silent on | The Carbon status indicator, for vocabulary only | #1074 |
 | A time read in a zone other than his display zone: a schedule's next slot in the schedule's own zone and 24-hour clock | ECMA-402 `Intl.DateTimeFormat` `timeZone`; the IANA time zone database. Drawn by `ScrapeXTime.wallClock`, the one formatter | #1631 |
 | Where focus goes when the row holding it leaves a list | WCAG 2.2 SC 2.4.3; WAI-ARIA APG (focus moves to a logical place) | #1631 |
+| A modal sheet in a panel with a rail: it stops at the rail, its veil covers the rail, and everything behind it is inert | WAI-ARIA APG Dialog (Modal); the HTML `inert` attribute | #1631 |
 
 ## Mandates
 
@@ -245,6 +246,11 @@ Whatever the reason, he grants it only after seeing Supabase's version and the a
 | Remove schedule asks once and saves `manual` | study-backed proposal: the route has no delete, the time and zone stay stored, nothing is lost; Studio's Delete job asks for the name | — | Remove schedule… | #1631 |
 | A press in flight closes the question; the row reads "Saving…" and stays focusable, `aria-busy` and `aria-disabled` | study-backed proposal: Studio keeps its dialog open with Disable loading; the panel's question is shared, and a control in flight is never `disabled` (#1542) | WAI-ARIA 1.2 `aria-busy` | The Schedules row's switch and Remove | #1631 |
 | The count above the list, with "Read at" | study-backed proposal: the page is live, as Jobs is, so it has no Refresh; Studio's footer reads "Total: N jobs" | the Jobs page's count line | The Schedules count | #1631 |
+| Create picks its source from those with no schedule yet, each named by its domain, the picked one's identity under the select | study-backed proposal: a schedule belongs to a source, and the panel knows which have none; Studio's sheet takes a free Name for a job | — | The Create sheet | #1631 |
+| Daily or Weekly, a weekday, a time and an IANA zone, in place of a cron expression | gap: `schedule` stores `manual`, `daily` or `weekly` (`db/engine/schema.sql`); Studio's sheet writes a cron expression | ECMA-402 `Intl.DateTimeFormat` `timeZone`; the IANA time zone database | The Create and Edit sheet | #1631 |
+| A sheet says why a save failed, or got no answer, in its footer above its buttons | gap: Studio says it in a toast, which leaves after 4 s and which a 320 px-high panel hides | WCAG 2.2 SC 4.1.3 | The sheet's footer | #1631 |
+| The sheet names its site in full, English and Arabic | study-backed proposal: the shared identity ellipsizes its names, as Jobs' rows do; the sheet that edits one shows every word | WCAG 2.2 SC 1.4.10 | The sheet's identity | #1631 |
+| Add source and Edit source have no "Schedule" select; Add source says where a schedule is made, and records `manual` | his preference: one feature in one place. The select wrote `cadence`, which nothing that schedules reads (#1415) | his ruling on #1631 (option (c)), the decision #1575 owns | Add source, Edit source | #1631 |
 
 **Barred:** Carbon, Material 3, Polaris, Atlassian, GOV.UK and Office cannot govern anything Supabase covers. Carbon's single row above is for vocabulary, in a gap.
 

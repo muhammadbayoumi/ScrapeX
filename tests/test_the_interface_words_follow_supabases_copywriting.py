@@ -261,7 +261,7 @@ def _found() -> Counter:
 # same change; #1071 and #743 are where most of them are fixed.
 OFFENDERS: dict[tuple[str, str, str], int] = {
     ('extension/addin-contract.js', 'simply', 'the mappings simply never run'): 1,
-    ('extension/app.html', 'bare loading...', 'Loading…'): 2,
+    ('extension/app.html', 'bare loading...', 'Loading…'): 1,
     ('extension/app.html', 'heading in sentence case', 'Browse Data'): 1,
     ('extension/app.html', 'page name in title case', 'Edit source'): 1,
     ('extension/app.html', 'page name in title case', 'Manage account'): 1,
