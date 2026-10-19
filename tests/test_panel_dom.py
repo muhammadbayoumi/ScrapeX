@@ -4864,6 +4864,21 @@ def test_a_key_in_the_wrong_spelling_is_refused_with_that_system_s_rule(open_pan
     assert "lower_snake_case" in page.text_content("#err-key")
 
 
+def test_an_engine_without_the_switch_keeps_auto_on_run_and_in_the_manager(open_panel):
+    """An older engine ignores `active` on the schedule route, so Run keeps its Auto chip,
+    draws no schedule link, and the Source manager says whether automation is on. Kept
+    from the test that went with Settings' editor (#1746 review C, S8)."""
+    page = open_panel(sources=[OFF_SITE], schedules=SCHEDULE_SOON, engine_version="0.4.59",
+                      omit_capabilities=("schedule_active_switch",))
+    _run_tab(page)
+    assert page.locator('#sites [data-auto="MADAR"]').inner_text() == "Auto: off"
+    assert page.locator("#sites [data-sched-link]").count() == 0
+    page.click(SOURCES_TAB)
+    page.wait_for_selector(".source-manager-card-meta")
+    assert "Automation off" in page.locator(".source-manager-card-meta").first.inner_text()
+    assert not page.js_errors
+
+
 # ---- when a source runs is decided on the Schedules page (#1631, his option (c)) -------
 
 def test_add_site_has_no_schedule_select_and_records_no_cadence_he_did_not_choose(open_panel):
@@ -8127,6 +8142,14 @@ _SUPABASE_SIZES = [[selector, DEFAULT[component]] for selector, component in (
 #: block's `min-height: 2.75rem`, which is --touch-floor now.
 _TOUCH_FLOOR = 44
 
+#: The schedule both sweeps edit in the schedule sheet: weekly, so its Day field is drawn.
+_A_WEEKLY_SCHEDULE = {"schedules": [{
+    "source_key": "SHORT", "schedule_id": 2, "enabled": True, "frequency": "weekly",
+    "weekday": 2, "run_at": "06:30", "timezone": "Asia/Riyadh", "run_mode": "update",
+    "missed_run_policy": "run_when_available", "overlap_policy": "skip",
+    "next_run_at": "2026-07-29T03:30:00Z"}],
+    "note": "Schedules run only while the ScrapeX engine is running."}
+
 #: Every screen the sweep reads, and how a person reaches it from the one before: the rail's
 #: pages, the three it does not list, the Workspace sheet and an open listbox.
 _SWEEP_SCREENS = (
@@ -8144,7 +8167,11 @@ _SWEEP_SCREENS = (
     # LAST: the schedule sheet makes the rail inert, so nothing after it could be reached.
     ("#sched-sheet", [("click", "#workspace-close"),
                       ("click", 'nav.side-rail button[data-view="schedules"]'),
-                      ("click", '#sched-state [data-role="empty"] button')]),
+                      ("click", "#sched-create")]),
+    ("#sched-sheet", [("click", "#sched-sheet-cancel"),
+                      ("click", '#view-schedules .schedule-row[data-sched="SHORT"] [data-role="kebab"]'),
+                      ("click", '#view-schedules .schedule-row[data-sched="SHORT"] '
+                                '[role="menuitem"]:has-text("Edit schedule")')]),
 )
 
 #: Reads every control on one screen: its box, how far a tap still reaches it straight up
@@ -8318,7 +8345,8 @@ _TALLER_THAN_SUPABASE = {
         "#source-edit-vat", "#source-manager-filter",
         # The schedule sheet's fields (#1631 part 2), the same 44px floor as these.
         "#sched-sheet-frequency", "#sched-sheet-missed", "#sched-sheet-mode",
-        "#sched-sheet-source", "#sched-sheet-time", "#sched-sheet-zone"], (44, _NO_BEFORE)),
+        "#sched-sheet-source", "#sched-sheet-time", "#sched-sheet-weekday",
+        "#sched-sheet-zone"], (44, _NO_BEFORE)),
     **dict.fromkeys([
         "#tab-appearance", "#tab-console", "#tab-data", "#tab-database", "#tab-engines",
         "#tab-finance", "#tab-jobs", "#tab-profile", "#tab-run", "#tab-schedules",
@@ -8372,7 +8400,8 @@ def test_on_a_touch_screen_no_box_grows_and_no_reach_shrinks(open_panel):
     control holds with every hit area off must still be its with them on (_SWEEP says why).
     Measured in the web UI, a 2x2 grid of filters 4px apart failed it until
     scrapex/webui/static/pages/schedules.css kept their floor on the box."""
-    page = open_panel(touch=True, signed_in=AN_OWNER, remembered_accounts=ANOTHER_ACCOUNT)
+    page = open_panel(touch=True, signed_in=AN_OWNER, remembered_accounts=ANOTHER_ACCOUNT,
+                      schedules=_A_WEEKLY_SCHEDULE)
     assert page.evaluate("() => matchMedia('(hover: none), (pointer: coarse)').matches"), (
         "the page did not open as a touch screen, so nothing below is about one")
     read = {"controls": {}, "stolen": [], "widened": []}
@@ -8558,8 +8587,9 @@ _SIZE_SCREENS = (
     ("#workspace-menu", ["#workspace-toggle"]),
     # The schedule sheet holds the panel's one native time field. LAST: it makes the rail
     # inert, so nothing after it could be reached.
-    ("#sched-sheet", ["#workspace-close", 'nav.side-rail button[data-view="schedules"]',
-                      '#sched-state [data-role="empty"] button']),
+    ("#sched-sheet", ["#workspace-close", 'nav.side-rail button[data-view="schedules"]', "#sched-create"]),
+    ("#sched-sheet", ["#sched-sheet-cancel", '#view-schedules .schedule-row[data-sched="SHORT"] [data-role="kebab"]',
+                      '#view-schedules .schedule-row[data-sched="SHORT"] [role="menuitem"]:has-text("Edit schedule")']),
 )
 
 #: Reads every Button and text field on one screen, as a name and a rendered box; `also`
@@ -8657,7 +8687,8 @@ def test_every_button_is_26px_and_every_field_34px_tall(open_panel):
     Then every Button and text field on every screen, read from the boxes the panel draws, as
     #1437 (finding 2) asks: each is at its SIZE height, at its own component's in
     `_ANOTHER_COMPONENT`, or named in `_OFF_SIZE`, which only shrinks."""
-    page = open_panel(signed_in=AN_OWNER, remembered_accounts=ANOTHER_ACCOUNT)
+    page = open_panel(signed_in=AN_OWNER, remembered_accounts=ANOTHER_ACCOUNT,
+                      schedules=_A_WEEKLY_SCHEDULE)
     page.wait_for_selector("#accounts-card .account-menu-button")
     settle_view(page, "profile")
     page.evaluate("""() => {

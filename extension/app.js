@@ -9573,9 +9573,11 @@ function scheduleSheetSaved(key, row, create) {
   schedulesPage.saved.set(key, { ...(schedulesPage.saved.get(key) || {}), ...row });
   schedulesPage.wrote += 1;   // a read sent before this save holds none of it
   holdScheduleSheet(false);
-  closeScheduleSheet();
+  // DRAWN BEFORE IT CLOSES, so focus goes back to what is still on the page: the empty
+  // card's Create leaves with the card, and the page's own Create takes it.
   schedulesRunFollows();
   drawSchedules();
+  closeScheduleSheet();
   scheduleToast(`${create ? "Created" : "Saved"} the schedule for ${name}`,
     schedulesPage.rows.get(key));
 }

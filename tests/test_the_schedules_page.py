@@ -668,11 +668,16 @@ def test_create_fills_a_removed_schedule_back_in_and_starts_a_new_one_daily(open
     assert page.locator("#sched-sheet-weekday").is_hidden()
     assert page.locator("#sched-sheet-filled").is_hidden()
     assert domain_of(page, "#sched-sheet-source-identity") == "sikaegshop.com"
+    # History backfill only where the site publishes history (none of these does).
+    assert page.eval_on_selector('#sched-sheet-mode option[value="history_backfill"]',
+                                 "(o) => [o.disabled, o.textContent]") == [
+        True, "History backfill — not published by this site"]
     # No overlap choice: a busy slot is skipped and listed, and the sheet says so (#1596).
     assert page.locator(f"{SHEET} select").count() == 5
     assert text(page, "#sched-sheet-skip-note") == (
         "If this site's previous run is still going, ScrapeX skips the slot and lists it on "
         "the Jobs page.")
+    assert page.locator("#sched-sheet-skip-note").is_visible()
     # Without the switch only: on this engine `active` is the switch's, never a box here.
     assert page.locator("#sched-sheet-enabled").is_hidden()
     assert not page.js_errors
@@ -742,6 +747,33 @@ def test_edit_opens_with_the_stored_schedule_and_saves_it_without_the_switch(ope
     assert not page.js_errors
 
 
+def test_weekly_picked_in_the_sheet_shows_day_and_sends_it(open_panel):
+    page = open_panel(sources=with_sika())
+    show_schedules(page)
+    open_create(page)
+    page.select_option("#sched-sheet-source", "SIKAEGSHOP")
+    assert page.locator("#sched-sheet-weekday").is_hidden()
+    page.select_option("#sched-sheet-frequency", "weekly")
+    assert page.locator("#sched-sheet-weekday").is_visible()
+    assert page.eval_on_selector_all("#sched-sheet-weekday option",
+                                     "os => os.map((o) => o.textContent)") == [
+        "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+    page.select_option("#sched-sheet-weekday", "4")
+    page.click("#sched-sheet-save")
+    wait_toast(page, "Created the schedule for sikaegshop.com")
+    body = writes(page)[-1]["body"]
+    assert (body["frequency"], body["weekday"]) == ("weekly", 4), body
+    # Back to Daily: no day is sent.
+    open_edit(page, "ELBUROJ")
+    page.select_option("#sched-sheet-frequency", "weekly")
+    page.select_option("#sched-sheet-frequency", "daily")
+    assert page.locator("#sched-sheet-weekday").is_hidden()
+    page.click("#sched-sheet-save")
+    wait_toast(page, "Saved the schedule for elburoj.com")
+    assert "weekday" not in writes(page)[-1]["body"]
+    assert not page.js_errors
+
+
 def test_the_sheet_asks_before_it_drops_what_he_entered(open_panel):
     page = open_panel()
     show_schedules(page)
@@ -784,14 +816,54 @@ def test_the_sheet_asks_before_it_drops_what_he_entered(open_panel):
     assert not page.js_errors
 
 
-def test_tab_stays_inside_the_sheet(open_panel):
+def test_tab_walks_the_sheet_in_order_and_stays_inside(open_panel):
+    """The APG dialog's Tab: every field once, in order, and around again; a hidden field
+    (Day while Daily, Enabled on an engine with the switch) is no stop."""
     page = open_panel(sources=with_sika())
     show_schedules(page)
     open_create(page)
-    inside = "document.getElementById('sched-sheet').contains(document.activeElement)"
-    for key in ["Tab"] * 14 + ["Shift+Tab"] * 14:
-        page.keyboard.press(key)
-        assert page.evaluate(inside), key
+    # A source never scheduled: Daily, so Day is hidden and no stop.
+    page.select_option("#sched-sheet-source", "SIKAEGSHOP")
+    page.focus("#sched-sheet-source")
+    order = ["sched-sheet-source", "sched-sheet-frequency", "sched-sheet-time",
+             "sched-sheet-zone", "sched-sheet-mode", "sched-sheet-missed",
+             "sched-sheet-cancel", "sched-sheet-save", "sched-sheet-close"]
+    assert focus_is(page) == order[0]
+    seen = []
+    for _ in order:
+        page.keyboard.press("Tab")
+        seen.append(focus_is(page))
+    assert seen == order[1:] + order[:1], seen
+    back = []
+    for _ in order:
+        page.keyboard.press("Shift+Tab")
+        back.append(focus_is(page))
+    assert back == list(reversed(order)), back
+    # The discard question over the sheet keeps Tab to its own two buttons.
+    page.fill("#sched-sheet-time", "10:00")
+    page.keyboard.press("Escape")
+    page.wait_for_selector("#confirm-veil:not(.hidden)")
+    for _ in range(3):
+        page.keyboard.press("Tab")
+        assert focus_is(page) in ("confirm-keep", "confirm-go"), focus_is(page)
+    assert not page.js_errors
+
+
+@pytest.mark.parametrize("engine", ["switch", "old"])
+def test_an_edit_keeps_a_stored_pause(open_panel, engine):
+    """A row migration 0024 left at `enabled = 0` stays paused through an Edit: with the
+    switch the stored value rides along (#1630 E1); without it, the box opens unticked."""
+    paused = [dict(s, enabled=0) if s["source_key"] == "ELBUROJ" else s for s in PRICE]
+    page = open_panel(schedules=sched(paused), **(OLD_ENGINE if engine == "old" else {}))
+    show_schedules(page)
+    open_edit(page, "ELBUROJ")
+    if engine == "old":
+        assert page.locator("#sched-sheet-enabled").is_visible()
+        assert not page.locator("#sched-sheet-enabled").is_checked()
+    page.fill("#sched-sheet-time", "10:00")
+    page.click("#sched-sheet-save")
+    wait_toast(page, "Saved the schedule for elburoj.com")
+    assert writes(page)[-1]["body"]["enabled"] is False
     assert not page.js_errors
 
 
@@ -812,6 +884,14 @@ def test_a_refused_save_says_why_above_the_buttons_and_keeps_the_sheet(open_pane
     assert page.get_attribute("#sched-sheet-cancel", "aria-disabled") is None
     # A reason is about the source it was said for (round-3 O4).
     page.select_option("#sched-sheet-source", "SIKAEGSHOP")
+    assert reason.is_hidden()
+    # ...and about the sheet it was said in: a sheet opened again starts without it.
+    page.select_option("#sched-sheet-source", "ADVANCEDCASTLE")
+    page.click("#sched-sheet-save")
+    reason.wait_for()
+    page.keyboard.press("Escape")
+    sheet_closed(page)
+    open_create(page)
     assert reason.is_hidden()
     assert not page.js_errors
 
@@ -859,6 +939,24 @@ def test_the_sheet_names_a_long_site_in_full_at_320(open_panel):
     assert not page.js_errors
 
 
+def test_a_refused_edit_does_not_reopen_with_its_reason(open_panel):
+    """A reason is about the sheet it was said in: Edit opened again starts without the
+    last one's "Unable to save" (#1746 review C, S8)."""
+    page = open_panel(fail_routes=("/api/schedules/ELBUROJ",))
+    show_schedules(page)
+    open_edit(page, "ELBUROJ")
+    page.click("#sched-sheet-save")
+    reason = page.locator("#sched-sheet-reason")
+    reason.wait_for()
+    assert reason.inner_text() == "Unable to save: the engine could not do that"
+    page.keyboard.press("Escape")
+    sheet_closed(page)
+    open_edit(page, "ELBUROJ")
+    assert reason.is_hidden()
+    assert text(page, "#sched-sheet-reason") == ""
+    assert not page.js_errors
+
+
 def test_a_save_in_flight_holds_the_sheet_and_one_read_finds_it_saved(open_panel):
     page = open_panel(sources=with_sika(), blackhole_routes=("/api/schedules/ADVANCEDCASTLE",))
     show_schedules(page)
@@ -879,18 +977,35 @@ def test_a_save_in_flight_holds_the_sheet_and_one_read_finds_it_saved(open_panel
     assert not page.js_errors
 
 
-def test_a_save_never_answered_says_it_is_not_saved_yet(open_panel):
-    page = open_panel(blackhole_routes=("/api/schedules/ELBUROJ",))
+CHANGES = {
+    "time": ("ELBUROJ", "", lambda page: page.fill("#sched-sheet-time", "10:00")),
+    "zone": ("ELBUROJ", "", lambda page: page.fill("#sched-sheet-zone", "Asia/Riyadh")),
+    "mode": ("ELBUROJ", "", lambda page: page.select_option("#sched-sheet-mode", "update")),
+    "missed": ("ELBUROJ", "",
+               lambda page: page.select_option("#sched-sheet-missed", "run_when_available")),
+    "weekday": ("ALSWEED", "", lambda page: page.select_option("#sched-sheet-weekday", "4")),
+    "enabled": ("ELBUROJ", "old", lambda page: page.uncheck("#sched-sheet-enabled")),
+}
+
+
+@pytest.mark.parametrize("changed", CHANGES)
+def test_a_save_never_answered_says_it_is_not_saved_yet(open_panel, changed):
+    """The one read after a timeout compares every field the save changed (#1746 review C,
+    S5): a changed zone, mode, policy, day or Enabled box the engine does not hold yet is
+    not reported saved."""
+    key, engine, change = CHANGES[changed]
+    page = open_panel(blackhole_routes=(f"/api/schedules/{key}",),
+                      **(OLD_ENGINE if engine == "old" else {}))
     show_schedules(page)
-    open_edit(page, "ELBUROJ")
-    page.fill("#sched-sheet-time", "10:00")
+    open_edit(page, key)
+    change(page)
     page.click("#sched-sheet-save")
     assert text(page, "#sched-sheet-save") == "Saving schedule…"
     page.wait_for_function("""() => document.getElementById('sched-sheet-reason')
         .textContent.startsWith('No answer from the engine')""", timeout=9_000)
     words = text(page, "#sched-sheet-reason")
     assert words.startswith("No answer from the engine, and the schedule is not saved yet "
-                            "(checked at "), words
+                            "(checked at "), (changed, words)
     assert words.endswith("). Press Save schedule to try again."), words
     assert text(page, "#sched-sheet-save") == "Save schedule"
     assert page.get_attribute("#sched-sheet-cancel", "aria-disabled") is None
@@ -983,6 +1098,7 @@ def test_at_the_limit_create_waits_and_says_why(open_panel):
     assert " ".join(text(page, "#sched-limit").split()) == (
         "Every price source that can run has a schedule. Add a source in Library to "
         "schedule another.")
+    assert page.locator("#sched-limit").is_visible()
     create.click(force=True)
     assert page.locator(SHEET_VEIL).is_hidden()
     assert not page.js_errors
@@ -999,6 +1115,19 @@ def test_create_is_pressed_from_the_header_or_the_empty_card(open_panel, where):
     page.keyboard.press("Escape")
     sheet_closed(page)
     assert page.locator(via).evaluate("(el) => el === document.activeElement")
+    # Saved: the empty card leaves with the save, and focus goes to the page's own Create,
+    # never to <body> (#1746 review C, M1).
+    open_create(page, via)
+    page.select_option("#sched-sheet-source", "SIKAEGSHOP")
+    answer(page, "/api/schedules", "body.schedules.push({schedule_id: 7, "
+           "source_key: 'SIKAEGSHOP', frequency: 'daily', run_at: '09:00', timezone: 'UTC', "
+           "weekday: null, run_mode: 'update', missed_run_policy: 'run_when_available', "
+           "overlap_policy: 'skip', enabled: 1, next_run_at: '2026-10-11T09:00:00Z', "
+           "last_run_at: null});")
+    page.click("#sched-sheet-save")
+    wait_toast(page, "Created the schedule for sikaegshop.com")
+    sheet_closed(page)
+    assert focus_is(page) == "sched-create"
     assert not page.js_errors
 
 
@@ -1040,6 +1169,7 @@ def test_an_engine_without_the_switch_edits_enabled_and_hears_what_a_slot_does(o
         "This engine still starts a second run if this site's previous run is still going. "
         "Save this schedule to skip the slot instead, and update the engine to see skipped "
         "slots on the Jobs page.")
+    assert page.locator("#sched-sheet-skip-note").is_visible()
     enabled.uncheck()
     page.click("#sched-sheet-save")
     wait_toast(page, "Saved the schedule for elburoj.com")
@@ -1067,6 +1197,7 @@ def test_an_engine_known_without_skips_reads_the_stored_policy(open_panel, polic
     show_schedules(page)
     open_edit(page, "ELBUROJ")
     note = text(page, "#sched-sheet-skip-note")
+    assert page.locator("#sched-sheet-skip-note").is_visible()
     assert "lists it on the Jobs page" not in note and "update the engine" in note.lower()
     assert ("still starts a second run" in note) == (policy == "queue"), note
 
@@ -1087,6 +1218,7 @@ def test_a_panel_that_cannot_read_its_own_version_is_not_told_to_update_the_engi
     show_schedules(page)
     open_edit(page, "ELBUROJ")
     note = text(page, "#sched-sheet-skip-note")
+    assert page.locator("#sched-sheet-skip-note").is_visible()
     assert "lists it on the Jobs page" in note and "update the engine" not in note.lower()
 
 
@@ -1140,6 +1272,8 @@ def test_the_switch_asks_then_saves_active_with_the_stored_schedule(open_panel, 
         "Disable scheduled runs for madar.com? Its schedule is kept and stops firing "
         "until you enable it. Manual runs still work.")
     assert (text(page, "#confirm-keep"), text(page, "#confirm-go")) == ("Cancel", "Disable")
+    # Studio's toggle: Disable in the warning tone (his choice B, #1596).
+    assert page.get_attribute("#confirm-go", "class") == "warning"
     reads = len(calls(page, "/api/sources"))
     page.click("#confirm-go")
     wait_toast(page, "Disabled scheduled runs for madar.com")
@@ -1169,6 +1303,8 @@ def test_enabling_says_when_it_runs_and_cancel_changes_nothing(open_panel):
     assert text(page, "#confirm-copy") == (
         "Enable scheduled runs for alsweed.sa? It runs weekly Monday 06:30 from the "
         "next slot.")
+    # Enabling harms nothing: primary, never danger, as Studio's toggle is.
+    assert page.get_attribute("#confirm-go", "class") == ""
     page.click("#confirm-keep")
     assert writes(page) == []
     assert row(page, "ALSWEED").locator('[data-role="sched-active"]') \
