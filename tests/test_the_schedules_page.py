@@ -1131,6 +1131,35 @@ def test_create_is_pressed_from_the_header_or_the_empty_card(open_panel, where):
     assert not page.js_errors
 
 
+@pytest.mark.parametrize("listed", ["schedules", "none"])
+@pytest.mark.parametrize("closed_by", ["escape", "save"])
+def test_a_create_from_runs_chip_hands_focus_to_the_pages_create(open_panel, listed, closed_by):
+    """Run's chip leaves with Run, so the sheet's trigger is <body>: focus goes to the page's
+    own Create, or to the empty card's while the list has none, never to <body> or into the
+    closed sheet (#1746 adversary, N1)."""
+    page = open_panel(sources=with_sika(), schedules=sched(PRICE if listed == "schedules" else []))
+    load_run_first(page)
+    page.click('#sites [data-sched-link="SIKAEGSHOP"]')
+    sheet_settled(page)
+    assert sheet_value(page, "source") == "SIKAEGSHOP"
+    if closed_by == "escape":
+        page.keyboard.press("Escape")
+    else:
+        answer(page, "/api/schedules", "body.schedules.push({schedule_id: 7, "
+               "source_key: 'SIKAEGSHOP', frequency: 'daily', run_at: '09:00', timezone: 'UTC', "
+               "weekday: null, run_mode: 'update', missed_run_policy: 'run_when_available', "
+               "overlap_policy: 'skip', enabled: 1, next_run_at: '2026-10-11T09:00:00Z', "
+               "last_run_at: null});")
+        page.click("#sched-sheet-save")
+        wait_toast(page, "Created the schedule for sikaegshop.com")
+    sheet_closed(page)
+    card = '#sched-state [data-role="empty"] button'
+    to = card if listed == "none" and closed_by == "escape" else "#sched-create"
+    assert page.locator(to).evaluate("(el) => el === document.activeElement"), focus_is(page)
+    assert page.evaluate("document.activeElement.checkVisibility()")
+    assert not page.js_errors
+
+
 def test_a_link_to_an_unscheduled_source_opens_create_with_it_picked(open_panel):
     page = open_panel(sources=with_sika())
     page.evaluate("openScheduleRow('SIKAEGSHOP')")

@@ -9510,12 +9510,16 @@ function closeScheduleSheet() {
   scheduleSheet.mode = null;
   $("sched-sheet-veil").classList.add("hidden");
   setScheduleSheetPanelInert(false);
-  // Back to what he pressed; one that left the page (an empty card's Create, once a
-  // schedule exists) hands focus to the page's own Create.
+  // Back to what he pressed; one that left the page (an empty card's Create once a schedule
+  // exists, or Run's chip, which leaves with Run and makes <body> the trigger) hands focus
+  // to the page's own Create, which is the empty card's while the list has none.
   const back = scheduleSheet.trigger;
   scheduleSheet.trigger = null;
-  const to = back && back.isConnected && back.checkVisibility() ? back : $("sched-create");
-  to.focus({ preventScroll: true });
+  const create = [$("sched-create"), document.querySelector('#sched-state [data-role="empty"] button')]
+    .find((node) => node?.checkVisibility());
+  const to = back && back !== document.body && back.isConnected && back.checkVisibility()
+    ? back : create;
+  to?.focus({ preventScroll: true });
 }
 
 // Escape, the veil, × and Cancel all come here: the APG dialog closes on each, and a sheet
