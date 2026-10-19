@@ -2129,6 +2129,9 @@ def test_source_settings_on_a_data_card_opens_the_panels_own_editor(open_panel):
         "the editor says the schedules could not be read: "
         f"{text_of(page, '#source-edit-schedule-note')!r}")
     _focus_settles_on(page, "source-edit-back")
+    # The action ends where it draws the editor: falling through reaches the unknown-action
+    # line under the Data cards, in the same task as the draw.
+    assert text_of(page, "#datasets-msg") == ""
     assert page.js_errors == []
 
 
@@ -2212,8 +2215,7 @@ def test_a_late_source_list_does_not_open_the_source_he_pressed_first(open_panel
 
 def test_a_list_landing_on_the_loading_editor_leaves_the_focus_he_moved(open_panel):
     """The press shows the editor and puts focus on Back; when the list lands, the source
-    is drawn in place. Entering the view again would close a menu he opened while it
-    loaded and pull his focus back to Back."""
+    is drawn in place. Entering the view again would pull his focus back to Back."""
     page = open_panel(view="data")
     page.wait_for_selector('.dataset-card[data-open="SHORT"]')
     page.evaluate("() => { ROUTE_DELAYS['/api/sources'] = 1500; }")
@@ -2226,6 +2228,26 @@ def test_a_list_landing_on_the_loading_editor_leaves_the_focus_he_moved(open_pan
 
     assert page.input_value("#source-edit-key") == "SHORT"
     assert page.evaluate("() => document.activeElement?.id") == "view-source-edit"
+
+
+def test_a_list_landing_on_the_loading_editor_leaves_a_menu_he_opened_open(open_panel):
+    """And it would close a menu he opened while the editor loaded: `showView` closes the
+    Workspace and account menus (the merge gate's finding on #1737), without moving any
+    focus, so the focus test above cannot see it."""
+    page = open_panel(view="data")
+    page.wait_for_selector('.dataset-card[data-open="SHORT"]')
+    page.evaluate("() => { ROUTE_DELAYS['/api/sources'] = 1500; }")
+
+    _press_a_card_entry(page, "SHORT", "settings")
+    _focus_settles_on(page, "source-edit-back")
+    page.click("#workspace-toggle")
+    assert page.get_attribute("#workspace-menu", "aria-hidden") == "false"
+    page.wait_for_selector("#source-edit-status", state="hidden")
+    page.wait_for_timeout(300)   # a frame for anything the drawing queued
+
+    assert page.input_value("#source-edit-key") == "SHORT"
+    assert page.get_attribute("#workspace-menu", "aria-hidden") == "false", (
+        "the list landing closed the menu he opened while it loaded")
 
 
 def test_a_late_failure_leaves_the_focus_he_moved(open_panel):
