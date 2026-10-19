@@ -1,4 +1,4 @@
-"""DRAFT TOOL, NOT FOR MERGE: the tender control's mock-up (milestone 51, part 2), eleventh draft.
+"""DRAFT TOOL, NOT FOR MERGE: the tender control's mock-up (milestone 51, part 2), twelfth draft.
 
 It renders the panel through tools/panel_harness.py with the part 3b engine stubbed as the
 study's contract describes it. The study, its reference sheet and the review rounds are on
@@ -203,10 +203,11 @@ HISTORY = [
                 "notice type).",
         started="2026-10-11T08:00:01Z", finished="2026-10-11T08:14:03Z"),
 ]
-# THE JOB A LATE-ANSWERED PRESS WROTE: an update, started at the press, one page in.
-WRITTEN_LATE = job("running", ref="job_2f8d71c0e5a4", stage="reading changes", requests=1,
-                   unit="pages", done=1, notices=1_000, new=12, unchanged=988,
-                   started=iso(NOW))
+# THE JOB A LATE-ANSWERED PRESS WROTE: an update, started at the press, 7 s before the
+# drawn moment, three pages in at 2.5 s apart.
+WRITTEN_LATE = job("running", ref="job_2f8d71c0e5a4", stage="reading changes", requests=3,
+                   unit="pages", done=3, notices=3_000, new=41, unchanged=2_959,
+                   started=iso(NOW - timedelta(seconds=7)))
 # ONE LINE PER AREA READ, as the contract says, after the line that plans the phase.
 LOGS = [
     {"level": "info", "message": f"counted {TOTAL:,} notices in {AREAS} areas: "

@@ -5726,14 +5726,12 @@ async function startRun() {
     refreshRunButton();
     // FOCUS GOES BACK TO START. Disabling it for the request dropped focus to the body, so
     // the confirmation had nothing to return it to; and its own button, hidden with it,
-    // still holds focus here until the browser blurs it after this task. A mouse press on
-    // the disabled Start leaves focus on what contains it, the Run page (`tabindex="0"`),
-    // and the question returns it there: anything that contains Start is the page. NEVER
-    // FROM WHERE HE PUT IT while the engine answered, and never out of an open question:
-    // another one asked since owns the focus it holds.
+    // still holds focus here until the browser blurs it after this task. NEVER FROM WHERE
+    // HE PUT IT while the engine answered, the Run page included (`tabindex="0"`), and
+    // never out of an open question: another one asked since owns the focus it holds.
     const at = document.activeElement;
     const asking = !$("confirm-veil").classList.contains("hidden");
-    if (!asking && (!at || at.contains($("run")) || at.closest("#confirm-veil"))) {
+    if (!asking && (!at || at === document.body || at.closest("#confirm-veil"))) {
       $("run").focus({ preventScroll: true });
     }
   }
@@ -11576,6 +11574,12 @@ function wireDeferredControls() {
   runModeSelectUi = setupRunModeSelect();
   $("run-mode").addEventListener("change", refreshMode);
   $("run").addEventListener("click", startRun);
+  // A PRESS ON THE DISABLED START MOVES NO FOCUS. Chrome sends it `pointerdown` and then
+  // gives focus to what contains it, the Run page (`tabindex="0"`), and a question the
+  // press finds open would return focus there instead of to Start.
+  $("run").addEventListener("pointerdown", (event) => {
+    if ($("run").disabled) event.preventDefault();
+  });
 
   // ONE split button (the shared component the dataset Export uses), no more
   // "Pause auto-scroll" — the primary copies what is on screen, the menu
