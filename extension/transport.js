@@ -17,6 +17,8 @@
 // kept here. The side panel talks to the engine directly, one request at a time,
 // and re-reads current state on reconnect — the engine owns the job, not us.
 
+import { STARTUP_DEADLINES } from "./startup.js";
+
 const HOST_NAME = "com.scrapex.engine";
 // The number the DATA path checks too: engine.js compares it against the one
 // /api/health publishes. Its other half is PROTOCOL_VERSION in
@@ -39,11 +41,26 @@ export const PROTOCOL_VERSION = 1;
 //   crashed   the host started and died
 //   timeout   nobody answered in the budget — usually still starting
 const NATIVE_TIMEOUT_MS = 5000;
-// Starting an engine is not a ping: the host spawns it, waits for the port to
-// answer, and only then replies. A cold interpreter opening two databases and
-// running migrations is tens of seconds on a slow morning, so this command gets
-// its own budget rather than being judged by a ping's.
-const START_TIMEOUT_MS = 60000;
+// THREE COMMANDS READ THE WHOLE WAREHOUSE, and a ping's five seconds is a lie
+// about every one of them: the panel gave up, said what had happened, and the
+// host went on to do it (#1706, #1094). Each is bounded by the work it does,
+// and that work is O(FILE SIZE), so the numbers live with the other derived
+// deadlines in `STARTUP_DEADLINES` rather than here.
+//
+// CHECK_STARTUP is a fresh process running `health(integrity=True)` on a file
+// it has not opened -- the cold scan `integrityScan` is derived from. Measured
+// 2026-10-17 through the host itself on a copy of his 2,232,049,664-byte
+// warehouse: 26.9, 27.7 and 66.8 s cold.
+const SCAN_TIMEOUT_MS = STARTUP_DEADLINES.integrityScan;
+// START_ENGINE RUNS THAT SAME SCAN FIRST (`native.start_engine` calls
+// `startup_check`), then spawns the engine and waits at most 3.5 s for its
+// port. So it is the scan's budget, not a ping's and not its own: 66.8 s plus
+// the 3.5 s was already past the 60 s it had.
+const START_TIMEOUT_MS = SCAN_TIMEOUT_MS;
+// UPGRADE_DATABASE copies the file, migrates it and scans it three times
+// (`native.upgrade_database`): the warehouse-copy budget, derived at
+// `warehouseCopy`, which the engine's own upgrade route has too.
+const UPGRADE_TIMEOUT_MS = STARTUP_DEADLINES.warehouseCopy;
 
 function nativeFailure(message) {
   const text = String(message || "");
@@ -142,9 +159,9 @@ export function startEngine() {
 // the important boundary: a failed startup must not hide the one action that
 // can repair it behind the failed server.
 export function checkStartup() {
-  return sendNative({command: "CHECK_STARTUP"}).then(unwrap);
+  return sendNative({command: "CHECK_STARTUP"}, SCAN_TIMEOUT_MS).then(unwrap);
 }
 
 export function upgradeDatabase() {
-  return sendNative({command: "UPGRADE_DATABASE"}).then(unwrap);
+  return sendNative({command: "UPGRADE_DATABASE"}, UPGRADE_TIMEOUT_MS).then(unwrap);
 }
