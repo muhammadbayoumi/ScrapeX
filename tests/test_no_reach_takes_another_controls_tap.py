@@ -137,6 +137,11 @@ _STACK_PAGE = {"scrapex/webui/static/pages/overview.css": "/",
                "scrapex/webui/static/pages/exports.css": "/exports",
                "scrapex/webui/static/pages/sync.css": "/sync"}
 
+#: Stacks in the shared sheet that no web UI page draws yet, and where each is measured: the
+#: schedule sheet's footer stands in the panel only (test_panel_dom.py's touch sweep reads
+#: `#sched-sheet`).
+_STACK_IN_THE_PANEL = {("design/components.css", ".sheet-actions", "row-gap")}
+
 #: The widths his ruling on #1457 was measured at in the web UI: / took taps at 800, 1024 and
 #: 1280px, /exports and /sync at 480px. The enrichment page's rows stood 17px apart from 1024px.
 _STACK_WIDTHS = (480, 800, 1024, 1280)
@@ -149,7 +154,8 @@ def test_on_a_phone_the_web_uis_stacks_stand_18px_apart_at_the_widths_they_faile
     at every width it failed at. A rule scoped to a width that set /sync's or /exports' gap
     back to 8px passed the static guard and the sweep, which reads only 360px."""
     web = {where: _STACK_PAGE.get(where[0]) for where in STACK_GAP
-           if where[0] != "extension/app.css" and where[0] != "extension/enrichment.css"}
+           if where[0] != "extension/app.css" and where[0] != "extension/enrichment.css"
+           and where not in _STACK_IN_THE_PANEL}
     assert None not in web.values(), f"a stack with no page here to read it on: {web}"
     off = []
     with webui_page(browser, tmp_path, viewport={"width": 480, "height": 800},

@@ -1,6 +1,8 @@
 :root {
   --brand-mark: url("icons/x-mark.svg");
   --panel-rail-width: 3.5rem;
+  /* A sheet stops at the rail; its veil still covers it (components.css, Sheet). */
+  --sheet-inset-end: var(--panel-rail-width);
   /* `main`'s padding, NAMED, because a screen that goes full-bleed has to undo
      exactly it. The value drops to --sp-3 under 340px (see the media query near
      the end of this file), so a child that hard-codes `-1 * var(--sp-4)` pulls
@@ -232,26 +234,9 @@
                      font-size: var(--fs-xs); color: var(--text); }
   .dataset-identity-line { min-width: 0; }
   .dataset-card .source-identity { margin-bottom: var(--sp-2); }
-  /* THE SITE'S NAME KEEPS ITS LINE (#1596): the name and the switch share the first
-     row and the schedule takes its own line under them, so a long "next …" can no
-     longer squeeze the name to nothing at 320-480 px. */
-  .sched-summary .source-identity { grid-column: 1; grid-row: 1; }
-  .sched-summary [data-role="next"] { grid-column: 1 / -1; grid-row: 2; }
-  .sched-summary .switch { grid-column: 2; grid-row: 1; }
   .toolbar { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;
              font-size: var(--fs-xs); }
   .toolbar .spacer { flex: 1; }
-  .sched-row { padding: var(--sp-2) 0; border-bottom: 1px solid var(--line); }
-  .sched-summary {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: center;
-    gap: var(--sp-1) var(--sp-3);
-    cursor: pointer;
-    list-style: none;
-  }
-  .sched-summary::-webkit-details-marker { display: none; }
-  .sched-body { margin-top: var(--sp-2); }
   /* The Active switch on a Schedules row (#1596): Supabase's Switch at size medium,
      34x20 with a 16px thumb (switch.tsx@86c813ec:10-40). Checked is brand with a white
      thumb; unchecked is the control colour with a muted thumb. */
@@ -305,7 +290,6 @@
     box-shadow: var(--shadow-lg);
   }
   .toast:empty { display: none; }
-  .sched-fields { gap: var(--sp-2); }
 
   /* Small layout primitives, declared once instead of repeated as inline styles. */
   .stack { display: flex; flex-direction: column; gap: var(--sp-3); }
@@ -4312,6 +4296,18 @@
 .schedule-open .source-identity-domain,
 .schedule-open .source-identity-key { white-space: normal; overflow-wrap: break-word; }
 .schedule-nowrap { white-space: nowrap; }
+/* THE SHEET NAMES THE SITE IN FULL (#1631, marker 34): a row's names ellipsize, as Jobs'
+   do; the sheet that creates or edits its schedule shows every word, English and Arabic. */
+.sheet-identity:empty { display: none; }
+.sheet-header .sheet-identity { margin-top: var(--sp-2); }
+.sheet-identity .source-identity-domain,
+.sheet-identity .source-identity-name,
+.sheet-identity .source-identity-name-en,
+.sheet-identity .source-identity-key { white-space: normal; overflow-wrap: break-word; }
+/* English over Arabic, each on lines of its own: two long names never squeeze into two
+   narrow columns, and no separator is left alone on a line between them. */
+.sheet-identity .source-identity-names { flex-direction: column; align-items: stretch; }
+.sheet-identity .source-identity-separator { display: none; }
 /* The facts stack under the identity, so every one is read at 320 px (Studio's columns
    need 1,170 px). Next run: the schedule's own zone first, his display zone under it. */
 .schedule-facts {
