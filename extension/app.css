@@ -777,6 +777,10 @@
       --hit-area-b: min(0px, 100% - var(--touch-floor));
     }
   }
+  /* Opened from a Data card before its source is read (#380): the heading and one line. */
+  #view-source-edit.is-pending > :not(.source-edit-heading, #source-edit-status) {
+    display: none;
+  }
   .source-edit-summary {
     display: flex;
     align-items: flex-start;
