@@ -619,7 +619,12 @@ function renderIssueInto(box, error) {
       : "") + `</div>`;
   box.classList.remove("hidden");
   const action = box.querySelector("[data-runtime-upgrade]");
-  if (action) action.addEventListener("click", upgradeDatabaseFromPanel);
+  if (action) {
+    action.addEventListener("click", upgradeDatabaseFromPanel);
+    // A card redrawn while an upgrade runs (by a Start) must not offer a press
+    // the one-at-a-time guard would swallow without a word.
+    action.disabled = upgradeRunning;
+  }
 }
 
 function setRuntimeIssue(error) {
@@ -8834,7 +8839,9 @@ async function loadDatabase() {
     } else {
       $("db-schema-detail").textContent = "Up to date. Nothing to apply.";
     }
-    if (upgrade) upgrade.disabled = pending.length === 0;
+    // Not while one runs: re-entering this page mid-upgrade turned it back on,
+    // and the press was swallowed by the one-at-a-time guard without a word.
+    if (upgrade) upgrade.disabled = upgradeRunning || pending.length === 0;
 
     const health = s.health || {};
     $("db-health-status").textContent = health.status || "unknown";
@@ -8889,7 +8896,7 @@ async function loadDatabase() {
     // refuses anything that is not merely behind, backs up first without exception, and
     // says what it did. Offering it here asks that path the question rather than
     // answering it from a page that just failed to read anything.
-    if (upgrade) upgrade.disabled = false;
+    if (upgrade) upgrade.disabled = upgradeRunning;
     // AND THE SCAN CANNOT BE ASKED FOR WITHOUT THE ENGINE, unlike the upgrade above:
     // `POST /api/storage/integrity` has no native fallback because the native host does
     // not read the warehouse. A button that cannot work is worse than no button.
@@ -10018,11 +10025,21 @@ async function loadCurrentSite() {
 // button's promise is not the source of truth — the poll below is. The button
 // only ever claims what a probe confirmed.
 async function startEngineFromPanel() {
+  // NOT WHILE AN UPGRADE RUNS, from any of the three Start buttons (Run, Jobs,
+  // Schedules). While the file still reads behind the host refuses at once; once
+  // the last migration commits it does not refuse -- it scans the file and starts
+  // an engine that scans it twice more, beside the upgrade's own last scans. Run's
+  // line says why; the banners send him there.
+  if (upgradeRunning) {
+    $("engine-note").textContent = "Upgrading the database…";
+    return;
+  }
   const button = $("engine-start");
   const note = $("engine-note");
   button.disabled = true;
   button.textContent = "Starting…";
   clearRuntimeIssue();
+  const started = Date.now();
   try {
     await startEngine();
     // Sixty seconds, not fourteen. A cold interpreter opening two databases is
@@ -10079,8 +10096,11 @@ async function startEngineFromPanel() {
       note.textContent = "The helper could not start the engine: " + (err.message || "") +
         " — Check again, or open Logs.";
     } else if (kind === "timeout") {
-      note.textContent = "The local helper did not answer. Check Setup below, " +
-        "then try again.";
+      // NOT "CHECK SETUP". A helper that is not installed is `absent`, above; this
+      // one gave no answer -- most often because it scans the whole database before
+      // it starts anything (`transport.js`) and that outran its budget.
+      note.textContent = `No answer from the helper${waitedSince(started)}. The engine ` +
+        "may still be starting — press Check again in a few seconds.";
     } else if (!kind) {
       note.textContent = "The engine is taking longer than usual to answer. " +
         "It may still be starting — press Check again in a few seconds.";
@@ -10326,13 +10346,46 @@ const ENGINE_TOO_OLD =
   "yet, so it cannot be asked to replace itself from here. ScrapeX does this " +
   "on its own once the updater is installed; that work is under way.";
 
+// How long he has been waiting, in his units, measured by the panel's own clock
+// so it cannot disagree with what he sat through. Nothing under a minute: a
+// sentence saying "after 0 minutes" is noise.
+function waitedSince(started) {
+  const minutes = Math.round((Date.now() - started) / 60000);
+  return minutes < 1 ? "" : ` after ${minutes} minute${minutes === 1 ? "" : "s"}`;
+}
+
+// THE HOST DID NOT SAY NO; IT DID NOT ANSWER. `timeout` is no answer in the
+// budget (or a Chrome error `transport.js` cannot name), and `crashed` is a host
+// that stopped before replying, which can be halfway through. Neither is a verdict on the database, and
+// reading them as one is how a backed-up, migrated warehouse was reported "not
+// changed" (#1706). So these two re-read it rather than report it.
+const UPGRADE_NO_ANSWER = ["timeout", "crashed"];
+// ONE UPGRADE AT A TIME. The issue card draws its own Upgrade button, on Run and in
+// Settings, and every press copies the whole warehouse before it waits for the
+// write lock -- for up to five minutes of waiting now, not five seconds.
+let upgradeRunning = false;
+
 async function upgradeDatabaseFromPanel() {
+  if (upgradeRunning) return;
+  upgradeRunning = true;
   const note = $("runtime-note");
   const upgrade = $("runtime-upgrade");
-  const actionButtons = [upgrade, $("runtime-restart"), $("runtime-check-action")]
-    .filter(Boolean);
+  const actionButtons = [upgrade, $("runtime-restart"), $("runtime-check-action"),
+    $("engine-start"), $("setup-recheck"), $("engine-recheck"),
+    ...document.querySelectorAll("[data-runtime-upgrade]")]
+    // ONLY WHAT IS LIVE NOW, so `finally` gives back only what this took: a Start
+    // still scanning holds its own button, and its own `finally` releases it.
+    .filter((button) => button && !button.disabled);
+  // `#runtime-note` is on the Database page and `#engine-note` on Run; each
+  // sentence below is whole on its own, because neither page shows the other.
+  const tell = (text) => {
+    note.textContent = text;
+    const engineNote = $("engine-note");
+    if (engineNote) engineNote.textContent = text;
+  };
+  const started = Date.now();
   actionButtons.forEach((button) => { button.disabled = true; });
-  note.textContent = "Upgrading the database…";
+  tell("Upgrading the database…");
   try {
     let result;
     let httpAnswered = false;
@@ -10352,6 +10405,12 @@ async function upgradeDatabaseFromPanel() {
       // the same forward-only migration. This is the missing repair path that
       // left the owner staring at a dead Restart button.
       if (httpAnswered) throw httpError;
+      // AN ENGINE THAT TOOK THE REQUEST AND HAS NOT ANSWERED IS UPGRADING. Asking
+      // the native host now would start a second upgrade beside the first, under
+      // the one write lock (CLAUDE.md), so its silence is read like the host's.
+      if (isTimeoutError(httpError)) {
+        throw Object.assign(new Error(httpError.message), {kind: "timeout"});
+      }
       result = await upgradeDatabase();
     }
     clearRuntimeIssue();
@@ -10362,12 +10421,88 @@ async function upgradeDatabaseFromPanel() {
     }
     await render();
   } catch (err) {
+    if (UPGRADE_NO_ANSWER.includes(err && err.kind)) {
+      await rereadAfterSilentUpgrade(tell, waitedSince(started), err);
+      return;
+    }
     setRuntimeIssue(err);
-    note.textContent = "The database was not changed. The reason is shown above.";
-    const engineNote = $("engine-note");
-    if (engineNote) engineNote.textContent = note.textContent;
+    // THE REASON IN THE SENTENCE, NOT "SHOWN ABOVE". Neither page this is written
+    // to has the issue card above it: `#runtime-error` is in Settings and
+    // `#engine-error` sits BELOW `#engine-note` on Run. And "not changed" only
+    // where the host never ran: an answered failure can arrive after the
+    // migration (`native.upgrade_database`), so it is said in the host's words.
+    const reason = ["absent", "forbidden"].includes(err && err.kind)
+      ? `The database was not changed: ${hostFailureReason(err)}.`
+      : issueCopy(err).body;
+    tell(reason.charAt(0).toUpperCase() + reason.slice(1));
   } finally {
+    upgradeRunning = false;
     actionButtons.forEach((button) => { button.disabled = false; });
+    // AND ANY CARD DRAWN MID-WAIT, which `renderIssueInto` drew with its button down.
+    document.querySelectorAll("[data-runtime-upgrade]")
+      .forEach((button) => { button.disabled = false; });
+  }
+}
+
+// What the panel can still say when the upgrade went silent: ask the host what
+// the database IS now, with the same CHECK_STARTUP the engine's start asks, and
+// say that. Upgraded, still behind, something else wrong, or nothing known.
+async function rereadAfterSilentUpgrade(tell, waited, silenceError) {
+  const silence = silenceError && silenceError.kind;
+  // SETTINGS HAS NO LINE OF ITS OWN for an upgrade's outcome -- the sentence goes to
+  // the Database page and Run -- so where the database is NOT upgraded, its card
+  // keeps saying the upgrade went unanswered, as it did before this change. Only the
+  // card under Run's sentence goes: it asks for the press that sentence says to hold.
+  const settle = () => {
+    renderIssueInto($("engine-error"), null);
+    renderIssueInto($("runtime-error"), silenceError);
+  };
+  tell(`No answer from the upgrade${waited}. Checking the database…`);
+  try {
+    const found = await checkStartup();
+    const engine = (found.databases || {}).engine || {};
+    // `ok` on the ANSWER is "nothing blocks a start", which a Missing database
+    // also passes; only the database's own `ok` is "healthy".
+    if (!engine.ok) {
+      settle();
+      tell(`No answer from the upgrade${waited}, and the database check reports: `
+        + `${engine.status || "unknown"}. ${engine.action || ""}`.trim());
+      return;
+    }
+    clearRuntimeIssue();
+    tell(`No answer from the upgrade${waited}, but the database is now at `
+      + `v${engine.schema_version} and healthy.`);
+    await render();
+  } catch (checkError) {
+    const kind = checkError && checkError.kind;
+    const behind = kind === "startup_blocked" && checkError.action === "upgrade_database";
+    // A HOST THAT TIMED OUT MAY NOT HAVE EXITED. It may still be copying, and a
+    // read beside it sees the file as it was, so pressing again is not the next
+    // step until it has had time. Only a host that stopped (`crashed`) is done.
+    const wait = "The upgrade may still be running: wait a few minutes before "
+      + "pressing Upgrade database again.";
+    if (behind && silence === "timeout") {
+      settle();
+      const engine = (checkError.databases || {}).engine || {};
+      tell(`No answer from the upgrade${waited}, and the database is still at `
+        + `v${engine.schema_version}. ${wait}`);
+    } else if (behind) {
+      // The engine's own sentence: it names both versions and the button.
+      const engine = (checkError.databases || {}).engine || {};
+      tell(`No answer from the upgrade${waited}, and the database is still behind. `
+        + (engine.action || checkError.message));
+    } else if (kind === "timeout") {
+      settle();
+      tell(`No answer from the upgrade${waited}, and the database check did not `
+        + `answer either. ${wait}`);
+    } else if (["absent", "forbidden", "crashed"].includes(kind)) {
+      tell(`No answer from the upgrade${waited}, and the database could not be `
+        + `checked: ${hostFailureReason(checkError)}.`);
+    } else {
+      setRuntimeIssue(checkError);
+      tell(`No answer from the upgrade${waited}, and the database check found a `
+        + `problem: ${issueCopy(checkError).body}`);
+    }
   }
 }
 
@@ -10406,11 +10541,30 @@ function wireRuntimeRepair() {
   restart.addEventListener("click", async () => {
     [restart, upgrade, $("runtime-check-action")].filter(Boolean)
       .forEach((button) => { button.disabled = true; });
-    say("Restarting — the engine goes quiet for a few seconds.");
+    const release = () => [restart, upgrade, $("runtime-check-action")]
+      .filter(Boolean).forEach((button) => { button.disabled = false; });
+    say("Checking the database before restarting…");
     clearRuntimeIssue();
+    // IS THERE AN ENGINE TO RESTART AT ALL. The POST below cannot tell: a
+    // refused connection and an engine leaving mid-answer both arrive as one
+    // thrown fetch, and that throw was read as success -- so with nothing
+    // running, the panel announced a restart and waited two minutes for an
+    // engine nobody was starting (#1094). Asked first, because it is cheap and
+    // the check below is not.
+    try {
+      await raw("/api/health", {cache: "no-store"});
+    } catch (probeError) {
+      say(isTimeoutError(probeError)
+        ? "The engine did not answer, so Restart was not sent. Press Check again to ask it."
+        : "No engine is running, so there is nothing to restart. Start it on the Run page.");
+      release();
+      return;
+    }
     // Check the CURRENT build's database expectations before asking the old
     // process to leave. Without this gate, a newer process could die during
     // startup and the panel would only be able to say "two minutes".
+    const checking = Date.now();
+    let before = "Restarting — the engine goes quiet for a few seconds.";
     try {
       await checkStartup();
     } catch (startupError) {
@@ -10419,14 +10573,18 @@ function wireRuntimeRepair() {
         setRuntimeIssue(startupError);
         say("Restart was not attempted. Fix the issue shown above first.",
             "Restart was not attempted: " + issueCopy(startupError).body);
-        [restart, upgrade, $("runtime-check-action")].filter(Boolean)
-          .forEach((button) => { button.disabled = false; });
+        release();
         return;
       }
       // The engine is already reachable in this path, so HTTP restart remains
-      // useful even when the native helper is unavailable or slow.
-      say("Native helper unavailable — restarting through the engine.");
+      // useful even when the native helper is unavailable or slow. SLOW IS NOT
+      // UNAVAILABLE: the check scans the whole file, and its budget running out
+      // says that and no more.
+      before = startupError.kind === "timeout"
+        ? `The database check did not answer${waitedSince(checking)} — restarting through the engine.`
+        : "Native helper unavailable — restarting through the engine.";
     }
+    say(before);
     // A thrown fetch is the SUCCESS path — the engine exits mid-answer and the
     // socket dies. An answered fetch that is not ok is the opposite, and the
     // first version of this treated both the same: it looked only for 404 and
@@ -10459,6 +10617,10 @@ function wireRuntimeRepair() {
     // Poll until it answers again, then re-render so every version and status
     // on this screen comes from the engine that is now running.
     let attempts = 0;
+    // A probe can outlast the 1 s interval (a refused connection measured up to
+    // 2 s here), so ticks overlap, and each one that finished after the last
+    // ran the whole ending: up to three two-minute scans at once. One ends it.
+    let settled = false;
     const timer = setInterval(async () => {
       attempts += 1;
       try {
@@ -10471,7 +10633,9 @@ function wireRuntimeRepair() {
         // asks until it answers -- so the status must not throw. What it gains is
         // a deadline it never had, on the one screen where a person is waiting.
         const probe = await raw("/api/health", {cache: "no-store"});
+        if (settled) return;
         if (probe.ok) {
+          settled = true;
           clearInterval(timer);
           [restart, upgrade, $("runtime-check-action")].filter(Boolean)
             .forEach((button) => { button.disabled = false; });
@@ -10486,13 +10650,16 @@ function wireRuntimeRepair() {
           return;
         }
       } catch (_) { /* still down, which is expected */ }
+      if (settled) return;
       if (attempts >= RESTART_CONFIRM_ATTEMPTS) {
+        settled = true;
         clearInterval(timer);
-        [restart, upgrade, $("runtime-check-action")].filter(Boolean)
-          .forEach((button) => { button.disabled = false; });
         // The process may have failed before it could expose /api/health. Ask
         // the native host for the same current-build preflight so a schema
-        // error, missing registry, or other startup blocker is not lost.
+        // error, missing registry, or other startup blocker is not lost. It
+        // scans the whole file, so it is said, and the buttons stay down, until
+        // it answers.
+        say("The engine has not answered in two minutes. Checking the database…");
         try {
           await checkStartup();
           const timeout = Object.assign(
@@ -10502,16 +10669,23 @@ function wireRuntimeRepair() {
           say("The engine has not answered in two minutes. Check the reason above.",
               "The engine has not answered in two minutes. It may still be starting.");
         } catch (startupError) {
-          setRuntimeIssue(startupError);
-          const helperGone = startupError
-            && ["absent", "forbidden", "crashed", "timeout"].includes(startupError.kind);
-          say(helperGone
-            ? "The engine did not confirm its restart because the local helper is unavailable."
-            : "The engine stopped during startup. The reason is shown above.",
-            helperGone
+          if (startupError && startupError.kind === "timeout") {
+            // SLOW IS NOT UNAVAILABLE, here as before the restart.
+            say("The engine has not answered in two minutes, and the database check "
+              + "did not answer either.");
+          } else {
+            setRuntimeIssue(startupError);
+            const helperGone = startupError
+              && ["absent", "forbidden", "crashed"].includes(startupError.kind);
+            say(helperGone
               ? "The engine did not confirm its restart because the local helper is unavailable."
-              : "The engine stopped during startup. " + issueCopy(startupError).body);
+              : "The engine stopped during startup. The reason is shown above.",
+              helperGone
+                ? "The engine did not confirm its restart because the local helper is unavailable."
+                : "The engine stopped during startup. " + issueCopy(startupError).body);
+          }
         }
+        release();
       }
     }, 1000);
   });

@@ -5024,7 +5024,10 @@ def test_each_native_failure_is_named_rather_than_blamed_on_the_install():
         assert f'"{kind}"' in transport, f"transport cannot report {kind}"
         assert f'"{kind}"' in panel, f"the panel has no message for {kind}"
     # Starting an engine is not a ping and may not be judged by a ping's budget.
-    assert "START_TIMEOUT_MS = 60000" in transport
+    # It runs the whole-file preflight first, so it has the scan's (#1094); how
+    # long that lets it take is asserted by behaviour in
+    # extension/tests/a-whole-warehouse-command-gets-a-whole-warehouse-budget.test.mjs.
+    assert "const START_TIMEOUT_MS = SCAN_TIMEOUT_MS;" in transport
     assert "sendNative({ command: \"START_ENGINE\" }, START_TIMEOUT_MS)" in transport
     assert "Native helper unavailable — restarting through the engine." in panel
     assert "title: \"Local helper did not answer\"" in panel
