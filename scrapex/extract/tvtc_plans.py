@@ -255,3 +255,102 @@ def bilingual_listing_candidate(english_body: str, arabic_body: str, *,
                        for key in sorted(extra)),
         approvable=bool(rows_out), truncated=False,
     )
+
+
+# --- the licence, kept once per establishment -- ES-5 ------------------------------------
+
+LICENCE_DATASET_KEY = "tvtc_establishment_licences"
+LICENCE_DATASET_NAME = "TVTC establishment licences"
+#: The licence depends on the establishment alone: across the census, 0 of the 2,145
+#: establishments the plans listing carries showed two different licences over their plans.
+LICENCE_IDENTITY_FIELD = "establishment_id"
+
+LICENCE = ("establishment", "license")
+
+#: DECLARED AND ORDERED: every key the census's 2,145 licences carry, as the site sends it.
+#: `date_gregorian`/`date_hijri` are the site's own "start / end" strings, stored as stated
+#: beside the dates they combine; nothing is derived here.
+LICENCE_COLUMNS: tuple[tuple[str, Getter], ...] = (
+    ("establishment_id", _ar("establishment", "id")),
+    ("license_id", _ar(*LICENCE, "id")),
+    ("license_id_encrypt", _ar(*LICENCE, "id_encrypt")),
+    ("ref_license", _ar(*LICENCE, "ref_license")),
+    ("start_date", _ar(*LICENCE, "start_date")),
+    ("end_date", _ar(*LICENCE, "end_date")),
+    ("start_date_hijri", _ar(*LICENCE, "start_date_hijri")),
+    ("end_date_hijri", _ar(*LICENCE, "end_date_hijri")),
+    ("date_gregorian", _ar(*LICENCE, "date_gregorian")),
+    ("date_hijri", _ar(*LICENCE, "date_hijri")),
+    ("license_status", _ar(*LICENCE, "license_status")),
+    ("license_status_label_ar", _ar(*LICENCE, "license_status_label")),
+    # The one licence value the English view changes, measured on the plans census.
+    ("license_status_label_en", _en(*LICENCE, "license_status_label")),
+    ("is_license_expired", _ar(*LICENCE, "is_license_expired")),
+    ("request_status", _ar(*LICENCE, "request_status")),
+    ("link_pdf_license", _ar(*LICENCE, "link_pdf_license")),
+    ("unknown_keys", lambda arabic, english: None),
+)
+LICENCE_FIELDS: tuple[str, ...] = tuple(name for name, _ in LICENCE_COLUMNS)
+KNOWN_LICENCE_KEYS = frozenset({
+    "id", "id_encrypt", "ref_license", "start_date", "end_date", "start_date_hijri",
+    "end_date_hijri", "date_gregorian", "date_hijri", "license_status",
+    "license_status_label", "is_license_expired", "request_status", "link_pdf_license",
+})
+
+
+def licence_candidate(english_body: str, arabic_body: str, *, table_index: int = 0,
+                      locator: str = "licensed-establishments/plans#licence",
+                      ) -> TableCandidate:
+    """One page of the plans listing, read as the licences of its establishments -- ES-5.
+
+    ONE ROW PER ESTABLISHMENT ON THE PAGE, however many of its plans the page holds. Its
+    plans' copies must agree; two different licences for one establishment refuse the
+    page by name, because the whole reason this table exists is that they never differ
+    (0 of 2,145 in the census). The page's other establishments' licences arrive on the
+    pages that carry them, and the same row read from two pages is one record.
+
+    ITS OWN `locator`, so this is a second ingestion of the same snapshot rather than a
+    collision with the plans' (`generic_ingestion` is unique on snapshot and locator).
+    """
+    by_establishment: dict[str, dict[str, str | None]] = {}
+    extra: set[str] = set()
+    for arabic, english in _pairs(english_body, arabic_body, language_paths=LANGUAGE_PATHS):
+        _assert_required_objects(arabic)
+        _assert_required_objects(english)
+        for view in (arabic, english):
+            licence = _at(view, *LICENCE)
+            if not isinstance(licence, dict) or not licence:
+                raise RowShapeError(f"establishment.license is {licence!r}, but every plan "
+                                    "row of the census carries it as an object")
+        row = {name: _text(read(arabic, english)) for name, read in LICENCE_COLUMNS}
+        lic_ar, lic_en = _at(arabic, *LICENCE), _at(english, *LICENCE)
+        unknown = {f"license.{key}": lic_ar[key] if key in lic_ar else lic_en[key]
+                   for key in sorted((set(lic_ar) | set(lic_en)) - KNOWN_LICENCE_KEYS)}
+        row["unknown_keys"] = _text(dict(sorted(unknown.items())))
+        extra.update(unknown)
+        key = row["establishment_id"]
+        if key in by_establishment and by_establishment[key] != row:
+            differing = sorted(name for name in LICENCE_FIELDS
+                               if by_establishment[key][name] != row[name])
+            raise RowShapeError(f"establishment {key} carries two different licences on "
+                                f"one page (they differ in {differing})")
+        by_establishment[key] = row
+    rows_out = tuple(by_establishment.values())
+    fields = tuple(
+        InferredField(
+            field_key=name, source_name=name, data_type="text",
+            nullable=True, position=position, confidence=1.0,
+            uniqueness=_uniqueness(rows_out, name),
+            null_fraction=(sum(1 for row in rows_out if not row.get(name)) / len(rows_out)
+                           if rows_out else 1.0),
+            identity_candidate=(name == LICENCE_IDENTITY_FIELD),
+        )
+        for position, name in enumerate(LICENCE_FIELDS)
+    )
+    return TableCandidate(
+        table_index=table_index, name=LICENCE_DATASET_NAME, locator=locator, fields=fields,
+        rows=rows_out, confidence=1.0,
+        warnings=tuple(f"the register added a licence key this reader does not know: {key}"
+                       for key in sorted(extra)),
+        approvable=bool(rows_out), truncated=False,
+    )

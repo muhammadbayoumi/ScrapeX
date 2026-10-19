@@ -56,7 +56,7 @@ from .connectors.base import (
 from .crawlscope import CrawlScope
 from .databases import DatabaseRegistry
 from .databases.registry import DATABASE_ROOT
-from .directories import Directory
+from .directories import DerivedReader, Directory
 from .directories import get as get_directory
 from .extract import service
 from .extract.models import ApprovalField, CandidateApproval
@@ -1261,7 +1261,8 @@ def _pairs(conn, directory: Directory, run_ref: str, *,
 
 
 def _approval(directory: Directory, candidate, *,
-              profile: bool = False) -> CandidateApproval:
+              profile: bool = False, derived: DerivedReader | None = None
+              ) -> CandidateApproval:
     """The owner's answer, every field text-typed, the directory's id the identity.
 
     TEXT FOR EVERYTHING, and it is not laziness: type inference over twenty rows
@@ -1275,6 +1276,10 @@ def _approval(directory: Directory, candidate, *,
     # broken parser looks like. See `ProfileReader.dataset_key`.
     into = directory.profiles.dataset_key if profile and directory.profiles else         directory.dataset_key
     named = directory.profiles.dataset_name if profile and directory.profiles else         directory.display_name
+    identity = directory.identity_field
+    # A DERIVED DATASET IS ITS OWN TOO, keyed by what its fact depends on -- ES-5.
+    if derived is not None:
+        into, named, identity = derived.dataset_key, derived.dataset_name, derived.identity_field
     return CandidateApproval(
         table_index=0, site_key=directory.key,
         site_display_name=directory.display_name,
@@ -1282,8 +1287,7 @@ def _approval(directory: Directory, candidate, *,
         dataset_name=named,
         fields=[ApprovalField(field_key=one.field_key, display_name=one.source_name,
                               data_type="text",
-                              identity=(one.field_key
-                                        == directory.identity_field))
+                              identity=(one.field_key == identity))
                 for one in candidate.fields])
 
 
@@ -1753,6 +1757,8 @@ def approve(conn, directory: Directory, run_ref: str, *,
     #: What an APPROVED page warned about -- a row whose record key is in doubt, written
     #: with its warning (#1333). Not `refused`, which counts whole pages.
     warned: list[tuple[str, str]] = []
+    #: Pages approved into each derived dataset (ES-5), said beside the listing's count.
+    derived_made: dict[str, int] = {}
     #: Contractor ids the SITE would not serve, and the ones whose profile page read.
     #: Issue 794. Collected rather than written per page so one statement per direction
     #: settles the ledger, and so a run that changes nothing writes nothing.
@@ -1885,6 +1891,30 @@ def approve(conn, directory: Directory, run_ref: str, *,
         made += 1
         warned.extend((key, warning) for warning in candidate.warnings)
         kept_newer += int(result.get("kept_newer") or 0)
+        # ES-5: THE SAME PAGE PAIR, INTO EACH DERIVED DATASET. After the listing's rows have
+        # committed, and refused on their own: a derived table that cannot read a page must
+        # neither take the listing's rows down with it nor pass unseen behind them. Its own
+        # `locator` gives it its own ingestion of this snapshot (`generic_ingestion` is
+        # unique on snapshot and locator).
+        if contractor is None:
+            for reader in directory.derived:
+                try:
+                    extra = reader.candidate(english[1], arabic[1] if arabic else "")
+                    if not extra.approvable:
+                        refused.append((key, f"{reader.dataset_key}: " + (
+                            extra.warnings[0] if extra.warnings else "no rows")))
+                        continue
+                    service.approve_candidate(
+                        conn, english[0], _approval(directory, extra, derived=reader),
+                        candidate=extra)
+                except Exception as exc:
+                    conn.rollback()
+                    refused.append((key, f"{reader.dataset_key}: {type(exc).__name__}: {exc}"))
+                    continue
+                conn.commit()
+                derived_made[reader.dataset_key] = derived_made.get(reader.dataset_key, 0) + 1
+                warned.extend((key, f"{reader.dataset_key}: {warning}")
+                              for warning in extra.warnings)
         if contractor is not None:
             # AND THE MARK IS LIFTED BY THE ONLY THING THAT DISPROVES IT: a profile page
             # that actually read. muqawil reissues membership numbers, so an id serving
@@ -1910,6 +1940,8 @@ def approve(conn, directory: Directory, run_ref: str, *,
         f"({confirmed_rows:,} row date(s) moved, no revision written), "
         f"{reparsed} re-parsed with new values (DEC-10 / R-40); "
         f"{lonely} page(s) missing a locale half")
+    for dataset_key, count in derived_made.items():
+        say(f"  {dataset_key}: approved {count} page(s) from the same pages (ES-5)")
     if kept_newer:
         # SAID ONLY WHEN IT HAPPENED, and said in full when it did. A pass that read older
         # evidence after newer must not read as a pass that wrote everything it was given.
