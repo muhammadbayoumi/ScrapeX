@@ -257,3 +257,36 @@ def test_a_refused_plans_page_derives_nothing(tmp_path, monkeypatch):
     log, plans, licences = _approve(tmp_path, monkeypatch, _raw("en"), _raw("en"))
     assert "LanguagesDisagree" in log
     assert plans == [] and licences == []
+
+
+#: WRITTEN FROM THE CENSUS'S LICENCE KEYS, NOT FROM `LICENCE_COLUMNS`: column -> (view, key).
+LICENCE_PATHS = {
+    "license_id": ("ar", "id"), "license_id_encrypt": ("ar", "id_encrypt"),
+    "ref_license": ("ar", "ref_license"), "start_date": ("ar", "start_date"),
+    "end_date": ("ar", "end_date"), "start_date_hijri": ("ar", "start_date_hijri"),
+    "end_date_hijri": ("ar", "end_date_hijri"), "date_gregorian": ("ar", "date_gregorian"),
+    "date_hijri": ("ar", "date_hijri"), "license_status": ("ar", "license_status"),
+    "license_status_label_ar": ("ar", "license_status_label"),
+    "license_status_label_en": ("en", "license_status_label"),
+    "is_license_expired": ("ar", "is_license_expired"),
+    "request_status": ("ar", "request_status"),
+    "link_pdf_license": ("ar", "link_pdf_license"),
+}
+
+
+def test_the_licence_path_table_covers_every_plain_column():
+    assert set(LICENCE_PATHS) == set(LICENCE_FIELDS) - {"establishment_id", "unknown_keys"}
+
+
+def test_every_licence_column_reads_its_own_key_from_its_own_view():
+    """`id` and `id_encrypt` are equal on every census licence, so only a sentinel tells
+    the two columns apart."""
+    english, arabic = _doc("en"), _doc("ar")
+    for view, doc in (("ar", arabic), ("en", english)):
+        for row in doc["data"]:
+            for _, key in LICENCE_PATHS.values():
+                row["establishment"]["license"][key] = f"{view}:{key}"
+    row = _candidate(english, arabic).rows[0]
+    wrong = {column: row[column] for column, (view, key) in LICENCE_PATHS.items()
+             if row[column] != f"{view}:{key}"}
+    assert wrong == {}

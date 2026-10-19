@@ -273,6 +273,7 @@ LICENCE = ("establishment", "license")
 LICENCE_COLUMNS: tuple[tuple[str, Getter], ...] = (
     ("establishment_id", _ar("establishment", "id")),
     ("license_id", _ar(*LICENCE, "id")),
+    # Equal to `id` on 2,145 of 2,145 census licences; the site sends both, so both are kept.
     ("license_id_encrypt", _ar(*LICENCE, "id_encrypt")),
     ("ref_license", _ar(*LICENCE, "ref_license")),
     ("start_date", _ar(*LICENCE, "start_date")),
