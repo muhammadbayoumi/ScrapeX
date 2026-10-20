@@ -36,9 +36,9 @@ WHAT IS DELIBERATELY NOT STORED:
 
   * The establishment nested in every row, ~110 keys repeated per plan: only its `id` is
     kept, the join to `tvtc_training_establishments`, which holds the rest.
-  * `establishment.license` -- it belongs to the establishment, not to the plan (24 of 24
-    establishments on a 1,000-row page carried one licence however many plans), and
-    `#1716` step 3 moves it to the establishments table.
+  * `establishment.license` -- it belongs to the establishment, not to the plan (0 of the
+    2,145 establishments showed two different licences across their plans), so it is kept
+    once, in `tvtc_establishment_licences`, by `licence_candidate` below -- ES-5.
   * `training_program.description/objective/enrollment_requirements/minimum_trainee_age`,
     `domain.saudi_major_codes`, `show_export_pdf`, `can_edit_professional_certificate`,
     `class_type`, `accessibility_certificate_end_date` -- null on 41,694 of 41,694 rows, or

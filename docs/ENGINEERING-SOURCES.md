@@ -262,6 +262,8 @@ So the licence is not a plans column. It is a dataset of its own, `tvtc_establis
 
 A page whose plans carry two different licences for one establishment is refused by name, because this dataset exists only because they never differ.
 
+**A licence row never departs** (his ruling on #1758, 2026-10-20). When its establishment's plans leave the listing, the site has stopped publishing the licence, not ended it. The row stays, and its `last_seen_at` says when the site last showed it. Two pages of one run reading one establishment's licence differently is announced by name in the approval log. That is the case that would re-open this entry.
+
 It is not merged into `tvtc_training_establishments` either, though that table has the same key. A table written by two crawls has two freshnesses and no single date. Keeping each table to one writer keeps "when did this change" answerable; the cost is one join.
 
 **Decided** by the owner on #1716, 2026-10-19, choosing this over storing the licence on every plan or merging it into the establishments table, after the census and this source were put to him.

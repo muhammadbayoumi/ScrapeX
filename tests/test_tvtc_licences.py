@@ -178,11 +178,15 @@ def test_its_locator_is_not_the_plans_one():
 
 # --- through the real approval ---------------------------------------------------------
 
-def _approve(tmp_path, monkeypatch, english: str, arabic: str):
-    """The real `contractors.approve` over one stored plans page pair; the log and both
-    datasets' rows."""
+def _approve_pages(tmp_path, monkeypatch, pages):
+    """The real `contractors.approve` over stored plans page pairs `[(english, arabic,
+    captured_at), ...]`, read in order; the log and both datasets' rows.
+
+    THE ROWS ARE READ ON A SECOND CONNECTION, so a derived write that was never committed
+    cannot pass for one that was (#1758's tests review, mutation m07).
+    """
     import io
-    from contextlib import redirect_stdout
+    from contextlib import closing, redirect_stdout
 
     from scrapex import catalog, contractors, directories
     from scrapex.catalog_models import SiteCreate
@@ -199,36 +203,43 @@ def _approve(tmp_path, monkeypatch, english: str, arabic: str):
             site_key=directory.key, display_name=directory.display_name,
             base_url=directory.base_url))
 
-        def stored(url: str, body: str) -> int:
+        def stored(url: str, body: str, captured_at: str) -> int:
             blob, codec, dict_id = encode(conn, body, label=None)
             cursor = conn.execute(
                 "INSERT INTO generic_page_snapshot (source_url, html_content, "
                 " content_hash, crawl_run_ref, html_codec, html_dict_id, captured_at) "
                 "VALUES (?,?,?,?,?,?,?)",
-                (url, blob, url, "run-1", codec, dict_id, "2026-10-19T10:00:00Z"))
+                (url, blob, url + captured_at, "run-1", codec, dict_id, captured_at))
             conn.commit()
             return int(cursor.lastrowid)
 
-        pair = {"en": (stored(listing_url(locale="en", page=1, path=PLANS_PATH), english),
-                       english),
-                "ar": (stored(listing_url(locale="ar", page=1, path=PLANS_PATH), arabic),
-                       arabic)}
+        pairs = {}
+        for number, (english, arabic, captured_at) in enumerate(pages, start=1):
+            pairs[f"page-{number}"] = {
+                "en": (stored(listing_url(locale="en", page=number, path=PLANS_PATH),
+                              english, captured_at), english),
+                "ar": (stored(listing_url(locale="ar", page=number, path=PLANS_PATH),
+                              arabic, captured_at), arabic)}
         monkeypatch.setattr(contractors, "_pairs",
-                            lambda c, d, run_ref, *, ids=(): {"page-1": pair})
+                            lambda c, d, run_ref, *, ids=(): pairs)
         monkeypatch.setattr(contractors, "coverage", lambda c, key: "")
         monkeypatch.setattr(contractors, "LOG", tmp_path / "listing.log")
         said = io.StringIO()
         with redirect_stdout(said):
             contractors.approve(conn, directory, "run-1")
-
+    finally:
+        conn.close()
+    with closing(EngineDatabase(tmp_path / "scrapex-engine.db").connect()) as fresh:
         def rows(key: str) -> list[dict]:
-            return [json.loads(blob) for (blob,) in conn.execute(
+            return [json.loads(blob) for (blob,) in fresh.execute(
                 "SELECT r.data_json FROM generic_record AS r JOIN dataset_definition AS d "
                 "ON d.dataset_definition_id = r.dataset_definition_id "
                 "WHERE d.dataset_key = ?", (key,))]
         return said.getvalue(), rows("tvtc_training_plans"), rows(LICENCE_DATASET_KEY)
-    finally:
-        conn.close()
+
+
+def _approve(tmp_path, monkeypatch, english: str, arabic: str):
+    return _approve_pages(tmp_path, monkeypatch, [(english, arabic, "2026-10-19T10:00:00Z")])
 
 
 def test_one_approval_stores_the_plans_and_their_licences(tmp_path, monkeypatch):
@@ -251,6 +262,8 @@ def test_a_licence_refusal_keeps_the_plans_and_names_its_dataset(tmp_path, monke
     assert len(plans) == 20
     assert licences == []
     assert f"{LICENCE_DATASET_KEY}: RowShapeError" in log and "two different licences" in log
+    # A refused page is not counted as approved (#1758's tests review, m01).
+    assert "from the same pages (ES-5)" not in log
 
 
 def test_a_refused_plans_page_derives_nothing(tmp_path, monkeypatch):
@@ -290,3 +303,83 @@ def test_every_licence_column_reads_its_own_key_from_its_own_view():
     wrong = {column: row[column] for column, (view, key) in LICENCE_PATHS.items()
              if row[column] != f"{view}:{key}"}
     assert wrong == {}
+
+
+def test_the_plans_reader_names_its_dataset_as_the_licences():
+    """Not circular: the name is pinned, not read back from the reader (m20)."""
+    from scrapex import directories
+    from scrapex.extract.tvtc_plans import LICENCE_DATASET_NAME
+    (reader,) = directories.get(PLANS_SITE_KEY).derived
+    assert reader.dataset_name == LICENCE_DATASET_NAME == "TVTC establishment licences"
+
+
+def test_a_licence_key_only_the_english_view_adds_is_kept():
+    english, arabic = _doc("en"), _doc("ar")
+    for row in english["data"]:
+        row["establishment"]["license"]["renewal_count"] = "en"
+    assert json.loads(_candidate(english, arabic).rows[0]["unknown_keys"]) == {
+        "license.renewal_count": "en"}
+
+
+def test_a_derived_warning_reaches_the_log_under_its_dataset(tmp_path, monkeypatch):
+    english, arabic = _doc("en"), _doc("ar")
+    for doc in (english, arabic):
+        for row in doc["data"]:
+            row["establishment"]["license"]["renewal_count"] = "x"
+    log, _, licences = _approve(tmp_path, monkeypatch, json.dumps(english), json.dumps(arabic))
+    assert licences
+    assert (f"{LICENCE_DATASET_KEY}: the register added a licence key this reader does not "
+            "know: license.renewal_count") in log
+
+
+def test_a_derived_write_that_fails_after_writing_is_rolled_back(tmp_path, monkeypatch):
+    """m06: the derived approval wrote, then failed -- nothing of it may remain, and the
+    listing's rows must."""
+    from scrapex.extract import service
+    real = service.approve_candidate
+
+    def failing(conn, snapshot_id, approval, **kwargs):
+        result = real(conn, snapshot_id, approval, **kwargs)
+        if approval.dataset_key == LICENCE_DATASET_KEY:
+            raise RuntimeError("disk full")
+        return result
+    monkeypatch.setattr(service, "approve_candidate", failing)
+    log, plans, licences = _approve(tmp_path, monkeypatch, _raw("en"), _raw("ar"))
+    assert len(plans) == 20 and licences == []
+    assert f"{LICENCE_DATASET_KEY}: RuntimeError: disk full" in log
+
+
+def _renewed(end_date: str) -> tuple[str, str]:
+    """The fixture page with its first establishment's licence ending on `end_date`."""
+    english, arabic = _doc("en"), _doc("ar")
+    for doc in (english, arabic):
+        for row in _first_establishment_rows(doc):
+            row["establishment"]["license"]["end_date"] = end_date
+    return json.dumps(english), json.dumps(arabic)
+
+
+def test_a_licence_read_differently_on_two_pages_of_one_run_is_said(tmp_path, monkeypatch):
+    """The case ES-5 says would re-open it: said by name, the later reading stored."""
+    target = next(iter(_establishments(_doc("ar"))))
+    early, late = _renewed("2030-01-01"), _renewed("2031-01-01")
+    log, _, licences = _approve_pages(tmp_path, monkeypatch, [
+        (*early, "2026-10-19T10:00:00Z"), (*late, "2026-10-19T11:00:00Z")])
+    assert "1 key(s) read with two different values on two pages of this run" in log, log
+    assert target in log
+    assert {r["establishment_id"]: r for r in licences}[target]["end_date"] == "2031-01-01"
+
+
+def test_an_older_page_read_later_says_the_licence_kept_its_newer(tmp_path, monkeypatch):
+    """The listing's own rule, now said for the derived dataset too (#1758, S1)."""
+    newer, older = _renewed("2031-01-01"), _renewed("2030-01-01")
+    log, _, licences = _approve_pages(tmp_path, monkeypatch, [
+        (*newer, "2026-10-19T11:00:00Z"), (*older, "2026-10-19T10:00:00Z")])
+    assert "row(s) kept their newer evidence" in log.split("(ES-5)", 1)[1], log
+    target = next(iter(_establishments(_doc("ar"))))
+    assert {r["establishment_id"]: r for r in licences}[target]["end_date"] == "2031-01-01"
+
+
+def test_a_first_reading_counts_no_page_as_unchanged(tmp_path, monkeypatch):
+    log, _, _ = _approve(tmp_path, monkeypatch, _raw("en"), _raw("ar"))
+    assert (f"{LICENCE_DATASET_KEY}: approved 1 page(s) from the same pages (ES-5): "
+            "0 unchanged and confirmed") in log

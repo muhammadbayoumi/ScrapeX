@@ -119,6 +119,12 @@ class DerivedReader:
     #: The field its rows are keyed by -- what the derived fact depends on.
     identity_field: str
 
+    # A DERIVED ROW NEVER DEPARTS (his ruling on #1758, 2026-10-20). `mark_departures`
+    # reads only the directory's own `dataset_key`, and that is right here: a licence the
+    # plans listing stopped carrying has not ended, the site has only stopped publishing
+    # it. The row stays, and its `last_seen_at` -- moved by every page that still carries
+    # it -- says when the site last showed it.
+
 
 @dataclass(frozen=True)
 class ProfileReader:

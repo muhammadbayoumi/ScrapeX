@@ -1759,6 +1759,14 @@ def approve(conn, directory: Directory, run_ref: str, *,
     warned: list[tuple[str, str]] = []
     #: Pages approved into each derived dataset (ES-5), said beside the listing's count.
     derived_made: dict[str, int] = {}
+    #: Of those, how many were already approved and identical, and how many rows kept
+    #: newer evidence -- the listing's own two counts, for each derived dataset.
+    derived_unchanged: dict[str, int] = {}
+    derived_kept_newer: dict[str, int] = {}
+    #: ES-5's re-open signal: the value each derived key was read with on an earlier page
+    #: of this run, and the keys a later page read differently.
+    derived_seen: dict[str, dict[str, dict]] = {}
+    derived_differed: dict[str, set[str]] = {}
     #: Contractor ids the SITE would not serve, and the ones whose profile page read.
     #: Issue 794. Collected rather than written per page so one statement per direction
     #: settles the ledger, and so a run that changes nothing writes nothing.
@@ -1899,22 +1907,39 @@ def approve(conn, directory: Directory, run_ref: str, *,
         if contractor is None:
             for reader in directory.derived:
                 try:
-                    extra = reader.candidate(english[1], arabic[1] if arabic else "")
-                    if not extra.approvable:
+                    derived_candidate = reader.candidate(english[1], arabic[1] if arabic else "")
+                    if not derived_candidate.approvable:
                         refused.append((key, f"{reader.dataset_key}: " + (
-                            extra.warnings[0] if extra.warnings else "no rows")))
+                            derived_candidate.warnings[0] if derived_candidate.warnings
+                            else "no rows")))
                         continue
-                    service.approve_candidate(
-                        conn, english[0], _approval(directory, extra, derived=reader),
-                        candidate=extra)
+                    derived_result = service.approve_candidate(
+                        conn, english[0],
+                        _approval(directory, derived_candidate, derived=reader),
+                        candidate=derived_candidate)
                 except Exception as exc:
                     conn.rollback()
                     refused.append((key, f"{reader.dataset_key}: {type(exc).__name__}: {exc}"))
                     continue
                 conn.commit()
-                derived_made[reader.dataset_key] = derived_made.get(reader.dataset_key, 0) + 1
-                warned.extend((key, f"{reader.dataset_key}: {warning}")
-                              for warning in extra.warnings)
+                name = reader.dataset_key
+                derived_made[name] = derived_made.get(name, 0) + 1
+                derived_unchanged[name] = (derived_unchanged.get(name, 0)
+                                           + int(bool(derived_result.get("recovered"))))
+                derived_kept_newer[name] = (derived_kept_newer.get(name, 0)
+                                            + int(derived_result.get("kept_newer") or 0))
+                # TWO PAGES OF ONE RUN READING ONE KEY DIFFERENTLY is what ES-5 says would
+                # re-open it: the fact was meant to depend on the key alone. The later
+                # page's value is the one stored -- it is the later reading -- and the
+                # difference is said, not overwritten in silence.
+                seen = derived_seen.setdefault(name, {})
+                for row in derived_candidate.rows:
+                    identity = str(row.get(reader.identity_field))
+                    if identity in seen and seen[identity] != row:
+                        derived_differed.setdefault(name, set()).add(identity)
+                    seen[identity] = row
+                warned.extend((key, f"{name}: {warning}")
+                              for warning in derived_candidate.warnings)
         if contractor is not None:
             # AND THE MARK IS LIFTED BY THE ONLY THING THAT DISPROVES IT: a profile page
             # that actually read. muqawil reissues membership numbers, so an id serving
@@ -1941,7 +1966,16 @@ def approve(conn, directory: Directory, run_ref: str, *,
         f"{reparsed} re-parsed with new values (DEC-10 / R-40); "
         f"{lonely} page(s) missing a locale half")
     for dataset_key, count in derived_made.items():
-        say(f"  {dataset_key}: approved {count} page(s) from the same pages (ES-5)")
+        say(f"  {dataset_key}: approved {count} page(s) from the same pages (ES-5): "
+            f"{derived_unchanged.get(dataset_key, 0)} unchanged and confirmed")
+        if derived_kept_newer.get(dataset_key):
+            say(f"    {derived_kept_newer[dataset_key]:,} row(s) kept their newer evidence: "
+                f"this pass read an older page of the same record")
+        if derived_differed.get(dataset_key):
+            differed = sorted(derived_differed[dataset_key])
+            say(f"    {len(differed):,} key(s) read with two different values on two pages "
+                f"of this run, the later one stored -- ES-5 holds only while this is zero: "
+                f"{', '.join(differed[:10])}{' …' if len(differed) > 10 else ''}")
     if kept_newer:
         # SAID ONLY WHEN IT HAPPENED, and said in full when it did. A pass that read older
         # evidence after newer must not read as a pass that wrote everything it was given.
