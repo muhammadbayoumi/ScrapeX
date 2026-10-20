@@ -40,6 +40,8 @@ what a given SQLite build happens to notice.
 """
 from __future__ import annotations
 
+import re
+import shutil
 from pathlib import Path
 
 import pytest
@@ -177,3 +179,139 @@ def test_the_endpoint_asks_for_the_cheap_one():
     assert source.count("databases.health(") == 1, (
         "a second call to databases.health() appeared — check whether it is also on "
         "a timed path")
+
+
+# ---- the source count rides the poll at the cost of one statement (#1764) ------------
+#
+# MEASURED 2026-10-20 on his 2,475,528,192-byte warehouse, 17 sources. `/api/health`
+# answered in 1.92-2.21 s against the 2,500 ms deadline, so the panel said "Couldn't
+# reach the engine" about an engine that was up. On a copy of that file, at normal
+# priority, the endpoint cost 0.506 s and `len(list_sources(conn))` was 0.444 s of it:
+# nine statements a source, 154 in all, to produce one number -- how many sources are
+# registered. Each summary counts that source's observations, and that count is about
+# 19 ms a source even for a source with none. His engine pays roughly four times the
+# CPU a fresh process pays for the same statements (#1767), which turned 0.5 s into
+# 2.1 s.
+#
+# SO THE PROPERTY IS THE WORK, NOT THE TIME. A fixture has no observations to count
+# and every timing on it would pass; the statements the poll runs are what grew with
+# each source, so they are what is pinned.
+
+#: The tables a source's SUMMARY reads (`reports.source_summary`). Every one grows
+#: with what was collected, so a poll statement naming one is work that grows too.
+SUMMARY_TABLES = ("source_product", "source_variant", "price_observation",
+                  "source_variant_match", "v_material_price_tracking", "crawl_run")
+
+
+@pytest.fixture()
+def polled(tmp_path: Path, warehouse: DatabaseRegistry):
+    """The real app on the registry path -- the one his engine takes, where
+    `read_conn()` is `databases.engine.connect()` -- with no worker thread."""
+    pytest.importorskip("fastapi")
+    from fastapi.testclient import TestClient
+
+    from scrapex.config import MANIFEST_FILE
+    from scrapex.webui.app import create_app
+
+    manifest = tmp_path / "sources.yaml"
+    shutil.copy(MANIFEST_FILE, manifest)
+    return TestClient(create_app(databases=warehouse, manifest_path=manifest))
+
+
+def _register(warehouse: DatabaseRegistry, keys) -> None:
+    warehouse.engine.write(lambda conn: conn.executemany(
+        "INSERT INTO source_site (source_key, source_name, base_url, platform) "
+        "VALUES (?, ?, ?, 'custom')",
+        [(key, key, f"https://{key.lower()}.example") for key in keys]))
+
+
+def _traced(monkeypatch, database: EngineDatabase) -> list[str]:
+    """Every statement SQLite runs on a connection `database` hands out from here on.
+
+    `set_trace_callback` rather than a wrapper around `execute`: it is SQLite's own
+    record, so a statement reached through a cursor, `executemany` or a script is
+    counted too. What `connect()` runs to verify the file is before the callback and
+    is left out -- it is one per connection and does not grow with anything.
+    """
+    seen: list[str] = []
+    real = database.connect
+
+    def traced():
+        conn = real()
+        conn.set_trace_callback(seen.append)
+        return conn
+
+    monkeypatch.setattr(database, "connect", traced)
+    return seen
+
+
+def _poll(client) -> dict:
+    response = client.get("/api/health")
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def test_the_poll_does_the_same_work_for_twelve_sources_as_for_two(polled, warehouse,
+                                                                   monkeypatch):
+    """THE PROPERTY. Ten more sources must cost the poll nothing: before #1764 they
+    cost it ninety statements, nine per source."""
+    seen = _traced(monkeypatch, warehouse.engine)
+    _register(warehouse, [f"FEW{i}" for i in range(2)])
+    seen.clear()                     # the INSERTs went through `connect()` too
+    _poll(polled)
+    few = list(seen)
+
+    _register(warehouse, [f"MORE{i}" for i in range(10)])
+    seen.clear()
+    _poll(polled)
+
+    assert len(seen) == len(few), (
+        f"the poll ran {len(few)} statements with two added sources and {len(seen)} "
+        "with twelve, so its cost grows with every source registered -- which is how "
+        "it reached 2.1 s against the panel's 2.5 s deadline on his 17")
+
+
+def test_the_poll_reads_no_table_a_source_summary_reads(polled, warehouse, monkeypatch):
+    """The cost of a summary is the size of what was collected, which a fixture does
+    not have; naming the tables is how a test without the data sees the work."""
+    _register(warehouse, ["SUMMARISED"])
+    seen = _traced(monkeypatch, warehouse.engine)
+
+    _poll(polled)
+
+    named = [sql for sql in seen
+             if any(re.search(rf"\b{table}\b", sql) for table in SUMMARY_TABLES)]
+    assert named == [], (
+        "the timed poll read a source's collected data, which grows with every crawl "
+        f"and every source: {named}")
+
+
+def test_the_count_is_still_every_registered_source(polled, warehouse):
+    """Cheaper may not mean different: the poll's number is the one `list_sources`
+    gives, the sources the overview lists."""
+    from scrapex.reports import list_sources
+
+    _register(warehouse, [f"COUNTED{i}" for i in range(3)])
+
+    body = _poll(polled)
+
+    conn = warehouse.engine.connect()
+    try:
+        listed = len(list_sources(conn))
+        registered = conn.execute("SELECT COUNT(*) FROM source_site").fetchone()[0]
+    finally:
+        conn.close()
+    assert registered >= 3
+    assert body["sources_with_data"] == listed == registered
+
+
+def test_a_missing_warehouse_still_answers_with_no_sources(polled, warehouse):
+    """Health must survive the thing it reports on (`api_health`'s first comment): the
+    cheaper count keeps the same refusal to fail with the database."""
+    for leftover in warehouse.engine.path.parent.glob(warehouse.engine.path.name + "*"):
+        leftover.unlink()
+
+    body = _poll(polled)
+
+    assert body["sources_with_data"] == 0
+    assert body["databases"]["ok"] is False
