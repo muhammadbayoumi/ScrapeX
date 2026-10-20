@@ -178,7 +178,7 @@ def test_its_locator_is_not_the_plans_one():
 
 # --- through the real approval ---------------------------------------------------------
 
-def _approve_pages(tmp_path, monkeypatch, pages):
+def _approve_pages(tmp_path, monkeypatch, pages, *, rounds: int = 1):
     """The real `contractors.approve` over stored plans page pairs `[(english, arabic,
     captured_at), ...]`, read in order; the log and both datasets' rows.
 
@@ -225,8 +225,10 @@ def _approve_pages(tmp_path, monkeypatch, pages):
         monkeypatch.setattr(contractors, "coverage", lambda c, key: "")
         monkeypatch.setattr(contractors, "LOG", tmp_path / "listing.log")
         said = io.StringIO()
-        with redirect_stdout(said):
-            contractors.approve(conn, directory, "run-1")
+        for _ in range(rounds):
+            said = io.StringIO()
+            with redirect_stdout(said):
+                contractors.approve(conn, directory, "run-1")
     finally:
         conn.close()
     with closing(EngineDatabase(tmp_path / "scrapex-engine.db").connect()) as fresh:
@@ -333,20 +335,34 @@ def test_a_derived_warning_reaches_the_log_under_its_dataset(tmp_path, monkeypat
 
 
 def test_a_derived_write_that_fails_after_writing_is_rolled_back(tmp_path, monkeypatch):
-    """m06: the derived approval wrote, then failed -- nothing of it may remain, and the
-    listing's rows must."""
+    """m06: page 1's derived approval wrote, then failed; page 2's committed after it. Had
+    page 1 not been rolled back, its write would have committed with page 2's -- a second
+    licence ingestion where there must be one."""
+    from contextlib import closing
+
+    from scrapex.databases import EngineDatabase
     from scrapex.extract import service
     real = service.approve_candidate
+    calls = {"licence": 0}
 
-    def failing(conn, snapshot_id, approval, **kwargs):
+    def failing_once(conn, snapshot_id, approval, **kwargs):
         result = real(conn, snapshot_id, approval, **kwargs)
         if approval.dataset_key == LICENCE_DATASET_KEY:
-            raise RuntimeError("disk full")
+            calls["licence"] += 1
+            if calls["licence"] == 1:
+                raise RuntimeError("disk full")
         return result
-    monkeypatch.setattr(service, "approve_candidate", failing)
-    log, plans, licences = _approve(tmp_path, monkeypatch, _raw("en"), _raw("ar"))
-    assert len(plans) == 20 and licences == []
+    monkeypatch.setattr(service, "approve_candidate", failing_once)
+    log, plans, licences = _approve_pages(tmp_path, monkeypatch, [
+        (_raw("en"), _raw("ar"), "2026-10-19T10:00:00Z"),
+        (_raw("en"), _raw("ar"), "2026-10-19T11:00:00Z")])
     assert f"{LICENCE_DATASET_KEY}: RuntimeError: disk full" in log
+    assert len(plans) == 20 and licences
+    with closing(EngineDatabase(tmp_path / "scrapex-engine.db").connect()) as fresh:
+        (ingestions,) = fresh.execute(
+            "SELECT COUNT(*) FROM generic_ingestion WHERE source_locator = ?",
+            ("licensed-establishments/plans#licence",)).fetchone()
+    assert ingestions == 1
 
 
 def _renewed(end_date: str) -> tuple[str, str]:
@@ -374,7 +390,10 @@ def test_an_older_page_read_later_says_the_licence_kept_its_newer(tmp_path, monk
     newer, older = _renewed("2031-01-01"), _renewed("2030-01-01")
     log, _, licences = _approve_pages(tmp_path, monkeypatch, [
         (*newer, "2026-10-19T11:00:00Z"), (*older, "2026-10-19T10:00:00Z")])
-    assert "row(s) kept their newer evidence" in log.split("(ES-5)", 1)[1], log
+    lines = log.splitlines()
+    at = next(i for i, line in enumerate(lines) if "from the same pages (ES-5)" in line)
+    assert lines[at + 1].startswith("    ") and "row(s) kept their newer evidence: this pass " \
+        "read an older page of the same record" in lines[at + 1], lines[at:at + 2]
     target = next(iter(_establishments(_doc("ar"))))
     assert {r["establishment_id"]: r for r in licences}[target]["end_date"] == "2031-01-01"
 
@@ -383,3 +402,11 @@ def test_a_first_reading_counts_no_page_as_unchanged(tmp_path, monkeypatch):
     log, _, _ = _approve(tmp_path, monkeypatch, _raw("en"), _raw("ar"))
     assert (f"{LICENCE_DATASET_KEY}: approved 1 page(s) from the same pages (ES-5): "
             "0 unchanged and confirmed") in log
+
+
+def test_a_second_reading_of_the_same_pages_counts_them_unchanged(tmp_path, monkeypatch):
+    log, _, licences = _approve_pages(tmp_path, monkeypatch, [
+        (_raw("en"), _raw("ar"), "2026-10-19T10:00:00Z")], rounds=2)
+    assert licences
+    assert (f"{LICENCE_DATASET_KEY}: approved 1 page(s) from the same pages (ES-5): "
+            "1 unchanged and confirmed") in log, log
