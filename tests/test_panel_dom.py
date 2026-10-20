@@ -8186,6 +8186,406 @@ def test_the_engine_actions_are_rows_and_no_overflow_menu_is_left_behind(open_pa
     assert page.locator("#engine-diagnostics-output").is_visible()
 
 
+# ---- Restart, against an engine that restarts the way the real one does -----
+#
+# THE ENGINE ANSWERS FIRST AND LEAVES 1.5 s LATER. `POST /api/engine/restart`
+# starts a `bow_out` thread that sleeps 1.5 s and then ends the process
+# (scrapex/webui/app.py, `restart_engine`), so the reply reaches the panel instead
+# of a dropped connection -- and for that 1.5 s the engine that was asked to leave
+# goes on answering every request. Then the port is dark while
+# scrapex/relaunch.py waits for it to close and starts the successor, which
+# answers once it has bound. The dark stretch here is shorter than a real one -- a
+# Python engine takes seconds to import and bind -- which only makes the successor
+# quicker to find.
+ENGINE_BOW_OUT_MS = 1500
+ENGINE_DARK_MS = 2500
+
+#: The engine he pressed Restart on: running a tree the disk has moved past, so the
+#: Build row says "Restart needed", the badge the button sits beside the remedy of.
+ENGINE_BEFORE_RESTART = {
+    "mode": "source", "sealed_at": "2026-10-07T05:00:00.000001+00:00",
+    "commit": "aaaaaaa1b42b3981de11c4793074a4bcadacf14d",
+    "commit_now": "bbbbbbb2409037f823068c681ef721d82e61f708",
+    "moved": True, "stale": True,
+    "detail": "the code this engine is running is not the code on disk — 1 "
+              "loaded module(s) changed since it started. Restart the engine "
+              "to pick the new code up."}
+
+#: Its successor: started from the moved checkout, sealed later, level with it.
+ENGINE_AFTER_RESTART = {
+    "mode": "source", "sealed_at": "2026-10-07T05:00:09.000002+00:00",
+    "commit": "bbbbbbb2409037f823068c681ef721d82e61f708",
+    "commit_now": "bbbbbbb2409037f823068c681ef721d82e61f708",
+    "moved": False, "stale": False,
+    "detail": "running from source, and level with the code on disk."}
+
+
+def restart_the_way_the_engine_does(page, *, successor_build, successor_version=None,
+                                    bow_out_ms=ENGINE_BOW_OUT_MS,
+                                    dark_ms=ENGINE_DARK_MS,
+                                    predecessor_health_ms=0):
+    """Make the stub's engine restart on the engine's own clock.
+
+    Until `POST /api/engine/restart`, and for `bow_out_ms` after it, the stub answers
+    as itself: the PREDECESSOR. For the next `dark_ms` every request to the engine
+    fails as a refused connection does. After that the SUCCESSOR answers: the stub
+    again, with `successor_build` -- `None` for an engine from before the field --
+    and `successor_version` in its `/api/health` answer.
+
+    `predecessor_health_ms` makes the predecessor's `/api/health` take that long,
+    and one still in flight when the predecessor leaves dies with it, because
+    `os._exit` takes the socket with the process. His engine answered
+    `/api/health` in 486 ms on 2026-08-23 (scrapex/provenance.py).
+
+    Records, for the test to read, who answered each `/api/health`
+    (`window.__healthAnsweredBy`) and who was answering at the moment the panel wrote
+    "The engine is back." (`window.__backSaidWhile`).
+    """
+    page.evaluate("""({bowOutMs, darkMs, successorBuild, successorVersion,
+                       predecessorHealthMs}) => {
+      const BACKEND = 'http://127.0.0.1:8000';
+      const inner = window.fetch;
+      let restartAskedAt = null;
+      const answering = (at) => {
+        if (restartAskedAt === null || at - restartAskedAt < bowOutMs) {
+          return 'predecessor';
+        }
+        return at - restartAskedAt < bowOutMs + darkMs ? 'nobody' : 'successor';
+      };
+      window.__engineAnswering = () => answering(performance.now());
+      window.__healthAnsweredBy = [];
+      window.__backSaidWhile = null;
+      const note = document.getElementById('engine-restart-note');
+      new MutationObserver(() => {
+        if (window.__backSaidWhile === null
+            && note.textContent === 'The engine is back.') {
+          window.__backSaidWhile = window.__engineAnswering();
+        }
+      }).observe(note, {childList: true, characterData: true, subtree: true});
+      const answer = (body) => ({ok: true, status: 200, statusText: 'OK',
+                                 headers: {get: () => null}, json: async () => body});
+      window.fetch = async (url, options = {}) => {
+        const target = String(url);
+        if (!target.startsWith(BACKEND + '/api/')) return inner(url, options);
+        const path = target.slice(BACKEND.length);
+        const health = path.startsWith('/api/health');
+        if (path === '/api/engine/restart' && options.method === 'POST') {
+          restartAskedAt = performance.now();
+          return answer({ok: true, helper_pid: 4242, port: 8000,
+                         message: 'Restarting.'});
+        }
+        let by = window.__engineAnswering();
+        if (by === 'predecessor' && health && predecessorHealthMs) {
+          await new Promise((done) => setTimeout(done, predecessorHealthMs));
+          if (window.__engineAnswering() !== 'predecessor') by = 'cut off';
+        }
+        if (health) window.__healthAnsweredBy.push(by);
+        if (by === 'nobody' || by === 'cut off') throw new TypeError('Failed to fetch');
+        const response = await inner(url, options);
+        if (by !== 'successor' || !health) return response;
+        const body = {...(await response.json())};
+        if (successorBuild === null) delete body.build;
+        else body.build = successorBuild;
+        if (successorVersion) body.version = successorVersion;
+        return answer(body);
+      };
+    }""", {"bowOutMs": bow_out_ms, "darkMs": dark_ms,
+           "successorBuild": successor_build, "successorVersion": successor_version,
+           "predecessorHealthMs": predecessor_health_ms})
+
+
+def press_restart_and_wait_for_the_panel(page) -> None:
+    """Press Restart engine, then wait for "The engine is back." AND for the check
+    the panel runs on hearing so to have been painted."""
+    page.click("#runtime-restart")
+    page.wait_for_function(
+        "() => document.getElementById('engine-restart-note').textContent"
+        " === 'The engine is back.'", timeout=30_000)
+    page.wait_for_function(
+        "() => document.getElementById('engine-status-region')"
+        ".getAttribute('aria-busy') === 'false'", timeout=10_000)
+
+
+@pytest.mark.parametrize("predecessor_health_ms", [0, 450],
+                         ids=["it-answers-at-once", "it-answers-in-450ms"])
+def test_a_restart_waits_for_the_engine_that_comes_back(open_panel,
+                                                        predecessor_health_ms):
+    """HIS REPORT, 2026-10-07: «بعدما اضغط restart يلزم ضغط check حتى تظهر البيانات
+    محدثة» -- after Restart he had to press Check again before the screen showed
+    the engine he had restarted.
+
+    The restart poll took ANY answer from `/api/health` for the successor's, and
+    the first it can get is the PREDECESSOR's: the panel asks one second after the
+    restart request, and the engine goes on answering for 1.5 s after it
+    (ENGINE_BOW_OUT_MS above). So it said "The engine is back." about the engine
+    that was leaving, painted what that engine said -- or, when the engine's
+    answer takes a few hundred milliseconds, the gap after it -- and never asked
+    again:
+
+    - it-answers-at-once: the Build row kept "Restart needed" and the old commit;
+    - it-answers-in-450ms: "The engine is back." over "Not detected", and the Run
+      screen's "Engine not running" card.
+
+    Nothing on a timer asks the engine afterwards, so either stood until a Check
+    again was pressed.
+    """
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART)
+    page.click("#tab-engines")
+    open_engine(page)
+    assert text_of(page, "#engine-build-verdict") == "Restart needed"
+
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART,
+                                    predecessor_health_ms=predecessor_health_ms)
+    press_restart_and_wait_for_the_panel(page)
+
+    said_while = page.evaluate("window.__backSaidWhile")
+    assert said_while == "successor", (
+        f"the panel said 'The engine is back.' while the {said_while} was "
+        f"answering; /api/health was answered by "
+        f"{page.evaluate('window.__healthAnsweredBy')}")
+    assert text_of(page, "#engine-state-text") == "Running"
+    assert page.locator("#engine-build-verdict").is_hidden(), (
+        "the Build row still says Restart needed about the engine that came back")
+    assert "bbbbbbb" in text_of(page, "#engine-build-value"), (
+        "the Build row names the commit of the engine that left")
+    assert page.locator("#setup").is_hidden(), (
+        "the Run screen says the engine is not running")
+    assert not page.js_errors, page.js_errors
+
+
+def test_a_restart_redraws_the_rest_of_the_engine_screen(open_panel):
+    """The rows Check again draws and the restart did not.
+
+    The predecessor here leaves at once, so even a poll that takes any answer
+    reaches the successor, and what is measured is only how much of the screen the
+    restart redraws. Two rows stayed stale:
+
+    - the Database line. The restart drops the held warehouse path on purpose,
+      since a successor may have another file open, and then nothing asked for it
+      again: the banner lost "Database: ..." until the screen was left and
+      re-entered. Check again does not ask for it either;
+    - the release row, which is computed from the engine's version: an engine
+      restarted onto the published version went on reading "Update available".
+    """
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, engine_version="0.9.0",
+                      engine_manifest={
+                          "product": "scrapex-engine", "version": "0.9.1",
+                          "installer": {"name": "scrapex-engine.exe",
+                                        "url": "https://example.test/scrapex-engine.exe",
+                                        "bytes": 24000000, "sha256": "a" * 64}})
+    page.click("#tab-engines")
+    open_engine(page)
+    page.wait_for_function(
+        "() => document.getElementById('engine-state-detail').textContent"
+        ".startsWith('Database: ')"
+        " && document.getElementById('engine-release-verdict').textContent"
+        " === 'Update available'", timeout=10_000)
+
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART,
+                                    successor_version="0.9.1", bow_out_ms=0)
+    press_restart_and_wait_for_the_panel(page)
+    assert text_of(page, "#engine-installed-version") == "0.9.1"
+
+    # READ UNTIL BOTH HOLD OR FIVE SECONDS PASS, and returned either way so a
+    # failure says what the screen showed rather than only that it timed out. The
+    # stub answers at once, so the redraw takes milliseconds when it happens.
+    seen = page.evaluate("""async () => {
+      const read = () => ({
+        detail: document.getElementById('engine-state-detail').textContent,
+        verdict: document.getElementById('engine-release-verdict').textContent,
+      });
+      const until = performance.now() + 5000;
+      while (performance.now() < until) {
+        const now = read();
+        if (now.detail.startsWith('Database: ') && now.verdict === 'Up to date') {
+          return now;
+        }
+        await new Promise((done) => setTimeout(done, 50));
+      }
+      return read();
+    }""")
+    assert seen["detail"].startswith("Database: "), (
+        f"the banner lost the Database line in the restart: {seen}")
+    assert seen["verdict"] == "Up to date", (
+        f"the release row still judges the engine that left: {seen}")
+    assert not page.js_errors, page.js_errors
+
+
+@pytest.mark.parametrize("predecessor_build, successor_build", [
+    (False, None),
+    (ENGINE_BEFORE_RESTART, None),
+], ids=["neither-reports-it", "only-the-one-that-leaves-reports-it"])
+def test_an_engine_that_cannot_say_which_it_is_is_taken_only_after_the_dark(
+        open_panel, predecessor_build, successor_build):
+    """`build.sealed_at` tells one engine from the next, and an engine too old to
+    report it cannot be told apart that way. So with either side silent the panel
+    takes an answer only after a probe has been REFUSED: the port closed, and the
+    engine asked to leave has left. Without that, the first answer -- the leaving
+    engine's own, inside its 1.5 s -- is taken for the successor's again.
+
+    `only-the-one-that-leaves-reports-it` is a restart onto an older engine, or one
+    whose provenance check failed: its answers carry no `sealed_at`, and the wait
+    must still end when it answers rather than run two minutes.
+    """
+    page = open_panel(engine_build=predecessor_build)
+    page.click("#tab-engines")
+    open_engine(page)
+
+    restart_the_way_the_engine_does(page, successor_build=successor_build)
+    press_restart_and_wait_for_the_panel(page)
+
+    said_while = page.evaluate("window.__backSaidWhile")
+    assert said_while == "successor", (
+        f"the panel said 'The engine is back.' while the {said_while} was "
+        f"answering; /api/health was answered by "
+        f"{page.evaluate('window.__healthAnsweredBy')}")
+    assert text_of(page, "#engine-state-text") == "Running"
+    assert page.locator("#setup").is_hidden()
+    assert not page.js_errors, page.js_errors
+
+
+def test_a_successor_that_answers_with_no_dark_between_is_still_found(open_panel):
+    """The reason the engine's own identity is asked, and not only whether it went
+    dark. Here the port is never seen closed: the successor answers the first probe
+    after its predecessor's last. A poll that waited for a refused probe would wait
+    out the whole two minutes and report a restart that had happened as one that had
+    not; `build.sealed_at` finds the successor the moment it answers."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART)
+    page.click("#tab-engines")
+    open_engine(page)
+
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART,
+                                    dark_ms=0)
+    press_restart_and_wait_for_the_panel(page)
+
+    assert "nobody" not in page.evaluate("window.__healthAnsweredBy")
+    assert page.evaluate("window.__backSaidWhile") == "successor"
+    assert "bbbbbbb" in text_of(page, "#engine-build-value")
+    assert not page.js_errors, page.js_errors
+
+
+#: Until the database check before the restart is sent, the engine answering
+#: `/api/health` is one engine; from then on, another -- the engine was replaced
+#: while the check ran, which can take minutes on his warehouse. Installed OVER the
+#: restarting stub, and only the predecessor's answers are rewritten.
+REPLACED_DURING_THE_CHECK = """() => {
+  const inner = window.fetch;
+  const send = window.chrome.runtime.sendNativeMessage;
+  let checked = false;
+  window.chrome.runtime.sendNativeMessage = (host, message, callback) => {
+    if (message && message.command === 'CHECK_STARTUP') checked = true;
+    return send(host, message, callback);
+  };
+  window.fetch = async (url, options = {}) => {
+    const response = await inner(url, options);
+    if (!String(url).includes('/api/health')
+        || window.__engineAnswering() !== 'predecessor') return response;
+    const body = {...(await response.json())};
+    body.build = {...body.build, sealed_at: checked
+      ? '2026-10-07T05:00:05.000003+00:00' : '2026-10-07T04:00:00.000004+00:00'};
+    return {ok: true, status: 200, statusText: 'OK', headers: {get: () => null},
+            json: async () => body};
+  };
+}"""
+
+
+def test_the_engine_is_named_just_before_it_is_asked_to_leave(open_panel):
+    """The panel already asks `/api/health` before the database check, to know there
+    is an engine to restart at all. That answer is the wrong one to compare against:
+    the check scans the whole warehouse, 66.8 s cold on his, and the engine asked to
+    leave is the one running when the request goes, not when the check began. Named
+    from the earlier answer, the engine that took over during the check differed from
+    it at once -- and "The engine is back." was said about it while it was leaving."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART)
+    page.click("#tab-engines")
+    open_engine(page)
+
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART)
+    page.evaluate(REPLACED_DURING_THE_CHECK)
+    press_restart_and_wait_for_the_panel(page)
+
+    said_while = page.evaluate("window.__backSaidWhile")
+    assert said_while == "successor", (
+        f"the panel said 'The engine is back.' while the {said_while} was answering")
+    assert "bbbbbbb" in text_of(page, "#engine-build-value")
+    assert not page.js_errors, page.js_errors
+
+
+#: The first `/api/health` after the restart request runs out of time, as a probe
+#: does on an engine too busy to answer within its deadline (`fetchWithDeadline`,
+#: extension/startup.js, aborts with this name). Installed OVER the restarting stub.
+ONE_PROBE_TIMES_OUT = """() => {
+  const inner = window.fetch;
+  let asked = false;
+  let spent = false;
+  window.fetch = async (url, options = {}) => {
+    const path = String(url);
+    if (path.endsWith('/api/engine/restart')) asked = true;
+    else if (asked && !spent && path.includes('/api/health')) {
+      spent = true;
+      throw new DOMException('The request exceeded its deadline.', 'TimeoutError');
+    }
+    return inner(url, options);
+  };
+}"""
+
+RESTART_DID_NOT_HAPPEN_HERE = (
+    "Unable to restart the engine: the same engine is still answering after two "
+    "minutes. Press Restart engine to try again.")
+RESTART_DID_NOT_HAPPEN_THERE = (
+    "Unable to restart the engine: the same engine is still answering after two "
+    "minutes. Press Restart engine on the Engine page to try again.")
+
+
+@pytest.mark.parametrize("engine_build, a_probe_times_out", [
+    (ENGINE_BEFORE_RESTART, False),
+    (False, False),
+    (False, True),
+], ids=["it-says-which-it-is", "it-cannot-say", "it-cannot-say-and-one-probe-times-out"])
+def test_a_restart_the_engine_never_carries_out_is_reported_as_not_done(
+        open_panel, engine_build, a_probe_times_out):
+    """The engine answers the restart request and never leaves, so for the whole
+    two-minute wait the engine answering is the one asked to leave. The panel must
+    not say "The engine is back." about it, and when the wait ends it says the
+    restart did not happen -- not "has not answered", which is false about an engine
+    that answered every probe, and without the database scan that ending runs to
+    explain a successor that stopped during startup, since none was started.
+
+    `it-cannot-say-and-one-probe-times-out`: a probe that runs out of time is a slow
+    engine, not a gone one. Read as the dark, it let the very next answer -- the same
+    engine's -- through as the successor's.
+
+    The sentence names Restart where it is read: beside the button on the Engine
+    screen, and with the page it is on from the Database page's note.
+    """
+    page = open_panel(engine_build=engine_build)
+    page.click("#tab-engines")
+    open_engine(page)
+    restart_the_way_the_engine_does(page, successor_build=None, bow_out_ms=10**9)
+    if a_probe_times_out:
+        page.evaluate(ONE_PROBE_TIMES_OUT)
+    # The harness's host keeps every command it is sent here; from now on only.
+    page.evaluate("() => { window.__nativeCalls.length = 0; }")
+    page.clock.install()
+
+    page.click("#runtime-restart")
+    page.clock.run_for(130_000)
+    page.wait_for_function(
+        "(said) => document.getElementById('engine-restart-note').textContent === said",
+        arg=RESTART_DID_NOT_HAPPEN_HERE, timeout=10_000)
+
+    assert page.evaluate("window.__backSaidWhile") is None, (
+        "the panel said 'The engine is back.' about the engine that never left")
+    assert text_of(page, "#runtime-note") == RESTART_DID_NOT_HAPPEN_THERE
+    assert set(page.evaluate("window.__healthAnsweredBy")) == {"predecessor"}
+    checks = [c for c in page.evaluate("window.__nativeCalls") if c == "CHECK_STARTUP"]
+    assert checks == ["CHECK_STARTUP"], (
+        f"the check before the restart is the only one; the ending ran {checks}")
+    for control in ("#runtime-restart", "#runtime-upgrade"):
+        assert not page.locator(control).is_disabled(), f"{control} stayed down"
+    assert not page.js_errors, page.js_errors
+
+
 def test_the_route_into_one_engine_and_back_lands_focus_where_it_should(open_panel):
     """A screen reached from a row and left by a back button, like
     #view-manage-account and #view-source-edit before it.

@@ -10398,6 +10398,15 @@ async function render() {
 // is always the one that gives up first and can say why.
 const RESTART_CONFIRM_ATTEMPTS = 125;
 
+// WHEN THE PROCESS ANSWERING `/api/health` STARTED SERVING, which is what tells
+// one engine from the next across a restart (#1517): a successor seals later.
+// `null` for an engine too old to report it, and for the one whose provenance
+// check failed (scrapex/provenance.py `report`).
+function sealedAtOf(health) {
+  const stamp = health && health.build && health.build.sealed_at;
+  return typeof stamp === "string" && stamp ? stamp : null;
+}
+
 // THE UPDATE POLL, BOUNDED BY THE ENGINE'S OWN NUMBER AND NOT BY A GUESS.
 // `scrapex/release.py` sets `DOWNLOAD_TIMEOUT_S = 900.0` and says why in its own
 // words -- "~70 MB over somebody's home connection, and failing a real download
@@ -10694,6 +10703,21 @@ function wireRuntimeRepair() {
         : "Native helper unavailable — restarting through the engine.";
     }
     say(before);
+    // WHICH ENGINE IS ASKED TO LEAVE, read just before it is asked (#1517). It
+    // answers the POST below and goes on answering for 1.5 s after it (`bow_out`,
+    // scrapex/webui/app.py), and the poll asks after one -- so the first answer
+    // the poll gets is the leaving engine's. Taking it for its successor's said
+    // "The engine is back." about the engine that was leaving, and painted what
+    // that engine said. `build.sealed_at` is the moment a process started serving
+    // (scrapex/provenance.py), so the successor is the answer whose value differs.
+    // Read HERE and not from the probe above, because the database check between
+    // them can take minutes. `null` -- an engine too old to report it, or no
+    // answer -- leaves the poll to wait until it has seen the engine go dark.
+    let leaving = null;
+    try {
+      const asked = await raw("/api/health", {cache: "no-store"});
+      if (asked.ok) leaving = sealedAtOf(await asked.json());
+    } catch (_) { /* unknown, so the poll waits for the dark instead */ }
     // A thrown fetch is the SUCCESS path — the engine exits mid-answer and the
     // socket dies. An answered fetch that is not ok is the opposite, and the
     // first version of this treated both the same: it looked only for 404 and
@@ -10730,8 +10754,17 @@ function wireRuntimeRepair() {
     // 2 s here), so ticks overlap, and each one that finished after the last
     // ran the whole ending: up to three two-minute scans at once. One ends it.
     let settled = false;
+    // WHAT THE POLL HAS SEEN, for the two questions `leaving` cannot answer alone.
+    // `wentDark`: a probe was refused, so the port closed and the engine asked to
+    // leave has left -- the only proof there is when either side reports no
+    // `sealed_at`. A probe that ran out of time is NOT that: a busy engine is
+    // slow, not gone. `stillLeaving`: the last answer read came from the engine
+    // asked to leave, which is what the two-minute ending has to know.
+    let wentDark = false;
+    let stillLeaving = false;
     const timer = setInterval(async () => {
       attempts += 1;
+      let successor = false;
       try {
         // `/api/health`, NOT the engine-scoped one. That route is mounted only
         // when the engine was started with a registry; started against an
@@ -10742,27 +10775,56 @@ function wireRuntimeRepair() {
         // asks until it answers -- so the status must not throw. What it gains is
         // a deadline it never had, on the one screen where a person is waiting.
         const probe = await raw("/api/health", {cache: "no-store"});
-        if (settled) return;
         if (probe.ok) {
-          settled = true;
-          clearInterval(timer);
-          [restart, upgrade, $("runtime-check-action")].filter(Boolean)
-            .forEach((button) => { button.disabled = false; });
-          say("The engine is back.");
-          // A RESTART IS THE ONE THING THAT CAN CHANGE WHICH WAREHOUSE IS OPEN
-          // while this panel stays up, and `setStatus` never sees the engine go
-          // down here — the wait above polls `/api/health` directly. So the held
-          // path is dropped by hand, and the `render()` below asks the successor
-          // rather than repeating what its predecessor said.
-          forgetWarehouse();
-          await render();
-          return;
+          const answered = sealedAtOf(await probe.json());
+          successor = leaving && answered ? answered !== leaving : wentDark;
+          stillLeaving = !successor;
         }
-      } catch (_) { /* still down, which is expected */ }
+      } catch (error) {
+        // A refused connection is the one failure fetch reports as a TypeError
+        // (the Fetch standard's "network error"); a deadline is a TimeoutError
+        // and a body that is not JSON is a SyntaxError, and neither is the dark.
+        if (error instanceof TypeError) {
+          wentDark = true;
+          stillLeaving = false;
+        }
+      }
       if (settled) return;
+      if (successor) {
+        settled = true;
+        clearInterval(timer);
+        [restart, upgrade, $("runtime-check-action")].filter(Boolean)
+          .forEach((button) => { button.disabled = false; });
+        say("The engine is back.");
+        // A RESTART IS THE ONE THING THAT CAN CHANGE WHICH WAREHOUSE IS OPEN
+        // while this panel stays up, and `setStatus` never sees the engine go
+        // down here — the wait above polls `/api/health` directly. So the held
+        // path is dropped by hand, and the `render()` below asks the successor
+        // rather than repeating what its predecessor said.
+        forgetWarehouse();
+        await render();
+        // AND THE ENGINE SCREEN IS DRAWN THE WAY ENTERING IT DRAWS IT. `render()`
+        // repaints the status and the versions and nothing else, so the Database
+        // line dropped just above stayed blank -- only `renderEngines` asks for
+        // it again -- and the release row went on judging the engine that left.
+        await renderEngines();
+        return;
+      }
       if (attempts >= RESTART_CONFIRM_ATTEMPTS) {
         settled = true;
         clearInterval(timer);
+        // THE ENGINE ASKED TO LEAVE IS STILL THE ONE ANSWERING, so no successor
+        // failed to start: none took its place. The database check below
+        // explains a successor that stopped during startup, and here it would
+        // scan the whole file to explain nothing.
+        if (stillLeaving) {
+          say("Unable to restart the engine: the same engine is still answering after "
+              + "two minutes. Press Restart engine on the Engine page to try again.",
+              "Unable to restart the engine: the same engine is still answering after "
+              + "two minutes. Press Restart engine to try again.");
+          release();
+          return;
+        }
         // The process may have failed before it could expose /api/health. Ask
         // the native host for the same current-build preflight so a schema
         // error, missing registry, or other startup blocker is not lost. It
