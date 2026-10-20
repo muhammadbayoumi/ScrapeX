@@ -273,7 +273,8 @@ def _approve_saying(monkeypatch, tmp_path, kept: int) -> str:
     directory = SimpleNamespace(
         key="muqawil_org", display_name="Saudi Contractors Authority",
         base_url="https://muqawil.org/", dataset_key="contractors",
-        identity_field="contractor_id", candidate=lambda *a, **k: _Card(), profiles=None)
+        identity_field="contractor_id", candidate=lambda *a, **k: _Card(), profiles=None,
+        derived=())
     monkeypatch.setattr(
         contractors, "_pairs",
         lambda conn, directory, run_ref, *, ids=(): {
@@ -341,7 +342,7 @@ def test_a_re_read_whose_every_row_was_refused_is_not_called_a_re_parse(
         key="muqawil_org", display_name="Saudi Contractors Authority",
         base_url="https://muqawil.org/", dataset_key="contractors",
         identity_field="contractor_id", candidate=lambda en, ar: variants[en],
-        profiles=None)
+        profiles=None, derived=())
     monkeypatch.setattr(contractors, "_pairs", lambda c, d, run_ref, *, ids=(): {
         URL: {"en": plan[run_ref], "ar": plan[run_ref]}})
 

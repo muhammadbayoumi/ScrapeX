@@ -92,9 +92,38 @@ class Directory:
     #: clearing that choice returns here (his ruling, 2026-10-08). It ships no robots,
     #: agent or pace of its own: those fall to his general settings.
     active: bool = True
+    #: DATASETS READ FROM THE SAME PAGES INTO TABLES OF THEIR OWN -- ES-5. A listing whose
+    #: rows repeat a fact about something coarser than the row (TVTC's plans carry their
+    #: establishment's licence on every plan) keeps that fact once, keyed by what it
+    #: depends on, rather than once per row. Empty for every directory but that one.
+    derived: tuple[DerivedReader, ...] = ()
 
     def partition(self) -> Any:
         return self.partition_factory()
+
+
+@dataclass(frozen=True)
+class DerivedReader:
+    """A second dataset built from a directory's own listing pages -- ES-5.
+
+    NOT A `ProfileReader`, which reads a different document (a detail page) into a
+    different row. This reads THE SAME page pair as the listing candidate, so it needs no
+    fetch, no frontier and no URL dispatch: `contractors.approve` hands it the pair the
+    listing just approved, and it approves its own rows into its own dataset.
+    """
+
+    #: `(english_body, arabic_body) -> TableCandidate`.
+    candidate: Callable[..., Any]
+    dataset_key: str
+    dataset_name: str
+    #: The field its rows are keyed by -- what the derived fact depends on.
+    identity_field: str
+
+    # A DERIVED ROW NEVER DEPARTS (his ruling on #1758, 2026-10-20). `mark_departures`
+    # reads only the directory's own `dataset_key`, and that is right here: a licence the
+    # plans listing stopped carrying has not ended, the site has only stopped publishing
+    # it. The row stays, and its `last_seen_at` -- moved by every page that still carries
+    # it -- says when the site last showed it.
 
 
 @dataclass(frozen=True)
@@ -254,7 +283,15 @@ def _tvtc() -> Directory:
 
 def _tvtc_plans() -> Directory:
     # Imported inside the function for `_muqawil`'s reason.
-    from .extract.tvtc_plans import DATASET_KEY, IDENTITY_FIELD, bilingual_listing_candidate
+    from .extract.tvtc_plans import (
+        DATASET_KEY,
+        IDENTITY_FIELD,
+        LICENCE_DATASET_KEY,
+        LICENCE_DATASET_NAME,
+        LICENCE_IDENTITY_FIELD,
+        bilingual_listing_candidate,
+        licence_candidate,
+    )
     from .sites.tvtc import BASE_URL, PLANS_SITE_KEY, TvtcPlansPartition, locale_in_query
 
     # THE SAME REGISTER'S SECOND LISTING, and so its own directory: a `Directory` reads one
@@ -271,6 +308,12 @@ def _tvtc_plans() -> Directory:
         locale_pairing=locale_in_query,
         partition_factory=TvtcPlansPartition,
         active=False,
+        # ES-5: each establishment's licence, which every one of its plans repeats, kept
+        # once and keyed by the establishment -- his ruling on #1716, 2026-10-19.
+        derived=(DerivedReader(candidate=licence_candidate,
+                               dataset_key=LICENCE_DATASET_KEY,
+                               dataset_name=LICENCE_DATASET_NAME,
+                               identity_field=LICENCE_IDENTITY_FIELD),),
     )
 
 
