@@ -1,0 +1,999 @@
+{
+ "source": "#1647 request 12, GET https://search.worldbank.org/api/v2/procnotices?format=json&rows=0&fct=..., 2026-10-10 06:10:54 UTC; kept on #1701's draft branch as tools/mock_tender_control/world_facets.json, described there as saved as the Bank answered it.",
+ "changed": "nothing; the response holds the area facet the collector reads (project_ctry_name_exact, 184 values summing to the total) and two others.",
+ "response": {
+  "rows": 0,
+  "os": "0",
+  "page": "0",
+  "total": "422285",
+  "procnotices": [],
+  "facets": {
+   "project_ctry_name_exact": {
+    "0": {
+     "count": 47395,
+     "name": "India",
+     "label": "India"
+    },
+    "1": {
+     "count": 18708,
+     "name": "Western and Central Africa",
+     "label": "Western and Central Africa"
+    },
+    "2": {
+     "count": 15412,
+     "name": "Ethiopia",
+     "label": "Ethiopia"
+    },
+    "3": {
+     "count": 12943,
+     "name": "Eastern and Southern Africa",
+     "label": "Eastern and Southern Africa"
+    },
+    "4": {
+     "count": 11485,
+     "name": "Madagascar",
+     "label": "Madagascar"
+    },
+    "5": {
+     "count": 11213,
+     "name": "Nigeria",
+     "label": "Nigeria"
+    },
+    "6": {
+     "count": 10218,
+     "name": "Pakistan",
+     "label": "Pakistan"
+    },
+    "7": {
+     "count": 8998,
+     "name": "Bangladesh",
+     "label": "Bangladesh"
+    },
+    "8": {
+     "count": 7768,
+     "name": "Sri Lanka",
+     "label": "Sri Lanka"
+    },
+    "9": {
+     "count": 7609,
+     "name": "Mozambique",
+     "label": "Mozambique"
+    },
+    "10": {
+     "count": 7486,
+     "name": "Congo, Democratic Republic of",
+     "label": "Congo, Democratic Republic of"
+    },
+    "11": {
+     "count": 7205,
+     "name": "Kenya",
+     "label": "Kenya"
+    },
+    "12": {
+     "count": 7073,
+     "name": "Bolivia",
+     "label": "Bolivia"
+    },
+    "13": {
+     "count": 6522,
+     "name": "Indonesia",
+     "label": "Indonesia"
+    },
+    "14": {
+     "count": 6061,
+     "name": "Cote d'Ivoire",
+     "label": "Cote d'Ivoire"
+    },
+    "15": {
+     "count": 5993,
+     "name": "Kyrgyz Republic",
+     "label": "Kyrgyz Republic"
+    },
+    "16": {
+     "count": 5984,
+     "name": "Brazil",
+     "label": "Brazil"
+    },
+    "17": {
+     "count": 5397,
+     "name": "Malawi",
+     "label": "Malawi"
+    },
+    "18": {
+     "count": 5271,
+     "name": "China",
+     "label": "China"
+    },
+    "19": {
+     "count": 5234,
+     "name": "Cameroon",
+     "label": "Cameroon"
+    },
+    "20": {
+     "count": 4967,
+     "name": "Philippines",
+     "label": "Philippines"
+    },
+    "21": {
+     "count": 4671,
+     "name": "Burkina Faso",
+     "label": "Burkina Faso"
+    },
+    "22": {
+     "count": 4666,
+     "name": "Uzbekistan",
+     "label": "Uzbekistan"
+    },
+    "23": {
+     "count": 4656,
+     "name": "Niger",
+     "label": "Niger"
+    },
+    "24": {
+     "count": 4518,
+     "name": "Viet Nam",
+     "label": "Viet Nam"
+    },
+    "25": {
+     "count": 4501,
+     "name": "Turkiye",
+     "label": "Turkiye"
+    },
+    "26": {
+     "count": 4473,
+     "name": "Ghana",
+     "label": "Ghana"
+    },
+    "27": {
+     "count": 4411,
+     "name": "Argentina",
+     "label": "Argentina"
+    },
+    "28": {
+     "count": 4364,
+     "name": "Tanzania",
+     "label": "Tanzania"
+    },
+    "29": {
+     "count": 4207,
+     "name": "Burundi",
+     "label": "Burundi"
+    },
+    "30": {
+     "count": 3714,
+     "name": "Colombia",
+     "label": "Colombia"
+    },
+    "31": {
+     "count": 3706,
+     "name": "Cambodia",
+     "label": "Cambodia"
+    },
+    "32": {
+     "count": 3630,
+     "name": "Honduras",
+     "label": "Honduras"
+    },
+    "33": {
+     "count": 3566,
+     "name": "Senegal",
+     "label": "Senegal"
+    },
+    "34": {
+     "count": 3421,
+     "name": "Congo, Republic of",
+     "label": "Congo, Republic of"
+    },
+    "35": {
+     "count": 3310,
+     "name": "Angola",
+     "label": "Angola"
+    },
+    "36": {
+     "count": 3223,
+     "name": "Nepal",
+     "label": "Nepal"
+    },
+    "37": {
+     "count": 3196,
+     "name": "Uganda",
+     "label": "Uganda"
+    },
+    "38": {
+     "count": 3170,
+     "name": "Peru",
+     "label": "Peru"
+    },
+    "39": {
+     "count": 3026,
+     "name": "Lao People's Democratic Republic",
+     "label": "Lao People's Democratic Republic"
+    },
+    "40": {
+     "count": 2995,
+     "name": "Moldova",
+     "label": "Moldova"
+    },
+    "41": {
+     "count": 2992,
+     "name": "Tajikistan",
+     "label": "Tajikistan"
+    },
+    "42": {
+     "count": 2873,
+     "name": "Mali",
+     "label": "Mali"
+    },
+    "43": {
+     "count": 2871,
+     "name": "Nicaragua",
+     "label": "Nicaragua"
+    },
+    "44": {
+     "count": 2857,
+     "name": "Afghanistan",
+     "label": "Afghanistan"
+    },
+    "45": {
+     "count": 2745,
+     "name": "Ukraine",
+     "label": "Ukraine"
+    },
+    "46": {
+     "count": 2715,
+     "name": "Rwanda",
+     "label": "Rwanda"
+    },
+    "47": {
+     "count": 2667,
+     "name": "Liberia",
+     "label": "Liberia"
+    },
+    "48": {
+     "count": 2586,
+     "name": "Benin",
+     "label": "Benin"
+    },
+    "49": {
+     "count": 2560,
+     "name": "Armenia",
+     "label": "Armenia"
+    },
+    "50": {
+     "count": 2545,
+     "name": "Central African Republic",
+     "label": "Central African Republic"
+    },
+    "51": {
+     "count": 2340,
+     "name": "Somalia, Federal Republic of",
+     "label": "Somalia, Federal Republic of"
+    },
+    "52": {
+     "count": 2321,
+     "name": "West Bank and Gaza",
+     "label": "West Bank and Gaza"
+    },
+    "53": {
+     "count": 2308,
+     "name": "Chad",
+     "label": "Chad"
+    },
+    "54": {
+     "count": 2190,
+     "name": "Comoros",
+     "label": "Comoros"
+    },
+    "55": {
+     "count": 2132,
+     "name": "Lesotho",
+     "label": "Lesotho"
+    },
+    "56": {
+     "count": 2096,
+     "name": "Mongolia",
+     "label": "Mongolia"
+    },
+    "57": {
+     "count": 2086,
+     "name": "Somalia",
+     "label": "Somalia"
+    },
+    "58": {
+     "count": 2078,
+     "name": "Ecuador",
+     "label": "Ecuador"
+    },
+    "59": {
+     "count": 2007,
+     "name": "El Salvador",
+     "label": "El Salvador"
+    },
+    "60": {
+     "count": 1903,
+     "name": "Mauritania",
+     "label": "Mauritania"
+    },
+    "61": {
+     "count": 1898,
+     "name": "Serbia",
+     "label": "Serbia"
+    },
+    "62": {
+     "count": 1879,
+     "name": "Solomon Islands",
+     "label": "Solomon Islands"
+    },
+    "63": {
+     "count": 1848,
+     "name": "Zambia",
+     "label": "Zambia"
+    },
+    "64": {
+     "count": 1740,
+     "name": "Dominican Republic",
+     "label": "Dominican Republic"
+    },
+    "65": {
+     "count": 1730,
+     "name": "Sierra Leone",
+     "label": "Sierra Leone"
+    },
+    "66": {
+     "count": 1713,
+     "name": "Central Asia",
+     "label": "Central Asia"
+    },
+    "67": {
+     "count": 1711,
+     "name": "Georgia",
+     "label": "Georgia"
+    },
+    "68": {
+     "count": 1685,
+     "name": "Haiti",
+     "label": "Haiti"
+    },
+    "69": {
+     "count": 1665,
+     "name": "Guinea",
+     "label": "Guinea"
+    },
+    "70": {
+     "count": 1629,
+     "name": "Djibouti",
+     "label": "Djibouti"
+    },
+    "71": {
+     "count": 1600,
+     "name": "Romania",
+     "label": "Romania"
+    },
+    "72": {
+     "count": 1580,
+     "name": "OECS Countries",
+     "label": "OECS Countries"
+    },
+    "73": {
+     "count": 1529,
+     "name": "Bosnia and Herzegovina",
+     "label": "Bosnia and Herzegovina"
+    },
+    "74": {
+     "count": 1448,
+     "name": "Egypt, Arab Republic of",
+     "label": "Egypt, Arab Republic of"
+    },
+    "75": {
+     "count": 1388,
+     "name": "Jordan",
+     "label": "Jordan"
+    },
+    "76": {
+     "count": 1321,
+     "name": "Lebanon",
+     "label": "Lebanon"
+    },
+    "77": {
+     "count": 1297,
+     "name": "Tunisia",
+     "label": "Tunisia"
+    },
+    "78": {
+     "count": 1293,
+     "name": "Bhutan",
+     "label": "Bhutan"
+    },
+    "79": {
+     "count": 1280,
+     "name": "Gambia, The",
+     "label": "Gambia, The"
+    },
+    "80": {
+     "count": 1260,
+     "name": "Guyana",
+     "label": "Guyana"
+    },
+    "81": {
+     "count": 1251,
+     "name": "Myanmar",
+     "label": "Myanmar"
+    },
+    "82": {
+     "count": 1242,
+     "name": "Maldives",
+     "label": "Maldives"
+    },
+    "83": {
+     "count": 1218,
+     "name": "Uruguay",
+     "label": "Uruguay"
+    },
+    "84": {
+     "count": 1197,
+     "name": "Mexico",
+     "label": "Mexico"
+    },
+    "85": {
+     "count": 1184,
+     "name": "North Macedonia",
+     "label": "North Macedonia"
+    },
+    "86": {
+     "count": 1179,
+     "name": "Southern Africa",
+     "label": "Southern Africa"
+    },
+    "87": {
+     "count": 1146,
+     "name": "Iraq",
+     "label": "Iraq"
+    },
+    "88": {
+     "count": 1133,
+     "name": "Tonga",
+     "label": "Tonga"
+    },
+    "89": {
+     "count": 1103,
+     "name": "Paraguay",
+     "label": "Paraguay"
+    },
+    "90": {
+     "count": 1094,
+     "name": "Gabon",
+     "label": "Gabon"
+    },
+    "91": {
+     "count": 1081,
+     "name": "Belarus",
+     "label": "Belarus"
+    },
+    "92": {
+     "count": 1058,
+     "name": "Kosovo",
+     "label": "Kosovo"
+    },
+    "93": {
+     "count": 1056,
+     "name": "Albania",
+     "label": "Albania"
+    },
+    "94": {
+     "count": 1052,
+     "name": "Togo",
+     "label": "Togo"
+    },
+    "95": {
+     "count": 1033,
+     "name": "Croatia",
+     "label": "Croatia"
+    },
+    "96": {
+     "count": 1013,
+     "name": "Azerbaijan",
+     "label": "Azerbaijan"
+    },
+    "97": {
+     "count": 1005,
+     "name": "Vietnam",
+     "label": "Vietnam"
+    },
+    "98": {
+     "count": 998,
+     "name": "St. Vincent and the Grenadines",
+     "label": "St. Vincent and the Grenadines"
+    },
+    "99": {
+     "count": 971,
+     "name": "Jamaica",
+     "label": "Jamaica"
+    },
+    "100": {
+     "count": 931,
+     "name": "Papua New Guinea",
+     "label": "Papua New Guinea"
+    },
+    "101": {
+     "count": 883,
+     "name": "Morocco",
+     "label": "Morocco"
+    },
+    "102": {
+     "count": 854,
+     "name": "Kazakhstan",
+     "label": "Kazakhstan"
+    },
+    "103": {
+     "count": 853,
+     "name": "Sao Tome and Principe",
+     "label": "Sao Tome and Principe"
+    },
+    "104": {
+     "count": 825,
+     "name": "South Sudan",
+     "label": "South Sudan"
+    },
+    "105": {
+     "count": 815,
+     "name": "St Maarten",
+     "label": "St Maarten"
+    },
+    "106": {
+     "count": 806,
+     "name": "Cabo Verde",
+     "label": "Cabo Verde"
+    },
+    "107": {
+     "count": 787,
+     "name": "Marshall Islands",
+     "label": "Marshall Islands"
+    },
+    "108": {
+     "count": 747,
+     "name": "Micronesia, Federated States of",
+     "label": "Micronesia, Federated States of"
+    },
+    "109": {
+     "count": 744,
+     "name": "Eswatini",
+     "label": "Eswatini"
+    },
+    "110": {
+     "count": 711,
+     "name": "Kiribati",
+     "label": "Kiribati"
+    },
+    "111": {
+     "count": 710,
+     "name": "South Asia",
+     "label": "South Asia"
+    },
+    "112": {
+     "count": 702,
+     "name": "Russian Federation",
+     "label": "Russian Federation"
+    },
+    "113": {
+     "count": 686,
+     "name": "Central Africa",
+     "label": "Central Africa"
+    },
+    "114": {
+     "count": 678,
+     "name": "Caribbean",
+     "label": "Caribbean"
+    },
+    "115": {
+     "count": 636,
+     "name": "Samoa",
+     "label": "Samoa"
+    },
+    "116": {
+     "count": 600,
+     "name": "Guatemala",
+     "label": "Guatemala"
+    },
+    "117": {
+     "count": 564,
+     "name": "Dominica",
+     "label": "Dominica"
+    },
+    "118": {
+     "count": 561,
+     "name": "Timor-Leste",
+     "label": "Timor-Leste"
+    },
+    "119": {
+     "count": 559,
+     "name": "Africa",
+     "label": "Africa"
+    },
+    "120": {
+     "count": 549,
+     "name": "Tuvalu",
+     "label": "Tuvalu"
+    },
+    "121": {
+     "count": 542,
+     "name": "Guinea-Bissau",
+     "label": "Guinea-Bissau"
+    },
+    "122": {
+     "count": 537,
+     "name": "Sudan",
+     "label": "Sudan"
+    },
+    "123": {
+     "count": 535,
+     "name": "Belize",
+     "label": "Belize"
+    },
+    "124": {
+     "count": 530,
+     "name": "Panama",
+     "label": "Panama"
+    },
+    "125": {
+     "count": 419,
+     "name": "Zimbabwe",
+     "label": "Zimbabwe"
+    },
+    "126": {
+     "count": 409,
+     "name": "South Africa",
+     "label": "South Africa"
+    },
+    "127": {
+     "count": 406,
+     "name": "St. Lucia",
+     "label": "St. Lucia"
+    },
+    "128": {
+     "count": 402,
+     "name": "Yemen, Republic of",
+     "label": "Yemen, Republic of"
+    },
+    "129": {
+     "count": 389,
+     "name": "Pacific Islands",
+     "label": "Pacific Islands"
+    },
+    "130": {
+     "count": 382,
+     "name": "Costa Rica",
+     "label": "Costa Rica"
+    },
+    "131": {
+     "count": 372,
+     "name": "Montenegro",
+     "label": "Montenegro"
+    },
+    "132": {
+     "count": 368,
+     "name": "Vanuatu",
+     "label": "Vanuatu"
+    },
+    "133": {
+     "count": 366,
+     "name": "Chile",
+     "label": "Chile"
+    },
+    "134": {
+     "count": 328,
+     "name": "Western Balkans",
+     "label": "Western Balkans"
+    },
+    "135": {
+     "count": 324,
+     "name": "World",
+     "label": "World"
+    },
+    "136": {
+     "count": 241,
+     "name": "Poland",
+     "label": "Poland"
+    },
+    "137": {
+     "count": 217,
+     "name": "Southwest Indian Ocean",
+     "label": "Southwest Indian Ocean"
+    },
+    "138": {
+     "count": 215,
+     "name": "Latin America and Caribbean",
+     "label": "Latin America and Caribbean"
+    },
+    "139": {
+     "count": 214,
+     "name": "Fiji",
+     "label": "Fiji"
+    },
+    "140": {
+     "count": 187,
+     "name": "Turkey",
+     "label": "Turkey"
+    },
+    "141": {
+     "count": 177,
+     "name": "Suriname",
+     "label": "Suriname"
+    },
+    "142": {
+     "count": 168,
+     "name": "Botswana",
+     "label": "Botswana"
+    },
+    "143": {
+     "count": 147,
+     "name": "East Asia and Pacific",
+     "label": "East Asia and Pacific"
+    },
+    "144": {
+     "count": 124,
+     "name": "Thailand",
+     "label": "Thailand"
+    },
+    "145": {
+     "count": 118,
+     "name": "Grenada",
+     "label": "Grenada"
+    },
+    "146": {
+     "count": 114,
+     "name": "Western Africa",
+     "label": "Western Africa"
+    },
+    "147": {
+     "count": 108,
+     "name": "Bulgaria",
+     "label": "Bulgaria"
+    },
+    "148": {
+     "count": 100,
+     "name": "DRC - Angola",
+     "label": "DRC - Angola"
+    },
+    "149": {
+     "count": 77,
+     "name": "Latin America",
+     "label": "Latin America"
+    },
+    "150": {
+     "count": 76,
+     "name": "Pacific 1",
+     "label": "Pacific 1"
+    },
+    "151": {
+     "count": 69,
+     "name": "Europe and Central Asia",
+     "label": "Europe and Central Asia"
+    },
+    "152": {
+     "count": 66,
+     "name": "Mid East,NorthAfrica, Afghan, Pakistan",
+     "label": "Mid East,NorthAfrica, Afghan, Pakistan"
+    },
+    "153": {
+     "count": 62,
+     "name": "Multi-Regional",
+     "label": "Multi-Regional"
+    },
+    "154": {
+     "count": 58,
+     "name": "PNG & PI",
+     "label": "PNG & PI"
+    },
+    "155": {
+     "count": 57,
+     "name": "Iran, Islamic Republic of",
+     "label": "Iran, Islamic Republic of"
+    },
+    "156": {
+     "count": 54,
+     "name": "Mauritius",
+     "label": "Mauritius"
+    },
+    "157": {
+     "count": 41,
+     "name": "Eastern Africa",
+     "label": "Eastern Africa"
+    },
+    "158": {
+     "count": 33,
+     "name": "Barbados",
+     "label": "Barbados"
+    },
+    "159": {
+     "count": 31,
+     "name": "Horn of Africa",
+     "label": "Horn of Africa"
+    },
+    "160": {
+     "count": 26,
+     "name": "Trinidad and Tobago",
+     "label": "Trinidad and Tobago"
+    },
+    "161": {
+     "count": 24,
+     "name": "Namibia",
+     "label": "Namibia"
+    },
+    "162": {
+     "count": 24,
+     "name": "Pacific 2",
+     "label": "Pacific 2"
+    },
+    "163": {
+     "count": 23,
+     "name": "Middle East and North Africa",
+     "label": "Middle East and North Africa"
+    },
+    "164": {
+     "count": 23,
+     "name": "Seychelles",
+     "label": "Seychelles"
+    },
+    "165": {
+     "count": 21,
+     "name": "West Africa II",
+     "label": "West Africa II"
+    },
+    "166": {
+     "count": 20,
+     "name": "St. Kitts and Nevis",
+     "label": "St. Kitts and Nevis"
+    },
+    "167": {
+     "count": 17,
+     "name": "Federal Republic of Somalia",
+     "label": "Federal Republic of Somalia"
+    },
+    "168": {
+     "count": 17,
+     "name": "South East Asia",
+     "label": "South East Asia"
+    },
+    "169": {
+     "count": 13,
+     "name": "Korea, Republic of",
+     "label": "Korea, Republic of"
+    },
+    "170": {
+     "count": 12,
+     "name": "Eritrea",
+     "label": "Eritrea"
+    },
+    "171": {
+     "count": 9,
+     "name": "Syrian Arab Republic",
+     "label": "Syrian Arab Republic"
+    },
+    "172": {
+     "count": 8,
+     "name": "Algeria",
+     "label": "Algeria"
+    },
+    "173": {
+     "count": 8,
+     "name": "Palau",
+     "label": "Palau"
+    },
+    "174": {
+     "count": 5,
+     "name": "Hungary",
+     "label": "Hungary"
+    },
+    "175": {
+     "count": 5,
+     "name": "Pacific 1 (EPF1)",
+     "label": "Pacific 1 (EPF1)"
+    },
+    "176": {
+     "count": 4,
+     "name": "Andean Countries",
+     "label": "Andean Countries"
+    },
+    "177": {
+     "count": 4,
+     "name": "Pacific 2 (EPF2)",
+     "label": "Pacific 2 (EPF2)"
+    },
+    "178": {
+     "count": 4,
+     "name": "Türkiye",
+     "label": "Türkiye"
+    },
+    "179": {
+     "count": 3,
+     "name": "Antigua and Barbuda",
+     "label": "Antigua and Barbuda"
+    },
+    "180": {
+     "count": 2,
+     "name": "Central America",
+     "label": "Central America"
+    },
+    "181": {
+     "count": 1,
+     "name": "Malaysia",
+     "label": "Malaysia"
+    },
+    "182": {
+     "count": 1,
+     "name": "Thailand & Myanmar CMU",
+     "label": "Thailand & Myanmar CMU"
+    },
+    "183": {
+     "count": 1,
+     "name": "Turkmenistan",
+     "label": "Turkmenistan"
+    }
+   },
+   "notice_type_exact": {
+    "0": {
+     "count": 311425,
+     "name": "Contract Award",
+     "label": "Contract Award"
+    },
+    "1": {
+     "count": 60790,
+     "name": "Request for Expression of Interest",
+     "label": "Request for Expression of Interest"
+    },
+    "2": {
+     "count": 45830,
+     "name": "Invitation for Bids",
+     "label": "Invitation for Bids"
+    },
+    "3": {
+     "count": 3467,
+     "name": "General Procurement Notice",
+     "label": "General Procurement Notice"
+    },
+    "4": {
+     "count": 733,
+     "name": "Invitation for Prequalification",
+     "label": "Invitation for Prequalification"
+    },
+    "5": {
+     "count": 2,
+     "name": "Goods and Works Award",
+     "label": "Goods and Works Award"
+    },
+    "6": {
+     "count": 2,
+     "name": "Small Contracts Award",
+     "label": "Small Contracts Award"
+    }
+   },
+   "procurement_group_exact": {
+    "0": {
+     "count": 156964,
+     "name": "CS",
+     "label": "CS"
+    },
+    "1": {
+     "count": 116171,
+     "name": "GO",
+     "label": "GO"
+    },
+    "2": {
+     "count": 83712,
+     "name": "CW",
+     "label": "CW"
+    },
+    "3": {
+     "count": 27787,
+     "name": "NC",
+     "label": "NC"
+    },
+    "4": {
+     "count": 105,
+     "name": "",
+     "label": ""
+    }
+   }
+  }
+ }
+}

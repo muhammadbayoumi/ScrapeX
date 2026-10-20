@@ -202,7 +202,8 @@ def test_a_changed_notice_is_a_new_release_with_the_same_ref(conn):
 
 def test_persons_live_in_their_own_table_and_can_be_removed(conn):
     stored = _store(conn, OPEN_REOI)
-    payload = conn.execute("SELECT payload FROM tender_releases WHERE id = ?",
+    # The history is JSONB since 0026 (ES-6); `json()` reads it back as its text.
+    payload = conn.execute("SELECT json(payload) FROM tender_releases WHERE id = ?",
                            (stored.tender_release_id,)).fetchone()[0]
     assert NOTICES[OPEN_REOI]["contact_email"] not in payload
     row = conn.execute("SELECT name, email, job_title FROM tender_contact_points").fetchone()
@@ -311,7 +312,7 @@ def test_an_award_notice_leaves_the_award_tables_empty_until_their_writer(conn):
     and still nothing is compiled from them: their writer is part 4's."""
     _store(conn, IFB)
     stored = _store(conn, ITS_AWARD)
-    payload = json.loads(conn.execute("SELECT payload FROM tender_releases WHERE id = ?",
+    payload = json.loads(conn.execute("SELECT json(payload) FROM tender_releases WHERE id = ?",
                                       (stored.tender_release_id,)).fetchone()[0])
     assert payload["awards"][0]["id"] == NOTICES[ITS_AWARD]["contract_id"]
     assert payload["contracts"][0]["awardID"] == NOTICES[ITS_AWARD]["contract_id"]
