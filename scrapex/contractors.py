@@ -1929,9 +1929,10 @@ def approve(conn, directory: Directory, run_ref: str, *,
                 derived_kept_newer[name] = (derived_kept_newer.get(name, 0)
                                             + int(derived_result.get("kept_newer") or 0))
                 # TWO PAGES OF ONE RUN READING ONE KEY DIFFERENTLY is what ES-5 says would
-                # re-open it: the fact was meant to depend on the key alone. The later
-                # page's value is the one stored -- it is the later reading -- and the
-                # difference is said, not overwritten in silence.
+                # re-open it: the fact was meant to depend on the key alone. The value
+                # stored is the NEWEST CAPTURE's, whichever page was read last -- an older
+                # page never overwrites a newer record (`service.approve_candidate`) -- and
+                # the difference is said, not resolved in silence.
                 seen = derived_seen.setdefault(name, {})
                 for row in derived_candidate.rows:
                     identity = str(row.get(reader.identity_field))
@@ -1974,7 +1975,7 @@ def approve(conn, directory: Directory, run_ref: str, *,
         if derived_differed.get(dataset_key):
             differed = sorted(derived_differed[dataset_key])
             say(f"    {len(differed):,} key(s) read with two different values on two pages "
-                f"of this run, the later one stored -- ES-5 holds only while this is zero: "
+                f"of this run, the newest capture stored -- ES-5 holds only while this is zero: "
                 f"{', '.join(differed[:10])}{' …' if len(differed) > 10 else ''}")
     if kept_newer:
         # SAID ONLY WHEN IT HAPPENED, and said in full when it did. A pass that read older

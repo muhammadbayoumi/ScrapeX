@@ -402,6 +402,21 @@ def test_a_first_reading_counts_no_page_as_unchanged(tmp_path, monkeypatch):
     log, _, _ = _approve(tmp_path, monkeypatch, _raw("en"), _raw("ar"))
     assert (f"{LICENCE_DATASET_KEY}: approved 1 page(s) from the same pages (ES-5): "
             "0 unchanged and confirmed") in log
+    # SAID ONLY WHEN IT HAPPENED: neither line appears, not even as a zero (#1758, S-A).
+    assert "kept their newer evidence" not in log
+    assert "two different values" not in log
+
+
+def test_the_differing_licence_stored_is_the_newest_capture_not_the_last_read(
+        tmp_path, monkeypatch):
+    """#1758's adversary (S-B): read newest first, oldest second -- the newer value stays,
+    and the line says so rather than calling the last page read the one stored."""
+    target = next(iter(_establishments(_doc("ar"))))
+    newer, older = _renewed("2031-01-01"), _renewed("2030-01-01")
+    log, _, licences = _approve_pages(tmp_path, monkeypatch, [
+        (*newer, "2026-10-19T11:00:00Z"), (*older, "2026-10-19T10:00:00Z")])
+    assert "two different values on two pages of this run, the newest capture stored" in log
+    assert {r["establishment_id"]: r for r in licences}[target]["end_date"] == "2031-01-01"
 
 
 def test_a_second_reading_of_the_same_pages_counts_them_unchanged(tmp_path, monkeypatch):
