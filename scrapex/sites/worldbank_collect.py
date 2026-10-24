@@ -341,9 +341,11 @@ def read_area(conn: sqlite3.Connection, fetcher, *, source_site_id: int, area: A
 
 
 def read_changes(conn: sqlite3.Connection, fetcher, *, source_site_id: int, since: str,
-                 tally: Tally, log: Log, crawl_job_id: int | None = None) -> ChangesRead:
+                 tally: Tally, log: Log, crawl_job_id: int | None = None,
+                 on_page: Callable[[int, int], None] | None = None) -> ChangesRead:
     """Read what changed since `since`, newest change first, keeping each page as it
-    arrives.
+    arrives. `on_page(page, notices)` is called once a page is committed, with the notices
+    it kept: part 3b-2a's progress in pages.
 
     The Bank has no date filter; `srt=api_modified_date&order=desc` sorts (#1647 B6,
     request 20), so a pass reads until a notice older than `since`, or the end of what the
@@ -423,6 +425,8 @@ def read_changes(conn: sqlite3.Connection, fetcher, *, source_site_id: int, sinc
                   crawl_job_id=crawl_job_id, tally=tally, log=log, where=where)
         pages += 1
         notices += len(newer)
+        if on_page is not None:
+            on_page(offset // PAGE_ROWS, len(newer))
         if len(newer) < len(rows) or offset + len(rows) >= total:
             break
         offset += PAGE_ROWS

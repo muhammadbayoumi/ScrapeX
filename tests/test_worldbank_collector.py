@@ -570,6 +570,18 @@ def test_changes_are_read_newest_first_until_the_newest_held(conn):
     assert log.says("changes: 3 notices in 1 request")
 
 
+def test_a_changes_page_is_reported_once_it_is_committed(conn):
+    """`on_page(page, notices)` is part 3b-2a's progress in the pass over changes: each
+    page it names is already kept, with the notices it kept, newer than `since` only."""
+    seen = []
+    outcome, _, _ = read_changes(
+        conn, Bank(changed=changes(1_500, older=20)),
+        on_page=lambda page, kept: seen.append(
+            (page, kept, conn.in_transaction, count(conn, "tender_releases"))))
+    assert outcome == wc.ChangesRead(complete=True, pages_read=2)
+    assert seen == [(0, 1_000, False, 1_000), (1, 500, False, 1_500)]
+
+
 def test_a_pass_stops_at_the_first_page_that_reaches_the_newest_held(conn):
     """999 changed since, then 1,501 before: a full page that reaches `since` is the last
     one read, though it holds 1,000 rows and 1,501 more stand behind it."""
