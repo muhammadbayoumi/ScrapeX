@@ -928,7 +928,7 @@ def test_the_control_commands_the_panel_actually_calls_still_answer(tmp_path, co
 def test_startup_check_names_the_database_action(monkeypatch):
     from scrapex import native
 
-    monkeypatch.setattr(native, "_database_report", lambda: ({
+    monkeypatch.setattr(native, "_database_report", lambda **_: ({
         "marketlens": {
             "ok": False,
             "status": "Needs upgrade",
@@ -956,7 +956,7 @@ def test_a_database_below_the_baseline_is_not_offered_a_button_that_cannot_work(
     from scrapex import native
     from scrapex.dbupgrade import TOO_OLD
 
-    monkeypatch.setattr(native, "_database_report", lambda: ({
+    monkeypatch.setattr(native, "_database_report", lambda **_: ({
         "engine": {"ok": False, "status": TOO_OLD,
                    "action": "There is no upgrade path from v10 (R-84)."},
     }, None))
@@ -976,7 +976,7 @@ def test_a_database_that_is_only_behind_still_gets_the_button(monkeypatch):
     from scrapex import native
     from scrapex.dbupgrade import BEHIND, TOO_OLD
 
-    monkeypatch.setattr(native, "_database_report", lambda: ({
+    monkeypatch.setattr(native, "_database_report", lambda **_: ({
         "engine": {"ok": False, "status": BEHIND, "action": "Use the button."},
     }, None))
     assert native.startup_check()["action"] == "upgrade_database"
@@ -985,7 +985,7 @@ def test_a_database_that_is_only_behind_still_gets_the_button(monkeypatch):
     # NAMES the other fault (`OP-137`), which is more useful than a button that
     # vanishes without saying why. Unreachable with one database in the registry,
     # asserted because `any()` is a choice and not an accident.
-    monkeypatch.setattr(native, "_database_report", lambda: ({
+    monkeypatch.setattr(native, "_database_report", lambda **_: ({
         "engine": {"ok": False, "status": BEHIND, "action": "Use the button."},
         "other": {"ok": False, "status": TOO_OLD, "action": "No path (R-84)."},
     }, None))

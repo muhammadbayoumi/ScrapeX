@@ -4,8 +4,7 @@ ScrapeX is contract-driven web data collection into a SQLite warehouse, publishi
 Google Sheet the mbiX Excel add-in reads (`scrapex/publish.py`, [README.md](README.md)). A
 second Sheet runs the other way — the Apps Script staging inbox `scrapex funnel-test`
 posts to (`scrapex/funnel.py` → `apps_script/` → `scrapex/ingest.py`). **It collects in
-categories; price is one of them, not the whole tool.** `products` and `contractors`
-work; `vacancies` and `tenders` are named, unbuilt.
+categories; price is one of them, not the whole tool.**
 
 ## The loop
 
@@ -70,7 +69,10 @@ work; `vacancies` and `tenders` are named, unbuilt.
   his reason is not visible. Then his word decides. Silent compliance is the failure.
 - **His decisions are his**: an un-computable mapping, a schema change, a new source, a
   `VERSION` bump — merging one ships the engine to every installation. Offer options with
-  the measured cost of each.
+  the measured cost of each. He approves each bump, not its number: at merge time the
+  merging session writes `main` + 1 wherever the PR wrote one, title and `VERSION:` line
+  included, and runs `python -m scrapex.cli export-version`; an author's number is a
+  placeholder it never renumbers, even when `version-intent` goes red.
 - **Diagnose, confirm, then fix.** Prove the cause with evidence, ask before editing.
 - **Answer him with what he can re-run**: a study gets counts from live data, never
   adjectives; a claim gets the one command that proves it. A confident wrong report
