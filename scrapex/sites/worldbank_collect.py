@@ -350,16 +350,17 @@ def read_changes(conn: sqlite3.Connection, fetcher, *, source_site_id: int, sinc
     a second can hold more than one change.
 
     THE CALLER MOVES `since` ON ONLY AFTER A COMPLETE PASS. One cut short (a page that
-    failed after its tries, a page that is not its share, the Bank's offset limit) returns
-    `complete=False` with the reason, which is also logged; one that raised returns
-    nothing. Either way the notices behind its last page are newer than `newest_held`,
-    which already counts the pages it kept, so `since` stays where it was, and the next
-    pass reads them."""
+    failed after its tries, a page that is not its share, a list that shrank under it, the
+    Bank's offset limit) returns `complete=False` with the reason, which is also logged;
+    one that raised returns nothing. Either way the notices behind its last page are newer
+    than `newest_held`, which already counts the pages it kept, so `since` stays where it
+    was, and the next pass reads them."""
     if conn.in_transaction:
         raise ValueError("read_changes commits page by page; call it outside a transaction")
     since_at = parse_instant(since)
     pages = notices = 0
     offset = 0
+    listed = None   # the total the page before answered
     reason = None
     while True:
         if offset >= OFFSET_LIMIT:
@@ -376,7 +377,16 @@ def read_changes(conn: sqlite3.Connection, fetcher, *, source_site_id: int, sinc
         tally.requests += 1
         body = _envelope(response, offset)
         rows, total = body["procnotices"], int(body["total"])
-        reason = _not_its_share(where, rows, max(0, min(PAGE_ROWS, total - offset)))
+        if listed is not None and total < listed:
+            # A NOTICE LEFT THE LIST during the pass: every row after it moved up one, so the
+            # first of this page slid onto the page before, already read. Taken as complete,
+            # the pass would move `since` past it for good. A list that grows only moves
+            # rows down, which repeats a row and loses none.
+            reason = (f"{where}: the Bank lists {total:,} notices, {listed - total:,} fewer "
+                      "than a page before, so one may have passed this read unseen")
+            break
+        listed = total
+        reason = _not_its_share(where, rows, min(PAGE_ROWS, total - offset))
         if reason:
             break
         stamps = [_instant(row.get("api_modified_date")) for row in rows]

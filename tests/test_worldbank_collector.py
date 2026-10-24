@@ -614,17 +614,52 @@ def test_a_page_the_bank_did_not_sort_newest_first_is_refused(conn, stamps, rise
 
 
 def test_a_change_made_during_the_pass_is_not_taken_for_disorder(conn):
-    """Two notices changed while the pass runs go first, and every row moves down two:
+    """Two notices changed after page 1 was read go first, and every row moves down two:
     page 2 opens with the two rows page 1 closed with, the first of them newer than page 1's
-    last. That is the Bank's order, not a breach of it; each notice is kept once."""
-    page_1 = changes(1_000)
-    page_1[-2]["api_modified_date"] = "2026-10-12T08:00:00Z"
-    page_1[-1]["api_modified_date"] = "2026-10-12T07:00:00Z"
-    page_2 = [copy.deepcopy(page_1[-2]), copy.deepcopy(page_1[-1]),
-              *stamped(notices(500, start=5_000), ["2026-10-11T09:00:00Z"] * 500)]
-    outcome, tally, _ = read_changes(conn, Bank(changed=page_1 + page_2))
+    last, under a total two larger. That is the Bank's order, not a breach of it, and a list
+    that grows loses nothing: each notice is kept once, and the two read next pass."""
+    changed = changes(1_500)
+    changed[998]["api_modified_date"] = "2026-10-12T08:00:00Z"
+    changed[999]["api_modified_date"] = "2026-10-12T07:00:00Z"
+    for notice in changed[1_000:]:
+        notice["api_modified_date"] = "2026-10-11T09:00:00Z"
+    bank = Bank(changed=changed)
+    real = bank.get
+
+    def get(url, params=None, **kw):
+        response = real(url, params=params, **kw)
+        if params.get("os") == "0":
+            bank.changed[:0] = stamped(notices(2, start=9_000), ["2026-10-13T09:00:00Z"] * 2)
+        return response
+
+    bank.get = get
+    outcome, tally, _ = read_changes(conn, bank)
     assert outcome == wc.ChangesRead(complete=True, pages_read=2)
+    assert bank.calls[1]["os"] == "1000" and len(bank.changed) == 1_502
     assert count(conn, "tender_releases") == 1_500 and tally.releases_unchanged == 2
+
+
+def test_a_list_that_shrinks_during_the_pass_leaves_it_incomplete(conn):
+    """A notice that leaves the Bank's list after page 1 was read moves every later row up
+    one, so the first notice of page 2 slides onto page 1 and is never read. Complete, the
+    pass would move `since` past it for good. A list that grows only moves rows down."""
+    bank = Bank(changed=changes(2_500))
+    real = bank.get
+
+    def get(url, params=None, **kw):
+        response = real(url, params=params, **kw)
+        if params.get("os") == "0":
+            del bank.changed[500]      # page 1 is read; one of its notices leaves the list
+        return response
+
+    bank.get = get
+    skipped = bank.changed[1_000]["id"]
+    outcome, _, log = read_changes(conn, bank)
+    reason = ("changes, page 2: the Bank lists 2,499 notices, 1 fewer than a page before, "
+              "so one may have passed this read unseen")
+    assert outcome == wc.ChangesRead(complete=False, pages_read=1, reason=reason)
+    assert skipped not in {row[0] for row in conn.execute("SELECT release_ref FROM tender_releases")}
+    assert log.says(reason)
 
 
 @pytest.mark.parametrize("stamp", [None, 20261012, "12 October 2026", "", "   "])
