@@ -765,7 +765,7 @@ def create_app(
         return sources
 
     def _work_waiting(general, site_key: str, dataset_key: str, *,
-                      defined: bool = True) -> dict:
+                      defined: bool = True, stopped_by_site: dict | None = None) -> dict:
         """What this directory has on disk that needs a press, and nothing else.
 
         HIS REQUIREMENT, in his words: *«اريد الظهور على الكارت انه يحتاج لعمل interpret
@@ -815,7 +815,17 @@ def create_app(
         # re-fetched 3,429 of the same readings over about four hours. The newest run is
         # offered because its frontier is closest to now; the others stay reachable
         # through the route.
-        stopped = directoryjob.resumable_runs(general, site_key, limit=1)
+        #
+        # ASKED ONCE PER SITE, NOT ONCE PER CARD (#1769). The answer is the site's, and
+        # muqawil's three datasets asked for it three times in one listing: 159 ms each
+        # on his warehouse, in a route the panel gives 5,000 ms. `stopped_by_site` holds
+        # the answers the caller's listing has already been given.
+        if stopped_by_site is None:
+            stopped_by_site = {}
+        if site_key not in stopped_by_site:
+            stopped_by_site[site_key] = directoryjob.resumable_runs(
+                general, site_key, limit=1)
+        stopped = stopped_by_site[site_key]
         if stopped:
             waiting["resumable"] = stopped[0]
         if directory.dataset_key != dataset_key:
@@ -962,6 +972,7 @@ def create_app(
         general = general_read_conn()
         try:
             catalogue = extract_service.listed_datasets(general)
+            stopped_by_site: dict = {}
             return [{
                 "kind": "dataset",
                 "site_key": row["site_key"],
@@ -1005,7 +1016,8 @@ def create_app(
                 # WHAT IS WAITING FOR A PRESS, so the card can say so instead of leaving
                 # him to wait for something that is waiting for him.
                 "work_waiting": _work_waiting(general, row["site_key"],
-                                              row["dataset_key"]),
+                                              row["dataset_key"],
+                                              stopped_by_site=stopped_by_site),
                 "kept_pages": 0, "kept_at": None,
             } for row in catalogue]
         finally:
