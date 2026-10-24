@@ -139,14 +139,15 @@ def test_a_kernel32_that_will_not_load_is_recorded_and_the_engine_goes_on(monkey
     assert "could not be found" in record["error"], record
 
 
-def test_the_ui_command_opts_out_after_binding_its_log_and_before_any_database(monkeypatch):
-    """After the streams, so a refusal has somewhere to go under pythonw; before the
-    registry, because the start's migrations are the heaviest thing it does."""
+class Stop(Exception):
+    pass
+
+
+@pytest.fixture
+def start_order(monkeypatch):
+    """What `_cmd_ui` does first, recorded; the registry stops it before anything serves."""
     pytest.importorskip("uvicorn")
     order: list[str] = []
-
-    class Stop(Exception):
-        pass
 
     def registry():
         order.append("database")
@@ -155,10 +156,35 @@ def test_the_ui_command_opts_out_after_binding_its_log_and_before_any_database(m
     monkeypatch.setattr(cli, "_bind_log_streams", lambda: order.append("log"))
     monkeypatch.setattr(cli, "_opt_out_of_eco_qos", lambda: order.append("qos"))
     monkeypatch.setattr(cli.DatabaseRegistry, "defaults", staticmethod(registry))
+    return order
 
+
+# The argv each launcher builds, parsed by the CLI's own parser. Each one, because a
+# call that depended on an option would pass under one launcher and not another.
+LAUNCHES = {
+    # scrapex/native.py:_spawn_engine, and scrapex/autostart.py: no --no-open.
+    "native-host": ["ui", "--port", "8000"],
+    # scrapex/relaunch.py:_engine_command, and packaging/engine_entry.py.
+    "relaunch": ["ui", "--port", "8000", "--no-open"],
+}
+
+
+@pytest.mark.parametrize("argv", LAUNCHES.values(), ids=LAUNCHES.keys())
+def test_every_launch_opts_out_after_binding_its_log_and_before_any_database(argv,
+                                                                             start_order):
+    """After the streams, so a refusal has somewhere to go under pythonw; before the
+    registry, because the start's migrations are the heaviest thing it does."""
     with pytest.raises(Stop):
-        cli._cmd_ui(argparse.Namespace(db=None, host="127.0.0.1", port=0, no_open=True))
-    assert order == ["log", "qos", "database"]
+        cli._cmd_ui(cli.build_parser().parse_args(argv))
+    assert start_order == ["log", "qos", "database"]
+
+
+def test_an_engine_on_a_named_database_opts_out_too(tmp_path, start_order):
+    """`ui --db` opens no registry; with no file there it stops right after the call."""
+    argv = ["ui", "--port", "8000", "--no-open", "--db", str(tmp_path / "absent.db")]
+
+    assert cli._cmd_ui(cli.build_parser().parse_args(argv)) == 1
+    assert start_order == ["log", "qos"]
 
 
 READ_OWN_STATE = """

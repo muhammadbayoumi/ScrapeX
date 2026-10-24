@@ -1094,8 +1094,9 @@ def _opt_out_of_eco_qos() -> None:
     spent 1.0x. His engine spent 5.6 CPU-s per `/api/sources`.
 
     ControlMask selects the mechanism and a zero StateMask turns it off: Microsoft's
-    HighQoS setting. It costs battery when the engine is busy, which he chose on #1767.
-    Off Windows there is nothing to set. A refusal never stops the engine, which only
+    HighQoS setting. He chose it on #1767 knowing it costs battery. The cost lasts as
+    long as the engine runs, because its worker never idles (#1768), and it is not yet
+    measured. Off Windows there is nothing to set. A refusal never stops the engine, which only
     runs slower, but it is written to the engine log as one JSON line.
     """
     if sys.platform != "win32":

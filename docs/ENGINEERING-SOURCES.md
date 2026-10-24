@@ -291,7 +291,7 @@ The `ui` command makes the HighQoS call on itself as it starts, before it touche
 
 Measured on his machine on 2026-10-24, on AC power (#1767). A windowless `pythonw` launched with no focused ancestor spent 4.4x the CPU-s of the same work launched under a focused one, from 6 s after it started. With the call made, it spent 1.0x. This machine throttles on AC as well, which is more than the table above promises, so the measurement decides it here and not the table. Timer resolution, priority class, memory priority and I/O priority each measured the same in every arm, so the engine sets none of them.
 
-**Decided** by the owner on #1767, 2026-10-20. It costs battery whenever the engine is busy.
+**Decided** by the owner on #1767, 2026-10-20, knowing it costs battery. The cost lasts as long as the engine runs, because its job worker never idles: on the copy at HighQoS it spent 0.11–0.15 CPU-s every second (#1768 lowers that). The battery cost is not yet measured.
 
 ### How to re-open this
 
