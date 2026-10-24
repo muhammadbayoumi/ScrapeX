@@ -8700,6 +8700,26 @@ def test_a_refusing_answer_is_not_taken_for_the_same_engine(open_panel):
     assert not page.js_errors, page.js_errors
 
 
+def test_the_wait_promises_no_duration(open_panel):
+    """The note stands until a different engine answers, and on his machine that
+    was about 50 s after a restart onto 0.4.66 (#1793) -- "the engine goes quiet for
+    a few seconds" said otherwise for most of it. Read 30 s into a wait the engine
+    has not ended. With a helper, as on his machine: without one the note says
+    the restart goes through the engine instead."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART,
+                                    dark_ms=10**9)
+    page.clock.install()
+    page.click("#runtime-restart")
+    page.clock.run_for(30_000)
+
+    assert text_of(page, "#engine-restart-note") == (
+        "Restarting. This page updates when the engine answers.")
+    assert not page.js_errors, page.js_errors
+
+
 def test_the_restart_note_stays_off_a_candidate_engines_screen(open_panel):
     """Every engine shares one detail screen, and a candidate's has no Restart to
     press. The outcome now waits for the successor, so a reader can have opened a

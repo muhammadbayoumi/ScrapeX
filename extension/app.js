@@ -10688,7 +10688,10 @@ function wireRuntimeRepair() {
     // process to leave. Without this gate, a newer process could die during
     // startup and the panel would only be able to say "two minutes".
     const checking = Date.now();
-    let before = "Restarting — the engine goes quiet for a few seconds.";
+    // NO DURATION. "A few seconds" was about 50 on his machine (#1793), and this
+    // sentence now stands until a different engine answers. The words are the ones
+    // #1556 approved for its time sentences (round 4).
+    let before = "Restarting. This page updates when the engine answers.";
     try {
       await checkStartup();
     } catch (startupError) {
