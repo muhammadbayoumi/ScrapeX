@@ -426,17 +426,22 @@ def refresh_is_due(conn: sqlite3.Connection, *, now: str | None = None) -> bool:
     """
     if not automatic_refresh_enabled(conn):
         return False
-    if not currencies_in_use(conn):
-        return False                 # nothing priced yet — nothing to convert
+    # THE INTERVAL BEFORE THE CURRENCIES. Every read here is free of side
+    # effects, so their order changes what a decline costs and never what it
+    # answers. `last_checked` is one row of scrapex_meta; `currencies_in_use`
+    # scans every price observation, 59 ms a call on a warehouse of 102,528
+    # (#1768). Asked first, that scan ran on every poll to be told no.
     previous = last_checked(conn)
-    if not previous:
-        return True                  # never asked
-    try:
-        age = (datetime.strptime(now or utc_now_iso(), "%Y-%m-%dT%H:%M:%SZ")
-               - datetime.strptime(previous, "%Y-%m-%dT%H:%M:%SZ")).total_seconds()
-    except ValueError:
-        return True                  # an unparseable stamp is not a fresh one
-    return not (0 <= age < refresh_interval_hours(conn) * 60 * 60)
+    if previous:
+        try:
+            age = (datetime.strptime(now or utc_now_iso(), "%Y-%m-%dT%H:%M:%SZ")
+                   - datetime.strptime(previous, "%Y-%m-%dT%H:%M:%SZ")).total_seconds()
+        except ValueError:
+            age = None               # an unparseable stamp is not a fresh one
+        if age is not None and 0 <= age < refresh_interval_hours(conn) * 60 * 60:
+            return False             # asked inside the interval
+    # Never asked, or not inside the interval: due if anything is priced.
+    return bool(currencies_in_use(conn))   # nothing priced yet — nothing to convert
 
 
 def refresh_now(conn: sqlite3.Connection, fetcher, *,
