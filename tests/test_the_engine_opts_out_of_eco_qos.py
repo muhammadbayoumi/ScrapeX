@@ -1,4 +1,4 @@
-"""The engine tells Windows it is not background work (#1767, ES-6).
+"""The engine tells Windows it is not background work (#1767, ES-7).
 
 Started through the native host, the engine descends from Chrome, and Windows schedules
 a windowless process by the window its ancestry owns. Measured on his machine, a

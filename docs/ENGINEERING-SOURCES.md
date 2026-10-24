@@ -272,7 +272,42 @@ It is not merged into `tvtc_training_establishments` either, though that table h
 
 Level 4 of the precedence order: a published practice with a named author and a stated rationale. The measured functional dependency (level 3) is what makes it apply here, and a census that found one establishment with two licences would re-open it. The source does not decide the second half, one writer per table; that is this repository's own reason, stated above.
 
-## ES-6 · The engine tells Windows it is not background work
+## ES-6 · A stored JSON document is binary JSON, unless its exact text is the point
+
+**Governs:** how the tender history keeps a release (`tender_releases.payload`), from
+migration 0026 on. A table that keeps the exact bytes a source sent keeps them as
+evidence instead (`fetched_responses`), compressed.
+
+**Cited at:** `db/engine/migrations/0026_tender_history_kept_as_jsonb.sql`, `scrapex/tenderstore.py`, `tests/test_tender_history_kept_as_jsonb.py`.
+
+### The source
+
+| source | what it contributes |
+|---|---|
+| [SQLite, *JSON Functions And Operators*, §3.2 JSONB](https://sqlite.org/json1.html) | Since 3.45.0, JSON stored as SQLite's parse tree, a BLOB: "smaller and faster than text JSON". Every JSON function accepts it, `json()` reads it back as text, and it is treated as an opaque BLOB. |
+| [Supabase, *Managing JSON and unstructured data*](https://supabase.com/docs/guides/database/json) | "The recommended type is jsonb for almost all cases": json keeps an exact copy that each read reparses, jsonb is "significantly faster to process". |
+| [PostgreSQL, *JSON Types*, §8.14](https://www.postgresql.org/docs/current/datatype-json.html) | "most applications should prefer to store JSON data as jsonb, unless there are quite specialized needs, such as legacy assumptions about ordering of object keys." |
+
+### What it decides
+
+The release is stored as JSONB, and its CHECK holds it to one well-formed JSONB object
+(`json_valid(payload, 8)`). PostgreSQL's exception, the exact text, does not apply: the
+source's own bytes are kept in `fetched_responses`, and the dedup key is the sha256 of the
+release's canonical text, taken in Python before the write. Measured on the six real
+World Bank releases, 100,000 rows, SQLite 3.50.4: 1,462 bytes a release against 1,643,
+`json_extract` 2.2 to 2.4 times faster on four paths, the compile's own read unchanged,
+and `json()` returns the canonical text exactly.
+
+**Decided** by the owner on #1733, 2026-10-20: "the best, not the cheapest, with a
+reference".
+
+### How to re-open this
+
+Level 2 of the precedence order for SQLite's documentation, level 5 for Supabase's and
+PostgreSQL's. A change to SQLite's JSONB format is read against its own promise: the
+format is SQLite's, and a database that holds it is read by any SQLite since 3.45.0.
+
+## ES-7 · The engine tells Windows it is not background work
 
 **Governs:** the Quality of Service Windows schedules the engine's process at.
 

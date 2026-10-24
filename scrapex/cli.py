@@ -1086,7 +1086,7 @@ _PROCESS_POWER_THROTTLING_EXECUTION_SPEED = 0x1
 def _opt_out_of_eco_qos() -> None:
     """Tell Windows the engine is not background work, so it is not run on slow cores.
 
-    ES-6: a process that sets no EXECUTION_SPEED policy has its QoS inferred, and a
+    ES-7: a process that sets no EXECUTION_SPEED policy has its QoS inferred, and a
     windowless one is classed by the window its ancestry owns. Started through the native
     host, the engine descends from Chrome. Measured 2026-10-24 on his machine (#1767, on
     AC power): a windowless `pythonw` with no focused ancestor spent 4.4x the CPU-s of
