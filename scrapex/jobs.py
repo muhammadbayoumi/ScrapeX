@@ -1538,7 +1538,7 @@ class JobRunner:
     def _refresh_rates(self, conn) -> None:
         """Keep the USD column's exchange rates current, quietly.
 
-        Rate-limited to six hours, so a poll costs the two SELECTs in
+        Rate-limited to six hours, so a poll costs the small reads in
         rates.refresh_is_due and stops there. Isolated from the job loop: a
         Google Finance outage must never stop a crawl from running — the USD
         column is an aid to ranking, and the prices are the product.
@@ -1556,7 +1556,7 @@ class JobRunner:
         from . import rates
 
         # Before the lock and before the fetcher: a decline must touch nothing
-        # but two SELECTs. Taking the write lock 172,800 times a day to be told
+        # but small reads. Taking the write lock 172,800 times a day to be told
         # no was the cheaper half of the same mistake.
         try:
             if not rates.refresh_is_due(conn):
