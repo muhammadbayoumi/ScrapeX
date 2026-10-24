@@ -8529,27 +8529,71 @@ ONE_PROBE_TIMES_OUT = """() => {
   };
 }"""
 
-RESTART_DID_NOT_HAPPEN_HERE = (
+#: Every `/api/health` after the first one that follows the restart request runs
+#: out of time: the engine answered once, and from then on nothing answers within
+#: the deadline. Installed OVER the restarting stub.
+EVERY_LATER_PROBE_TIMES_OUT = """() => {
+  const inner = window.fetch;
+  let asked = false;
+  window.__answeredAfterRestart = 0;
+  window.fetch = async (url, options = {}) => {
+    const path = String(url);
+    if (path.endsWith('/api/engine/restart')) asked = true;
+    else if (asked && path.includes('/api/health')) {
+      if (window.__answeredAfterRestart >= 1) {
+        throw new DOMException('The request exceeded its deadline.', 'TimeoutError');
+      }
+      window.__answeredAfterRestart += 1;
+    }
+    return inner(url, options);
+  };
+}"""
+
+#: Proven by `sealed_at`: the engine answering is the one asked to leave.
+SAME_ENGINE = (
     "Unable to restart the engine: the same engine is still answering after two "
-    "minutes. Press Restart engine to try again.")
-RESTART_DID_NOT_HAPPEN_THERE = (
+    "minutes. Press Restart engine to try again.",
     "Unable to restart the engine: the same engine is still answering after two "
     "minutes. Press Restart engine on the Engine page to try again.")
+#: An engine answers, and nothing says which.
+NO_NEW_ENGINE = (
+    "Unable to confirm the restart: no new engine was detected in two minutes. "
+    "Press Restart engine to try again.",
+    "Unable to confirm the restart: no new engine was detected in two minutes. "
+    "Press Restart engine on the Engine page to try again.")
 
 
-@pytest.mark.parametrize("engine_build, a_probe_times_out", [
-    (ENGINE_BEFORE_RESTART, False),
-    (False, False),
-    (False, True),
-], ids=["it-says-which-it-is", "it-cannot-say", "it-cannot-say-and-one-probe-times-out"])
-def test_a_restart_the_engine_never_carries_out_is_reported_as_not_done(
-        open_panel, engine_build, a_probe_times_out):
-    """The engine answers the restart request and never leaves, so for the whole
-    two-minute wait the engine answering is the one asked to leave. The panel must
-    not say "The engine is back." about it, and when the wait ends it says the
-    restart did not happen -- not "has not answered", which is false about an engine
-    that answered every probe, and without the database scan that ending runs to
-    explain a successor that stopped during startup, since none was started.
+def press_restart_and_wait_out_the_two_minutes(page) -> None:
+    """Press Restart on the page's own clock and run it past the poll's budget."""
+    # The harness's host keeps every command it is sent here; from now on only.
+    page.evaluate("() => { window.__nativeCalls.length = 0; }")
+    page.clock.install()
+    page.click("#runtime-restart")
+    page.clock.run_for(130_000)
+
+
+@pytest.mark.parametrize(
+    "engine_build, successor_build, bow_out_ms, a_probe_times_out, said", [
+        (ENGINE_BEFORE_RESTART, None, 10**9, False, SAME_ENGINE),
+        (False, None, 10**9, False, NO_NEW_ENGINE),
+        (False, None, 10**9, True, NO_NEW_ENGINE),
+        (ENGINE_BEFORE_RESTART, None, ENGINE_BOW_OUT_MS, False, NO_NEW_ENGINE),
+    ], ids=["it-says-which-it-is", "it-cannot-say", "it-cannot-say-and-one-probe-times-out",
+            "a-successor-that-cannot-say-came-and-no-dark-was-seen"])
+def test_a_restart_nobody_saw_happen_is_reported_as_not_done(
+        open_panel, engine_build, successor_build, bow_out_ms, a_probe_times_out, said):
+    """Two minutes pass and an engine is still answering, and the panel never took
+    any answer for a successor's. It must not say "The engine is back." about it,
+    nor "has not answered", which is false about an engine that answered. It runs
+    no database scan either: that scan explains a successor that stopped during
+    startup, and an engine is serving.
+
+    WHAT IT SAYS IS WHAT IT KNOWS. "The same engine" only where `sealed_at` proves
+    it: the answers carry the leaving engine's own value. Where either side reports
+    none and no probe was refused, the answer may be a successor whose start the
+    poll missed -- `a-successor-that-cannot-say-came-and-no-dark-was-seen` is
+    exactly that, a different engine answering -- so the note says only that no new
+    engine was detected.
 
     `it-cannot-say-and-one-probe-times-out`: a probe that runs out of time is a slow
     engine, not a gone one. Read as the dark, it let the very next answer -- the same
@@ -8558,31 +8602,169 @@ def test_a_restart_the_engine_never_carries_out_is_reported_as_not_done(
     The sentence names Restart where it is read: beside the button on the Engine
     screen, and with the page it is on from the Database page's note.
     """
+    here, there = said
     page = open_panel(engine_build=engine_build)
     page.click("#tab-engines")
     open_engine(page)
-    restart_the_way_the_engine_does(page, successor_build=None, bow_out_ms=10**9)
+    restart_the_way_the_engine_does(page, successor_build=successor_build,
+                                    bow_out_ms=bow_out_ms, dark_ms=0)
     if a_probe_times_out:
         page.evaluate(ONE_PROBE_TIMES_OUT)
-    # The harness's host keeps every command it is sent here; from now on only.
-    page.evaluate("() => { window.__nativeCalls.length = 0; }")
-    page.clock.install()
 
-    page.click("#runtime-restart")
-    page.clock.run_for(130_000)
+    press_restart_and_wait_out_the_two_minutes(page)
     page.wait_for_function(
         "(said) => document.getElementById('engine-restart-note').textContent === said",
-        arg=RESTART_DID_NOT_HAPPEN_HERE, timeout=10_000)
+        arg=here, timeout=10_000)
 
     assert page.evaluate("window.__backSaidWhile") is None, (
-        "the panel said 'The engine is back.' about the engine that never left")
-    assert text_of(page, "#runtime-note") == RESTART_DID_NOT_HAPPEN_THERE
-    assert set(page.evaluate("window.__healthAnsweredBy")) == {"predecessor"}
+        "the panel said 'The engine is back.' about an engine it could not tell was new")
+    assert text_of(page, "#runtime-note") == there
     checks = [c for c in page.evaluate("window.__nativeCalls") if c == "CHECK_STARTUP"]
     assert checks == ["CHECK_STARTUP"], (
         f"the check before the restart is the only one; the ending ran {checks}")
     for control in ("#runtime-restart", "#runtime-upgrade"):
         assert not page.locator(control).is_disabled(), f"{control} stayed down"
+    assert not page.js_errors, page.js_errors
+
+
+def test_an_answer_two_minutes_old_is_not_still_answering(open_panel):
+    """The leaving engine answers the first probe and nothing answers any probe
+    after it in time. "The same engine is still answering" would describe an answer
+    two minutes old, and skip the database check that explains a successor which
+    stopped during startup. The ending is the one for an engine that has not
+    answered.
+
+    WITH A HELPER, as on his machine, so the database check the ending asks is
+    answered; the harness's default has none.
+    """
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    restart_the_way_the_engine_does(page, successor_build=None, bow_out_ms=10**9)
+    page.evaluate(EVERY_LATER_PROBE_TIMES_OUT)
+
+    press_restart_and_wait_out_the_two_minutes(page)
+    page.wait_for_function(
+        "() => document.getElementById('engine-restart-note').textContent"
+        " === 'The engine has not answered in two minutes. It may still be starting.'",
+        timeout=10_000)
+
+    assert page.evaluate("window.__answeredAfterRestart") == 1
+    checks = [c for c in page.evaluate("window.__nativeCalls") if c == "CHECK_STARTUP"]
+    assert checks == ["CHECK_STARTUP", "CHECK_STARTUP"], (
+        f"the ending did not ask the database check why nothing answered: {checks}")
+    assert not page.js_errors, page.js_errors
+
+
+#: The successor answers `/api/health` with the engine's own 503 for a database it
+#: cannot open (`_database_unavailable`, scrapex/webui/app.py). Installed OVER the
+#: restarting stub.
+THE_SUCCESSOR_ANSWERS_503 = """() => {
+  const inner = window.fetch;
+  window.fetch = async (url, options = {}) => {
+    if (String(url).includes('/api/health') && window.__engineAnswering() === 'successor') {
+      return {ok: false, status: 503, statusText: 'Service Unavailable',
+              headers: {get: () => null},
+              json: async () => ({ok: false, error: 'database_unavailable',
+                                  detail: 'the database is not readable'})};
+    }
+    return inner(url, options);
+  };
+}"""
+
+
+def test_a_refusing_answer_is_not_taken_for_the_same_engine(open_panel):
+    """The leaving engine's last answer was its own, and the next engine answers
+    `/api/health` only with a 503: its database cannot be opened. A 503 names no
+    engine, so the leaving engine's earlier answer must not stand as "the same
+    engine is still answering". The ending asks the database check, which is the
+    one that can explain a database a successor could not open.
+
+    No dark between the two, so that nothing else clears the earlier answer.
+    """
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART,
+                                    dark_ms=0)
+    page.evaluate(THE_SUCCESSOR_ANSWERS_503)
+
+    press_restart_and_wait_out_the_two_minutes(page)
+    page.wait_for_function(
+        "() => document.getElementById('engine-restart-note').textContent"
+        " === 'The engine has not answered in two minutes. It may still be starting.'",
+        timeout=10_000)
+
+    checks = [c for c in page.evaluate("window.__nativeCalls") if c == "CHECK_STARTUP"]
+    assert checks == ["CHECK_STARTUP", "CHECK_STARTUP"], checks
+    assert not page.js_errors, page.js_errors
+
+
+def test_the_restart_note_stays_off_a_candidate_engines_screen(open_panel):
+    """Every engine shares one detail screen, and a candidate's has no Restart to
+    press. The outcome now waits for the successor, so a reader can have opened a
+    candidate by the time it lands: "Press Restart engine to try again" -- or "The
+    engine is back." -- must not appear there. Back on ScrapeX Engine it does."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART)
+    page.click("#tab-engines")
+    open_engine(page)
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART)
+
+    page.click("#runtime-restart")
+    page.click("#engine-detail-back")
+    open_engine(page, "firecrawl")
+    page.wait_for_function(
+        "() => document.getElementById('engine-restart-note').textContent"
+        " === 'The engine is back.'", timeout=30_000)
+    assert page.locator("#engine-restart-note").is_hidden(), (
+        "ScrapeX's restart outcome is on a candidate engine's screen")
+
+    page.click("#engine-detail-back")
+    open_engine(page)
+    assert page.locator("#engine-restart-note").is_visible(), (
+        "back on ScrapeX Engine, the restart's outcome is not shown")
+    assert text_of(page, "#engine-restart-note") == "The engine is back."
+    assert not page.js_errors, page.js_errors
+
+
+#: After the database check before the restart is sent, the next `/api/health` --
+#: the one that names the engine asked to leave -- runs out of time, as it can on
+#: an engine whose health answer takes most of its 2.5 s (#1764). Installed OVER
+#: the restarting stub.
+THE_NAMING_READ_TIMES_OUT = """() => {
+  const inner = window.fetch;
+  const send = window.chrome.runtime.sendNativeMessage;
+  let pending = false;
+  window.chrome.runtime.sendNativeMessage = (host, message, callback) => {
+    if (message && message.command === 'CHECK_STARTUP') pending = true;
+    return send(host, message, callback);
+  };
+  window.fetch = async (url, options = {}) => {
+    if (pending && String(url).includes('/api/health')) {
+      pending = false;
+      throw new DOMException('The request exceeded its deadline.', 'TimeoutError');
+    }
+    return inner(url, options);
+  };
+}"""
+
+
+def test_an_unnamed_leaving_engine_is_traced_and_waited_out(open_panel):
+    """When the read that names the leaving engine gets no answer, the poll falls
+    back to the weaker test -- an answer only after a refused probe -- and that is
+    recorded, not swallowed: `restart-identity-unknown` in the startup trace, the
+    record `askWhichWarehouse` leaves for its own unknown."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART)
+    page.click("#tab-engines")
+    open_engine(page)
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART)
+    page.evaluate(THE_NAMING_READ_TIMES_OUT)
+    press_restart_and_wait_for_the_panel(page)
+
+    assert page.evaluate("window.__backSaidWhile") == "successor"
+    traced = page.evaluate("""() => performance.getEntriesByName(
+        'scrapex:restart-identity-unknown').map((entry) => entry.detail)""")
+    assert traced and "deadline" in traced[0]["message"], traced
     assert not page.js_errors, page.js_errors
 
 

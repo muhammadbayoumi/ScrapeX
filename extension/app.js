@@ -5232,8 +5232,10 @@ function renderEngineDetail(id) {
   $("engine-diagnostics-output").classList.toggle("hidden", !installed);
   // The restart report goes with the button that writes it. Without this a
   // sentence about the ScrapeX engine survives onto a candidate backend's
-  // screen, which is the one place the page promises nothing to press.
-  if (!installed) $("engine-restart-note").classList.add("hidden");
+  // screen, which is the one place the page promises nothing to press. Back on
+  // ScrapeX Engine it shows again, with whatever the restart last said there.
+  $("engine-restart-note").classList.toggle(
+    "hidden", !installed || !$("engine-restart-note").textContent);
   if (!installed) $("engine-install-steps").classList.add("hidden");
   // AND THE UPDATE SENTENCE, for exactly the reason above and found the same way.
   // It was added as a sibling of `#engine-detail-actions` and not to this list, so
@@ -10651,7 +10653,11 @@ function wireRuntimeRepair() {
     const here = $("engine-restart-note");
     if (!here) return;
     here.textContent = reason || text;
-    here.classList.toggle("hidden", !(reason || text));
+    // AND ONLY ON SCRAPEX ENGINE'S OWN SCREEN. Every engine shares this view, and
+    // the outcome now waits for the successor -- up to two minutes and more -- so
+    // a reader can have opened a candidate by then, whose screen has no Restart
+    // to press. Reopening ScrapeX Engine shows it (`renderEngineDetail`).
+    here.classList.toggle("hidden", !(reason || text) || !theInstalledEngineIsOnScreen());
   };
 
   upgrade.addEventListener("click", upgradeDatabaseFromPanel);
@@ -10716,8 +10722,14 @@ function wireRuntimeRepair() {
     let leaving = null;
     try {
       const asked = await raw("/api/health", {cache: "no-store"});
-      if (asked.ok) leaving = sealedAtOf(await asked.json());
-    } catch (_) { /* unknown, so the poll waits for the dark instead */ }
+      if (!asked.ok) throw new Error(`HTTP ${asked.status}`);
+      leaving = sealedAtOf(await asked.json());
+    } catch (error) {
+      // NOT SWALLOWED: the poll falls back to the weaker test, the dark, and the
+      // trace says why -- the same record `askWhichWarehouse` leaves.
+      markStartup("restart-identity-unknown",
+                  {message: (error && error.message) || "unknown"});
+    }
     // A thrown fetch is the SUCCESS path — the engine exits mid-answer and the
     // socket dies. An answered fetch that is not ok is the opposite, and the
     // first version of this treated both the same: it looked only for 404 and
@@ -10758,10 +10770,12 @@ function wireRuntimeRepair() {
     // `wentDark`: a probe was refused, so the port closed and the engine asked to
     // leave has left -- the only proof there is when either side reports no
     // `sealed_at`. A probe that ran out of time is NOT that: a busy engine is
-    // slow, not gone. `stillLeaving`: the last answer read came from the engine
-    // asked to leave, which is what the two-minute ending has to know.
+    // slow, not gone. `lastHeard`: what the latest probe got, for the two-minute
+    // ending -- "same" only when its `sealed_at` was the leaving engine's own,
+    // the one proof that the restart did not happen; "unknown" when an engine
+    // answered and nothing said which; "nothing" when no answer came.
     let wentDark = false;
-    let stillLeaving = false;
+    let lastHeard = "nothing";
     const timer = setInterval(async () => {
       attempts += 1;
       let successor = false;
@@ -10775,19 +10789,18 @@ function wireRuntimeRepair() {
         // asks until it answers -- so the status must not throw. What it gains is
         // a deadline it never had, on the one screen where a person is waiting.
         const probe = await raw("/api/health", {cache: "no-store"});
+        lastHeard = "nothing";
         if (probe.ok) {
           const answered = sealedAtOf(await probe.json());
           successor = leaving && answered ? answered !== leaving : wentDark;
-          stillLeaving = !successor;
+          lastHeard = leaving && answered === leaving ? "same" : "unknown";
         }
       } catch (error) {
+        lastHeard = "nothing";
         // A refused connection is the one failure fetch reports as a TypeError
         // (the Fetch standard's "network error"); a deadline is a TimeoutError
         // and a body that is not JSON is a SyntaxError, and neither is the dark.
-        if (error instanceof TypeError) {
-          wentDark = true;
-          stillLeaving = false;
-        }
+        if (error instanceof TypeError) wentDark = true;
       }
       if (settled) return;
       if (successor) {
@@ -10813,15 +10826,25 @@ function wireRuntimeRepair() {
       if (attempts >= RESTART_CONFIRM_ATTEMPTS) {
         settled = true;
         clearInterval(timer);
-        // THE ENGINE ASKED TO LEAVE IS STILL THE ONE ANSWERING, so no successor
-        // failed to start: none took its place. The database check below
-        // explains a successor that stopped during startup, and here it would
-        // scan the whole file to explain nothing.
-        if (stillLeaving) {
+        // AN ENGINE IS STILL ANSWERING, so no successor stopped during startup:
+        // the database check below explains that case, and here it would scan the
+        // whole file to explain nothing. "The same engine" is said only where
+        // `sealed_at` proves it. Without that -- either side reports none, and no
+        // refused probe was seen -- the answer may be a successor whose start the
+        // poll missed, so only what is known is said.
+        if (lastHeard === "same") {
           say("Unable to restart the engine: the same engine is still answering after "
               + "two minutes. Press Restart engine on the Engine page to try again.",
               "Unable to restart the engine: the same engine is still answering after "
               + "two minutes. Press Restart engine to try again.");
+          release();
+          return;
+        }
+        if (lastHeard === "unknown") {
+          say("Unable to confirm the restart: no new engine was detected in two "
+              + "minutes. Press Restart engine on the Engine page to try again.",
+              "Unable to confirm the restart: no new engine was detected in two "
+              + "minutes. Press Restart engine to try again.");
           release();
           return;
         }
