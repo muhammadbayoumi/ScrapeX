@@ -509,3 +509,110 @@ def test_a_clock_that_went_backwards_counts_as_due_not_as_fresh(tmp_path):
     conn.commit()
 
     assert rates.refresh_is_due(conn, now="2026-07-01T00:00:00Z") is True
+
+
+# ---- the decline is cheap: the interval is asked before the currencies --------
+
+def _priced(tmp_path, currencies, *, last_checked=None):
+    """A warehouse with one price observation in each of `currencies`, and the
+    rate check stamped at `last_checked` (None: never asked)."""
+    from scrapex import rates
+
+    conn = dbmod.connect(tmp_path / "due.db")
+    dbmod.migrate(conn)
+    conn.execute("INSERT INTO source_site (source_id, source_key, source_name_ar, "
+                 " source_name, base_url, platform, currency, timezone, authority, lifecycle) "
+                 "VALUES (1,'S','س','S','http://s','custom_json','SAR','UTC','shop','active')")
+    conn.execute("INSERT INTO crawl_run (run_id, source_id, started_at, status) "
+                 "VALUES (1,1,'2026-07-01T00:00:00Z','success')")
+    conn.execute("INSERT INTO source_product (source_product_id, source_id, "
+                 " external_product_id, product_name, product_name_ar) "
+                 "VALUES (1,1,'p','P','ب')")
+    conn.execute("INSERT INTO source_variant (source_variant_id, source_product_id, "
+                 " external_variant_id) VALUES (1,1,'v')")
+    conn.execute("INSERT INTO source_offer (offer_id, source_variant_id, "
+                 " country_code_alpha2, customer_segment, basis_quantity, currency, "
+                 " tax_included) VALUES (1,1,'SA','retail',1,'SAR',1)")
+    for code in currencies:
+        _observe(conn, code)
+    if last_checked is not None:
+        conn.execute("INSERT INTO scrapex_meta (key, value) VALUES (?,?) "
+                     "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                     (rates.LAST_CHECK_KEY, last_checked))
+    conn.commit()
+    return conn
+
+
+def _observe(conn, currency):
+    """One more price observation, in `currency`."""
+    (n,) = conn.execute("SELECT COUNT(*) FROM price_observation").fetchone()
+    conn.execute("INSERT INTO price_observation (offer_id, run_id, observed_at, "
+                 " business_date, price, currency, tax_included, availability, "
+                 " record_hash, price_hash, price_fields, provenance) "
+                 "VALUES (1,1,'2026-07-01T00:00:00Z','2026-07-01',100,?,1,"
+                 "'in_stock',?,'ph','effective','observed')", (currency, f"rh{n}"))
+
+
+def test_a_decline_inside_the_interval_reads_no_price_observation(tmp_path):
+    """The worker asks refresh_is_due twice a second, and inside the interval
+    the answer is no. `currencies_in_use` scans every price observation -- 59 ms
+    a call on his 102,528 -- so asked before the interval, that scan ran 172,800
+    times a day to be told no (#1768). Pinned by the statements run, not by a
+    timing: a fixture's handful of rows scans in no time at all."""
+    from scrapex import rates
+
+    conn = _priced(tmp_path, ["SAR", "EGP"], last_checked="2026-07-01T00:00:00Z")
+    statements = []
+    conn.set_trace_callback(statements.append)
+    try:
+        assert rates.refresh_is_due(conn, now="2026-07-01T05:59:59Z") is False
+    finally:
+        conn.set_trace_callback(None)
+
+    assert statements, "the trace saw no statement, so it proves nothing"
+    assert [s for s in statements if "price_observation" in s] == [], statements
+    assert all("scrapex_meta" in s for s in statements), (
+        f"a decline is small reads of scrapex_meta and nothing else: {statements}")
+
+
+@pytest.mark.parametrize("currencies, stamp, now, due", [
+    # Nothing a service quotes: never due, whatever the clock says.
+    ([], None, "2026-07-01T00:00:00Z", False),
+    ([], "2026-07-01T00:00:00Z", "2026-07-01T06:00:00Z", False),
+    ([], "not a stamp", "2026-07-01T00:00:00Z", False),
+    (["USD", "UNKNOWN", "SLL", "ZWD"], None, "2026-07-01T00:00:00Z", False),
+    (["USD", "UNKNOWN"], "2026-07-01T00:00:00Z", "2026-07-01T06:00:00Z", False),
+    # Something priced: the interval decides.
+    (["SAR"], None, "2026-07-01T00:00:00Z", True),
+    (["SAR"], "2026-07-01T00:00:00Z", "2026-07-01T05:59:59Z", False),
+    (["SAR"], "2026-07-01T00:00:00Z", "2026-07-01T06:00:00Z", True),
+    (["SAR"], "not a stamp", "2026-07-01T00:00:00Z", True),
+    (["SAR"], "2027-01-01T00:00:00Z", "2026-07-01T00:00:00Z", True),
+], ids=["empty-never-asked", "empty-interval-passed", "empty-unreadable-stamp",
+        "unquotable-never-asked", "unquotable-interval-passed",
+        "priced-never-asked", "priced-inside-interval", "priced-interval-passed",
+        "priced-unreadable-stamp", "priced-future-stamp"])
+def test_asking_the_interval_first_changes_no_answer(tmp_path, currencies, stamp,
+                                                     now, due):
+    """The reorder for #1768 is safe only because every read in refresh_is_due
+    is free of side effects, so it moves the cost and never the answer. This is
+    the whole table of answers, so a reorder that changed one fails here."""
+    from scrapex import rates
+
+    conn = _priced(tmp_path, currencies, last_checked=stamp)
+    assert rates.refresh_is_due(conn, now=now) is due
+
+
+def test_a_first_quotable_currency_is_due_on_the_next_poll(tmp_path):
+    """Nothing stands between the data and the answer once the interval has
+    passed: the currencies are read fresh, so the first observation in a new
+    currency is due on the very next poll. A cache of `currencies_in_use` that
+    a write did not invalidate would sit on "nothing to convert" here."""
+    from scrapex import rates
+
+    conn = _priced(tmp_path, ["USD"], last_checked="2026-07-01T00:00:00Z")
+    assert rates.refresh_is_due(conn, now="2026-07-01T07:00:00Z") is False
+
+    _observe(conn, "EGP")
+    conn.commit()
+    assert rates.refresh_is_due(conn, now="2026-07-01T07:00:01Z") is True
