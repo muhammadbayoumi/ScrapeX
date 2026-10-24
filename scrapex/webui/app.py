@@ -148,6 +148,7 @@ from ..reports import (
     offer_observations,
     parse_filters,
     price_extremes,
+    registered_source_keys,
     schema_report,
     table_payload,
     watch,
@@ -1969,10 +1970,17 @@ def create_app(
         # readable database, and when that failed this endpoint failed with it —
         # so the panel's only timed poll went silent exactly when it had
         # something to say.
+        #
+        # THE KEYS, NOT THE SUMMARIES (#1764). `len(list_sources(conn))` built
+        # every source's summary to count them: nine statements a source, 154 on
+        # his 17, and 0.444 s of this endpoint's 0.506 s on a copy of his 2.48 GB
+        # warehouse. His engine paid about four times that (#1767), answered in 2.1 s,
+        # and the panel's 2.5 s deadline (`extension/startup.js`, `engineHealth`)
+        # called a running engine unreachable. Same number, one statement.
         try:
             conn = read_conn()
             try:
-                n = len(list_sources(conn))
+                n = len(registered_source_keys(conn))
             finally:
                 conn.close()
         except (DatabaseUnavailableError, DatabaseMigrationError,
