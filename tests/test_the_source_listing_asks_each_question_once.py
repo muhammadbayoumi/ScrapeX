@@ -45,6 +45,11 @@ from tests.test_one_card_per_site_not_one_per_dataset import (
     _warehouse,
 )
 
+#: `extension` because the number this file is written against -- `destinationData`
+#: at 5,000 ms in `extension/startup.js` -- lives on the extension side, the reason
+#: `test_the_health_poll_does_not_scan_the_warehouse.py` gives for its own mark.
+pytestmark = pytest.mark.extension
+
 
 def _steps(conn: sqlite3.Connection, ask) -> int:
     """How many virtual-machine steps SQLite takes to answer `ask()` on `conn`.
