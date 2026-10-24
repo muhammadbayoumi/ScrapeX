@@ -99,10 +99,19 @@ def source_summary(conn: sqlite3.Connection, source_key: str) -> SourceSummary |
     return s
 
 
+def registered_source_keys(conn: sqlite3.Connection) -> list[str]:
+    """Every registered source's key, in the overview's order — one statement.
+
+    Its own function because `/api/health` needs only how many there are, and
+    asking `list_sources` for that ran nine statements a source on the panel's
+    timed poll (#1764)."""
+    return [r[0] for r in conn.execute("SELECT source_key FROM source_site ORDER BY source_key")]
+
+
 def list_sources(conn: sqlite3.Connection) -> list[SourceSummary]:
     """Every registered source with its summary — the web overview (A8 bounded:
     source count is tiny by definition)."""
-    keys = [r[0] for r in conn.execute("SELECT source_key FROM source_site ORDER BY source_key")]
+    keys = registered_source_keys(conn)
     return [s for s in (source_summary(conn, k) for k in keys) if s is not None]
 
 
