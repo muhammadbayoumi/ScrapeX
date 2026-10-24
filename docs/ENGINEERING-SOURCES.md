@@ -271,3 +271,28 @@ It is not merged into `tvtc_training_establishments` either, though that table h
 ### How to re-open this
 
 Level 4 of the precedence order: a published practice with a named author and a stated rationale. The measured functional dependency (level 3) is what makes it apply here, and a census that found one establishment with two licences would re-open it. The source does not decide the second half, one writer per table; that is this repository's own reason, stated above.
+
+## ES-6 · The engine tells Windows it is not background work
+
+**Governs:** the Quality of Service Windows schedules the engine's process at.
+
+**Cited at:** `scrapex/cli.py`.
+
+### The sources
+
+| source | what it contributes |
+|---|---|
+| [Microsoft Learn — SetProcessInformation, Remarks and Examples](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-setprocessinformation) | A process that sets no `PROCESS_POWER_THROTTLING_EXECUTION_SPEED` policy has its QoS level inferred by the system's heuristics. The HighQoS example sets `ControlMask = PROCESS_POWER_THROTTLING_EXECUTION_SPEED` and `StateMask = 0`. |
+| [Microsoft Learn — Quality of Service](https://learn.microsoft.com/en-us/windows/win32/procthread/quality-of-service) | A process that descends from a window-owning process takes the QoS of that window: High in focus, Low minimized or occluded. Background services are Utility. Eco always schedules to efficient cores, and Low and Utility do so on battery. A process that tags itself with `SetProcessInformation` is High. |
+
+### What it decides
+
+The `ui` command makes the HighQoS call on itself as it starts, before it touches a database (`_opt_out_of_eco_qos`). The panel starts the engine through the native host, so the engine descends from Chrome, and Chrome is rarely the window in focus.
+
+Measured on his machine on 2026-10-24, on AC power (#1767). A windowless `pythonw` launched with no focused ancestor spent 4.4x the CPU-s of the same work launched under a focused one, from 6 s after it started. With the call made, it spent 1.0x. This machine throttles on AC as well, which is more than the table above promises, so the measurement decides it here and not the table. Timer resolution, priority class, memory priority and I/O priority each measured the same in every arm, so the engine sets none of them.
+
+**Decided** by the owner on #1767, 2026-10-20. It costs battery whenever the engine is busy.
+
+### How to re-open this
+
+Level 2 of the precedence order: the platform's own documentation. A QoS level Windows adds or retunes re-opens it, and so does a measured battery cost he will not pay. Either way the call is one line to remove.
