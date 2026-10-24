@@ -235,7 +235,7 @@ def _engine_answering(port: int, timeout: float = 1.5) -> dict | None:
     return payload if isinstance(payload, dict) and payload.get("app") == "scrapex" else None
 
 
-def _database_report() -> tuple[dict[str, dict] | None, str | None]:
+def _database_report(*, integrity: bool = True) -> tuple[dict[str, dict] | None, str | None]:
     """Read the current build's database readiness without opening the engine.
 
     Missing databases are not a blocker: the engine creates them on first
@@ -247,7 +247,7 @@ def _database_report() -> tuple[dict[str, dict] | None, str | None]:
         from .databases import DatabaseRegistry
 
         registry = DatabaseRegistry.defaults()
-        states = registry.health()
+        states = registry.health(integrity=integrity)
     except Exception as exc:
         return None, str(exc)
     return states, None
@@ -255,7 +255,10 @@ def _database_report() -> tuple[dict[str, dict] | None, str | None]:
 
 def startup_check() -> dict:
     """Return a structured, actionable preflight result for engine startup."""
-    states, failure = _database_report()
+    # Identity only, the question the engine's own start asks: see
+    # `cli._cmd_ui` (#1713). Asking more here than the engine asks would pass
+    # nothing the engine refuses, and only make Start and Restart wait.
+    states, failure = _database_report(integrity=False)
     if failure:
         return _error(
             "startup_check_failed",

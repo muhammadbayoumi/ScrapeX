@@ -47,12 +47,14 @@ const NATIVE_TIMEOUT_MS = 5000;
 // and that work is O(FILE SIZE), so the numbers live with the other derived
 // deadlines in `STARTUP_DEADLINES` rather than here.
 //
-// CHECK_STARTUP is a fresh process running `health(integrity=True)` on a file
-// it has not opened -- the cold scan `integrityScan` is derived from. Measured
+// CHECK_STARTUP WAS a fresh process running `health(integrity=True)` on a file
+// it had not opened -- the cold scan `integrityScan` is derived from. Measured
 // 2026-10-17 through the host itself on a copy of his 2,232,049,664-byte
-// warehouse: 26.9, 27.7 and 66.8 s cold.
+// warehouse: 26.9, 27.7 and 66.8 s cold. A host from #1793 on asks identity
+// only (0.01 s on his warehouse), but the panel may be talking to an older
+// host, so the budget stays the scan's.
 const SCAN_TIMEOUT_MS = STARTUP_DEADLINES.integrityScan;
-// START_ENGINE RUNS THAT SAME SCAN FIRST (`native.start_engine` calls
+// START_ENGINE RUNS THAT SAME CHECK FIRST (`native.start_engine` calls
 // `startup_check`), then spawns the engine and waits at most 3.5 s for its
 // port. So it is the scan's budget, not a ping's and not its own: 66.8 s plus
 // the 3.5 s was already past the 60 s it had.

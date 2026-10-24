@@ -553,11 +553,12 @@ def create_app(
     databases: DatabaseRegistry | None = None,
     general_db_path: Path | str | None = None,
 ) -> FastAPI:
+    # Identity only, as on the rest of the way up: see `cli._cmd_ui` (#1747).
     if databases is None and db_path is None:
         databases = DatabaseRegistry.defaults()
-        databases.verify()
+        databases.verify(integrity=False)
     if databases is not None:
-        databases.verify()
+        databases.verify(integrity=False)
         price_path = databases.engine.path
         general_database = databases.engine
     else:
