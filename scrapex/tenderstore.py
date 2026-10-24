@@ -37,6 +37,30 @@ import zstandard
 #: The persons a contact point may name, and the only fields `tender_contact_points` has.
 CONTACT_FIELDS = ("name", "job_title", "email", "telephone", "fax_number", "url")
 
+#: THE ZSTD LEVEL FOR EVIDENCE. His decision on #1733, 2026-10-20: 12, the level
+#: `snapshotbody.LEVEL` already chose "where the curve stops paying". Measured there on a
+#: 1,000-notice body: level 19 was 15-24 times slower for 2-14% fewer bytes, and held the
+#: write lock 2.8-6.8 s a response against 0.5-1.2 s. A stored body names its codec and
+#: not its level, so changing this rewrites no row.
+LEVEL = 12
+
+
+@dataclass(frozen=True)
+class Packed:
+    """A response body compressed for `fetched_responses`, and its plain bytes' digest.
+
+    MADE BEFORE THE WRITE LOCK IS TAKEN (#1733). Compressing is the slow part of keeping a
+    response, and inside the transaction it held every other writer back for its length.
+    """
+
+    blob: bytes
+    sha256: str
+
+
+def pack(body: bytes) -> Packed:
+    return Packed(zstandard.ZstdCompressor(level=LEVEL).compress(body),
+                  hashlib.sha256(body).hexdigest())
+
 
 @dataclass(frozen=True)
 class Release:
@@ -65,16 +89,19 @@ class Stored:
 
 
 def store_response(conn: sqlite3.Connection, *, target_uri: str, status_code: int,
-                   content_type: str, headers: dict[str, str], body: bytes,
+                   content_type: str, headers: dict[str, str], body: bytes | Packed,
                    crawl_job_id: int | None = None) -> int:
-    """Keep one response as evidence (`fetched_responses`), compressed. Returns its id."""
+    """Keep one response as evidence (`fetched_responses`), compressed. Returns its id.
+
+    `body` is the plain bytes, or what `pack` made of them before the caller took the
+    write lock, which is how a collector hands it over."""
+    packed = body if isinstance(body, Packed) else pack(body)
     cursor = conn.execute(
         "INSERT INTO fetched_responses (target_uri, status_code, content_type, headers, "
         "body, body_codec, body_sha256, crawl_job_id) VALUES (?,?,?,?,?,?,?,?)",
         (target_uri, status_code, content_type,
          json.dumps(dict(headers), ensure_ascii=False, sort_keys=True),
-         zstandard.ZstdCompressor(level=19).compress(body), "zstd",
-         hashlib.sha256(body).hexdigest(), crawl_job_id))
+         packed.blob, "zstd", packed.sha256, crawl_job_id))
     return int(cursor.lastrowid)
 
 
@@ -149,12 +176,15 @@ def store_release(conn: sqlite3.Connection, *, source_site_id: int, release: Rel
             "project_ref = coalesce(?, project_ref) WHERE id = ?",
             (release.project_ref, process_id))
 
+    # THE DIGEST IS THE CANONICAL TEXT'S, and the column holds the same value as JSONB
+    # (ES-6, migration 0026): `jsonb()` keeps a value's keys in the order given, so the
+    # text read back with `json()` is this text again.
     canonical = _canonical(payload)
     digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
     cursor = conn.execute(
         "INSERT OR IGNORE INTO tender_releases (tender_process_id, release_ref, released_at, "
         "source_modified_at, tags, language, payload, payload_sha256, fetched_response_id) "
-        "VALUES (?,?,?,?,?,?,?,?,?)",
+        "VALUES (?,?,?,?,?,?,jsonb(?),?,?)",
         (process_id, payload["id"], payload["date"], release.source_modified_at,
          json.dumps(payload["tag"]), payload.get("language"), canonical, digest,
          fetched_response_id))
@@ -209,7 +239,7 @@ def compile_process(conn: sqlite3.Connection, tender_process_id: int) -> None:
     on the same party, code or country, because a revision restates them.
     """
     releases = [(int(row[0]), json.loads(row[1])) for row in conn.execute(
-        "SELECT r.id, r.payload FROM tender_releases r WHERE r.tender_process_id = ? "
+        "SELECT r.id, json(r.payload) FROM tender_releases r WHERE r.tender_process_id = ? "
         "AND r.id = (SELECT v.id FROM tender_releases v "
         "            WHERE v.tender_process_id = r.tender_process_id "
         "              AND v.release_ref = r.release_ref "
