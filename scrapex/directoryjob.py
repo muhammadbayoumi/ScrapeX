@@ -166,16 +166,25 @@ def resumable_runs(conn: sqlite3.Connection, source_key: str,
         "SELECT j.job_ref, j.status, j.finished_at, j.created_at, "
         "       count(s.page_snapshot_id) AS readings "
         "  FROM crawl_job AS j "
-        "  JOIN generic_page_snapshot AS s "
-        # SUBSTR AND NOT LIKE, BECAUSE EVERY JOB REF CARRIES A `_` --
+        # CROSS JOIN, SO THE FEW CANDIDATE JOBS ARE THE OUTER LOOP (#1769). With a plain
+        # JOIN and no `sqlite_stat1` the planner scanned every snapshot once per call --
+        # 126,848 of them on his warehouse, 159 ms for muqawil and 22 ms for a site with
+        # no candidate job at all -- and `/api/sources` calls this once per site.
+        "  CROSS JOIN generic_page_snapshot AS s "
+        # A RANGE AND NOT LIKE, BECAUSE EVERY JOB REF CARRIES A `_` --
         # `job_925080aad843` -- and `_` is a LIKE wildcard, so an unescaped pattern also
         # matches a ref differing in that position. The escaping is doable and it nests
         # three deep inside a Python string inside SQL; a prefix comparison says the same
         # thing with nothing to get wrong. `contractors.approve` escapes instead because
         # there the pattern arrives as a parameter.
+        #
+        # THE PREFIX IS WRITTEN AS A RANGE, NOT A `substr`, so it can search
+        # `idx_snapshot_run_url` rather than read every ref. Under the column's BINARY
+        # collation a string starts with `job-<ref>-` exactly when it sorts at or after
+        # it and before `job-<ref>.`, because `.` is the byte after `-`.
         "    ON s.crawl_run_ref = 'job-' || j.job_ref "
-        "    OR substr(s.crawl_run_ref, 1, length(j.job_ref) + 5) "
-        "         = 'job-' || j.job_ref || '-' "
+        "    OR (s.crawl_run_ref >= 'job-' || j.job_ref || '-' "
+        "        AND s.crawl_run_ref < 'job-' || j.job_ref || '.') "
         " WHERE j.job_kind = ? AND j.source_keys LIKE ? "
         # CREATED AFTER THE NEWEST COMPLETED CRAWL OF THIS SOURCE, for the two reasons
         # the docstring gives. A completed run is excluded by the same clause: its own
