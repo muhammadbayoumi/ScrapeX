@@ -134,10 +134,10 @@ def test_a_start_still_refuses_a_database_from_a_newer_build(registry, served, a
 
 
 def test_upgrade_database_and_the_defaults_still_scan(registry, statements):
-    """The scan moved off the way up, not out of the product. Upgrade database
-    decides on a report that must have looked for damage, because migrating a
-    damaged file is how a small corruption becomes an unrecoverable one
-    (`dbupgrade.upgrade_what_is_only_behind`)."""
+    """The scan moved off the way up, not out of the product. On a file at this
+    build's version, Upgrade database's report looks for damage and refuses to
+    migrate over it (`dbupgrade.upgrade_what_is_only_behind`). A file that is
+    behind is not scanned before its migration, on `main` too: #1796."""
     import scrapex.native as native
 
     assert native.upgrade_database()["ok"] is True
