@@ -4,7 +4,8 @@ His decision on #1733, 2026-10-20: "the best, not the cheapest, with a reference
 references (ES-6): Supabase recommends jsonb "for almost all cases"; PostgreSQL prefers
 it unless the exact text matters, and the exact text is kept in `fetched_responses`;
 SQLite's JSONB "is smaller and faster than text JSON". Measured on the six real
-releases: 11% smaller, `json_extract` 4.8 times faster, the compile's read unchanged.
+releases: 11% smaller, `json_extract` 2.2 to 2.4 times faster, the compile's read
+unchanged.
 """
 from __future__ import annotations
 

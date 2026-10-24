@@ -24,7 +24,8 @@ that keeps refusing) arrives as `CrawlBlocked` and is never taken for a failed p
 KEPT PAGE BY PAGE (#1733 item 5): one transaction a page, so the WAL holds one page of
 1,000 notices, not an area of up to 47,395. Each notice inside it is undone to a
 savepoint of its own when it cannot be kept (#1733 item 3): `store_release` writes the
-release before every refusal that can follow it.
+release before every refusal that can follow it. A page that cannot be committed is undone
+whole, and what it did reaches the tally and the log only once it is committed.
 """
 from __future__ import annotations
 
@@ -32,6 +33,8 @@ import math
 import sqlite3
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
+from itertools import pairwise
 from typing import Any
 
 import httpx
@@ -110,6 +113,17 @@ class AreaRead:
     reason: str | None = None
 
 
+@dataclass(frozen=True)
+class ChangesRead:
+    """How one pass over what changed ended: complete when it reached a notice older than
+    `since` or the end of what the Bank lists, else cut short with the reason. Only a
+    complete pass may move the caller's `since` on (`read_changes`)."""
+
+    complete: bool
+    pages_read: int
+    reason: str | None = None
+
+
 def _counted(n: int, word: str) -> str:
     return f"{n:,} {word}{'' if n == 1 else 's'}"
 
@@ -174,16 +188,26 @@ def newest_held(conn: sqlite3.Connection, source_site_id: int) -> str | None:
     return row[0] if row else None
 
 
-def _older(stamp: Any, since: str) -> bool:
-    """Is this change stamp older than `since`? Read through `normalize`, not as strings.
-    A stamp that does not read is NOT older: the notice is kept, and the converter refuses
-    it by name, so a change in the stamp's shape cannot end a pass in silence."""
+def _instant(stamp: Any) -> datetime | None:
+    """A change stamp read through `normalize`, not as a string, or None when it does not
+    read: absent, blank, or in another shape. A notice whose stamp does not read is never
+    taken for older: it is kept, and the converter refuses it by name, so a change in the
+    stamp's shape cannot end a pass in silence."""
     if not isinstance(stamp, str):
-        return False
+        return None
     try:
-        return parse_instant(stamp) < parse_instant(since)
+        return parse_instant(stamp)
     except ValueError:
-        return False
+        return None
+
+
+def _not_its_share(where: str, rows: list[dict], due: int) -> str | None:
+    """Why a page is not the page asked for, or None. Under the total it answers, a page
+    holds `min(PAGE_ROWS, total - offset)` notices; any other number means notices went
+    missing or came twice, and a page kept anyway would mark its read whole."""
+    if len(rows) == due:
+        return None
+    return f"{where}: the Bank answered {len(rows):,} notices where {due:,} were due"
 
 
 def _get(fetcher, params: dict[str, str], where: str) -> tuple[httpx.Response | None, str]:
@@ -202,49 +226,64 @@ def _keep(conn: sqlite3.Connection, response: httpx.Response, notices: list[dict
           source_site_id: int, crawl_job_id: int | None, tally: Tally, log: Log,
           where: str) -> None:
     """One page: its response as evidence, then each notice under a savepoint of its own,
-    committed together. Raises `ShapeChanged` when not one notice could be kept."""
+    committed together. Raises `ShapeChanged` when not one notice could be kept.
+
+    WHAT IT DID IS REPORTED ONCE IT IS COMMITTED. An undone page is read again once the
+    lock is free, and reports then; and part 3b-2's job writes its log through the
+    warehouse, so a line written inside the page would commit half of it."""
     # BEFORE THE LOCK (#1733): nothing is written yet, so no transaction holds it.
     packed = tenderstore.pack(response.content)
-    response_id = tenderstore.store_response(
-        conn, target_uri=str(response.url), status_code=response.status_code,
-        content_type=response.headers.get("content-type", ""), headers=dict(response.headers),
-        body=packed, crawl_job_id=crawl_job_id)
-    refused: list[str] = []
-    for notice in notices:
-        tally.notices += 1
-        # INSIDE THE PAGE'S OPEN TRANSACTION, so in the sqlite3 module's legacy mode its
-        # RELEASE commits nothing on its own (#1733 item 3).
-        conn.execute("SAVEPOINT notice")
-        try:
-            stored = tenderstore.store_release(
-                conn, source_site_id=source_site_id, release=wb.release_from_notice(notice),
-                fetched_response_id=response_id)
-        except sqlite3.OperationalError:
-            # NOT A NOTICE'S FAULT: a lock another app holds, or the disk. Counting it as a
-            # refused notice would skip notices in silence; the page is undone and the
-            # error goes to the run (`CLAUDE.md`: wait for the lock, never route around it).
-            conn.rollback()
-            raise
-        except Exception as exc:  # any shape, recorded with its id (#1733 item 4)
-            conn.execute("ROLLBACK TO notice")
+    new = unchanged = 0
+    refused: list[tuple[Any, str]] = []
+    try:
+        response_id = tenderstore.store_response(
+            conn, target_uri=str(response.url), status_code=response.status_code,
+            content_type=response.headers.get("content-type", ""),
+            headers=dict(response.headers), body=packed, crawl_job_id=crawl_job_id)
+        for notice in notices:
+            # INSIDE THE PAGE'S OPEN TRANSACTION, so in the sqlite3 module's legacy mode its
+            # RELEASE commits nothing on its own (#1733 item 3).
+            conn.execute("SAVEPOINT notice")
+            try:
+                stored = tenderstore.store_release(
+                    conn, source_site_id=source_site_id,
+                    release=wb.release_from_notice(notice), fetched_response_id=response_id)
+            except sqlite3.OperationalError:
+                # NOT A NOTICE'S FAULT: a lock another app holds, or the disk. Counted as a
+                # refused notice it would skip notices in silence; the page is undone below
+                # (`CLAUDE.md`: wait for the lock, never route around it).
+                raise
+            except Exception as exc:  # any shape, recorded with its id (#1733 item 4)
+                conn.execute("ROLLBACK TO notice")
+                conn.execute("RELEASE notice")
+                reason = (str(exc) if isinstance(exc, wb.NoticeShapeError)
+                          else f"{type(exc).__name__}: {exc}")
+                refused.append((notice.get("id"), reason))
+                continue
             conn.execute("RELEASE notice")
-            tally.errors += 1
-            reason = (str(exc) if isinstance(exc, wb.NoticeShapeError)
-                      else f"{type(exc).__name__}: {exc}")
-            refused.append(reason)
-            log("error", f"{notice.get('id')!r} not kept: {reason}")
-            continue
-        conn.execute("RELEASE notice")
-        if stored.new:
-            tally.releases_new += 1
-        else:
-            tally.releases_unchanged += 1
-    # The evidence of a page that changed shape is kept: it is what shows how it changed.
-    conn.commit()
+            if stored.new:
+                new += 1
+            else:
+                unchanged += 1
+        # The evidence of a page that changed shape is kept: it is what shows how it changed.
+        conn.commit()
+    except BaseException:
+        # THE PAGE IS UNDONE WHOLE, whatever stopped it: a lock another app holds at its
+        # first write or at the commit, the disk, an interrupt. Left open, the transaction
+        # would keep the write lock, and the next read would refuse to start inside it.
+        if conn.in_transaction:
+            conn.rollback()
+        raise
+    tally.notices += len(notices)
+    tally.releases_new += new
+    tally.releases_unchanged += unchanged
+    tally.errors += len(refused)
+    for notice_id, reason in refused:
+        log("error", f"{notice_id!r} not kept: {reason}")
     if notices and len(refused) == len(notices):
         raise ShapeChanged(f"Stopped because the Bank's notices changed shape at {where}: "
                            f"none of {_counted(len(notices), 'notice')} could be read "
-                           f"({refused[0]})")
+                           f"({refused[0][1]})")
 
 
 def read_area(conn: sqlite3.Connection, fetcher, *, source_site_id: int, area: Area,
@@ -284,10 +323,15 @@ def read_area(conn: sqlite3.Connection, fetcher, *, source_site_id: int, area: A
                       f"and counted {area.count:,}")
             log("warning", reason)
             return AreaRead(complete=False, pages_read=read, reason=reason)
-        _keep(conn, response, body["procnotices"], source_site_id=source_site_id,
+        rows = body["procnotices"]
+        short = _not_its_share(where, rows, min(PAGE_ROWS, area.count - offset))
+        if short:
+            log("warning", short)
+            return AreaRead(complete=False, pages_read=read, reason=short)
+        _keep(conn, response, rows, source_site_id=source_site_id,
               crawl_job_id=crawl_job_id, tally=tally, log=log, where=where)
         read += 1
-        notices += len(body["procnotices"])
+        notices += len(rows)
         if on_page is not None:
             on_page(area.name, page)
     # What THIS call read: an area resumed partway counts its own pages only.
@@ -296,40 +340,71 @@ def read_area(conn: sqlite3.Connection, fetcher, *, source_site_id: int, area: A
 
 
 def read_changes(conn: sqlite3.Connection, fetcher, *, source_site_id: int, since: str,
-                 tally: Tally, log: Log, crawl_job_id: int | None = None) -> int:
-    """Read what changed, newest change first, down to `since` (`newest_held`). Returns
-    the pages read.
+                 tally: Tally, log: Log, crawl_job_id: int | None = None) -> ChangesRead:
+    """Read what changed since `since`, newest change first, keeping each page as it
+    arrives.
 
     The Bank has no date filter; `srt=api_modified_date&order=desc` sorts (#1647 B6,
-    request 20), so a pass reads until a notice older than the newest it holds. A notice
-    stamped exactly `since` is read: the stamp is to the second, and a second can hold
-    more than one change."""
+    request 20), so a pass reads until a notice older than `since`, or the end of what the
+    Bank lists. A notice stamped exactly `since` is read: the stamp is to the second, and
+    a second can hold more than one change.
+
+    THE CALLER MOVES `since` ON ONLY AFTER A COMPLETE PASS. One cut short (a page that
+    failed after its tries, a page that is not its share, the Bank's offset limit) returns
+    `complete=False` with the reason, which is also logged; one that raised returns
+    nothing. Either way the notices behind its last page are newer than `newest_held`,
+    which already counts the pages it kept, so `since` stays where it was, and the next
+    pass reads them."""
     if conn.in_transaction:
         raise ValueError("read_changes commits page by page; call it outside a transaction")
+    since_at = parse_instant(since)
     pages = notices = 0
     offset = 0
+    reason = None
     while True:
         if offset >= OFFSET_LIMIT:
-            log("warning", f"more than {OFFSET_LIMIT:,} notices changed since {since}: the "
-                           "Bank pages no further, and an area pass reads the rest")
+            reason = (f"{OFFSET_LIMIT:,} notices or more changed since {since}, and the Bank "
+                      "pages no further")
             break
         where = f"changes, page {offset // PAGE_ROWS + 1}"
         response, failed = _get(fetcher, {
             "format": "json", "rows": str(PAGE_ROWS), "os": str(offset), "fl": "*",
             "srt": "api_modified_date", "order": "desc"}, where)
         if response is None:
-            log("warning", failed)
+            reason = failed
             break
         tally.requests += 1
-        rows = _envelope(response, offset)["procnotices"]
-        newer = [row for row in rows if not _older(row.get("api_modified_date"), since)]
+        body = _envelope(response, offset)
+        rows, total = body["procnotices"], int(body["total"])
+        reason = _not_its_share(where, rows, max(0, min(PAGE_ROWS, total - offset)))
+        if reason:
+            break
+        stamps = [_instant(row.get("api_modified_date")) for row in rows]
+        # NEWEST FIRST, ASSERTED: the pass stops at the first notice older than `since`, so
+        # it is right only in the order it asked for, and this API has ignored a parameter
+        # without a word (`strdate`, #1647 request 20). Asserted within a page, which one
+        # response answers at once; not across pages, because a change made during the
+        # pass puts its notice first and moves every row down, so a page can open with
+        # the rows the page before closed with. Equal stamps are common: the index updates
+        # once a day, all at one minute (request 20).
+        readable = [(row, at) for row, at in zip(rows, stamps, strict=True) if at is not None]
+        for (before, before_at), (row, at) in pairwise(readable):
+            if at > before_at:
+                raise PageShapeError(
+                    f"{where}: {row.get('id')!r} changed {row['api_modified_date']} follows "
+                    f"{before.get('id')!r} changed {before['api_modified_date']}: the "
+                    "Bank's answer is not newest first")
+        newer = [row for row, at in zip(rows, stamps, strict=True)
+                 if at is None or at >= since_at]
         if newer:
             _keep(conn, response, newer, source_site_id=source_site_id,
                   crawl_job_id=crawl_job_id, tally=tally, log=log, where=where)
         pages += 1
         notices += len(newer)
-        if len(newer) < len(rows) or len(rows) < PAGE_ROWS:
+        if len(newer) < len(rows) or offset + len(rows) >= total:
             break
         offset += PAGE_ROWS
+    if reason:
+        log("warning", reason)
     log("info", f"changes: {_counted(notices, 'notice')} in {_counted(pages, 'request')}")
-    return pages
+    return ChangesRead(complete=reason is None, pages_read=pages, reason=reason)

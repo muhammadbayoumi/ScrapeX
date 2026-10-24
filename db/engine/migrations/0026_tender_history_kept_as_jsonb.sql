@@ -5,8 +5,8 @@
 -- almost all cases"; PostgreSQL prefers it unless the exact text matters, and the exact
 -- text is kept already, compressed, in `fetched_responses`; SQLite's own documentation says
 -- its JSONB "is smaller and faster than text JSON". Measured on the six real World Bank
--- releases, 100,000 rows: 1,462 bytes a release against 1,643, `json_extract` 4.8 times
--- faster, and the compile's own read unchanged.
+-- releases, 100,000 rows: 1,462 bytes a release against 1,643, `json_extract` 2.2 to 2.4
+-- times faster on four paths, and the compile's own read unchanged.
 --
 -- WHAT DOES NOT CHANGE. `payload_sha256` is still the sha256 of the release's canonical
 -- text, taken in Python before the write (`tenderstore._canonical`), so the same release

@@ -54,6 +54,14 @@ def test_it_ships_obeying_robots_at_two_and_a_half_seconds_and_off(conn):
     assert rules.user_agent is None
 
 
+def test_a_tender_source_handed_for_another_key_is_refused(conn):
+    """One source's settings never govern another's crawl: a mixed-up caller is stopped
+    by name, not served the World Bank's robots and pace for some other site."""
+    with pytest.raises(ValueError, match="asked for 'another_site' with 'worldbank_org'"
+                                         "'s tender source"):
+        source_settings.effective(conn, "another_site", tenders.get("worldbank_org"))
+
+
 def test_the_rules_say_each_comes_from_the_source(conn):
     explained = source_settings.explained(conn, "worldbank_org", tenders.get("worldbank_org"))
     assert explained["robots"] == {"value": "obey", "custom": None, "shipped": "obey",

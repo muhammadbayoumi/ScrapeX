@@ -295,8 +295,8 @@ The release is stored as JSONB, and its CHECK holds it to one well-formed JSONB 
 source's own bytes are kept in `fetched_responses`, and the dedup key is the sha256 of the
 release's canonical text, taken in Python before the write. Measured on the six real
 World Bank releases, 100,000 rows, SQLite 3.50.4: 1,462 bytes a release against 1,643,
-`json_extract` 4.8 times faster, the compile's own read unchanged, and `json()` returns
-the canonical text exactly.
+`json_extract` 2.2 to 2.4 times faster on four paths, the compile's own read unchanged,
+and `json()` returns the canonical text exactly.
 
 **Decided** by the owner on #1733, 2026-10-20: "the best, not the cheapest, with a
 reference".

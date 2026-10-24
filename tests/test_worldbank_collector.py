@@ -33,6 +33,8 @@ FIXTURES = Path(__file__).parent / "fixtures" / "worldbank"
 FACETS = json.loads((FIXTURES / "facets.json").read_text(encoding="utf-8"))["response"]
 NOTICES = json.loads((FIXTURES / "notices.json").read_text(encoding="utf-8"))["notices"]
 EGYPT = "Egypt, Arab Republic of"
+#: How `Bank` keys a page of the pass over what changed, where an area's page has its name.
+CHANGES = "changes"
 
 
 def notices(count: int, *, start: int = 0) -> list[dict]:
@@ -59,12 +61,14 @@ class Bank:
     """Answers the collector as search.worldbank.org would, from what #1647 recorded."""
 
     def __init__(self, areas: dict[str, list[dict]] | None = None, *, facets=None,
-                 fail=(), raise_at=None, changed=(), totals=None):
+                 fail=(), raise_at=None, changed=(), totals=None, answers=None):
         self.areas = areas or {}
         self.facets = facets if facets is not None else facet(self.areas)
-        self.fail = dict(fail)            # (area, offset) -> HTTP status after its tries
-        self.raise_at = raise_at or {}    # (area, offset) -> exception to raise instead
-        self.changed = list(changed)      # notices, newest change first
+        # A page is keyed (area, offset), or (CHANGES, offset) in the pass over what changed.
+        self.fail = dict(fail)            # page -> HTTP status after its tries
+        self.raise_at = raise_at or {}    # page -> exception to raise instead
+        self.answers = answers or {}      # page -> how many notices it answers instead
+        self.changed = list(changed)      # notices, in the order the Bank answers them
         self.totals = totals or {}        # area -> the total the Bank answers instead
         self.calls: list[dict] = []
         self.requests_count = 0
@@ -77,18 +81,20 @@ class Bank:
         if "fct" in params:
             return httpx.Response(200, json=self.facets, request=request)
         offset = int(params["os"])
+        page = (params.get(wc.AREA_FACET, CHANGES), offset)
+        if page in self.raise_at:
+            raise self.raise_at[page]
+        if page in self.fail:
+            status = self.fail[page]
+            raise httpx.HTTPStatusError(f"HTTP {status}", request=request,
+                                        response=httpx.Response(status, request=request))
+        rows_answered = self.answers.get(page, wc.PAGE_ROWS)
         if params.get("srt") == "api_modified_date":
-            rows = self.changed[offset:offset + wc.PAGE_ROWS]
+            rows = self.changed[offset:offset + rows_answered]
             total = len(self.changed)
         else:
             area = params[wc.AREA_FACET]
-            if (area, offset) in self.raise_at:
-                raise self.raise_at[(area, offset)]
-            if (area, offset) in self.fail:
-                status = self.fail[(area, offset)]
-                raise httpx.HTTPStatusError(f"HTTP {status}", request=request,
-                                            response=httpx.Response(status, request=request))
-            rows = self.areas[area][offset:offset + wc.PAGE_ROWS]
+            rows = self.areas[area][offset:offset + rows_answered]
             total = self.totals.get(area, len(self.areas[area]))
         return httpx.Response(200, request=request, json={
             "rows": wc.PAGE_ROWS, "os": str(offset), "page": str(offset // wc.PAGE_ROWS + 1),
@@ -197,6 +203,17 @@ def test_an_area_is_read_page_by_page_and_kept_page_by_page(conn):
     assert not conn.in_transaction, "the last page was left uncommitted"
 
 
+def test_a_page_is_reported_only_once_it_is_committed(conn):
+    """`on_page` is part 3b-2's checkpoint: a page it names must already be kept."""
+    seen = []
+    plan = wc.count_areas(Bank({EGYPT: notices(1_200)}))
+    wc.read_area(conn, Bank({EGYPT: notices(1_200)}), source_site_id=site(conn),
+                 area=plan.areas[0], tally=wc.Tally(), log=Log(),
+                 on_page=lambda name, page: seen.append(
+                     (page, conn.in_transaction, count(conn, "tender_releases"))))
+    assert seen == [(0, False, 1_000), (1, False, 1_200)]
+
+
 def test_reading_an_area_again_keeps_nothing_twice(conn):
     bank = Bank({EGYPT: notices(5)})
     read(conn, bank, EGYPT)
@@ -292,12 +309,49 @@ def test_a_locked_warehouse_is_not_a_refused_notice(conn, monkeypatch):
         return real(c, **kw)
 
     monkeypatch.setattr(tenderstore, "store_release", store)
-    tally = wc.Tally()
+    page = notices(4)
+    page[0]["notice_type"] = "Prequalification Notice"   # refused before the lock
+    tally, log = wc.Tally(), Log()
     with pytest.raises(sqlite3.OperationalError, match="locked"):
-        read(conn, Bank({EGYPT: notices(3)}), EGYPT, tally=tally)
-    assert tally.errors == 0
+        read(conn, Bank({EGYPT: page}), EGYPT, tally=tally, log=log)
     assert count(conn, "tender_releases") == 0 and count(conn, "fetched_responses") == 0
     assert not conn.in_transaction
+    # An undone page reports nothing: it is read again once the lock is free, and what it
+    # did is reported then, once.
+    assert tally == wc.Tally(requests=1)
+    assert not log.says("not kept")
+
+
+def test_a_warehouse_another_app_holds_leaves_no_transaction_open(conn):
+    """A real second writer, at the page's first write (its evidence): the page is undone
+    and the error goes to the run, which can read the area again once the lock is free."""
+    conn.execute("PRAGMA busy_timeout = 100")
+    other = sqlite3.connect(conn.execute("PRAGMA database_list").fetchone()[2])
+    other.execute("BEGIN IMMEDIATE")
+    try:
+        with pytest.raises(sqlite3.OperationalError, match="locked"):
+            read(conn, Bank({EGYPT: notices(3)}), EGYPT)
+        assert not conn.in_transaction
+    finally:
+        other.rollback()
+        other.close()
+    result, _, _, _ = read(conn, Bank({EGYPT: notices(3)}), EGYPT)
+    assert result.complete and count(conn, "tender_releases") == 3
+
+
+def test_the_log_is_never_written_inside_a_page(conn):
+    """Part 3b-2's job writes the log through the warehouse (`directoryjob.py`'s
+    `append_log`, then commit): a line written inside the page would commit half of it."""
+    page = notices(3)
+    page[1]["notice_type"] = "Prequalification Notice"
+    seen, log = [], Log()
+
+    def watching(level, message):
+        seen.append(conn.in_transaction)
+        log(level, message)
+
+    read(conn, Bank({EGYPT: page}), EGYPT, log=watching)
+    assert log.says(page[1]["id"]) and seen and not any(seen), seen
 
 
 def test_a_page_whose_every_notice_is_refused_stops_the_crawl_as_failed(conn):
@@ -311,16 +365,41 @@ def test_a_page_whose_every_notice_is_refused_stops_the_crawl_as_failed(conn):
                               "page 1: none of 3 notices could be read")
     assert "'Prequalification Notice'" in message
     assert count(conn, "tender_releases") == 0
+    # Its evidence is kept: the response is what shows how the shape changed.
+    assert count(conn, "fetched_responses") == 1
+    assert not conn.in_transaction
 
 
-def test_a_page_that_fails_after_its_tries_leaves_its_area_unread(conn):
-    bank = Bank({EGYPT: notices(1_500)}, fail={(EGYPT, 1000): 503})
+@pytest.mark.parametrize("failure, words", [
+    ({"fail": {(EGYPT, 1000): 503}}, "HTTP 503"),
+    ({"raise_at": {(EGYPT, 1000): httpx.ConnectError("unreachable")}}, "ConnectError"),
+])
+def test_a_page_that_fails_after_its_tries_leaves_its_area_unread(conn, failure, words):
+    bank = Bank({EGYPT: notices(1_500)}, **failure)
     result, _, log, pages = read(conn, bank, EGYPT)
     assert not result.complete
-    assert result.reason == f"{EGYPT}, page 2: HTTP 503 after its tries"
+    assert result.reason == f"{EGYPT}, page 2: {words} after its tries"
     assert pages == [(EGYPT, 0)], "the page before the failure was not kept"
     assert count(conn, "tender_releases") == 1_000
     assert log.says(result.reason)
+
+
+@pytest.mark.parametrize("answered", [400, 1_001])
+def test_a_page_that_is_not_its_share_of_the_count_leaves_the_area_unread(conn, answered):
+    """Page 2 of 2,500 holds 1,000. A page that answers another number, under the same
+    total, is not the page asked for: kept, it would mark the area whole and miss the rest."""
+    bank = Bank({EGYPT: notices(2_500)}, answers={(EGYPT, 1000): answered})
+    result, _, log, pages = read(conn, bank, EGYPT)
+    assert not result.complete and pages == [(EGYPT, 0)]
+    assert result.reason == (f"{EGYPT}, page 2: the Bank answered {answered:,} notices "
+                             "where 1,000 were due")
+    assert count(conn, "tender_releases") == 1_000 and count(conn, "fetched_responses") == 1
+    assert log.says(result.reason)
+
+
+def test_the_last_page_of_an_area_holds_only_the_remainder(conn):
+    result, _, _, pages = read(conn, Bank({EGYPT: notices(1_001)}), EGYPT)
+    assert result.complete and pages == [(EGYPT, 0), (EGYPT, 1)]
 
 
 def test_an_area_whose_total_differs_from_its_count_is_left_unread(conn):
@@ -370,6 +449,24 @@ def test_a_paused_area_goes_on_from_the_next_unread_page(conn):
     assert count(conn, "tender_releases") == 2_500 and tally.releases_new == 500
 
 
+@pytest.mark.parametrize("reader", [
+    lambda conn, bank: wc.read_area(conn, bank, source_site_id=site(conn), tally=wc.Tally(),
+                                    log=Log(), area=wc.Area(name=EGYPT, count=3)),
+    lambda conn, bank: wc.read_changes(conn, bank, source_site_id=site(conn), tally=wc.Tally(),
+                                       log=Log(), since="2026-10-09T16:11:00Z"),
+], ids=["area", "changes"])
+def test_a_reader_refuses_to_start_inside_a_transaction(conn, reader):
+    """Each page commits: started inside the caller's transaction, the first page would
+    commit the caller's half-done work with it."""
+    conn.execute("INSERT INTO source_site (source_key, source_name) VALUES (?, ?)",
+                 ("half_done", "a caller's uncommitted row"))
+    bank = Bank({EGYPT: notices(3)}, changed=notices(3, start=100))
+    with pytest.raises(ValueError, match="outside a transaction"):
+        reader(conn, bank)
+    assert bank.requests_count == 0
+    conn.rollback()
+
+
 @pytest.mark.parametrize("break_it", [
     lambda body: body.pop("procnotices"),
     lambda body: body.update(procnotices={"OP1": {}}),
@@ -410,40 +507,133 @@ def test_the_newest_held_is_the_latest_change_stamp_kept(conn):
     assert wc.newest_held(conn, site(conn)) == "2026-10-09T16:11:00Z"
 
 
+SINCE = "2026-10-09T16:11:00Z"
+
+
+def changes(newer: int, older: int = 0) -> list[dict]:
+    """`newer` notices changed after `SINCE`, then `older` changed before it: newest first."""
+    return stamped(notices(newer + older, start=100),
+                   ["2026-10-12T09:00:00Z"] * newer + ["2026-10-01T00:00:00Z"] * older)
+
+
+def read_changes(conn, bank, **kw):
+    log, tally = kw.pop("log", Log()), kw.pop("tally", wc.Tally())
+    outcome = wc.read_changes(conn, bank, source_site_id=site(conn), since=SINCE, tally=tally,
+                              log=log, **kw)
+    return outcome, tally, log
+
+
 def test_changes_are_read_newest_first_until_the_newest_held(conn):
-    since = "2026-10-09T16:11:00Z"
     changed = stamped(notices(4, start=100), ["2026-10-12T09:00:00Z", "2026-10-11T09:00:00Z",
-                                              since, "2026-10-01T00:00:00Z"])
+                                              SINCE, "2026-10-01T00:00:00Z"])
     bank = Bank(changed=changed)
-    log, tally = Log(), wc.Tally()
-    pages = wc.read_changes(conn, bank, source_site_id=site(conn), since=since, tally=tally,
-                            log=log)
+    outcome, tally, log = read_changes(conn, bank)
     call = bank.calls[0]
     assert (call["srt"], call["order"], call["os"], call["fl"]) == (
         "api_modified_date", "desc", "0", "*")
-    assert pages == 1
+    assert outcome == wc.ChangesRead(complete=True, pages_read=1)
     # The two newer notices and the one at the stamp itself; the older one is not read.
     assert tally.notices == 3 and count(conn, "tender_releases") == 3
     assert log.says("changes: 3 notices in 1 request")
 
 
-@pytest.mark.parametrize("stamp", [None, 20261012, "12 October 2026"])
-def test_a_change_stamp_that_does_not_read_is_kept_and_refused_by_name(conn, stamp):
-    """Not taken for older: the pass goes on, and the converter refuses the notice."""
-    changed = stamped(notices(3, start=100), ["2026-10-12T09:00:00Z"] * 3)
-    changed[1]["api_modified_date"] = stamp
-    log, tally = Log(), wc.Tally()
-    wc.read_changes(conn, Bank(changed=changed), source_site_id=site(conn),
-                    since="2026-10-09T16:11:00Z", tally=tally, log=log)
-    assert tally.notices == 3 and tally.errors == 1
-    assert count(conn, "tender_releases") == 2
+def test_a_pass_stops_at_the_first_page_that_reaches_the_newest_held(conn):
+    """999 changed since, then 1,501 before: a full page that reaches `since` is the last
+    one read, though it holds 1,000 rows and 1,501 more stand behind it."""
+    bank = Bank(changed=changes(999, older=1_501))
+    outcome, _, _ = read_changes(conn, bank)
+    assert outcome == wc.ChangesRead(complete=True, pages_read=1)
+    assert bank.requests_count == 1 and count(conn, "tender_releases") == 999
+
+
+@pytest.mark.parametrize("newer, pages", [(1_500, 2), (1_000, 1), (0, 1)])
+def test_a_pass_that_reaches_the_end_of_what_the_bank_holds_is_complete(conn, newer, pages):
+    """Nothing older than `since` is left to see: the end of the list is the end."""
+    outcome, _, _ = read_changes(conn, Bank(changed=changes(newer)))
+    assert outcome == wc.ChangesRead(complete=True, pages_read=pages)
+    assert count(conn, "tender_releases") == newer
+
+
+@pytest.mark.parametrize("failure, words", [
+    ({"fail": {(CHANGES, 1000): 503}}, "HTTP 503"),
+    ({"raise_at": {(CHANGES, 1000): httpx.ReadTimeout("slow")}}, "ReadTimeout"),
+])
+def test_a_pass_cut_short_by_a_failed_page_says_so(conn, failure, words):
+    """The caller moves `since` on only after a complete pass: the 1,500 behind the failed
+    page are newer than anything the next pass would otherwise stop at."""
+    outcome, _, log = read_changes(conn, Bank(changed=changes(2_500), **failure))
+    reason = f"changes, page 2: {words} after its tries"
+    assert outcome == wc.ChangesRead(complete=False, pages_read=1, reason=reason)
+    assert count(conn, "tender_releases") == 1_000
+    assert log.says(reason)
+
+
+@pytest.mark.parametrize("answered", [999, 1_001])
+def test_a_pass_whose_page_is_not_its_share_says_so(conn, answered):
+    outcome, _, log = read_changes(conn, Bank(changed=changes(2_500),
+                                              answers={(CHANGES, 1000): answered}))
+    reason = f"changes, page 2: the Bank answered {answered:,} notices where 1,000 were due"
+    assert outcome == wc.ChangesRead(complete=False, pages_read=1, reason=reason)
+    assert count(conn, "tender_releases") == 1_000
+    assert log.says(reason)
 
 
 def test_changes_past_the_offset_limit_stop_by_name(conn, monkeypatch):
     monkeypatch.setattr(wc, "OFFSET_LIMIT", 2_000)
-    changed = stamped(notices(3_000, start=100), ["2026-10-12T09:00:00Z"] * 3_000)
-    log = Log()
-    wc.read_changes(conn, Bank(changed=changed), source_site_id=site(conn),
-                    since="2026-10-01T00:00:00Z", tally=wc.Tally(), log=log)
+    outcome, _, log = read_changes(conn, Bank(changed=changes(3_000)))
+    reason = f"2,000 notices or more changed since {SINCE}, and the Bank pages no further"
+    assert outcome == wc.ChangesRead(complete=False, pages_read=2, reason=reason)
     assert count(conn, "tender_releases") == 2_000
-    assert log.says("more than 2,000 notices changed since 2026-10-01T00:00:00Z")
+    assert log.says(reason)
+
+
+def test_a_changes_page_whose_every_notice_is_refused_stops_the_crawl(conn):
+    changed = changes(3)
+    for notice in changed:
+        notice["notice_type"] = "Prequalification Notice"
+    with pytest.raises(wc.ShapeChanged, match="at changes, page 1: none of 3 notices"):
+        read_changes(conn, Bank(changed=changed))
+    assert count(conn, "fetched_responses") == 1
+
+
+@pytest.mark.parametrize("stamps, risen", [
+    (["2026-10-11T09:00:00Z", "2026-10-12T09:00:00Z", "2026-10-10T09:00:00Z"], "OP90000101"),
+    # The rise hides behind a stamp that does not read.
+    (["2026-10-11T09:00:00Z", "", "2026-10-12T09:00:00Z"], "OP90000102"),
+])
+def test_a_page_the_bank_did_not_sort_newest_first_is_refused(conn, stamps, risen):
+    """The pass stops at the first notice older than `since`, so it is right only in the
+    order it asked for, and this API has ignored a parameter in silence (#1647 request 20).
+    Served unsorted, a pass would stop at the first older notice and miss what follows."""
+    bank = Bank(changed=stamped(notices(len(stamps), start=100), stamps))
+    with pytest.raises(wc.PageShapeError, match=f"changes, page 1: '{risen}' changed "
+                                                "2026-10-12T09:00:00Z follows 'OP90000100' "
+                                                ".*not newest first"):
+        read_changes(conn, bank)
+    assert count(conn, "tender_releases") == 0 and count(conn, "fetched_responses") == 0
+
+
+def test_a_change_made_during_the_pass_is_not_taken_for_disorder(conn):
+    """Two notices changed while the pass runs go first, and every row moves down two:
+    page 2 opens with the two rows page 1 closed with, the first of them newer than page 1's
+    last. That is the Bank's order, not a breach of it; each notice is kept once."""
+    page_1 = changes(1_000)
+    page_1[-2]["api_modified_date"] = "2026-10-12T08:00:00Z"
+    page_1[-1]["api_modified_date"] = "2026-10-12T07:00:00Z"
+    page_2 = [copy.deepcopy(page_1[-2]), copy.deepcopy(page_1[-1]),
+              *stamped(notices(500, start=5_000), ["2026-10-11T09:00:00Z"] * 500)]
+    outcome, tally, _ = read_changes(conn, Bank(changed=page_1 + page_2))
+    assert outcome == wc.ChangesRead(complete=True, pages_read=2)
+    assert count(conn, "tender_releases") == 1_500 and tally.releases_unchanged == 2
+
+
+@pytest.mark.parametrize("stamp", [None, 20261012, "12 October 2026", "", "   "])
+def test_a_change_stamp_that_does_not_read_is_kept_and_refused_by_name(conn, stamp):
+    """Not taken for older: the pass goes on, and the converter refuses the notice."""
+    changed = changes(3)
+    changed[1]["api_modified_date"] = stamp
+    outcome, tally, log = read_changes(conn, Bank(changed=changed))
+    assert outcome.complete
+    assert tally.notices == 3 and tally.errors == 1
+    assert count(conn, "tender_releases") == 2
+    assert log.says(f"{changed[1]['id']!r} not kept")
