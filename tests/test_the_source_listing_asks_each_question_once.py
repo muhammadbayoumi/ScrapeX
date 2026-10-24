@@ -258,7 +258,7 @@ def test_the_ref_match_is_the_prefix_and_nothing_beside_it(conn):
     ref = jobs.create_job(conn, [SITE], job_kind=directoryjob.JOB_KIND)
     conn.execute("UPDATE crawl_job SET status = ?, finished_at = '2026-10-24T05:00:00Z' "
                  "WHERE job_ref = ?", (JobStatus.CANCELLED.value, ref))
-    own = [f"job-{ref}", f"job-{ref}-", f"job-{ref}-riyadh-a1", f"job-{ref}-￿"]
+    own = [f"job-{ref}", f"job-{ref}-", f"job-{ref}-riyadh-a1", f"job-{ref}-\uffff"]
     decoys = [
         f"job-{ref}.", f"job-{ref}.-a1",        # `.` is the bound itself
         f"job-{ref},", f"job-{ref},-a1",        # `,` is the byte before `-`
