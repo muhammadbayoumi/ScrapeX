@@ -135,6 +135,61 @@ def test_every_card_of_the_site_still_carries_the_stopped_run(three_datasets):
         assert offered["readings"] == 4
 
 
+#: A directory this build crawls that the fixture gives no dataset, so its card is
+#: `_registered_directories`' and asks through `_work_waiting`'s own default.
+DIRECTORY_ONLY = "oman_tenderboard"
+
+
+def _stop_a_run(conn: sqlite3.Connection, site: str, pages: int) -> str:
+    """A cancelled directory crawl of `site` holding `pages` stored pages."""
+    ref = jobs.create_job(conn, [site], job_kind=directoryjob.JOB_KIND)
+    conn.execute("UPDATE crawl_job SET status = ?, finished_at = '2026-10-24T09:00:00Z' "
+                 "WHERE job_ref = ?", (JobStatus.CANCELLED.value, ref))
+    conn.executemany(
+        "INSERT INTO generic_page_snapshot "
+        "  (source_url, content_type, html_content, content_hash, crawl_run_ref) "
+        "VALUES (?, 'text/html', X'00', ?, ?)",
+        [(f"https://{site}.example/{page}", f"hash-{ref}-{page}", f"job-{ref}-cell-a1")
+         for page in range(pages)])
+    conn.commit()
+    return f"job-{ref}"
+
+
+def test_a_run_stopped_after_one_listing_is_offered_by_the_next(tmp_path):
+    """THE ANSWERS ARE KEPT FOR ONE LISTING AND NO LONGER. A memo that outlived the
+    request -- hoisted into `create_app`, or a default dict shared between calls -- goes
+    on answering "nothing stopped" for every site it has already asked, so a run he
+    stops after the panel first lists his sources is never offered until the engine
+    restarts. Both shapes passed every other test in this file (#1791's gate)."""
+    client = _warehouse(tmp_path, relate=False, chain=True)
+
+    def offers() -> dict:
+        rows = client.get("/api/sources").json()["sources"]
+        return {(row["kind"], row["source_key"]): row["work_waiting"]["resumable"]
+                for row in rows if row.get("site_key") in (SITE, DIRECTORY_ONLY)}
+
+    before = offers()
+    assert sorted(before) == [("dataset", "contractor_profiles"), ("dataset", "contractors"),
+                              ("directory", DIRECTORY_ONLY)], before
+    assert set(before.values()) == {None}, f"a run is offered before any stopped: {before}"
+
+    conn = client.app.state.general_database.connect()
+    try:
+        stopped = {SITE: (_stop_a_run(conn, SITE, 4), 4),
+                   DIRECTORY_ONLY: (_stop_a_run(conn, DIRECTORY_ONLY, 3), 3)}
+    finally:
+        conn.close()
+    after = offers()
+
+    for (kind, key), offered in after.items():
+        site = DIRECTORY_ONLY if kind == "directory" else SITE
+        ref, readings = stopped[site]
+        assert offered is not None, (
+            f"the {kind} card {key} offers nothing after {ref} stopped: the answer the "
+            "first listing was given outlived its request")
+        assert (offered["run_ref"], offered["readings"]) == (ref, readings), offered
+
+
 # ---- a stopped run is found by its ref, not by reading every page --------------------
 
 
