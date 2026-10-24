@@ -48,7 +48,33 @@ class SourceSummary:
     published_rows: int = 0
 
 
-def source_summary(conn: sqlite3.Connection, source_key: str) -> SourceSummary | None:
+def _source_totals(conn: sqlite3.Connection) -> dict[str, dict[int, int]]:
+    """Every source's variants and observations, by `source_id`, in one pass each.
+
+    ONE PASS FOR ALL SOURCES, NOT ONE A SOURCE (#1769). Neither join can be read from
+    `source_product` down -- `source_variant` has only partial indexes on
+    `source_product_id` -- so a count filtered to one source still read the whole
+    table: on his warehouse 17 sources cost 342 ms for observations and 122 ms for
+    variants, a source with none paying the same as one with 77,463. Grouped by
+    source, the listing pays one pass: 34.5 ms and 8.4 ms. A single summary pays that
+    grouped pass where it paid a filtered one, 43 ms against 25 ms, which no caller of
+    one summary is timed against. A source absent from the answer has none.
+    """
+    return {
+        "variants": dict(conn.execute(
+            "SELECT sp.source_id, COUNT(*) FROM source_variant sv JOIN source_product sp "
+            "ON sp.source_product_id = sv.source_product_id GROUP BY sp.source_id")),
+        "observations": dict(conn.execute(
+            "SELECT sp.source_id, COUNT(*) FROM price_observation po "
+            "JOIN source_offer so ON so.offer_id = po.offer_id "
+            "JOIN source_variant sv ON sv.source_variant_id = so.source_variant_id "
+            "JOIN source_product sp ON sp.source_product_id = sv.source_product_id "
+            "GROUP BY sp.source_id")),
+    }
+
+
+def source_summary(conn: sqlite3.Connection, source_key: str, *,
+                   totals: dict[str, dict[int, int]] | None = None) -> SourceSummary | None:
     row = conn.execute(
         "SELECT source_id, source_name_ar, source_name, base_url "
         "FROM source_site WHERE source_key = ?",
@@ -61,15 +87,11 @@ def source_summary(conn: sqlite3.Connection, source_key: str) -> SourceSummary |
                       source_name_ar=row[1] or "", base_url=row[3] or "")
 
     s.products = _scalar(conn, "SELECT COUNT(*) FROM source_product WHERE source_id = ?", (source_id,))
-    s.variants = _scalar(conn,
-        "SELECT COUNT(*) FROM source_variant sv JOIN source_product sp "
-        "ON sp.source_product_id = sv.source_product_id WHERE sp.source_id = ?", (source_id,))
-    s.observations = _scalar(conn,
-        "SELECT COUNT(*) FROM price_observation po "
-        "JOIN source_offer so ON so.offer_id = po.offer_id "
-        "JOIN source_variant sv ON sv.source_variant_id = so.source_variant_id "
-        "JOIN source_product sp ON sp.source_product_id = sv.source_product_id "
-        "WHERE sp.source_id = ?", (source_id,))
+    # `totals` is `list_sources`'s count of every source, made once for the listing.
+    if totals is None:
+        totals = _source_totals(conn)
+    s.variants = totals["variants"].get(source_id, 0)
+    s.observations = totals["observations"].get(source_id, 0)
     s.curation = {
         r[0]: r[1] for r in conn.execute(
             "SELECT curation, COUNT(*) FROM source_product WHERE source_id = ? "
@@ -112,7 +134,9 @@ def list_sources(conn: sqlite3.Connection) -> list[SourceSummary]:
     """Every registered source with its summary — the web overview (A8 bounded:
     source count is tiny by definition)."""
     keys = registered_source_keys(conn)
-    return [s for s in (source_summary(conn, k) for k in keys) if s is not None]
+    totals = _source_totals(conn)
+    return [s for s in (source_summary(conn, k, totals=totals) for k in keys)
+            if s is not None]
 
 
 @dataclass

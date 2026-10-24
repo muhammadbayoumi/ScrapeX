@@ -103,7 +103,7 @@ class DatabaseRegistry:
         self.write()
         return result
 
-    def ensure_ready(self) -> dict:
+    def ensure_ready(self, *, integrity: bool = True) -> dict:
         """Create the database if it is not there, then report it.
 
         This exists so that starting the engine is the only thing the owner has
@@ -133,7 +133,9 @@ class DatabaseRegistry:
         if not self.engine.path.is_file():
             self.engine.initialize()
             created.append(self.engine.kind)
-        states = self.health()
+        # `integrity=False` is the engine's start (`cli._cmd_ui`), which asks
+        # identity only; every other caller keeps the corruption scan.
+        states = self.health(integrity=integrity)
         ok = all(item["ok"] for item in states.values())
         # The pointer names the database that is actually usable. Writing it
         # while the database is unusable would record a broken file as the live
@@ -142,8 +144,8 @@ class DatabaseRegistry:
             self.write()
         return {"ok": ok, "created": created, "databases": states}
 
-    def verify(self) -> None:
-        health = self.engine.health()
+    def verify(self, *, integrity: bool = True) -> None:
+        health = self.engine.health(integrity=integrity)
         if not health.ok:
             raise RuntimeError(
                 f"{health.kind} database is {health.status.lower()}: {health.action}")
