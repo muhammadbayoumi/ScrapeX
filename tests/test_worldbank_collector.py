@@ -324,19 +324,42 @@ def test_a_locked_warehouse_is_not_a_refused_notice(conn, monkeypatch):
 
 def test_a_warehouse_another_app_holds_leaves_no_transaction_open(conn):
     """A real second writer, at the page's first write (its evidence): the page is undone
-    and the error goes to the run, which can read the area again once the lock is free."""
+    and the error goes to the run, which can read the area again once the lock is free.
+    The checkpoint never names the undone page: a resume from it would skip the page."""
     conn.execute("PRAGMA busy_timeout = 100")
     other = sqlite3.connect(conn.execute("PRAGMA database_list").fetchone()[2])
     other.execute("BEGIN IMMEDIATE")
+    checkpoints = []
     try:
         with pytest.raises(sqlite3.OperationalError, match="locked"):
-            read(conn, Bank({EGYPT: notices(3)}), EGYPT)
+            wc.read_area(conn, Bank({EGYPT: notices(3)}), source_site_id=site(conn),
+                         area=wc.Area(name=EGYPT, count=3), tally=wc.Tally(), log=Log(),
+                         on_page=lambda name, page: checkpoints.append(page))
         assert not conn.in_transaction
+        assert checkpoints == []
     finally:
         other.rollback()
         other.close()
     result, _, _, _ = read(conn, Bank({EGYPT: notices(3)}), EGYPT)
     assert result.complete and count(conn, "tender_releases") == 3
+
+
+def test_a_page_whose_commit_fails_is_undone(conn, monkeypatch):
+    """The commit is where a full disk shows itself in WAL mode, after every write passed.
+    A deferred foreign key makes COMMIT itself raise: the page is undone, none of it kept."""
+    real = tenderstore.store_response
+
+    def store(c, **kw):
+        c.execute("PRAGMA defer_foreign_keys = ON")
+        return real(c, **kw)
+
+    monkeypatch.setattr(tenderstore, "store_response", store)
+    tally = wc.Tally()
+    with pytest.raises(sqlite3.IntegrityError, match="FOREIGN KEY"):
+        read(conn, Bank({EGYPT: notices(3)}), EGYPT, tally=tally, crawl_job_id=999_999)
+    assert not conn.in_transaction
+    assert count(conn, "fetched_responses") == 0 and count(conn, "tender_releases") == 0
+    assert tally == wc.Tally(requests=1)
 
 
 def test_the_log_is_never_written_inside_a_page(conn):
@@ -384,15 +407,22 @@ def test_a_page_that_fails_after_its_tries_leaves_its_area_unread(conn, failure,
     assert log.says(result.reason)
 
 
-@pytest.mark.parametrize("answered", [400, 1_001])
-def test_a_page_that_is_not_its_share_of_the_count_leaves_the_area_unread(conn, answered):
-    """Page 2 of 2,500 holds 1,000. A page that answers another number, under the same
-    total, is not the page asked for: kept, it would mark the area whole and miss the rest."""
-    bank = Bank({EGYPT: notices(2_500)}, answers={(EGYPT, 1000): answered})
+@pytest.mark.parametrize("held, answered, due", [
+    (2_500, 400, 1_000), (2_500, 1_001, 1_000),
+    # The last page holds the remainder and is checked like any other: every one of the
+    # 184 areas ends on a short page, and 86 of them have no other (request 12).
+    (1_500, 400, 500),
+])
+def test_a_page_that_is_not_its_share_of_the_count_leaves_the_area_unread(conn, held,
+                                                                           answered, due):
+    """Page 2 of 2,500 holds 1,000, and page 2 of 1,500 holds 500. A page that answers
+    another number, under the same total, is not the page asked for: kept, it would mark
+    the area whole and miss the rest."""
+    bank = Bank({EGYPT: notices(held)}, answers={(EGYPT, 1000): answered})
     result, _, log, pages = read(conn, bank, EGYPT)
     assert not result.complete and pages == [(EGYPT, 0)]
     assert result.reason == (f"{EGYPT}, page 2: the Bank answered {answered:,} notices "
-                             "where 1,000 were due")
+                             f"where {due:,} were due")
     assert count(conn, "tender_releases") == 1_000 and count(conn, "fetched_responses") == 1
     assert log.says(result.reason)
 
@@ -568,11 +598,14 @@ def test_a_pass_cut_short_by_a_failed_page_says_so(conn, failure, words):
     assert log.says(reason)
 
 
-@pytest.mark.parametrize("answered", [999, 1_001])
-def test_a_pass_whose_page_is_not_its_share_says_so(conn, answered):
-    outcome, _, log = read_changes(conn, Bank(changed=changes(2_500),
+@pytest.mark.parametrize("held, answered, due", [
+    (2_500, 999, 1_000), (2_500, 1_001, 1_000),
+    (1_500, 400, 500),      # the last page, checked like any other
+])
+def test_a_pass_whose_page_is_not_its_share_says_so(conn, held, answered, due):
+    outcome, _, log = read_changes(conn, Bank(changed=changes(held),
                                               answers={(CHANGES, 1000): answered}))
-    reason = f"changes, page 2: the Bank answered {answered:,} notices where 1,000 were due"
+    reason = f"changes, page 2: the Bank answered {answered:,} notices where {due:,} were due"
     assert outcome == wc.ChangesRead(complete=False, pages_read=1, reason=reason)
     assert count(conn, "tender_releases") == 1_000
     assert log.says(reason)
@@ -596,19 +629,24 @@ def test_a_changes_page_whose_every_notice_is_refused_stops_the_crawl(conn):
     assert count(conn, "fetched_responses") == 1
 
 
-@pytest.mark.parametrize("stamps, risen", [
-    (["2026-10-11T09:00:00Z", "2026-10-12T09:00:00Z", "2026-10-10T09:00:00Z"], "OP90000101"),
+@pytest.mark.parametrize("stamps, risen, before, at", [
+    (["2026-10-11T09:00:00Z", "2026-10-12T09:00:00Z", "2026-10-10T09:00:00Z"],
+     "OP90000101", "OP90000100", "2026-10-12T09:00:00Z"),
     # The rise hides behind a stamp that does not read.
-    (["2026-10-11T09:00:00Z", "", "2026-10-12T09:00:00Z"], "OP90000102"),
+    (["2026-10-11T09:00:00Z", "", "2026-10-12T09:00:00Z"],
+     "OP90000102", "OP90000100", "2026-10-12T09:00:00Z"),
+    # The rise is against the row before it, under a first row newer than both.
+    (["2026-10-12T09:00:00Z", "2026-10-10T09:00:00Z", "2026-10-11T09:00:00Z"],
+     "OP90000102", "OP90000101", "2026-10-11T09:00:00Z"),
 ])
-def test_a_page_the_bank_did_not_sort_newest_first_is_refused(conn, stamps, risen):
+def test_a_page_the_bank_did_not_sort_newest_first_is_refused(conn, stamps, risen, before,
+                                                              at):
     """The pass stops at the first notice older than `since`, so it is right only in the
     order it asked for, and this API has ignored a parameter in silence (#1647 request 20).
     Served unsorted, a pass would stop at the first older notice and miss what follows."""
     bank = Bank(changed=stamped(notices(len(stamps), start=100), stamps))
-    with pytest.raises(wc.PageShapeError, match=f"changes, page 1: '{risen}' changed "
-                                                "2026-10-12T09:00:00Z follows 'OP90000100' "
-                                                ".*not newest first"):
+    with pytest.raises(wc.PageShapeError, match=f"changes, page 1: '{risen}' changed {at} "
+                                                f"follows '{before}' .*not newest first"):
         read_changes(conn, bank)
     assert count(conn, "tender_releases") == 0 and count(conn, "fetched_responses") == 0
 
@@ -660,6 +698,28 @@ def test_a_list_that_shrinks_during_the_pass_leaves_it_incomplete(conn):
     assert outcome == wc.ChangesRead(complete=False, pages_read=1, reason=reason)
     assert skipped not in {row[0] for row in conn.execute("SELECT release_ref FROM tender_releases")}
     assert log.says(reason)
+
+
+def test_a_shrink_is_measured_against_the_page_before_not_the_first(conn):
+    """One notice added after page 1, one gone after page 2: page 3's total equals page 1's
+    and is one fewer than page 2's. Against page 1 it would pass, and the notice that slid
+    onto page 2 would never be read."""
+    bank = Bank(changed=changes(3_500))
+    real = bank.get
+
+    def get(url, params=None, **kw):
+        response = real(url, params=params, **kw)
+        if params.get("os") == "0":
+            bank.changed[:0] = stamped(notices(1, start=9_000), ["2026-10-13T09:00:00Z"])
+        elif params.get("os") == "1000":
+            del bank.changed[1_500]
+        return response
+
+    bank.get = get
+    outcome, _, _ = read_changes(conn, bank)
+    assert outcome == wc.ChangesRead(complete=False, pages_read=2, reason=(
+        "changes, page 3: the Bank lists 3,500 notices, 1 fewer than a page before, so one "
+        "may have passed this read unseen"))
 
 
 @pytest.mark.parametrize("stamp", [None, 20261012, "12 October 2026", "", "   "])

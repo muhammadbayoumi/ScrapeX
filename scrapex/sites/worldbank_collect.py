@@ -179,8 +179,9 @@ def count_line(plan: Plan) -> str:
 
 
 def newest_held(conn: sqlite3.Connection, source_site_id: int) -> str | None:
-    """The latest change stamp of any release the source holds: where a pass over what
-    changed stops (#1647 B6: the Bank has no date filter, only a sort)."""
+    """The latest change stamp of any release the source holds: where the next pass over
+    what changed stops, after a COMPLETE one only (`read_changes`; #1647 B6: the Bank has
+    no date filter, only a sort)."""
     row = conn.execute(
         "SELECT max(r.source_modified_at) FROM tender_releases r "
         "JOIN tender_processes p ON p.id = r.tender_process_id WHERE p.source_site_id = ?",
@@ -353,8 +354,9 @@ def read_changes(conn: sqlite3.Connection, fetcher, *, source_site_id: int, sinc
     failed after its tries, a page that is not its share, a list that shrank under it, the
     Bank's offset limit) returns `complete=False` with the reason, which is also logged;
     one that raised returns nothing. Either way the notices behind its last page are newer
-    than `newest_held`, which already counts the pages it kept, so `since` stays where it
-    was, and the next pass reads them."""
+    than `since` but OLDER than `newest_held`, which already counts the pages it kept: a
+    pass from `newest_held` would never read them. So `since` stays where it was, and the
+    next pass reads them."""
     if conn.in_transaction:
         raise ValueError("read_changes commits page by page; call it outside a transaction")
     since_at = parse_instant(since)
