@@ -905,6 +905,9 @@ def _cmd_ui(args: argparse.Namespace) -> int:
     # crawl, and no line was written anywhere explaining why. This one
     # call is what makes the worker able to speak at all.
     _bind_log_streams()
+    # Second, and before the database work below, which is the heaviest thing a
+    # start does. After the streams, so a refusal has somewhere to be written.
+    _opt_out_of_eco_qos()
     try:
         import uvicorn
 
@@ -1081,6 +1084,59 @@ def _bind_log_streams() -> None:
         sys.stdout = stream
     if sys.stderr is None:
         sys.stderr = stream
+
+
+# processthreadsapi.h: the ProcessPowerThrottling class of SetProcessInformation, the
+# structure's version, and the one mechanism this engine controls.
+_PROCESS_POWER_THROTTLING = 4
+_PROCESS_POWER_THROTTLING_CURRENT_VERSION = 1
+_PROCESS_POWER_THROTTLING_EXECUTION_SPEED = 0x1
+
+
+def _opt_out_of_eco_qos() -> None:
+    """Tell Windows the engine is not background work, so it is not run on slow cores.
+
+    ES-7: a process that sets no EXECUTION_SPEED policy has its QoS inferred, and a
+    windowless one is classed by the window its ancestry owns. Started through the native
+    host, the engine descends from Chrome. Measured 2026-10-24 on his machine (#1767, on
+    AC power): a windowless `pythonw` with no focused ancestor spent 4.4x the CPU-s of
+    the same work under a focused one, within 6 s of starting. With this call made, it
+    spent 1.0x. His engine spent 5.6 CPU-s per `/api/sources`.
+
+    ControlMask selects the mechanism and a zero StateMask turns it off: Microsoft's
+    HighQoS setting. He chose it on #1767 knowing it costs battery. The cost lasts as
+    long as the engine runs, because its worker never idles (#1768), and it is not yet
+    measured. Off Windows there is nothing to set. A refusal never stops the engine, which only
+    runs slower, but it is written to the engine log as one JSON line.
+    """
+    if sys.platform != "win32":
+        return
+    import ctypes
+
+    class PowerThrottlingState(ctypes.Structure):
+        _fields_ = [("Version", ctypes.c_uint32), ("ControlMask", ctypes.c_uint32),
+                    ("StateMask", ctypes.c_uint32)]
+
+    state = PowerThrottlingState(_PROCESS_POWER_THROTTLING_CURRENT_VERSION,
+                                 _PROCESS_POWER_THROTTLING_EXECUTION_SPEED, 0)
+    try:
+        # A private instance, so the signatures set here change no other caller's.
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.GetCurrentProcess.restype = ctypes.c_void_p
+        kernel32.SetProcessInformation.argtypes = [
+            ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32]
+        if kernel32.SetProcessInformation(kernel32.GetCurrentProcess(),
+                                          _PROCESS_POWER_THROTTLING,
+                                          ctypes.byref(state), ctypes.sizeof(state)):
+            return
+        failure: Exception = ctypes.WinError(ctypes.get_last_error())
+    except (AttributeError, OSError) as exc:
+        # AttributeError: a kernel32 without SetProcessInformation, before Windows 8.
+        failure = exc
+    print(json.dumps({"at": utc_now_iso(), "event": "eco_qos_opt_out_failed",
+                      "error": f"{type(failure).__name__}: {failure}",
+                      "effect": "Windows may run this engine on its efficiency cores"}),
+          file=sys.stderr, flush=True)
 
 
 def _cmd_run_due(args) -> int:
