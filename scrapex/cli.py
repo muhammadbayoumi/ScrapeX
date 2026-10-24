@@ -920,7 +920,17 @@ def _cmd_ui(args: argparse.Namespace) -> int:
         # Starting the engine IS the setup. The side panel cannot create a
         # database — the local runtime owns both files (spec 5) — so the runtime
         # creates them on the way up instead of sending the owner to a terminal.
-        report = registry.ensure_ready()
+        #
+        # IDENTITY ON THE WAY UP, CORRUPTION ON DEMAND (#1713, #1747). The question
+        # a start asks is whether the file is readable, at the version this build
+        # expects, and the right kind. A corruption scan is O(file size): 7-8 s warm
+        # and 27-67 s cold on his 2.2 GB warehouse, and the way up ran it three times
+        # (here, `create_app`'s verify, and the host's `startup_check` before the
+        # spawn), so a Restart in his engine took about 50 s to answer. The Database
+        # page's Check integrity still runs it, and an upgrade still scans after it
+        # migrates. All three skip it together: a pre-check that passed a file the
+        # engine then refused would start a process that exits at once.
+        report = registry.ensure_ready(integrity=False)
         for kind in report["created"]:
             print(f"created the {kind} database")
         if not report["ok"]:
