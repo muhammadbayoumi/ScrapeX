@@ -210,7 +210,9 @@
   --button-text: var(--accent-contrast);
   --button-hover-text: var(--button-text);
   --control-bg: var(--surface);
-  --control-hover: var(--surface-subtle);
+  /* Supabase's hover fill for a ghost, outline or text button and a menu item is their
+     --accent, which --chip carries (#1053; tests/test_the_hover_fill_is_supabases_accent.py). */
+  --control-hover: var(--chip);
   /* The pressed rung, and it was READ at design/components.css:1530 and declared
      nowhere until 2026-08-30. `background` is a shorthand, so the invalid `var()`
      computed to `unset` -- transparent -- and a pressed split-button option showed
@@ -559,7 +561,7 @@
      ever arrived. It follows --surface now, so a control sits on whatever
      surface the palette sets. */
   --control-bg: var(--surface);
-  --control-hover: #1e1f1e;
+  --control-hover: var(--chip);
   /* --overlay is NOT re-declared: their scrim is `bg-black/40` in both schemes,
      so repeating it here would be two declarations of one published value. */
 }
@@ -612,7 +614,7 @@
 
     /* OP-94, the prefers-color-scheme copy of the same defect. */
     --control-bg: var(--surface);
-    --control-hover: #1e1f1e;
+    --control-hover: var(--chip);
   }
 }
 
