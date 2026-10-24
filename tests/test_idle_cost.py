@@ -145,6 +145,31 @@ def test_an_idle_poll_does_not_take_the_write_lock(tmp_path):
     assert not os.path.exists(lock_path)
 
 
+def test_an_idle_poll_reads_no_price_observation(tmp_path):
+    """A decline that grows with the warehouse is not cheap, it is cheap for now.
+    The currencies were asked before the interval, and `currencies_in_use`
+    scans every price observation: 59 ms of CPU a poll on his 102,528, which
+    the timing test below cannot see because this warehouse holds one (#1768).
+    So the statements are counted, not the seconds."""
+    db = tmp_path / "scan.db"
+    _idle_warehouse(db)
+
+    runner = JobRunner(str(db), lambda: None, path_provider=lambda: str(db))
+    conn = dbmod.connect(db)
+    statements = []
+    conn.set_trace_callback(statements.append)
+    try:
+        for _ in range(5):
+            runner._refresh_rates(conn)
+    finally:
+        conn.set_trace_callback(None)
+        conn.close()
+
+    assert statements, "the trace saw no statement, so it proves nothing"
+    scans = [s for s in statements if "price_observation" in s]
+    assert scans == [], f"{len(scans)} of 5 idle polls read price_observation: {scans[0]}"
+
+
 def test_an_idle_engine_uses_almost_no_cpu(tmp_path):
     """The end-to-end guard, in the units the problem was reported in.
 
