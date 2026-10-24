@@ -8673,6 +8673,48 @@ THE_SUCCESSOR_ANSWERS_503 = """() => {
 }"""
 
 
+#: From 122 s after the restart request, every `/api/health` runs out of time: the
+#: engine asked to leave answered the whole wait until its last few probes. Installed
+#: OVER the restarting stub; `performance.now()` is the page's own clock.
+THE_LAST_PROBES_TIME_OUT = """() => {
+  const inner = window.fetch;
+  let askedAt = null;
+  window.fetch = async (url, options = {}) => {
+    const path = String(url);
+    if (path.endsWith('/api/engine/restart')) askedAt = performance.now();
+    else if (askedAt !== null && path.includes('/api/health')
+             && performance.now() - askedAt > 122_000) {
+      throw new DOMException('The request exceeded its deadline.', 'TimeoutError');
+    }
+    return inner(url, options);
+  };
+}"""
+
+
+def test_a_last_probe_that_runs_out_of_time_does_not_end_the_answers(open_panel):
+    """The engine asked to leave answers two minutes of probes, and the last few run
+    out of their 2.5 s -- his `/api/health` measured 1.92-2.21 s (#1764), so on a
+    busy engine that is luck, not a change. The ending must not turn on it: the
+    same engine is still answering, and "has not answered in two minutes" --
+    with the database scan behind it -- would be false about it."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    restart_the_way_the_engine_does(page, successor_build=None, bow_out_ms=10**9)
+    page.evaluate(THE_LAST_PROBES_TIME_OUT)
+
+    press_restart_and_wait_out_the_two_minutes(page)
+    here, there = SAME_ENGINE
+    page.wait_for_function(
+        "(said) => document.getElementById('engine-restart-note').textContent === said",
+        arg=here, timeout=10_000)
+
+    checks = [c for c in page.evaluate("window.__nativeCalls") if c == "CHECK_STARTUP"]
+    assert checks == ["CHECK_STARTUP"], (
+        f"the ending ran the database check over an engine that was answering: {checks}")
+    assert not page.js_errors, page.js_errors
+
+
 def test_a_refusing_answer_is_not_taken_for_the_same_engine(open_panel):
     """The leaving engine's last answer was its own, and the next engine answers
     `/api/health` only with a 503: its database cannot be opened. A 503 names no
@@ -8680,13 +8722,15 @@ def test_a_refusing_answer_is_not_taken_for_the_same_engine(open_panel):
     engine is still answering". The ending asks the database check, which is the
     one that can explain a database a successor could not open.
 
-    No dark between the two, so that nothing else clears the earlier answer.
+    No dark between the two, so that nothing else clears the earlier answer, and
+    the 503s start 120 s in, so the earlier answer is still recent when the two
+    minutes end: it is the refusal that must end it, not its age.
     """
     page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
     page.click("#tab-engines")
     open_engine(page)
     restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART,
-                                    dark_ms=0)
+                                    bow_out_ms=120_000, dark_ms=0)
     page.evaluate(THE_SUCCESSOR_ANSWERS_503)
 
     press_restart_and_wait_out_the_two_minutes(page)
@@ -8700,12 +8744,19 @@ def test_a_refusing_answer_is_not_taken_for_the_same_engine(open_panel):
     assert not page.js_errors, page.js_errors
 
 
+WAITING = "Restarting… The Engine page updates when the new engine answers."
+
+
 def test_the_wait_promises_no_duration(open_panel):
     """The note stands until a different engine answers, and on his machine that
     was about 50 s after a restart onto 0.4.66 (#1793) -- "the engine goes quiet for
     a few seconds" said otherwise for most of it. Read 30 s into a wait the engine
     has not ended. With a helper, as on his machine: without one the note says
-    the restart goes through the engine instead."""
+    the restart goes through the engine instead.
+
+    THE SAME WORDS ON BOTH PAGES, and true on both: the Database page shows this
+    note too, and it is the Engine page that redraws when the new engine answers --
+    "this page" was false there."""
     page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
     page.click("#tab-engines")
     open_engine(page)
@@ -8715,8 +8766,8 @@ def test_the_wait_promises_no_duration(open_panel):
     page.click("#runtime-restart")
     page.clock.run_for(30_000)
 
-    assert text_of(page, "#engine-restart-note") == (
-        "Restarting. This page updates when the engine answers.")
+    assert text_of(page, "#engine-restart-note") == WAITING
+    assert text_of(page, "#runtime-note") == WAITING
     assert not page.js_errors, page.js_errors
 
 

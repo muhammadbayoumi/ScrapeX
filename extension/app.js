@@ -33,7 +33,7 @@ import {
 } from "./sheets.js";
 // `deadlineForLocalRequest` and `fetchWithDeadline` left with the request path
 // they belonged to; backend.js is their only caller now.
-import { afterIdle, afterNextPaint, isTimeoutError, markStartup }
+import { afterIdle, afterNextPaint, isTimeoutError, markStartup, STARTUP_DEADLINES }
   from "./startup.js";
 // Where the engine is, and how this page asks it — shared with the Console and
 // the Data page rather than private to the panel. The panel calls it by the
@@ -10400,6 +10400,14 @@ async function render() {
 // is always the one that gives up first and can say why.
 const RESTART_CONFIRM_ATTEMPTS = 125;
 
+// HOW RECENT AN ANSWER MUST BE FOR THE RESTART'S TWO-MINUTE ENDING TO SAY AN
+// ENGINE "IS STILL ANSWERING" (#1517). One probe running out of its deadline is a
+// busy engine -- his `/api/health` measured 1.92-2.21 s against `engineHealth`'s
+// 2.5 s (#1764) -- and must not turn two minutes of answers into "has not
+// answered". Four deadlines without an answer is an engine that has stopped
+// answering, and the ending asks the database check instead.
+const RESTART_ANSWER_STILL_FRESH_MS = 4 * STARTUP_DEADLINES.engineHealth;
+
 // WHEN THE PROCESS ANSWERING `/api/health` STARTED SERVING, which is what tells
 // one engine from the next across a restart (#1517): a successor seals later.
 // `null` for an engine too old to report it, and for the one whose provenance
@@ -10689,9 +10697,12 @@ function wireRuntimeRepair() {
     // startup and the panel would only be able to say "two minutes".
     const checking = Date.now();
     // NO DURATION. "A few seconds" was about 50 on his machine (#1793), and this
-    // sentence now stands until a different engine answers. The words are the ones
-    // #1556 approved for its time sentences (round 4).
-    let before = "Restarting. This page updates when the engine answers.";
+    // sentence now stands until a different engine answers. #1556 approved "This
+    // page updates when the engine answers." for its time sentences (round 4); it
+    // was false here twice over -- the same engine answers through a restart that
+    // did not happen, and the Database page, which shows this note too, updates for
+    // no engine -- so it names the new engine and the page that redraws.
+    let before = "Restarting… The Engine page updates when the new engine answers.";
     try {
       await checkStartup();
     } catch (startupError) {
@@ -10773,12 +10784,13 @@ function wireRuntimeRepair() {
     // `wentDark`: a probe was refused, so the port closed and the engine asked to
     // leave has left -- the only proof there is when either side reports no
     // `sealed_at`. A probe that ran out of time is NOT that: a busy engine is
-    // slow, not gone. `lastHeard`: what the latest probe got, for the two-minute
-    // ending -- "same" only when its `sealed_at` was the leaving engine's own,
-    // the one proof that the restart did not happen; "unknown" when an engine
-    // answered and nothing said which; "nothing" when no answer came.
+    // slow, not gone. `lastAnswer`: the latest answer read, for the two-minute
+    // ending -- `same` only when its `sealed_at` was the leaving engine's own, the
+    // one proof that the restart did not happen -- and when it came. A refused
+    // probe or a refusing answer ends it; a probe that ran out of time does not,
+    // and age does (`RESTART_ANSWER_STILL_FRESH_MS`).
     let wentDark = false;
-    let lastHeard = "nothing";
+    let lastAnswer = null;
     const timer = setInterval(async () => {
       attempts += 1;
       let successor = false;
@@ -10792,18 +10804,21 @@ function wireRuntimeRepair() {
         // asks until it answers -- so the status must not throw. What it gains is
         // a deadline it never had, on the one screen where a person is waiting.
         const probe = await raw("/api/health", {cache: "no-store"});
-        lastHeard = "nothing";
         if (probe.ok) {
           const answered = sealedAtOf(await probe.json());
           successor = leaving && answered ? answered !== leaving : wentDark;
-          lastHeard = leaving && answered === leaving ? "same" : "unknown";
+          lastAnswer = {same: leaving !== null && answered === leaving, at: Date.now()};
+        } else {
+          lastAnswer = null;
         }
       } catch (error) {
-        lastHeard = "nothing";
         // A refused connection is the one failure fetch reports as a TypeError
         // (the Fetch standard's "network error"); a deadline is a TimeoutError
         // and a body that is not JSON is a SyntaxError, and neither is the dark.
-        if (error instanceof TypeError) wentDark = true;
+        if (error instanceof TypeError) {
+          wentDark = true;
+          lastAnswer = null;
+        }
       }
       if (settled) return;
       if (successor) {
@@ -10835,7 +10850,9 @@ function wireRuntimeRepair() {
         // `sealed_at` proves it. Without that -- either side reports none, and no
         // refused probe was seen -- the answer may be a successor whose start the
         // poll missed, so only what is known is said.
-        if (lastHeard === "same") {
+        const stillAnswering = lastAnswer !== null
+          && Date.now() - lastAnswer.at <= RESTART_ANSWER_STILL_FRESH_MS;
+        if (stillAnswering && lastAnswer.same) {
           say("Unable to restart the engine: the same engine is still answering after "
               + "two minutes. Press Restart engine on the Engine page to try again.",
               "Unable to restart the engine: the same engine is still answering after "
@@ -10843,7 +10860,7 @@ function wireRuntimeRepair() {
           release();
           return;
         }
-        if (lastHeard === "unknown") {
+        if (stillAnswering) {
           say("Unable to confirm the restart: no new engine was detected in two "
               + "minutes. Press Restart engine on the Engine page to try again.",
               "Unable to confirm the restart: no new engine was detected in two "
