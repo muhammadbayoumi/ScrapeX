@@ -372,7 +372,13 @@ def read_changes(conn: sqlite3.Connection, fetcher, *, source_site_id: int, sinc
         where = f"changes, page {offset // PAGE_ROWS + 1}"
         response, failed = _get(fetcher, {
             "format": "json", "rows": str(PAGE_ROWS), "os": str(offset), "fl": "*",
-            "srt": "api_modified_date", "order": "desc"}, where)
+            # NEWEST FIRST, THEN BY ID: a total order, so the pages neither repeat nor skip
+            # a notice, the area pass's reason for `srt=id`. Equal stamps are the rule: every
+            # row of the page measured on 2026-10-24 shared its stamp with another, 82 groups
+            # of up to 90, and one straddled the page's end. Sorted by the stamp alone the
+            # Bank gives ties no id order and no promise of keeping theirs; it honours `id`
+            # as the second key (#1647, that day's three requests).
+            "srt": "api_modified_date desc,id asc"}, where)
         if response is None:
             reason = failed
             break
@@ -392,20 +398,24 @@ def read_changes(conn: sqlite3.Connection, fetcher, *, source_site_id: int, sinc
         if reason:
             break
         stamps = [_instant(row.get("api_modified_date")) for row in rows]
-        # NEWEST FIRST, ASSERTED: the pass stops at the first notice older than `since`, so
-        # it is right only in the order it asked for, and this API has ignored a parameter
-        # without a word (`strdate`, #1647 request 20). Asserted within a page, which one
-        # response answers at once; not across pages, because a change made during the
-        # pass puts its notice first and moves every row down, so a page can open with
-        # the rows the page before closed with. Equal stamps are common: the index updates
-        # once a day, all at one minute (request 20).
+        # NEWEST FIRST, THEN BY ID, ASSERTED: the pass stops at the first notice older than
+        # `since`, so it is right only in the order it asked for, and this API has ignored a
+        # parameter without a word (`strdate`, #1647 request 20). A tie out of id order is
+        # a Bank that dropped the second key. Asserted within a page, which one response
+        # answers at once; not across pages, because a change made during the pass puts its
+        # notice first and moves every row down, so a page can open with the rows the page
+        # before closed with. A notice without a readable stamp or id is not ordered here:
+        # it is kept, and the converter refuses it by name.
         readable = [(row, at) for row, at in zip(rows, stamps, strict=True) if at is not None]
         for (before, before_at), (row, at) in pairwise(readable):
-            if at > before_at:
+            ids = (before.get("id"), row.get("id"))
+            tie_out_of_order = (at == before_at and all(isinstance(i, str) for i in ids)
+                                and ids[1] < ids[0])
+            if at > before_at or tie_out_of_order:
                 raise PageShapeError(
                     f"{where}: {row.get('id')!r} changed {row['api_modified_date']} follows "
                     f"{before.get('id')!r} changed {before['api_modified_date']}: the "
-                    "Bank's answer is not newest first")
+                    "Bank's answer is not newest first, then by id")
         newer = [row for row, at in zip(rows, stamps, strict=True)
                  if at is None or at >= since_at]
         if newer:

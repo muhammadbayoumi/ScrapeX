@@ -89,7 +89,7 @@ class Bank:
             raise httpx.HTTPStatusError(f"HTTP {status}", request=request,
                                         response=httpx.Response(status, request=request))
         rows_answered = self.answers.get(page, wc.PAGE_ROWS)
-        if params.get("srt") == "api_modified_date":
+        if str(params.get("srt", "")).startswith("api_modified_date"):
             rows = self.changed[offset:offset + rows_answered]
             total = len(self.changed)
         else:
@@ -559,8 +559,11 @@ def test_changes_are_read_newest_first_until_the_newest_held(conn):
     bank = Bank(changed=changed)
     outcome, tally, log = read_changes(conn, bank)
     call = bank.calls[0]
-    assert (call["srt"], call["order"], call["os"], call["fl"]) == (
-        "api_modified_date", "desc", "0", "*")
+    # Newest first, then by id: a total order, because equal stamps are the rule (every
+    # row of the page measured on 2026-10-24 shared its stamp, #1647) and the Bank honours
+    # `id` as the second key.
+    assert (call["srt"], call["os"], call["fl"]) == ("api_modified_date desc,id asc", "0", "*")
+    assert "order" not in call
     assert outcome == wc.ChangesRead(complete=True, pages_read=1)
     # The two newer notices and the one at the stamp itself; the older one is not read.
     assert tally.notices == 3 and count(conn, "tender_releases") == 3
@@ -646,9 +649,32 @@ def test_a_page_the_bank_did_not_sort_newest_first_is_refused(conn, stamps, rise
     Served unsorted, a pass would stop at the first older notice and miss what follows."""
     bank = Bank(changed=stamped(notices(len(stamps), start=100), stamps))
     with pytest.raises(wc.PageShapeError, match=f"changes, page 1: '{risen}' changed {at} "
-                                                f"follows '{before}' .*not newest first"):
+                                                f"follows '{before}' .*not newest first, then by id"):
         read_changes(conn, bank)
     assert count(conn, "tender_releases") == 0 and count(conn, "fetched_responses") == 0
+
+
+@pytest.mark.parametrize("ids, refused", [
+    (["OP90000101", "OP90000100", "OP90000102"], True),   # a tie out of id order
+    (["OP90000100", None, "OP90000102"], False),           # no id to order by: the converter's
+])
+def test_a_tie_out_of_id_order_is_refused_the_second_key_did_not_take(conn, ids, refused):
+    """Equal stamps come in id order only because the pass asks for it, so a page that does
+    not is a Bank that dropped the second key, and pages through ties would repeat and skip.
+    A notice without an id is not ordered here: the converter refuses it by name."""
+    changed = stamped(notices(3, start=100), ["2026-10-12T09:00:00Z"] * 3)
+    for notice, notice_id in zip(changed, ids, strict=True):
+        notice["id"] = notice_id
+    bank = Bank(changed=changed)
+    if refused:
+        with pytest.raises(wc.PageShapeError, match=r"changes, page 1: 'OP90000100' changed "
+                                                    r"2026-10-12T09:00:00Z follows 'OP90000101' "
+                                                    r".*not newest first, then by id"):
+            read_changes(conn, bank)
+        assert count(conn, "tender_releases") == 0
+    else:
+        outcome, tally, _ = read_changes(conn, bank)
+        assert outcome.complete and tally.errors == 1 and count(conn, "tender_releases") == 2
 
 
 def test_a_change_made_during_the_pass_is_not_taken_for_disorder(conn):
