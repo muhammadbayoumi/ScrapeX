@@ -144,11 +144,11 @@
   padding-bottom:.9rem;border-bottom:1px solid var(--line)}
 .data-source-overview .source-identity-domain{font-size:1.18rem;letter-spacing:.01em}
 .dataset-site-link{display:inline-flex;align-items:center;gap:.25rem;margin-top:.42rem;
-  color:var(--accent-ink);font-size:.68rem;font-weight:650;text-decoration:none}
+  color:var(--accent-ink);font-size:.68rem;font-weight:var(--fw-regular);text-decoration:none}
 .dataset-site-link:hover{text-decoration:underline}
 .data-source-overview .dataset-site-link{display:inline-flex;align-items:center;gap:.35rem;min-height:2rem;padding:.35rem .55rem;
   margin:0;flex:none;border:1px solid var(--line);border-radius:8px;color:var(--text);
-  font-size:.68rem;font-weight:650;text-decoration:none}
+  font-size:.68rem;font-weight:var(--fw-regular);text-decoration:none}
 .data-source-overview .dataset-site-link>.sx-icon{width:.9rem;height:.9rem;color:var(--muted);fill:currentColor}
 .data-source-overview .dataset-site-link:hover{border-color:var(--accent);background:var(--accent-weak);
   color:var(--accent-ink);text-decoration:none}
@@ -160,8 +160,6 @@
 .data-source-overview-panel-head{display:flex;align-items:center;justify-content:space-between;gap:.75rem;
   min-height:3rem;padding:.58rem .75rem;border-bottom:1px solid var(--line)}
 .data-source-overview-panel-head>span:first-child{display:grid;gap:.02rem}
-.data-source-overview-panel-head small{color:var(--accent-ink);font-size:.55rem;font-weight:750;
-  letter-spacing:.08em;text-transform:uppercase}
 .data-source-overview-panel-head strong{font-size:.77rem}
 .data-source-overview-panel-note{color:var(--muted);font-size:.59rem}
 .data-source-overview-statuses{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.38rem;padding:.45rem}
@@ -239,8 +237,6 @@ a.data-source-status:hover{border-color:var(--accent);background:var(--accent-we
 .data-landing{display:flex;flex-direction:column;justify-content:flex-start;
   padding:clamp(1.2rem,2.4vw,2rem);border:1px solid var(--line);border-radius:14px;
   background:var(--surface);box-shadow:var(--shadow)}
-.data-landing-eyebrow{color:var(--accent-ink);font-size:.7rem;font-weight:var(--fw-heavy);
-  letter-spacing:.08em;text-transform:uppercase}
 .data-landing h1{margin:.3rem 0 .35rem;font-size:clamp(1.5rem,3vw,1.9rem)}
 .data-landing>p{max-width:38rem;margin:0;color:var(--muted)}
 .data-landing-dataset-menu{align-self:flex-start;margin-top:1rem}

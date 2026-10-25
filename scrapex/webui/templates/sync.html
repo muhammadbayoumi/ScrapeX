@@ -10,7 +10,7 @@
 <div class="sync-page">
   <header class="sync-hero">
     <div class="sync-hero-copy">
-      <span class="page-eyebrow">Outputs · Apps Script</span>
+      <span class="page-eyebrow heading-meta muted">Outputs · Apps Script</span>
       <h1 class="page-title">Apps Script Synchronization</h1>
       {# Drive and Sheets left this page on 2026-08-11: the owner ruled that the
          engine fetches and saves locally while the extension owns every Google
@@ -63,7 +63,7 @@
     <header class="sync-route-header">
       <span class="sync-route-icon icon-tile">{{ icon("material-sync") }}</span>
       <div class="sync-route-heading">
-        <span class="page-eyebrow">Method 1 · Web app endpoint</span>
+        <span class="page-eyebrow heading-meta muted">Method 1 · Web app endpoint</span>
         <h2 id="apps-script-title">Apps Script synchronization</h2>
         <p>Send data to a spreadsheet without signing ScrapeX in to a Google account.</p>
       </div>
@@ -188,7 +188,7 @@
 
     <div class="sync-run-panel">
       <div class="sync-run-copy">
-        <span class="page-eyebrow">Run synchronization</span>
+        <span class="page-eyebrow heading-meta muted">Run synchronization</span>
         <h3>Send selected sources through Apps Script</h3>
         <p>Choose one or several collected sources. They are delivered in sequence; large sends are split automatically and
           incomplete batches remain available for retry.</p>
@@ -248,7 +248,7 @@
     <section class="sync-activity" aria-labelledby="funnel-activity-title">
       <header>
         <div>
-          <span class="page-eyebrow">Activity</span>
+          <span class="page-eyebrow heading-meta muted">Activity</span>
           <h3 id="funnel-activity-title">Last Apps Script synchronization</h3>
         </div>
         {% if funnel.last %}
@@ -272,7 +272,7 @@
     <header class="sync-route-header">
       <span class="sync-route-icon icon-tile">{{ icon("material-schedule") }}</span>
       <div class="sync-route-heading">
-        <span class="page-eyebrow">Automation · Source collection</span>
+        <span class="page-eyebrow heading-meta muted">Automation · Source collection</span>
         <h2 id="automation-title">Keep synchronized sources up to date</h2>
         <p>Review the collection schedule behind every source before sending its latest data to Google Sheets.</p>
       </div>
@@ -289,7 +289,7 @@
 
     <div class="sync-automation-layout">
       <aside class="sync-automation-summary" aria-label="Automation summary">
-        <span class="page-eyebrow">Current coverage</span>
+        <span class="page-eyebrow heading-meta muted">Current coverage</span>
         <strong id="automation-summary-value">Checking schedules…</strong>
         <p id="automation-summary-note">Reading the schedules already configured in ScrapeX.</p>
         <dl class="sync-automation-metrics">

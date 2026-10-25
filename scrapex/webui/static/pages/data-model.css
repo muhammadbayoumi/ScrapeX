@@ -7,11 +7,6 @@
 .page-eyebrow {
   display: block;
   margin-bottom: var(--sp-2);
-  color: var(--accent-ink);
-  font-size: var(--fs-2xs);
-  font-weight: var(--fw-bold);
-  letter-spacing: .09em;
-  text-transform: uppercase;
 }
 
 .model-hero {
