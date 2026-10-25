@@ -319,7 +319,7 @@
     inspector.innerHTML = `
       <div class="model-inspector-content">
         <header class="model-inspector-header">
-          <span class="page-eyebrow">${esc(table.group)}</span>
+          <span class="page-eyebrow heading-meta muted">${esc(table.group)}</span>
           <h3>${esc(table.name)}</h3>
           <p>${esc(table.purpose || "Live system table.")}</p>
           <div class="model-inspector-meta">

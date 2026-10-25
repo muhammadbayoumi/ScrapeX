@@ -95,7 +95,7 @@ h2 {
     .wsnav-icon{width:1.25rem;height:1.25rem;fill:currentColor}
     .wstabs a:hover{background:var(--control-hover);color:var(--text)}
     .wstabs a[aria-current=page]{background:var(--primary-container);
-      color:var(--on-primary-container);font-weight:600}
+      color:var(--on-primary-container);font-weight:var(--fw-bold)}
     .workspace-sidebar-status{display:grid;gap:var(--sp-1);padding:var(--sp-3);
       border-top:1px solid var(--line);background:var(--surface-subtle)}
     .workspace-sidebar-status a{display:flex;align-items:center;gap:var(--sp-2);
@@ -181,12 +181,12 @@ h2 {
     .dest{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-lg);
       padding:.9rem 1.1rem;margin:.4rem 0 1rem}
     .dest-head{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap}
-    .dest-name{font-weight:600}
+    .dest-name{font-weight:var(--fw-bold)}
     .blocker{margin:.5rem 0 0;color:var(--muted);font-size:.88rem}
     .stack{display:flex;flex-direction:column;gap:.9rem;background:var(--surface);
       border:1px solid var(--line);border-radius:var(--radius-lg);padding:1rem 1.1rem}
     .field{display:flex;flex-direction:column;gap:.25rem}
-    .field label{font-size:.82rem;font-weight:600}
+    .field label{font-size:.82rem;font-weight:var(--fw-bold)}
     .field input,.field select,.field textarea{width:100%}
     .hint{color:var(--muted);font-size:.82rem}
     .hint.err{color:var(--red)}

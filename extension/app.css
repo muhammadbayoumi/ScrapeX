@@ -2578,13 +2578,6 @@
     flex-direction: column;
     gap: var(--sp-3);
   }
-  .appearance-page-eyebrow {
-    color: var(--accent-ink);
-    font-size: var(--fs-2xs);
-    font-weight: var(--fw-bold);
-    letter-spacing: .08em;
-    text-transform: uppercase;
-  }
   .appearance-page-card {
     display: flex;
     flex-direction: column;
@@ -2701,13 +2694,6 @@
     display: flex;
     flex-direction: column;
     gap: var(--sp-3);
-  }
-  .finance-page-eyebrow {
-    color: var(--accent-ink);
-    font-size: var(--fs-2xs);
-    font-weight: var(--fw-bold);
-    letter-spacing: .08em;
-    text-transform: uppercase;
   }
   .finance-source-link {
     display: inline-flex;
@@ -3395,13 +3381,6 @@
     margin: var(--sp-1) 0 0;
     color: var(--muted);
     font-size: var(--fs-xs);
-  }
-  .workspace-menu-eyebrow {
-    color: var(--accent-ink);
-    font-size: var(--fs-2xs);
-    font-weight: var(--fw-bold);
-    letter-spacing: .08em;
-    text-transform: uppercase;
   }
   .workspace-menu-groups {
     display: flex;
