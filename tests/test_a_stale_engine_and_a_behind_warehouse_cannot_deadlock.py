@@ -243,8 +243,8 @@ def test_restart_is_not_refused_for_a_database_that_is_only_behind(behind, monke
 
 
 def test_the_command_restart_sends_is_the_one_that_passes(behind, monkeypatch):
-    """Through the host's own dispatch, as the panel sends it (`checkStartup` in
-    `extension/transport.js`: no port). The tests above call `startup_check` directly,
+    """Through the host's own dispatch, as the panel's `checkStartup` sends it: with
+    no port. The tests above call `startup_check` directly,
     so a dispatch that stopped looking for an engine -- `startup_check(None)`, the
     obvious edit when a port is threaded through for #1808 -- would bring #1634 back
     with every one of them green. Found by the third stage-5 review."""
