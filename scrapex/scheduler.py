@@ -416,6 +416,14 @@ def fire_due(conn: sqlite3.Connection, now: datetime | None = None,
         # duplicated crawl that re-arms on the next tick and fires again.
         _rearm(conn, schedule, now, fired=True)
         conn.commit()
-        created.append(create_job(conn, [schedule["source_key"]], schedule["run_mode"]))
+        # A SITE THAT STOPPED THIS SOURCE LAST TIME: continue from its kept pages, as the
+        # panel's Resume does, instead of clearing them (#1449, his ruling 2026-10-25).
+        # Seeded exactly as `POST /api/jobs {resume: true}` seeds it.
+        key = schedule["source_key"]
+        checkpoint = ({"completed_source_keys": [], "errors": [], "succeeded": 0,
+                       "partial_source": key}
+                      if jobs.site_stop_to_continue(conn, key) else None)
+        created.append(create_job(conn, [key], schedule["run_mode"],
+                                  checkpoint=checkpoint))
     conn.commit()
     return created

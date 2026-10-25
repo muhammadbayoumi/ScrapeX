@@ -400,6 +400,58 @@ def _seed_source_expectations(conn: sqlite3.Connection, job_id: int,
             as_of=((previous or {}).get("started_at") or "")[:10] if spent else None)
 
 
+# HIS RULING ON #1449, 2026-10-25: kept pages are NEVER deleted for being old. Past this
+# many days a continuing run says so and advises an update (a fresh crawl) instead. Every
+# kept page carries its own `scraped_at` and ingest stamps each row with it
+# (`ingest.py`), so continuing never misdates a row; the advice is about freshness.
+KEPT_PAGES_STALE_DAYS = 7
+
+
+def kept_pages_age_days(source_key: str, now: datetime | None = None) -> float | None:
+    """How many days ago this source's kept pages stopped, or None when it keeps none."""
+    from . import localinbox
+
+    stopped = localinbox.journal_state(localinbox.JOURNAL_DIR, source_key)["stopped_at"]
+    if not stopped:
+        return None
+    then = datetime.strptime(stopped, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
+    return ((now or datetime.now(UTC)) - then).total_seconds() / 86400
+
+
+def _warn_if_kept_pages_are_stale(conn: sqlite3.Connection, job_id: int,
+                                  source_key: str) -> None:
+    age = kept_pages_age_days(source_key)
+    if age is None or age <= KEPT_PAGES_STALE_DAYS:
+        return
+    append_log(conn, job_id,
+               f"continuing from pages kept {int(age)} days ago, more than "
+               f"{KEPT_PAGES_STALE_DAYS} -- run an update for fresh data",
+               level=LogLevel.WARNING, source_key=source_key)
+
+
+def site_stop_to_continue(conn: sqlite3.Connection, source_key: str) -> bool:
+    """Did this source's last run end with its SITE stopping it, pages still kept?
+
+    What the scheduler asks before a firing (#1449, his ruling 2026-10-25): such a
+    source continues from its kept pages instead of clearing them. Read from the newest
+    finished crawl job that names the source, so a later clean run, cancel or failure
+    answers no, and from the journal, so pages already ingested or cleared answer no.
+    """
+    from . import localinbox
+
+    if not localinbox.journal_state(localinbox.JOURNAL_DIR, source_key)["pages"]:
+        return False
+    rows = conn.execute(
+        "SELECT counters_json FROM crawl_job WHERE job_kind = 'crawl' "
+        "AND finished_at IS NOT NULL AND EXISTS ("
+        "  SELECT 1 FROM json_each(crawl_job.source_keys) WHERE value = ?) "
+        "ORDER BY job_id DESC LIMIT 1", (source_key,)).fetchall()
+    if not rows:
+        return False
+    slot = ((json.loads(rows[0][0] or "{}").get(SOURCES_KEY) or {}).get(source_key) or {})
+    return slot.get("state") == "stopped_by_site"
+
+
 def _as_job(row: sqlite3.Row) -> dict:
     job = dict(row)
     job.setdefault("job_kind", "crawl")
@@ -584,6 +636,11 @@ class _SourceRun:
     errors: list
     counters: dict
     succeeded: int
+    # Sources whose SITE stopped them (`CrawlBlocked` that is neither the owner's
+    # pause nor our own refusal), each keeping its fetched pages. Not errors: #1448
+    # ruled a site's block is not a failure, and #1772 (a) gave such a job its own
+    # ending, `stopped_by_site`, when nothing else in it failed.
+    stopped_sites: list = field(default_factory=list)
     # Set by whichever lane first honours a pause or a cancel. Its presence is
     # what stops the others starting anything new, and what tells the caller
     # the job already reached a terminal state and must not be finished twice.
@@ -719,6 +776,7 @@ def _run_source(run: _SourceRun, conn: sqlite3.Connection, source_key: str) -> b
             extras["history"] = True
         if run.checkpoint.get("partial_source") == source_key:
             extras["resume"] = True
+            _warn_if_kept_pages_are_stale(conn, run.job_id, source_key)
         result = (run.capture(conn, entry, run.job_id, **extras) if extras
                   else run.capture(conn, entry, run.job_id))
         spent = int(result.requests_count)
@@ -825,6 +883,7 @@ def _run_source(run: _SourceRun, conn: sqlite3.Connection, source_key: str) -> b
                         {"completed_source_keys": run.done,
                          "errors": run.errors,
                          "succeeded": run.succeeded,
+                         "stopped_by_site": run.stopped_sites,
                          # WHICH source the brakes caught, so the resume hands
                          # its journaled pages back to the connector instead of
                          # re-fetching them. With lanes in flight this is the
@@ -866,7 +925,14 @@ def _run_source(run: _SourceRun, conn: sqlite3.Connection, source_key: str) -> b
         # reads partially completed and the source is named.
         from . import localinbox
         kept = len(localinbox.list_tokens(localinbox.JOURNAL_DIR, source_key))
-        run.errors.append(f"{source_key}: {stopped_because(blocked)}")
+        # A STOP, NOT AN ERROR (#1772, his ruling (a)). The job's ending is decided from
+        # `stopped_sites` below, and the panel draws this source from its slot: what
+        # stopped it and how many pages it kept, so the sentence it shows is the
+        # engine's own and not a cause the panel guessed.
+        with run.lock:
+            run.stopped_sites.append(source_key)
+        record_source_fetch(conn, run.job_id, source_key, kept_pages=kept,
+                            stopped_because=stopped_because(blocked))
         append_log(conn, run.job_id,
                    f"{stopped_because(blocked)} — "
                    + (f"{kept} fetched page(s) kept; Resume on this source "
@@ -887,13 +953,16 @@ def _run_source(run: _SourceRun, conn: sqlite3.Connection, source_key: str) -> b
     # the run. `requests` is left as the final figure for display; the job-wide
     # numerator stops counting this slot and reads the merged total instead
     # (see _job_view), so nothing is double-counted.
-    record_source_fetch(conn, run.job_id, source_key, state="done",
+    record_source_fetch(conn, run.job_id, source_key,
+                        state=("stopped_by_site" if source_key in run.stopped_sites
+                               else "done"),
                         **({"requests": int(spent), "expected": int(spent),
                             "basis": "measured", "as_of": None}
                            if spent is not None else {}))
     _update(conn, run.job_id, progress_done=len(run.done),
             checkpoint_json=json.dumps({"completed_source_keys": run.done,
-                                        "errors": run.errors, "succeeded": run.succeeded}),
+                                        "errors": run.errors, "succeeded": run.succeeded,
+                                        "stopped_by_site": run.stopped_sites}),
             last_heartbeat_at=utc_now_iso())
     _merge_counters_column(conn, run.job_id, run.counters)
     conn.commit()
@@ -949,6 +1018,9 @@ def run_job_once(conn: sqlite3.Connection, job_ref: str, manifest,
     # from reporting a clean COMPLETED.
     errors: list[str] = list(checkpoint.get("errors", []))
     succeeded = int(checkpoint.get("succeeded", 0))
+    # Stops by a site survive a pause for the same reason: without them a resumed job
+    # whose first source its site stopped would end `completed` (#1772).
+    stopped_sites: list[str] = list(checkpoint.get("stopped_by_site", []))
 
     # NB: `control` is deliberately NOT cleared here — a cancel/pause requested
     # while the job was still queued must survive into the first boundary check.
@@ -1004,7 +1076,7 @@ def run_job_once(conn: sqlite3.Connection, job_ref: str, manifest,
     run = _SourceRun(conn=conn, job=job, job_id=job_id, manifest=manifest,
                      capture=capture, rebuilding=rebuilding, checkpoint=checkpoint,
                      done=done, errors=errors, counters=counters,
-                     succeeded=succeeded)
+                     succeeded=succeeded, stopped_sites=stopped_sites)
     if width > 1:
         append_log(conn, job_id,
                    f"crawling {len(lanes)} site(s), up to {width} at a time")
@@ -1015,8 +1087,19 @@ def run_job_once(conn: sqlite3.Connection, job_ref: str, manifest,
     if run.stopped is not None:
         return get_job(conn, job_ref)
 
-    if not errors:
+    stopped = run.stopped_sites
+    if not errors and not stopped:
         status = JobStatus.COMPLETED
+    elif not errors and not succeeded:
+        # EVERY SOURCE THAT DID NOT FINISH WAS STOPPED BY ITS SITE, AND NONE FAILED:
+        # #1772 (a). This read `failed` (`succeeded == 0` below), which #1448 ruled
+        # a block is not. Each keeps its pages and continues from them on its next run.
+        status = JobStatus.STOPPED_BY_SITE
+    elif not errors:
+        # Some sources finished and the rest were stopped by their sites: part of the
+        # job completed, which is what this status already says. The stopped ones are
+        # named on their slots, not in `error_summary`, because they are not errors.
+        status = JobStatus.PARTIALLY_COMPLETED
     elif succeeded == len(job["source_keys"]):
         # Every source ran and passed its canary, yet a run degraded (partial
         # ingest). That is not 'completed' — the owner has something to read —

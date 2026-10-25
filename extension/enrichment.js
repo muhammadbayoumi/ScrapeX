@@ -3,7 +3,7 @@ import { api, backendBase, backendGeneration, post } from "./backend.js";
 const $ = (id) => document.getElementById(id);
 const TERMINAL = new Set([
   "cancelled", "completed", "completed_with_errors", "partially_completed", "failed",
-  "skipped",
+  "skipped", "stopped_by_site",
 ]);
 const ROLE_LABELS = {
   company_name: "Company name",

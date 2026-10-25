@@ -656,9 +656,14 @@ def test_a_price_source_pauses_and_says_why_not_that_it_was_blocked(
     assert "blocked by the site" not in said[0]["message"], said[0]["message"]
     assert "no page was kept" in said[0]["message"], said[0]["message"]
     assert not any(line["message"].startswith("failed:") for line in lines)
-    # And the job's own error text, the one the finished card shows, says the same.
-    error = jobs.get_job(memory, ref)["error_summary"]
-    assert "could not be reached" in error and "blocked by the site" not in error, error
+    # And what the finished row shows says the same. Since #1772 (a) a stop by the site
+    # is not an error: the job ends `stopped_by_site` with no error text, and the cause
+    # travels on the source's slot, which is what the panel's line is drawn from.
+    job = jobs.get_job(memory, ref)
+    assert job["status"] == "stopped_by_site"
+    assert job["error_summary"] is None
+    stopped = job["counters"]["sources"]["GPP_ENERGY"]["stopped_because"]
+    assert "could not be reached" in stopped and "blocked by the site" not in stopped, stopped
 
 
 def test_a_price_source_paused_after_a_page_keeps_it_for_resume(memory, journal,

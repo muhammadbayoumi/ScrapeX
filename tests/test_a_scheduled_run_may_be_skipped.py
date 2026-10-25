@@ -120,7 +120,10 @@ def test_a_warehouse_at_v22_upgrades_and_keeps_every_job_and_what_points_at_it(
     at = [one.name for one in whole].index(MIGRATION)
     monkeypatch.setattr(db, "_migrations", whole[:at])
     db.initialize()
-    old_statuses = [status.value for status in JobStatus if status is not JobStatus.SKIPPED]
+    # The statuses the v22 CHECK knew: not `skipped` (0023), and not `stopped_by_site`,
+    # which a LATER migration adds (0027, #1772) and this v22 warehouse refuses.
+    old_statuses = [status.value for status in JobStatus
+                    if status not in (JobStatus.SKIPPED, JobStatus.STOPPED_BY_SITE)]
     with db.connect() as before:
         with pytest.raises(sqlite3.IntegrityError):
             before.execute("INSERT INTO crawl_job (job_ref, run_mode, source_keys, status)"

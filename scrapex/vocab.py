@@ -488,12 +488,20 @@ class JobStatus(StrEnum):
     # fires again at its next slot instead. Not in `BLOCKING_JOB_STATUSES`: a skip
     # occupies nothing, so it must never be the reason the next firing is skipped.
     SKIPPED = "skipped"
+    # Every source that did not finish was stopped by its SITE, and none failed: his
+    # ruling (a) on #1772, 2026-10-24. It used to end `failed` (`succeeded == 0`), which
+    # #1448 ruled a block is not. Finished, not held: a held (paused) job makes the next
+    # scheduled run of that site skip (`scheduler.py`, D3 on #1596), and the ruling is
+    # that the site continues from its kept pages on its next run. Not in
+    # `BLOCKING_JOB_STATUSES` for the same reason.
+    STOPPED_BY_SITE = "stopped_by_site"
 
 
 # Statuses that mean "this job will never run again" — safe to ignore on restart.
 TERMINAL_JOB_STATUSES = frozenset({
     JobStatus.CANCELLED, JobStatus.COMPLETED, JobStatus.COMPLETED_WITH_ERRORS,
     JobStatus.PARTIALLY_COMPLETED, JobStatus.FAILED, JobStatus.SKIPPED,
+    JobStatus.STOPPED_BY_SITE,
 })
 
 # Statuses where the worker is actively holding the job, so a pause/cancel has to

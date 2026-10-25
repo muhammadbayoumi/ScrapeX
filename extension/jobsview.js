@@ -20,7 +20,8 @@
 
 /** Terminal statuses, from `scrapex/vocab.py:TERMINAL_JOB_STATUSES`. */
 const SETTLED = new Set(["cancelled", "completed", "completed_with_errors",
-                         "partially_completed", "failed", "skipped"]);
+                         "partially_completed", "failed", "skipped",
+                         "stopped_by_site"]);
 
 /** Where the worker is holding the job, from `vocab.WORKER_HELD_STATUSES` plus the two
  *  transitional statuses `set_control` parks a held job in. A job in one of these owns a
@@ -285,6 +286,9 @@ const STATUS_LOOK = {
   requires_review: ["material-warning", "warning"],
   failed: ["material-cancel", "destructive"],
   partially_completed: ["material-warning", "warning"],
+  // #1772: the site stopped it and its pages are kept for Continue. The pause glyph says
+  // "it waits to go on", amber says it needs him, as `partially_completed` does.
+  stopped_by_site: ["material-pause-circle", "warning"],
   completed_with_errors: ["material-warning", "warning"],
   completed: ["material-check-circle", "brand"],
   cancelled: ["material-block", "default"],
