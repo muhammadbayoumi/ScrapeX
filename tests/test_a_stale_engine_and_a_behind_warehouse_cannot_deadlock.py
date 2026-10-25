@@ -84,7 +84,7 @@ def test_an_engine_older_than_the_disk_refuses_and_names_restart(tmp_path, strea
         f"an engine started before {stream.newest.name} answered {answer.status_code} "
         f"{answer.json()} under a page reading v{before} of v{before + 1}")
     said = answer.json()["detail"]
-    assert f"v{before + 1}" in said and f"v{before}." in said, (
+    assert f"v{before}," in said and f"v{before + 1} is now installed" in said, (
         f"the refusal does not name both versions: {said!r}")
     assert "Restart engine" in said, f"the refusal names no control: {said!r}"
     for command in ("scrapex ", "python -m", "init-db"):
@@ -116,9 +116,12 @@ def test_an_engine_level_with_the_disk_still_upgrades_behind_a_backup(tmp_path, 
     assert len(_backups(registry.engine.path)) == 1, "it upgraded without a backup"
 
 
-def test_unreadable_migration_files_refuse_in_words_and_change_nothing(tmp_path, stream):
+def test_unreadable_migration_files_refuse_in_words_and_change_nothing(
+        tmp_path, stream, monkeypatch):
     """The refusal reads the plan on disk, so a folder that cannot be read is its own
-    answer, in words, rather than a 500 the panel can only call "HTTP 500"."""
+    answer, in words, rather than a 500 the panel can only call "HTTP 500". It says
+    Restart is refused for the same reason, and that is asserted, not assumed."""
+    from scrapex import native
     from scrapex.webui.app import create_app
 
     registry = _registry(tmp_path)
@@ -133,8 +136,17 @@ def test_unreadable_migration_files_refuse_in_words_and_change_nothing(tmp_path,
     said = answer.json()["detail"]
     assert "could not be read" in said and "0099 a misnamed file.sql" in said, said
     assert "Nothing was changed" in said, said
+    assert "Restart engine is refused for the same reason" in said, said
     assert _version(registry.engine.path) == before
     assert _backups(registry.engine.path) == []
+
+    monkeypatch.setattr(DatabaseRegistry, "defaults", classmethod(
+        lambda cls, **kw: cls(EngineDatabase(registry.engine.path),
+                              pointer_file=tmp_path / "databases.json")))
+    _engine_on_the_port(monkeypatch, running=True)
+    restart = native.startup_check()
+    assert restart["ok"] is False and restart["error"] == "startup_check_failed", restart
+    assert "0099 a misnamed file.sql" in restart["detail"], restart
 
 
 def test_why_the_stale_engine_refuses_rather_than_applies(tmp_path, stream):
@@ -151,55 +163,138 @@ def test_why_the_stale_engine_refuses_rather_than_applies(tmp_path, stream):
     assert not state.ok and "newer" in state.status.lower(), (state.status, state.action)
 
 
-def test_a_start_is_not_refused_for_a_database_that_is_only_behind(
-        tmp_path, stream, monkeypatch):
-    """The second half: the pre-check passes exactly what the engine's start upgrades.
+@pytest.fixture()
+def behind(tmp_path, stream, monkeypatch):
+    """His warehouse on 2026-10-24: built on the old plan, and the new file on disk.
 
-    Both halves are asserted, because passing a database the start then refuses would
-    only move the failure past the press: the pre-check says yes, and then the start
-    this lets through backs the file up, upgrades it and serves.
+    A FRESH PROCESS PER COMMAND, as Chrome starts the host: the plan is read from disk
+    at each call. Yields the file and the version it is at.
     """
-    import uvicorn
-
-    import scrapex.cli as cli
-    from scrapex import native
-    from scrapex.jobs import JobRunner
-
     path = tmp_path / "engine" / "scrapex-engine.db"
     pointer = tmp_path / "databases.json"
     DatabaseRegistry(EngineDatabase(path), pointer_file=pointer).initialize()
     before = _version(path)
     stream.land()
-    # A FRESH PROCESS PER COMMAND, as Chrome starts the host: the plan is read from
-    # disk at each call.
     monkeypatch.setattr(DatabaseRegistry, "defaults", classmethod(
         lambda cls, **kw: cls(EngineDatabase(path), pointer_file=pointer)))
+    return path, before
 
-    check = native.startup_check()
 
-    assert check["ok"] is True, (
-        f"the pre-check refused a database whose only fault is being behind: {check}")
-    assert check["databases"]["engine"]["status"] == BEHIND, check
-    spawned: list = []
-    monkeypatch.setattr(native, "_engine_answering", lambda *a, **k: None)
-    monkeypatch.setattr(native, "_spawn_engine", spawned.append)
-    native.start_engine({"port": 8199})
-    assert spawned == [8199], "Start did not start the engine"
+def _engine_on_the_port(monkeypatch, running: bool) -> None:
+    """Said, never assumed: his own engine is usually listening on 8000."""
+    from scrapex import native
+
+    monkeypatch.setattr(native, "_engine_answering",
+                        lambda *a, **k: {"app": "scrapex"} if running else None)
+
+
+def _start_the_engine(monkeypatch) -> list:
+    """`cli._cmd_ui` up to `uvicorn.run`, as Restart's replacement runs it."""
+    import uvicorn
+
+    import scrapex.cli as cli
+    from scrapex.jobs import JobRunner
 
     served: list = []
     monkeypatch.setattr(uvicorn, "run", lambda app, **kw: served.append(app))
     monkeypatch.setattr(JobRunner, "start", lambda self: None)
     monkeypatch.setattr(cli, "_bind_log_streams", lambda: None)
-    cli._cmd_ui(argparse.Namespace(db=None, host="127.0.0.1", port=8199, no_open=True))
+    code = cli._cmd_ui(argparse.Namespace(db=None, host="127.0.0.1", port=8199,
+                                          no_open=True))
+    return served if code in (None, 0) else []
 
-    assert len(served) == 1, "the start the pre-check passed did not serve"
-    assert _version(path) == before + 1, "the start did not upgrade the database"
-    assert len(_backups(path)) == 1, "the start upgraded without a backup"
+
+def test_restart_is_not_refused_for_a_database_that_is_only_behind(behind, monkeypatch):
+    """The second half: with an engine running, the pre-check Restart asks passes a
+    database whose only fault is being behind -- and the replacement it lets through
+    backs the file up, upgrades it and serves. Passing a database the start then
+    refuses would only move the failure past the press."""
+    from scrapex import native
+
+    path, before = behind
+    _engine_on_the_port(monkeypatch, running=True)
+
+    check = native.startup_check()
+
+    assert check["ok"] is True, (
+        f"Restart's pre-check refused a database whose only fault is being behind, "
+        f"with an engine running that cannot upgrade it: {check}")
+    assert check["databases"]["engine"]["status"] == BEHIND, check
+    assert len(_start_the_engine(monkeypatch)) == 1, "the replacement did not serve"
+    assert _version(path) == before + 1, "the replacement did not upgrade the database"
+    assert len(_backups(path)) == 1, "the replacement upgraded without a backup"
+
+
+def test_start_with_no_engine_still_sends_him_to_upgrade_database(behind, monkeypatch):
+    """His ruling of 2026-10-25: Restart only. With no engine running, Upgrade database
+    reaches the native host, which names a failure in words, so Start stops and offers
+    it, as before, and spawns nothing that could race it."""
+    from scrapex import native
+
+    path, before = behind
+    _engine_on_the_port(monkeypatch, running=False)
+    spawned: list = []
+    monkeypatch.setattr(native, "_spawn_engine", spawned.append)
+
+    answer = native.start_engine({"port": 8199})
+
+    assert answer["ok"] is False and answer["error"] == "startup_blocked", answer
+    assert answer["action"] == "upgrade_database", answer
+    assert spawned == [], "Start spawned an engine over a database that is behind"
+    assert _version(path) == before and _backups(path) == []
+
+
+def test_start_asks_about_its_own_port(behind, monkeypatch):
+    """An engine answering on ANOTHER port does not make a Start on this one a
+    Restart: the engine this Start would spawn upgrades the file under it."""
+    from scrapex import native
+
+    monkeypatch.setattr(native, "_engine_answering", lambda port, *a, **k: (
+        {"app": "scrapex"} if port == native.DEFAULT_ENGINE_PORT else None))
+    spawned: list = []
+    monkeypatch.setattr(native, "_spawn_engine", spawned.append)
+
+    answer = native.start_engine({"port": native.DEFAULT_ENGINE_PORT + 131})
+
+    assert answer["ok"] is False and answer["action"] == "upgrade_database", answer
+    assert spawned == []
+
+
+def test_a_replacement_that_cannot_upgrade_leaves_a_button_that_says_why(
+        behind, monkeypatch):
+    """When Restart's replacement cannot upgrade, it exits and the reason is only in
+    its log. The panel's check after a silent restart then finds no engine, so the
+    database blocks again and offers Upgrade database -- and that button's answer
+    names the failure in words, which is the protection a passing check must not take
+    away."""
+    import scrapex.archive as archive
+    from scrapex import native
+
+    path, before = behind
+
+    def disk_full(*a, **k):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(archive, "backup_database", disk_full)
+    _engine_on_the_port(monkeypatch, running=True)
+    assert native.startup_check()["ok"] is True
+    assert _start_the_engine(monkeypatch) == [], "a replacement served without upgrading"
+
+    _engine_on_the_port(monkeypatch, running=False)
+    check = native.startup_check()
+    assert check["ok"] is False and check["action"] == "upgrade_database", check
+
+    answer = native.upgrade_database()
+    assert answer["ok"] is False and answer["error"] == "database_upgrade_failed", answer
+    assert "could not be backed up" in answer["detail"], answer
+    assert "No space left on device" in answer["detail"], answer
+    assert _version(path) == before
 
 
 def test_a_database_from_a_newer_build_still_blocks_a_start(tmp_path, monkeypatch):
-    """Only BEHIND passes. A database written by a newer build is the one the new
-    engine refuses, so the pre-check must still refuse it, by name."""
+    """Only BEHIND passes, and only with an engine running. A database written by a
+    newer build is the one the new engine refuses, so the pre-check still refuses it,
+    by name, engine or no engine."""
     from scrapex import native
 
     registry = _registry(tmp_path)
@@ -212,6 +307,7 @@ def test_a_database_from_a_newer_build_still_blocks_a_start(tmp_path, monkeypatc
         conn.close()
     monkeypatch.setattr(DatabaseRegistry, "defaults",
                         classmethod(lambda cls, **kw: registry))
+    _engine_on_the_port(monkeypatch, running=True)
 
     check = native.startup_check()
 

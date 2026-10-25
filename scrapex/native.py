@@ -253,7 +253,7 @@ def _database_report(*, integrity: bool = True) -> tuple[dict[str, dict] | None,
     return states, None
 
 
-def startup_check() -> dict:
+def startup_check(port: int = DEFAULT_ENGINE_PORT) -> dict:
     """Return a structured, actionable preflight result for engine startup."""
     # Identity only, the question the engine's own start asks: see
     # `cli._cmd_ui` (#1713). Asking more here than the engine asks would pass
@@ -276,11 +276,16 @@ def startup_check() -> dict:
         (name, state) for name, state in (states or {}).items()
         if not state["ok"] and state["status"] != "Missing"
     ]
-    # ONLY BEHIND DOES NOT BLOCK, for the reason above: the engine's own start backs
-    # the file up and upgrades it (`cli._cmd_ui`). Refusing it refused a start that
-    # works, and with an engine older than the disk answering Upgrade database
-    # "already up to date", Restart was then the only way forward and this shut it.
-    if all(state["status"] == BEHIND for _, state in blocked):
+    if not blocked:
+        return {"ok": True, "databases": states or {}}
+    # ONLY BEHIND, WITH AN ENGINE RUNNING, DOES NOT BLOCK: Restart is then the only way
+    # forward. Upgrade database goes to the running engine first, and one older than
+    # the disk refuses a plan newer than itself, so refusing here was a deadlock. The
+    # replacement backs the file up and upgrades it on its way up (`cli._cmd_ui`).
+    # With no engine running it still blocks: Upgrade database then reaches this host,
+    # which says in words why an upgrade failed, and Start does not race it (#1634).
+    if all(state["status"] == BEHIND for _, state in blocked) \
+            and _engine_answering(port) is not None:
         return {"ok": True, "databases": states or {}}
     details = "; ".join(
         f"{name}: {state['status']}. {state['action']}"
@@ -397,7 +402,7 @@ def start_engine(message: dict) -> dict:
     if answering is not None:
         return {"ok": True, "already_running": True, "confirmed": True, "port": port,
                 "version": answering.get("version")}
-    preflight = startup_check()
+    preflight = startup_check(port)
     if not preflight["ok"]:
         return {**preflight, "port": port}
     _spawn_engine(port)

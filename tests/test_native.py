@@ -331,7 +331,7 @@ def test_start_engine_spawns_and_confirms_when_the_port_comes_up(conn, monkeypat
     answers = iter([None, {"app": "scrapex", "version": "9.9.9"}])
     monkeypatch.setattr(native, "_engine_answering",
                         lambda port, timeout=1.5: next(answers))
-    monkeypatch.setattr(native, "startup_check", lambda: {"ok": True, "databases": {}})
+    monkeypatch.setattr(native, "startup_check", lambda port=None: {"ok": True, "databases": {}})
     monkeypatch.setattr(native, "_spawn_engine", lambda port: spawned.append(port))
 
     r = handle(conn, {"command": "START_ENGINE"})
@@ -347,7 +347,7 @@ def test_start_engine_that_cannot_be_confirmed_says_so(conn, monkeypatch):
     from scrapex import native
 
     monkeypatch.setattr(native, "_engine_listening", lambda port: False)
-    monkeypatch.setattr(native, "startup_check", lambda: {"ok": True, "databases": {}})
+    monkeypatch.setattr(native, "startup_check", lambda port=None: {"ok": True, "databases": {}})
     monkeypatch.setattr(native, "_spawn_engine", lambda port: None)
     monkeypatch.setattr(native, "_START_CONFIRM_BUDGET_S", 0.05)
 
@@ -365,14 +365,12 @@ def test_start_engine_surfaces_a_database_blocker_before_spawning(conn, monkeypa
 
     spawned = []
     monkeypatch.setattr(native, "_engine_listening", lambda port: False)
-    # A BLOCKER THE REAL CHECK STILL RAISES. This stubbed "Needs upgrade", which no
-    # longer blocks on its own: the engine's start upgrades it.
-    monkeypatch.setattr(native, "startup_check", lambda: {
+    monkeypatch.setattr(native, "startup_check", lambda port=None: {
         "ok": False,
         "error": "startup_blocked",
-        "detail": "engine: Needs a newer ScrapeX. Schema v56 was written by 0.5.0.",
-        "action": "check_storage",
-        "databases": {"engine": {"status": "Needs a newer ScrapeX"}},
+        "detail": "marketlens: Needs upgrade. Apply migration 56.",
+        "action": "upgrade_database",
+        "databases": {"marketlens": {"status": "Needs upgrade"}},
     })
     monkeypatch.setattr(native, "_spawn_engine", lambda port: spawned.append(port))
 
@@ -380,8 +378,8 @@ def test_start_engine_surfaces_a_database_blocker_before_spawning(conn, monkeypa
 
     assert answer["ok"] is False
     assert answer["error"] == "startup_blocked"
-    assert answer["action"] == "check_storage"
-    assert "v56" in answer["detail"]
+    assert answer["action"] == "upgrade_database"
+    assert "migration 56" in answer["detail"]
     assert spawned == []
 
 
@@ -930,14 +928,13 @@ def test_the_control_commands_the_panel_actually_calls_still_answer(tmp_path, co
 def test_startup_check_names_the_database_action(monkeypatch):
     from scrapex import native
 
-    # NOT "Needs upgrade" any more: a database that is only behind no longer blocks a
-    # start (the engine's start upgrades it), so the sentence is shown for a fault that
-    # does.
+    # NO ENGINE ON THE PORT, said rather than assumed: his engine usually is on 8000.
+    monkeypatch.setattr(native, "_engine_answering", lambda *a, **k: None)
     monkeypatch.setattr(native, "_database_report", lambda **_: ({
         "marketlens": {
             "ok": False,
-            "status": "Integrity check failed",
-            "action": "Restore a verified backup",
+            "status": "Needs upgrade",
+            "action": "Run init-db",
         },
     }, None))
 
@@ -945,8 +942,8 @@ def test_startup_check_names_the_database_action(monkeypatch):
 
     assert answer["ok"] is False
     assert answer["error"] == "startup_blocked"
-    assert answer["action"] == "check_storage"
-    assert "marketlens: Integrity check failed. Restore a verified backup" == answer["detail"]
+    assert answer["action"] == "upgrade_database"
+    assert "marketlens: Needs upgrade. Run init-db" == answer["detail"]
 
 
 def test_a_database_below_the_baseline_is_not_offered_a_button_that_cannot_work(
@@ -975,18 +972,19 @@ def test_a_database_below_the_baseline_is_not_offered_a_button_that_cannot_work(
         "can repair")
 
 
-def test_a_database_only_behind_starts_and_a_mixed_report_keeps_the_button(monkeypatch):
+def test_a_database_that_is_only_behind_still_gets_the_button(monkeypatch):
     """The other direction, because a fix that suppressed both would take away the
-    working repair. `BEHIND` is the status an upgrade genuinely fixes -- and the
-    engine's own start is that upgrade, behind a backup (`cli._cmd_ui`), so alone it
-    does not block: refusing it was half of a deadlock (see
-    `tests/test_a_stale_engine_and_a_behind_warehouse_cannot_deadlock.py`)."""
+    working repair. `BEHIND` is the status an upgrade genuinely fixes."""
     from scrapex import native
     from scrapex.dbupgrade import BEHIND, TOO_OLD
 
-    alone = {"engine": {"ok": False, "status": BEHIND, "action": "Use the button."}}
-    monkeypatch.setattr(native, "_database_report", lambda **_: (alone, None))
-    assert native.startup_check() == {"ok": True, "databases": alone}
+    # NO ENGINE ON THE PORT: with one running, BEHIND alone passes (Restart), see
+    # `test_with_an_engine_running_a_database_only_behind_does_not_block_restart`.
+    monkeypatch.setattr(native, "_engine_answering", lambda *a, **k: None)
+    monkeypatch.setattr(native, "_database_report", lambda **_: ({
+        "engine": {"ok": False, "status": BEHIND, "action": "Use the button."},
+    }, None))
+    assert native.startup_check()["action"] == "upgrade_database"
 
     # AND A MIXED REPORT KEEPS IT, deliberately: the guarded upgrade refuses and
     # NAMES the other fault (`OP-137`), which is more useful than a button that
@@ -997,6 +995,29 @@ def test_a_database_only_behind_starts_and_a_mixed_report_keeps_the_button(monke
         "other": {"ok": False, "status": TOO_OLD, "action": "No path (R-84)."},
     }, None))
     assert native.startup_check()["action"] == "upgrade_database"
+
+
+def test_with_an_engine_running_a_database_only_behind_does_not_block_restart(
+        monkeypatch):
+    """`#1634`: Upgrade database goes to the running engine, which cannot apply a plan
+    newer than itself, so Restart is the only way forward -- and its replacement
+    upgrades on the way up. A mixed report still blocks, engine or no engine."""
+    from scrapex import native
+    from scrapex.dbupgrade import BEHIND, TOO_OLD
+
+    asked: list[int] = []
+    monkeypatch.setattr(native, "_engine_answering",
+                        lambda port, *a, **k: asked.append(port) or {"app": "scrapex"})
+    alone = {"engine": {"ok": False, "status": BEHIND, "action": "Use the button."}}
+    monkeypatch.setattr(native, "_database_report", lambda **_: (alone, None))
+
+    assert native.startup_check(8131) == {"ok": True, "databases": alone}
+    assert asked == [8131], "the engine was not looked for on the port asked about"
+
+    monkeypatch.setattr(native, "_database_report", lambda **_: ({
+        **alone, "other": {"ok": False, "status": TOO_OLD, "action": "No path (R-84)."},
+    }, None))
+    assert native.startup_check(8131)["error"] == "startup_blocked"
 
 
 def test_the_two_surfaces_describe_the_below_baseline_state_with_one_vocabulary():
@@ -1059,7 +1080,7 @@ def test_a_stranger_on_the_port_is_not_mistaken_for_the_engine(conn, monkeypatch
     port = stranger.getsockname()[1]
 
     spawned = []
-    monkeypatch.setattr(native, "startup_check", lambda: {"ok": True, "databases": {}})
+    monkeypatch.setattr(native, "startup_check", lambda port=None: {"ok": True, "databases": {}})
     monkeypatch.setattr(native, "_spawn_engine", lambda port: spawned.append(port))
     monkeypatch.setattr(native, "_START_CONFIRM_BUDGET_S", 0.05)
     try:

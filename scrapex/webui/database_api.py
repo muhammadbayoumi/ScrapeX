@@ -70,12 +70,15 @@ def create_database_router(
         except (OSError, ValueError) as exc:
             raise HTTPException(status_code=409, detail=(
                 "Database not upgraded: the migration files on disk could not be read: "
-                f"{exc}. Nothing was changed.")) from exc
+                f"{exc}. Nothing was changed. This engine keeps running, and Restart "
+                "engine is refused for the same reason until those files are repaired."
+            )) from exc
         if on_disk > loaded:
             raise HTTPException(status_code=409, detail=(
-                f"Database not upgraded: this engine started before schema v{on_disk} "
-                f"reached the disk, and it knows migrations only up to v{loaded}. Restart "
-                "engine on the Engine screen backs the database up and upgrades it."))
+                f"Database not upgraded: the running engine knows schema up to "
+                f"v{loaded}, and v{on_disk} is now installed. Press Restart engine on "
+                "the Engine screen: the new engine backs the database up, then upgrades "
+                "it."))
         report, outcome = upgrade_what_is_only_behind(registry, registry.ensure_ready())
         if outcome.refused:
             raise HTTPException(status_code=409, detail=outcome.refused)
