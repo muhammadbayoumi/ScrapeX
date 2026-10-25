@@ -222,13 +222,19 @@ def run_tender_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
             # first pass over changes must still start from when the crawl began.
             record.setdefault("first_counted_at", utc_now_iso())
             record["count"] = {"counted_at": utc_now_iso(), "total": plan.total,
-                               "requests": plan.requests,
+                               "requests": plan.requests, "unlisted": plan.unlisted,
                                "areas": [[area.name, area.count] for area in plan.areas]}
             held = state.areas_read | set(record["areas_read"])
             to_read = [area for area in plan.areas if area.name not in held]
             asked = sum(area.pages for area in to_read)
             if not held:
                 say(LogLevel.INFO, wc.count_line(plan))
+            if plan.unlisted:
+                # HIS RULING OF 2026-10-25 (#1647): named, and the crawl starts.
+                say(LogLevel.WARNING,
+                    f"{wc._counted(plan.unlisted, 'notice')} the Bank lists in no area: an "
+                    "area pass cannot read them, and the pass over changes reads each one "
+                    "when it changes")
             elif to_read:
                 # THE COUNT INCLUDED, as `count_line`'s figure is (`Plan.requests`): the
                 # line and the cost question part 3b-2b asks give one number (#1701, 13a).

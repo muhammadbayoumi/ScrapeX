@@ -84,6 +84,11 @@ class Plan:
     total: int
 
     @property
+    def unlisted(self) -> int:
+        """Notices the Bank lists in no area: no area pass reads them (#1647, 2026-10-25)."""
+        return self.total - sum(area.count for area in self.areas)
+
+    @property
     def requests(self) -> int:
         """The count itself, then every page of every area: 537 for the world."""
         return 1 + sum(area.pages for area in self.areas)
@@ -159,9 +164,13 @@ def count_areas(fetcher) -> Plan:
             raise PageShapeError(f"{response.url}: {name!r} counts {count!r}")
         areas.append(Area(name=name, count=count))
     total = int(body["total"])
-    if sum(area.count for area in areas) != total:
-        # The 184 counts add up to the total (#1647 §4); when they do not, an area is
-        # missing from the list, and a crawl of the list would miss it without a word.
+    # FEWER IS THE BANK'S INDEX, MORE IS A FAULT. Measured 2026-10-25 (#1647): the 184
+    # areas counted 424,105 of 424,135. Thirty notices name no country and no region, and
+    # even the notice-type facet, seven values, falls short by 36: the facets were never a
+    # census, and 10 Oct's exact sum was that day's. His ruling: the count stands and
+    # `Plan.unlisted` names the gap. Counts adding up to MORE than the total mean an area
+    # counted twice, or two that overlap, and a crawl of them would read notices twice.
+    if sum(area.count for area in areas) > total:
         raise PageShapeError(f"{response.url}: the areas count "
                              f"{sum(a.count for a in areas):,} of {total:,} notices")
     # LARGEST FIRST, so a first crawl that stops has read as many notices as it could.

@@ -66,7 +66,7 @@ def test_a_first_crawl_reads_every_area_largest_first_and_keeps_its_record(conn,
     record = job["checkpoint"]
     assert record["areas_read"] == [EGYPT, KENYA] and record["unread"] == {}
     assert record["count"] == {"counted_at": NOW, "total": 1_500, "requests": 4,
-                               "areas": [[EGYPT, 1_200], [KENYA, 300]]}
+                               "unlisted": 0, "areas": [[EGYPT, 1_200], [KENYA, 300]]}
     assert record["first_counted_at"] == NOW
     assert (job["progress_done"], job["progress_total"]) == (2, 2)
     assert {k: job["counters"][k] for k in tenderjob.COUNTERS} == {
@@ -74,6 +74,18 @@ def test_a_first_crawl_reads_every_area_largest_first_and_keeps_its_record(conn,
         "errors": 0}
     # An initial crawl reads no changes: the next update does, from the count.
     assert "changes" not in record
+
+
+def test_notices_in_no_area_are_named_and_the_crawl_starts(conn, bank):
+    """His ruling of 2026-10-25 (#1647): the count line stays the confirmed one, and a
+    warning beside it names what no area pass can read."""
+    bank["bank"].facets["total"] = str(int(bank["bank"].facets["total"]) + 30)
+    job, ref = run(conn)
+    assert job["status"] == "completed"
+    assert ("warning", "30 notices the Bank lists in no area: an area pass cannot read them, "
+                       "and the pass over changes reads each one when it changes"
+            ) in logged(conn, ref)
+    assert job["checkpoint"]["count"]["unlisted"] == 30
 
 
 def test_the_site_is_registered_when_absent_and_left_alone_when_present(conn, bank):

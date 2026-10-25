@@ -163,6 +163,20 @@ def test_areas_are_read_largest_first_whatever_order_the_bank_lists_them():
     assert [a.name for a in plan.areas] == ["Egypt, Arab Republic of", "Kenya", "Palau"]
 
 
+def test_notices_the_bank_lists_in_no_area_are_named_and_the_count_stands():
+    """His ruling of 2026-10-25 (#1647): on that day the 184 areas counted 424,105 of
+    424,135 notices. Thirty name no country and no region, and even the notice-type facet
+    falls short, so the facets were never a census. An area pass cannot read them; the
+    count stands, and says how many."""
+    short = copy.deepcopy(FACETS)
+    short["facets"][wc.AREA_FACET].pop("5")
+    popped = FACETS["facets"][wc.AREA_FACET]["5"]["count"]
+    plan = wc.count_areas(Bank(facets=short))
+    assert len(plan.areas) == 183 and plan.total == 422_285
+    assert plan.unlisted == popped
+    assert wc.count_areas(Bank(facets=FACETS)).unlisted == 0
+
+
 def test_the_count_line_is_the_contracts():
     plan = wc.count_areas(Bank(facets=FACETS))
     assert wc.count_line(plan) == "counted 422,285 notices in 184 areas: 537 requests"
@@ -174,8 +188,9 @@ def test_the_count_line_is_the_contracts():
     lambda f: f["facets"][wc.AREA_FACET]["0"].update(count="47395"),
     lambda f: f["facets"][wc.AREA_FACET]["0"].update(name="  "),
     lambda f: f.update(total="422,285"),
-    # The counts no longer add up to the total: an area is missing from the list.
-    lambda f: f["facets"][wc.AREA_FACET].pop("5"),
+    # The counts add up to MORE than the total: an area counted twice, or two that overlap.
+    lambda f: f["facets"][wc.AREA_FACET]["5"].update(count=f["facets"][wc.AREA_FACET]["5"]
+                                                     ["count"] + 1),
 ])
 def test_a_count_not_in_the_measured_shape_is_refused(break_it):
     broken = copy.deepcopy(FACETS)
