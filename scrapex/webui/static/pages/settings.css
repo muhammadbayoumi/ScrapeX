@@ -2,8 +2,7 @@
        Navigation changes only what is visible; the forms and their explicit
        save behavior stay exactly where their backend contracts expect them. */
     .settings-hero{padding:var(--sp-1) 0 var(--sp-5);border-bottom:1px solid var(--line)}
-    .settings-eyebrow{display:block;margin-bottom:var(--sp-1);color:var(--accent-ink);
-      font-size:var(--fs-xs);font-weight:var(--fw-bold);letter-spacing:.08em;text-transform:uppercase}
+    .settings-eyebrow{display:block;margin-bottom:var(--sp-1);}
     .settings-hero h1{margin:0 0 var(--sp-1);font-size:var(--fs-2xl);line-height:var(--lh-tight)}
     .settings-hero p{max-width:40.625rem;margin:0;color:var(--muted)}
     .settings-shell{display:grid;grid-template-columns:14.375rem minmax(0,1fr);gap:var(--sp-5);
@@ -25,13 +24,13 @@
     .settings-nav-icon svg{width:1.0625rem;height:1.0625rem;fill:currentColor}
     .settings-nav-copy{min-width:0}
     .settings-nav-copy strong,.settings-nav-copy small{display:block}
-    .settings-nav-copy strong{font-size:.84rem;font-weight:600}
+    .settings-nav-copy strong{font-size:.84rem;font-weight:var(--fw-bold)}
     .settings-nav-copy small{margin-top:.05rem;color:var(--muted);font-size:.7rem;line-height:1.3}
     .settings-nav-item.is-active .settings-nav-copy small{color:var(--accent-ink);opacity:.82}
     .settings-assurance{display:flex;gap:.55rem;align-items:flex-start;margin-top:.75rem;padding:.75rem .45rem .25rem;
       border-top:1px solid var(--line)}
     .settings-assurance-mark{width:24px;height:24px;flex:none;display:grid;place-items:center;
-      border-radius:7px;background:var(--accent-weak);color:var(--accent-ink);font-weight:600}
+      border-radius:7px;background:var(--accent-weak);color:var(--accent-ink);font-weight:var(--fw-bold)}
     .settings-assurance strong{display:block;font-size:.78rem}
     .settings-assurance span:last-child{display:block;color:var(--muted);font-size:.69rem;line-height:1.4}
     .settings-content{min-width:0}
@@ -60,7 +59,7 @@
     details.sect>summary:hover{background:var(--surface-subtle);color:var(--accent-ink)}
     details.sect[open]>summary{border-bottom:1px solid var(--line)}
     details.sect[open]>summary::after{transform:rotate(90deg);color:var(--accent-ink)}
-    .sect-name{grid-column:1;font-weight:600}
+    .sect-name{grid-column:1;font-weight:var(--fw-bold)}
     .sect-sub{grid-column:1;color:var(--muted);font-size:.8rem}
     .sect-body{padding:.6rem 1.1rem 1.1rem}
     .sect-body>table{table-layout:fixed}

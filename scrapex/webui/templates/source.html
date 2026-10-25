@@ -142,7 +142,7 @@
     <section class="data-grid-frame" aria-label="Dataset grid">
       <header class="data-grid-frame-head">
         <div class="data-grid-heading">
-          <span class="data-grid-eyebrow">Dataset table</span>
+          <span class="data-grid-eyebrow heading-meta muted">Dataset table</span>
           <h2>Latest price per offer</h2>
           <p>Arrange columns, group rows, and inspect records without changing the source data.</p>
         </div>
@@ -225,7 +225,7 @@
           <div class="grid-feature-popover">
             <header><strong>Grid Features</strong><span>Saved for {{ source_key }}</span></header>
             <div class="featuregrid" role="group" aria-label="Available grid features">
-              <span class="grid-feature-section">Available now</span>
+              <span class="grid-feature-section heading-meta">Available now</span>
               <label><input type="checkbox" checked disabled> Column Resizing
                 <small>Always on</small></label>
               <label><input type="checkbox" data-feature="tree"> Row Grouping</label>
@@ -239,7 +239,7 @@
               <label><input type="checkbox" data-feature="statusbar"> Status Bar
                 <small>Show row and selection totals</small></label>
 
-              <span class="grid-feature-section">Planned</span>
+              <span class="grid-feature-section heading-meta">Planned</span>
               {% for feature in [
                 "Advanced Filter", "Cell Selection Header Highlight", "Column Groups",
                 "Column Hover", "Columns Tool Panel", "Floating Filters", "Pagination",

@@ -103,11 +103,6 @@
 .data-grid-eyebrow {
   display: block;
   margin-bottom: .1rem;
-  color: var(--accent-ink);
-  font-size: .58rem;
-  font-weight: 750;
-  letter-spacing: .09em;
-  text-transform: uppercase;
 }
 .data-grid-heading h2 { margin: 0; font-size: 1.08rem; }
 .data-grid-heading p { max-width: 42rem; margin: .14rem 0 0; color: var(--muted); font-size: .72rem; }
@@ -748,7 +743,7 @@
   color: var(--muted);
   font: inherit;
   font-size: .67rem;
-  font-weight: 750;
+  font-weight: var(--fw-medium);
   line-height: 1;
   cursor: pointer;
   transition: color var(--dur) var(--ease-in-out);
@@ -867,11 +862,8 @@
 .grid-feature-section {
   grid-column: 1 / -1;
   padding: .55rem .45rem .25rem;
-  color: var(--muted);
-  font-size: .58rem;
-  font-weight: 750;
-  letter-spacing: .07em;
-  text-transform: uppercase;
+  font-weight: var(--fw-regular);
+  color: var(--text-subtle);
 }
 
 @media (max-width: 680px) {

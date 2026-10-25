@@ -106,6 +106,22 @@ svg {
   font-size: var(--fs-sm);
 }
 
+/* HEADING-META, Supabase's label for a section or a value (#713):
+   `text-xs font-mono uppercase tracking-wider font-medium`
+   (packages/config/typography.css@86c813ec:22-24), with text-xs's paired line-height
+   (--lh-xs). It sets no colour: Studio composes it with foreground-light in 19 of its 21
+   uses, so a label here carries `heading-meta muted`. A page's own label class keeps only its
+   layout. tests/test_a_meta_label_is_supabases_heading_meta.py holds both. */
+.heading-meta {
+  font-family: var(--font-mono);
+  --fw-regular: var(--fw-regular-mono);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-xs);
+  font-weight: var(--fw-medium);
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+
 .text-block {
   display: block;
 }
@@ -1059,11 +1075,6 @@ h6 { font-size: var(--fs-xs); line-height: var(--lh-xs); }
 .page-eyebrow {
   display: block;
   margin-bottom: var(--sp-1);
-  color: var(--accent-ink);
-  font-size: var(--fs-xs);
-  font-weight: 750;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
 }
 
 .page-title {
@@ -1262,11 +1273,6 @@ button::before,
 .appearance-popover-eyebrow {
   display: block;
   margin-bottom: var(--sp-1);
-  color: var(--on-primary-container);
-  font-size: var(--fs-2xs);
-  font-weight: var(--fw-bold);
-  letter-spacing: .08em;
-  text-transform: uppercase;
 }
 
 .appearance-status {
