@@ -164,11 +164,18 @@ def cost(state: SourceState, source: tenders.TenderSource, run_mode: str,
         else:
             requests, total = state.count["requests"], state.count["total"]
             areas, counted_at = len(state.count["areas"]), state.count["counted_at"][:10]
+        unlisted = int((state.count or {}).get("unlisted", 0))
+        # THE GAP IS NAMED (his ruling of 2026-10-25, #1647): the question promises only
+        # what an area pass reads, and says what it does not.
+        reads = (f"Reads every notice the Bank lists, {total:,} of them, one area at a "
+                 f"time. An area is one of the Bank's {areas} countries and regions."
+                 if not unlisted else
+                 f"Reads every notice the Bank lists in an area, {total - unlisted:,} of "
+                 f"them, one area at a time. An area is one of the Bank's {areas} countries "
+                 f"and regions; the {wc._counted(unlisted, 'notice')} it lists in no area "
+                 "are not read.")
         return {"source": source.host, "requests": requests, "pace_s": pace_s,
-                "counted_at": counted_at,
-                "reads": f"Reads every notice the Bank lists, {total:,} of them, one area "
-                         f"at a time. An area is one of the Bank's {areas} countries and "
-                         "regions.",
+                "counted_at": counted_at, "reads": reads,
                 "basis": "Counted from the Bank's own notice totals."}
     unread = [(name, n) for name, n in state.count["areas"] if name not in state.areas_read]
     if not unread:

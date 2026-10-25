@@ -210,6 +210,17 @@ def test_after_a_count_the_question_is_the_stored_count_dated_by_it(client, ware
                  "area is one of the Bank's 2 countries and regions."}
 
 
+def test_a_count_that_left_notices_in_no_area_says_what_it_reads(client, warehouse):
+    """His ruling of 2026-10-25 (#1647): the gap is named. The question promises only what
+    an area pass reads, and says what it does not."""
+    past_job(warehouse, {"count": {**COUNT, "total": 1_530, "unlisted": 30}, "areas_read": []},
+             status="cancelled")
+    assert start(client, run_mode="initial_crawl").json()["cost"]["reads"] == (
+        "Reads every notice the Bank lists in an area, 1,500 of them, one area at a time. An "
+        "area is one of the Bank's 2 countries and regions; the 30 notices it lists in no "
+        "area are not read.")
+
+
 @pytest.mark.parametrize("mode, then", [("update", ", then the notices changed since"),
                                         ("initial_crawl", "")])
 def test_an_update_that_finishes_a_first_crawl_asks_for_what_is_left(client, warehouse,
