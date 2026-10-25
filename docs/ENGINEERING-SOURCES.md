@@ -331,3 +331,31 @@ Measured on his machine on 2026-10-24, on AC power (#1767). A windowless `python
 ### How to re-open this
 
 Level 2 of the precedence order: the platform's own documentation. A QoS level Windows adds or retunes re-opens it, and so does a measured battery cost he will not pay. Either way the call is one line to remove.
+
+## ES-8 · A page the crawl reads in the engine is parsed in C
+
+**Governs:** which parser reads a page inside the engine's process on a path that runs once a page, fetched or replayed from disk.
+
+**Cited at:** `scrapex/sites/muqawil.py`.
+
+### The sources
+
+| source | what it contributes |
+|---|---|
+| [Python glossary — global interpreter lock](https://docs.python.org/3.14/glossary.html#term-global-interpreter-lock) | CPython lets only one thread execute Python bytecode at a time. Some extension modules release the lock during computationally intensive work, and it is always released for I/O. |
+| [Python — `sys.setswitchinterval`](https://docs.python.org/3.14/library/sys.html#sys.setswitchinterval) | The switch interval is the ideal timeslice between running Python threads, and the real one can be longer. A thread that waits for the lock waits at least that long each time it takes it back. |
+| [lxml FAQ — threading](https://lxml.de/FAQ.html) | lxml frees the lock while it parses from memory. The more of the work stays inside lxml rather than in Python code walking the tree, the more other threads run meanwhile. |
+
+### What it decides
+
+The engine serves the panel's routes and runs crawls in threads of one process, so Python bytecode a crawl runs holds every route for its duration. Each route takes the lock back after every SQLite statement and socket call, and each time it waits behind a parse. A per-page parse therefore runs in lxml, with only the few lines that pick each card's link in Python.
+
+Measured on a copy of his warehouse on 2026-10-25, while one thread replayed the 5,175 stored pages his resumed muqawil crawl re-reads. Parsed with BeautifulSoup's `html.parser`, a page cost 91 ms and 244,594 Python frames, `/api/health` answered in 5.5 s (9.4 s at most) against 0.04 s idle, and `/api/sources` in 26 s against 0.56 s. The same replay in a separate process left both at idle, so the cause is the shared lock, not the CPU or the disk. Parsed by `lxml.html` with XPath, a page cost 10 ms and 249 frames, and both routes answered at idle. Lowering the switch interval brought health to 0.07 s but spent the same CPU, so it was not taken.
+
+`lxml.html` shares one parser between threads and serialises them on its own lock, not on the interpreter's. Two crawl threads parse one at a time, and the routes, which do not parse, are not held.
+
+**Decided** by the owner on 2026-10-25, over running each crawl in its own process. That remains the cure for a job whose work cannot leave Python.
+
+### How to re-open this
+
+Level 2 of the precedence order for Python's documentation, level 5 for lxml's. A free-threaded CPython (PEP 703) as the engine's interpreter removes the premise. So does an lxml release that holds the lock while it parses, and the frame-count guard in `tests/test_muqawil_pagesource.py` would not see that. The routes' latency during a replay is what would.

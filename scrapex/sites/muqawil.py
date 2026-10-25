@@ -36,7 +36,7 @@ import html as html_entities
 import re
 from collections.abc import Iterable
 
-from bs4 import BeautifulSoup
+import lxml.html
 
 from ..pagesource import (
     WHOLE,
@@ -83,6 +83,24 @@ COMPANY_SIZES = ("big", "medium", "small", "verysmall")
 #: honest key. `icon-locaion` is THEIR spelling of "location"; it is matched
 #: exactly, and the day they fix it this selector is what will say so.
 _CITY_ICON = "icon-locaion"
+
+
+def _class_is(name: str) -> str:
+    """An XPath test for one CLASS TOKEN, which is what CSS's `.name` matches.
+
+    PADDED WITH SPACES, NOT COMPARED WHOLE: `class="section-card shadow"` is a card, and
+    `@class = "section-card"` would say it is not.
+    """
+    return f'contains(concat(" ", normalize-space(@class), " "), " {name} ")'
+
+
+#: `div.section-card`, `.info-icon span.icon-locaion` and `.info-value`, the three CSS
+#: selectors this module read through BeautifulSoup, in the XPath lxml evaluates in C.
+#: The icon's `.info-icon` may be ANY ancestor, as CSS's descendant combinator allows,
+#: not only one inside the card.
+_CARD = f"//div[{_class_is('section-card')}]"
+_CITY = f".//span[{_class_is(_CITY_ICON)}][ancestor::*[{_class_is('info-icon')}]]"
+_CITY_VALUE = f".//*[{_class_is('info-value')}]"
 
 
 def read_last_page(html: str) -> int:
@@ -177,10 +195,27 @@ def _cards(html: str) -> list:
     SELECTED BY HOLDING A PROFILE LINK. `div.section-card` matches twenty-one
     elements and only twenty are contractors, so a slice keyed on position would
     be off by one for every row after the impostor.
+
+    PARSED BY LXML, IN C, BECAUSE THE CRAWL SHARES ONE INTERPRETER WITH THE PANEL'S
+    ROUTES. ES-8: CPython runs one thread's bytecode at a time, and libxml2 parses with
+    that lock released. `BeautifulSoup(html, "html.parser")` built all ~2,570 tags of a
+    508 KB page in Python -- 91 ms and 244,594 Python frames to find twenty links -- and a
+    resumed crawl re-reads every stored page back to back: 5,175 of them on his
+    2026-10-25 continuation. On a copy of his warehouse that replay held `/api/health`
+    at 5.5 s and `/api/sources` at 26 s; with this parse, 0.04 s and 0.57 s, idle's own
+    numbers. Same ids and same city on all 45,776 stored listing pages.
+
+    AN EMPTY BODY RAISES, where the old parser read it as a page with no cards. It is
+    what a 304 hands `fetch`, and `_read_cell` records the raise as a parse failure.
     """
-    soup = BeautifulSoup(html, "html.parser")
-    return [card for card in soup.select("div.section-card")
-            if card.find("a", href=_PROFILE)]
+    root = lxml.html.document_fromstring(html)
+    return [card for card in root.xpath(_CARD) if _profile_link(card) is not None]
+
+
+def _profile_link(card):
+    """The card's first link to a profile, in document order, or None."""
+    return next((link for link in card.iter("a")
+                 if _PROFILE.search(link.get("href") or "")), None)
 
 
 def read_ids(html: str) -> tuple[str, ...]:
@@ -205,8 +240,7 @@ def read_ids(html: str) -> tuple[str, ...]:
     """
     found: list[str] = []
     for card in _cards(html):
-        link = card.find("a", href=_PROFILE)
-        match = _PROFILE.search(link["href"])
+        match = _PROFILE.search(_profile_link(card).get("href"))
         if match is not None:
             found.append(match.group(1))
     return tuple(found)
@@ -366,7 +400,7 @@ class MuqawilPageSource:
                 f"{len(cards)} card(s). A caller pairing URLs to rows by position must "
                 "use `detail_rows`, because this listing yields one URL per locale.")
 
-        icon = cards[row_index].select_one(f".info-icon span.{_CITY_ICON}")
+        icon = next(iter(cards[row_index].xpath(_CITY)), None)
         if icon is None:
             # A CARD WITH NO CITY IS IN NO NAMED CITY. Not an exception, and the two
             # versions of this that raised were both wrong on real pages.
@@ -390,8 +424,11 @@ class MuqawilPageSource:
             # against the rows it matched.
             return False
 
-        box = icon.find_parent(class_="info-box")
-        value = box.select_one(".info-value") if box else None
+        # `is not None`, NEVER TRUTHINESS: an lxml element's truth is whether it has
+        # children, which is not the question asked here, and lxml warns on it.
+        box = next((up for up in icon.iterancestors()
+                    if "info-box" in (up.get("class") or "").split()), None)
+        value = next(iter(box.xpath(_CITY_VALUE)), None) if box is not None else None
         return _city_of(value) == slice_of.strip().casefold()
 
 
@@ -495,7 +532,10 @@ def _city_of(value) -> str:
     """
     if value is None:
         return ""
-    text = " ".join(value.get_text(" ", strip=True).split())
+    # TEXT NODES, JOINED BY A SPACE, which is what `get_text(" ", strip=True)` read
+    # before: `.//text()` leaves comments out as it did, and the space keeps two
+    # adjacent elements' words apart before the whitespace is collapsed.
+    text = " ".join(" ".join(value.xpath(".//text()")).split())
     return text.split("-", 1)[0].strip().casefold()
 
 

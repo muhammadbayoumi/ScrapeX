@@ -14,8 +14,10 @@ a test that needs muqawil to be up is a test that fails on a train.
 from __future__ import annotations
 
 import re
+import sys
 from pathlib import Path
 
+import lxml.etree
 import pytest
 
 from scrapex.pagesource import (
@@ -428,6 +430,112 @@ def test_a_listing_and_its_detail_urls_agree_about_who_is_on_the_page(source):
     page = listing()
     from_details = {url.split("/")[-2] for url in source.detail_urls(page)}
     assert from_details == set(read_ids(page.html))
+
+
+# ---- the parse runs in C, because the crawl shares the panel's interpreter -----
+
+def test_a_listing_is_read_in_c_and_not_in_python_bytecode(source):
+    """ES-8, AND WHAT IT PROTECTS IS THE PANEL. The crawl runs in the engine's
+    process, CPython runs one thread's bytecode at a time, and so a parse written in
+    Python holds every route of the panel for as long as it runs. libxml2 parses with
+    that lock released.
+
+    MEASURED BEFORE THIS GUARD, on a copy of his warehouse on 2026-10-25. His resumed
+    crawl re-read 5,175 stored pages through `BeautifulSoup(html, "html.parser")`: 91 ms
+    and 244,594 Python frames a page, and `/api/health` answered in 5.5 s against the
+    panel's 2.5 s. Read with lxml: 249 frames, 10 ms, and health at its idle 0.04 s.
+
+    COUNTED IN FRAMES, NOT TIMED. A clock on a shared CI runner is noise, and how much
+    of a parse is Python is a property of the code. The ceiling is per CARD, the part
+    that has to be Python (finding each card's link), and never per tag: this fixture's
+    four cards cost 53 frames through lxml and 32,987 through html.parser.
+    """
+    page = listing()
+    cards = len(read_ids(page.html))
+    assert cards >= 2, "the fixture must publish contractors, or the ceiling is zero"
+    entered = [0]
+
+    def count(frame, event, arg):
+        if event == "call":
+            entered[0] += 1
+
+    asks = {"read_ids": (lambda: read_ids(page.html), cards),
+            "read_ids, twice the page": (lambda: read_ids(page.html + page.html),
+                                         2 * cards),
+            # IT PARSES THE PAGE TOO, on every call (`contractors.detail_frontier`
+            # asks once a card), so a slice crawl is held to the same ceiling.
+            "belongs_to_slice": (lambda: source.belongs_to_slice(page, 0, "RIYADH"),
+                                 cards)}
+    for name, (ask, cards_read) in asks.items():
+        entered[0] = 0
+        sys.setprofile(count)
+        try:
+            ask()
+        finally:
+            sys.setprofile(None)
+        assert entered[0] <= 30 * cards_read, (
+            f"{name} entered {entered[0]:,} Python frames for {cards_read} card(s). "
+            "The page is being parsed in Python, which holds the engine's routes while "
+            "it runs: ES-8")
+
+
+@pytest.mark.parametrize("body", ["", "  \n"])
+def test_an_empty_body_is_a_parse_failure_and_not_a_page_without_contractors(body):
+    """AN EMPTY BODY IS WHAT A 304 HANDS `fetch`: `HttpFetcher` returns the 304, and
+    its `.text` is "". It says nothing about the listing, and html.parser read it as a
+    page with no cards, so `_read_cell` counted a page read and empty. libxml2 refuses
+    it, and `_read_cell` records the refusal as a parse failure the cell report names.
+
+    A PAGE WITH MARKUP AND NO CARDS IS STILL A PAGE WITH NO CARDS, and that must not
+    change: `region_id=8 & company_size=big` publishes zero contractors and serves a
+    paginator, and an error page with no cards is read as one, as before.
+    """
+    with pytest.raises(lxml.etree.ParserError):
+        read_ids(body)
+    assert read_ids("<html><body><p>Service Unavailable</p></body></html>") == ()
+
+
+def test_a_card_is_found_by_its_class_token_as_the_css_selector_found_it():
+    """`div.section-card` IN CSS MATCHES A CLASS TOKEN, and the XPath that replaced it
+    must too. A card that also carries `shadow` is still a card; `section-cards` is a
+    different word; a card with no profile link is the impostor twenty-first; and a
+    card's id is its FIRST profile link."""
+    link = '<a href="/en/contractors/{0}/143">x</a>'
+    html = ("<html><body>"
+            f'<div class="shadow  section-card wide">{link.format(1)}</div>'
+            f'<div class="section-cards">{link.format(2)}</div>'
+            '<div class="section-card"><a href="/en/about">x</a></div>'
+            f'<div class="section-card">{link.format(3)}{link.format(4)}</div>'
+            "</body></html>")
+    assert read_ids(html) == ("1", "3")
+
+
+def test_a_city_split_across_elements_keeps_its_words_apart(source):
+    """THE CITY IS EVERY TEXT NODE OF THE VALUE, JOINED BY A SPACE, as
+    `get_text(" ", strip=True)` read it: two adjacent elements are two words, and a
+    comment is not text. Joined with nothing, `AL KHOBAR` would be `ALKHOBAR` and match
+    no slice; with the comment, `AL hidden KHOBAR`.
+
+    AND THE ICON COUNTS ONLY UNDER AN `.info-icon`, as `.info-icon span.icon-locaion`
+    said. The first box below carries the icon class bare, and the city beside it is
+    not this card's. In the second box the FIRST `.info-value` is the city, as
+    `select_one` read it, and the `DAMMAM` after it is not."""
+    html = ('<html><body><div class="section-card">'
+            '<a href="/en/contractors/1/143">x</a>'
+            '<div class="info-box"><span class="icon-locaion"></span>'
+            '<span class="info-value">JEDDAH - Makkah</span></div>'
+            '<div class="info-box"><div class="info-icon">'
+            '<span class="icon-locaion"></span></div>'
+            '<span class="info-value"><b>AL</b><!-- hidden --><b>KHOBAR</b>\n'
+            '        - Eastern Province</span>'
+            '<span class="info-value">DAMMAM</span></div>'
+            "</div></body></html>")
+    page = FetchedPage(url="https://muqawil.org/en/contractors?page=1", html=html,
+                       kind=PageKind.LISTING)
+    assert source.belongs_to_slice(page, 0, "AL KHOBAR") is True
+    assert source.belongs_to_slice(page, 0, "KHOBAR") is False
+    assert source.belongs_to_slice(page, 0, "JEDDAH") is False
+    assert source.belongs_to_slice(page, 0, "DAMMAM") is False
 
 
 def test_a_partition_declares_the_locales_it_reads_and_refuses_a_stray_primary():
