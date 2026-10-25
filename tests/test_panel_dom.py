@@ -8744,7 +8744,7 @@ def test_a_refusing_answer_is_not_taken_for_the_same_engine(open_panel):
     assert not page.js_errors, page.js_errors
 
 
-WAITING = "Restarting… The Engine page updates when the new engine answers."
+WAITING = "Restarting the engine… The Engine page updates when the new engine answers."
 
 
 def test_the_wait_promises_no_duration(open_panel):
@@ -8768,6 +8768,71 @@ def test_the_wait_promises_no_duration(open_panel):
 
     assert text_of(page, "#engine-restart-note") == WAITING
     assert text_of(page, "#runtime-note") == WAITING
+    assert not page.js_errors, page.js_errors
+
+
+def test_a_restart_whose_engine_never_comes_back_redraws_the_screen(open_panel):
+    """The engine asked to leave leaves and nothing takes its place: two minutes of
+    refused probes, then the database check. Nothing had redrawn the screen since
+    the press, so the banner went on reading "Running" -- the engine as it was
+    before Restart -- over a note saying the engine has not answered. The ending
+    redraws it from what answers now: nothing."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    assert text_of(page, "#engine-state-text") == "Running"
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART,
+                                    dark_ms=10**9)
+
+    press_restart_and_wait_out_the_two_minutes(page)
+    page.wait_for_function(
+        "() => document.getElementById('engine-restart-note').textContent"
+        " === 'The engine has not answered in two minutes. It may still be starting.'",
+        timeout=10_000)
+
+    assert text_of(page, "#engine-state-text") == "Not detected", (
+        "the banner still describes the engine as it was before Restart")
+    # Run is not the open screen, so its card is read by its own class.
+    assert page.evaluate(
+        "() => !document.getElementById('setup').classList.contains('hidden')"), (
+        "Run does not say the engine is not running")
+    assert not page.js_errors, page.js_errors
+
+
+#: The first `/api/health` after the restart request answers 200 with a body that
+#: is not JSON, as a proxy's error page would. Installed OVER the restarting stub.
+ONE_ANSWER_IS_NOT_JSON = """() => {
+  const inner = window.fetch;
+  let asked = false;
+  let spent = false;
+  window.fetch = async (url, options = {}) => {
+    const path = String(url);
+    if (path.endsWith('/api/engine/restart')) asked = true;
+    else if (asked && !spent && path.includes('/api/health')) {
+      spent = true;
+      return {ok: true, status: 200, statusText: 'OK', headers: {get: () => null},
+              json: async () => { throw new SyntaxError('Unexpected token < in JSON'); }};
+    }
+    return inner(url, options);
+  };
+}"""
+
+
+def test_an_answer_the_poll_cannot_read_is_traced(open_panel):
+    """A probe that gets a body it cannot read is neither the dark nor a slow
+    engine, and it is not swallowed: `restart-probe-unread` in the startup trace,
+    beside `restart-identity-unknown`. The restart then goes on to the successor."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART)
+    page.click("#tab-engines")
+    open_engine(page)
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART)
+    page.evaluate(ONE_ANSWER_IS_NOT_JSON)
+    press_restart_and_wait_for_the_panel(page)
+
+    assert page.evaluate("window.__backSaidWhile") == "successor"
+    traced = page.evaluate("""() => performance.getEntriesByName(
+        'scrapex:restart-probe-unread').map((entry) => entry.detail)""")
+    assert traced and "JSON" in traced[0]["message"], traced
     assert not page.js_errors, page.js_errors
 
 

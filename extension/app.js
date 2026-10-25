@@ -10403,8 +10403,9 @@ const RESTART_CONFIRM_ATTEMPTS = 125;
 // HOW RECENT AN ANSWER MUST BE FOR THE RESTART'S TWO-MINUTE ENDING TO SAY AN
 // ENGINE "IS STILL ANSWERING" (#1517). One probe running out of its deadline is a
 // busy engine -- his `/api/health` measured 1.92-2.21 s against `engineHealth`'s
-// 2.5 s (#1764) -- and must not turn two minutes of answers into "has not
-// answered". Four deadlines without an answer is an engine that has stopped
+// 2.5 s before #1770 cut it to about 0.2 s (#1764), and an engine busy with other
+// work can be slow again -- and must not turn two minutes of answers into "has
+// not answered". Four deadlines without an answer is an engine that has stopped
 // answering, and the ending asks the database check instead.
 const RESTART_ANSWER_STILL_FRESH_MS = 4 * STARTUP_DEADLINES.engineHealth;
 
@@ -10702,7 +10703,7 @@ function wireRuntimeRepair() {
     // was false here twice over -- the same engine answers through a restart that
     // did not happen, and the Database page, which shows this note too, updates for
     // no engine -- so it names the new engine and the page that redraws.
-    let before = "Restarting… The Engine page updates when the new engine answers.";
+    let before = "Restarting the engine… The Engine page updates when the new engine answers.";
     try {
       await checkStartup();
     } catch (startupError) {
@@ -10818,6 +10819,12 @@ function wireRuntimeRepair() {
         if (error instanceof TypeError) {
           wentDark = true;
           lastAnswer = null;
+        } else if (!isTimeoutError(error)) {
+          // NOT SWALLOWED: a body that is not JSON, or a request cancelled under
+          // the poll, is neither the dark nor a slow engine. The trace keeps it,
+          // as it keeps `restart-identity-unknown`.
+          markStartup("restart-probe-unread",
+                      {message: (error && error.message) || "unknown"});
         }
       }
       if (settled) return;
@@ -10845,8 +10852,9 @@ function wireRuntimeRepair() {
         settled = true;
         clearInterval(timer);
         // AN ENGINE IS STILL ANSWERING, so no successor stopped during startup:
-        // the database check below explains that case, and here it would scan the
-        // whole file to explain nothing. "The same engine" is said only where
+        // the database check below explains that case, and here it would explain
+        // nothing -- by scanning the whole file, on a host older than #1793's
+        // identity-only check (extension/transport.js). "The same engine" is said only where
         // `sealed_at` proves it. Without that -- either side reports none, and no
         // refused probe was seen -- the answer may be a successor whose start the
         // poll missed, so only what is known is said.
@@ -10874,6 +10882,11 @@ function wireRuntimeRepair() {
         // scans the whole file, so it is said, and the buttons stay down, until
         // it answers.
         say("The engine has not answered in two minutes. Checking the database…");
+        // AND THE SCREEN SAYS SO TOO. Nothing redrew it since the press, so the
+        // banner went on reading "Running" from before it, over a note saying the
+        // engine has not answered. The engine check repaints it from what answers
+        // now, the way Check again would.
+        await render();
         try {
           await checkStartup();
           const timeout = Object.assign(
