@@ -5,6 +5,7 @@ from collections.abc import Callable
 
 from fastapi import APIRouter, HTTPException
 
+from .. import db as dbmod
 from ..databases import DatabaseRegistry
 from ..dbupgrade import upgrade_what_is_only_behind
 
@@ -56,6 +57,25 @@ def create_database_router(
         reason in words, which the panel shows as it shows any refusal.
         """
         registry = current()
+        # AN ENGINE OLDER THAN THE DISK REFUSES, AND IT DOES NOT APPLY THE NEWER PLAN. Its
+        # plan was read once, at its start (`EngineDatabase.__init__`), so a migration
+        # that landed since is invisible to it and the answer below was "already up to
+        # date" under a Database page reading v25 of v26. Applying it here would
+        # leave this process reading a schema newer than its code, and its own health
+        # then says "Needs a newer ScrapeX". A Restart's new engine upgrades on its way
+        # up, behind a backup (`cli._cmd_ui`), so that is the control it names.
+        loaded = registry.engine.latest_schema_version
+        try:
+            on_disk = dbmod.latest_schema_version()
+        except (OSError, ValueError) as exc:
+            raise HTTPException(status_code=409, detail=(
+                "Database not upgraded: the migration files on disk could not be read: "
+                f"{exc}. Nothing was changed.")) from exc
+        if on_disk > loaded:
+            raise HTTPException(status_code=409, detail=(
+                f"Database not upgraded: this engine started before schema v{on_disk} "
+                f"reached the disk, and it knows migrations only up to v{loaded}. Restart "
+                "engine on the Engine screen backs the database up and upgrades it."))
         report, outcome = upgrade_what_is_only_behind(registry, registry.ensure_ready())
         if outcome.refused:
             raise HTTPException(status_code=409, detail=outcome.refused)

@@ -265,16 +265,6 @@ def startup_check() -> dict:
             f"ScrapeX could not inspect its databases: {failure}",
             action="check_storage",
         )
-    blocked = [
-        (name, state) for name, state in (states or {}).items()
-        if not state["ok"] and state["status"] != "Missing"
-    ]
-    if not blocked:
-        return {"ok": True, "databases": states or {}}
-    details = "; ".join(
-        f"{name}: {state['status']}. {state['action']}"
-        for name, state in blocked
-    )
     # THE CONSTANT, NOT A FOURTH COPY OF THE WORDS. `dbupgrade.BEHIND` documents
     # itself as "spelled once here and imported by both callers" and this was the
     # second spelling the whole time: the button offered here is the one
@@ -282,6 +272,20 @@ def startup_check() -> dict:
     # comparing against strings that nothing held together.
     from .dbupgrade import BEHIND
 
+    blocked = [
+        (name, state) for name, state in (states or {}).items()
+        if not state["ok"] and state["status"] != "Missing"
+    ]
+    # ONLY BEHIND DOES NOT BLOCK, for the reason above: the engine's own start backs
+    # the file up and upgrades it (`cli._cmd_ui`). Refusing it refused a start that
+    # works, and with an engine older than the disk answering Upgrade database
+    # "already up to date", Restart was then the only way forward and this shut it.
+    if all(state["status"] == BEHIND for _, state in blocked):
+        return {"ok": True, "databases": states or {}}
+    details = "; ".join(
+        f"{name}: {state['status']}. {state['action']}"
+        for name, state in blocked
+    )
     action = "upgrade_database" if any(
         state["status"] == BEHIND for _, state in blocked
     ) else "check_storage"
