@@ -389,6 +389,9 @@ class SourceCategory(StrEnum):
 
     PRODUCTS = "products"
     CONTRACTORS = "contractors"
+    #: Since milestone 51: the World Bank's procurement notices, collected by
+    #: `scrapex/sites/worldbank_collect.py` and run by `scrapex/tenderjob.py`.
+    TENDERS = "tenders"
 
 
 class ConnectorFamily(StrEnum):

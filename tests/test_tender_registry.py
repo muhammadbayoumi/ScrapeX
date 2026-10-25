@@ -38,6 +38,22 @@ def test_the_world_bank_is_the_first_tender_source():
     assert bank.base_url == "https://search.worldbank.org"
 
 
+def test_the_world_bank_carries_the_figures_measured_before_any_count():
+    """What the cost question asks before the job has counted anything: #1647's request
+    12 of 10 Oct 2026, the figure #1701's question shows (537), not a guess."""
+    measured = tenders.get("worldbank_org").measured
+    assert (measured.requests, measured.total, measured.areas, measured.counted_at) == (
+        537, 422_285, 184, "2026-10-10")
+
+
+def test_a_full_rebuild_is_not_offered_and_says_why_in_its_host():
+    bank = tenders.get("worldbank_org")
+    assert bank.host == "search.worldbank.org"
+    assert bank.runs_blocked == {
+        "full_rebuild": "Full rebuild is not offered for search.worldbank.org: it keeps "
+                        "every notice as it was read, so there is nothing to archive."}
+
+
 def test_an_unknown_tender_source_is_refused_by_name():
     with pytest.raises(KeyError) as refused:
         tenders.get("worldbank")

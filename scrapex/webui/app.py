@@ -50,6 +50,8 @@ from .. import (
     source_settings,
     sourceboard,
     taxonomy,
+    tenderjob,
+    tenders,
 )
 from .. import db as dbmod
 from .. import version as engine_version
@@ -97,6 +99,7 @@ from ..jobs import (
     JobRunner,
     create_job,
     get_job,
+    host_of_url,
     job_log_count,
     job_logs,
     list_jobs,
@@ -1067,7 +1070,9 @@ def create_app(
         # this route decorates it with the per-row facts the cards draw.
         for source in sourceboard.from_code():
             key = source.key
-            if key in listed:
+            # A TENDER SOURCE IS DRAWN AS ITS OWN KIND, by `_registered_tenders`: the
+            # decoration below asks `directories` for a dataset it does not have.
+            if key in listed or key not in directories.BUILDERS:
                 continue
             rows.append({
                 # `directory`, NOT `dataset`, and the difference is a dead button.
@@ -1132,6 +1137,41 @@ def create_app(
                     row["work_waiting"] = _work_waiting(
                         general, row["site_key"],
                         directories.get(row["site_key"]).dataset_key, defined=False)
+        return rows
+
+    def _registered_tenders(shown: list[dict]) -> list[dict]:
+        """Tender sources this build can collect, each drawn as its own kind (#1701).
+
+        `kind: "tender"` IS WHAT THE CONFIRMED CONTROL READS. A tender source has no
+        dataset, so it is not a dataset card; and it is not a directory, so the
+        directory's controls (continue a stopped run, interpret its pages) do not apply.
+        It carries what the control draws from: the modes it does not run, with the
+        sentence (`runs_blocked`); the tenders compiled from its notices
+        (`observations`); and a first crawl that ended partway (`first_crawl`), sent
+        only when one did and no crawl of it is unsettled. No `active`: no Auto switch
+        is drawn for a tender row, so nothing unattended meets the cost question.
+        Nothing here reaches the Bank.
+        """
+        listed = {row.get("source_key") for row in shown}
+        keys = [key for key in sorted(tenders.BUILDERS) if key not in listed]
+        if not keys:
+            return []
+        rows = []
+        with closing(read_conn()) as conn:
+            for key in keys:
+                source = tenders.get(key)
+                held = tenderjob.compiled(conn, key)
+                row = {"kind": "tender", "site_key": key, "source_key": key,
+                       "source_name": source.display_name, "source_name_ar": "",
+                       "base_url": source.base_url, "family": "generic",
+                       "implemented": True, "supports_history": False,
+                       "runs_blocked": source.runs_blocked,
+                       "observations": held, "products": held, "last_success": None,
+                       "kept_pages": 0, "kept_at": None}
+                partial = tenderjob.first_crawl(tenderjob.source_state(conn, key))
+                if partial is not None:
+                    row["first_crawl"] = partial
+                rows.append(row)
         return rows
 
     def _dataset_listing():
@@ -2267,6 +2307,7 @@ def create_app(
         # the dataset listing so a site that already has a card keeps it and is not
         # drawn twice (`REQ-37`).
         out.extend(_registered_directories(out))
+        out.extend(_registered_tenders(out))
         return {"sources": out}
 
     @app.get("/api/taxonomy/{dataset_key}")
@@ -2427,7 +2468,9 @@ def create_app(
         fields = source_settings.explained(conn, source_key, shipped)
         return {
             "source_key": source_key,
-            "kind": "price" if isinstance(shipped, SourceEntry) else "directory",
+            "kind": ("price" if isinstance(shipped, SourceEntry)
+                     else "tender" if isinstance(shipped, tenders.TenderSource)
+                     else "directory"),
             "fields": fields,
             "general": {"user_agent": resolve_user_agent(None, crawl),
                         "crawl_pace_s": crawl["min_interval_s"],
@@ -4837,7 +4880,7 @@ def create_app(
             # مسجلة ومحفوظة فى الكود»), and a listed source that 404s on the one
             # action it offers is the "button that cannot work" this file rejects
             # everywhere else.
-            if key in directories.BUILDERS:
+            if key in directories.BUILDERS or key in tenders.BUILDERS:
                 continue
             try:
                 sources.get(key)
@@ -4855,6 +4898,75 @@ def create_app(
         # `site_key`, it is what `--source` already names, and it already refuses a
         # mistyped key rather than defaulting. A `source_site.collector` column would be
         # a second place for a fact this one holds.
+        tender_keys = [key for key in source_keys if key in tenders.BUILDERS]
+        if tender_keys:
+            # A TENDER SOURCE RUNS ON ITS OWN, AND ITS REFUSALS COME IN #1701'S ORDER:
+            # with anything else (400), beside a crawl of it that has not finished (409),
+            # in a mode it does not run (400), and before it reads areas it does not hold
+            # whole, the cost question (409) unless he accepted the figure the engine
+            # would run now. Every refusal comes before the question, so he is never asked
+            # for a run the engine would refuse anyway.
+            source = tenders.get(tender_keys[0])
+            others = [key for key in source_keys if key != source.key]
+            if others:
+                hosts = []
+                for key in others:
+                    if key in tenders.BUILDERS:
+                        hosts.append(tenders.get(key).host)
+                        continue
+                    base = (directories.get(key).base_url if key in directories.BUILDERS
+                            else next((entry.base_url for entry in app.state.manifest.sources
+                                       if entry.source_key == key), ""))
+                    hosts.append(host_of_url(base, key))
+                named = (" and ".join(hosts) if len(hosts) < 3
+                         else f"{', '.join(hosts[:-1])} and {hosts[-1]}")
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"{source.host} collects tenders and runs on its own. Start "
+                           f"{named} separately.")
+            try:
+                run_mode = RunMode(body.get("run_mode", RunMode.UPDATE.value)).value
+            except ValueError:
+                raise HTTPException(status_code=400, detail="run_mode must be "
+                                    f"{[m.value for m in RunMode]}")
+            conn = read_conn()
+            try:
+                ensure_schema(conn)
+                # UNDER THE WRITE LOCK UNTIL THE JOB IS WRITTEN, for the reason the
+                # interpretation below gives: two presses a moment apart would each hear
+                # "nothing unfinished" before the other had written its job.
+                conn.execute("BEGIN IMMEDIATE")
+                state = tenderjob.source_state(conn, source.key)
+                if state.unsettled:
+                    # WORDED TO HOLD AT EVERY STATUS NOT SETTLED: running, paused, or
+                    # queued behind another job. Every one has Cancel on Jobs.
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"{source.host} already has a crawl that has not finished. "
+                               "Follow or cancel it on Jobs.")
+                if run_mode in source.runs_blocked:
+                    raise HTTPException(status_code=400, detail=source.runs_blocked[run_mode])
+                if run_mode not in tenderjob.RUNS:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"{source.host} runs {' or '.join(tenderjob.RUNS)}, not "
+                               f"{run_mode}")
+                pace = (source_settings.effective(conn, source.key, source).crawl_pace_s
+                        or source.crawl_pace_s)
+                question = tenderjob.cost(state, source, run_mode, pace)
+                accepted = (body.get("accept_cost") or {}).get("requests")
+                if question is not None and accepted != question["requests"]:
+                    # NOTHING IS QUEUED. If the figure moved while he read, the next press
+                    # carries the old figure and is asked again with the new one.
+                    return JSONResponse(status_code=409, content={
+                        "question": "cost", "detail": "confirm the cost to start",
+                        "cost": question})
+                job_ref = create_job(conn, [source.key], run_mode,
+                                     job_kind=tenderjob.JOB_KIND)
+            finally:
+                conn.close()
+            return {"job_ref": job_ref, "status": "queued", "source_keys": [source.key],
+                    "run_mode": run_mode, "resume": False}
         directory_keys = [key for key in source_keys if key in directories.BUILDERS]
         if directory_keys and len(directory_keys) != len(source_keys):
             # ONE DENOMINATOR PER JOB. A price job counts sources, a directory job counts
@@ -5370,6 +5482,15 @@ def _job_view(job: dict, queue: dict | None = None) -> dict:
     claimed = (job.get("job_kind") not in SEEDED_UNTIL_A_RUNNER_CLAIMS_IT
                or bool(done)
                or total != len(job.get("source_keys") or []))
+    fetch = _fetch_progress(job)
+    if job.get("job_kind") == tenderjob.JOB_KIND:
+        # A TENDER CRAWL'S UNIT MOVES WITH ITS PHASE (#1701, row 19): areas, then pages;
+        # and the bar says what its total was counted from (row 18).
+        unit = tenderjob.progress_unit(job)
+        if fetch["basis"] == "declared":
+            fetch["counted_from"] = tenderjob.COUNTED_FROM
+    else:
+        unit = PROGRESS_UNITS.get(job.get("job_kind")) if claimed else None
     return {
         "job_ref": job["job_ref"],
         "job_kind": job.get("job_kind", "crawl"),
@@ -5401,11 +5522,10 @@ def _job_view(job: dict, queue: dict | None = None) -> dict:
         "progress": {
             "done": done,
             "total": total,
-            **({"unit": PROGRESS_UNITS[job.get("job_kind")]}
-               if claimed and job.get("job_kind") in PROGRESS_UNITS else {}),
+            **({"unit": unit} if unit else {}),
         },
         # PAGES fetched against a stated denominator — what the bar draws.
-        "fetch": _fetch_progress(job),
+        "fetch": fetch,
         # Why this job is not moving, when it is not. None for the job that holds
         # the worker and for anything already finished.
         "queued_behind": _queued_behind(job, queue),

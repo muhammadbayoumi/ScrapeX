@@ -45,6 +45,9 @@ JOB_KIND = "tender_crawl"
 #: it was written. Measured that day: about 570 changes a day, so about one request a pass.
 MARGIN = timedelta(days=1)
 
+#: What the bar says a tender crawl's total was counted from (#1701, row 18).
+COUNTED_FROM = "the Bank's notice totals"
+
 #: What a run counts, in the words part 3b-2b's control shows (#1701, rows 19-20).
 COUNTERS = ("requests", "notices", "releases_new", "releases_unchanged", "errors")
 
@@ -65,6 +68,12 @@ class SourceState:
     first_counted_at: str | None
     #: The newest change held when the last complete pass over changes ended.
     held_whole_at: str | None
+    #: The mode of the job that took the newest count: the cost question's words.
+    count_mode: str | None = None
+    #: When the last crawl that left areas unread ended (#1701's `stopped_at`).
+    stopped_at: str | None = None
+    #: Whether a tender crawl of the source is not settled: queued, running, paused...
+    unsettled: bool = False
 
     def since(self) -> str | None:
         """Where the next pass over changes starts, less `MARGIN`; None before any count."""
@@ -92,23 +101,103 @@ def _record(job_ref: str, raw: str | None) -> dict:
 
 def source_state(conn: sqlite3.Connection, source_key: str) -> SourceState:
     """The source's state, from every tender crawl of it, oldest first."""
+    from .jobs import TERMINAL_JOB_STATUSES
+
+    settled = {status.value for status in TERMINAL_JOB_STATUSES}
     rows = conn.execute(
-        "SELECT job_ref, checkpoint_json FROM crawl_job WHERE job_kind = ? AND EXISTS "
+        "SELECT job_ref, checkpoint_json, run_mode, status, finished_at FROM crawl_job "
+        "WHERE job_kind = ? AND EXISTS "
         "(SELECT 1 FROM json_each(crawl_job.source_keys) WHERE value = ?) ORDER BY job_id",
         (JOB_KIND, source_key)).fetchall()
-    count = first = held = None
+    count = first = held = mode = stopped = None
+    unsettled = False
     read: set[str] = set()
-    for job_ref, raw in rows:
+    for job_ref, raw, run_mode, status, finished_at in rows:
         record = _record(job_ref, raw)
         read.update(record.get("areas_read", []))
         if record.get("count"):
-            count = record["count"]
+            count, mode = record["count"], run_mode
             first = first or record.get("first_counted_at") or count["counted_at"]
         changes = record.get("changes") or {}
         if changes.get("complete"):
             held = changes.get("held_whole_at") or held
+        if status not in settled:
+            unsettled = True
+        elif count and not {name for name, _ in count["areas"]} <= read:
+            # A SETTLED CRAWL THAT LEFT AREAS UNREAD: the newest such end is where the
+            # row says the last crawl stopped, which after an update is that update's.
+            stopped = finished_at
     return SourceState(count=count, areas_read=frozenset(read), first_counted_at=first,
-                       held_whole_at=held)
+                       held_whole_at=held, count_mode=mode, stopped_at=stopped,
+                       unsettled=unsettled)
+
+
+def first_crawl(state: SourceState) -> dict | None:
+    """The source row's `first_crawl` (#1701): a first crawl that ended partway.
+
+    SENT ONLY after a crawl ended with at least one area read and some left, and never
+    while a tender crawl of the source is not settled. A first crawl that stopped before
+    it read an area leaves the source holding nothing, and Run offers Initial crawl again.
+    """
+    if state.count is None or not state.areas_read or state.unsettled:
+        return None
+    areas = {name for name, _ in state.count["areas"]}
+    if areas <= state.areas_read or state.stopped_at is None:
+        return None
+    return {"read": len(areas & state.areas_read), "of": len(areas), "unit": "areas",
+            "stopped_at": state.stopped_at}
+
+
+def cost(state: SourceState, source: tenders.TenderSource, run_mode: str,
+         pace_s: float) -> dict | None:
+    """The cost question a run asks before it reads areas the source does not hold whole.
+
+    None when every area is held: an update then reads only what changed, which the Bank
+    cannot price in advance (#1647 B6). Before any count the figures are the source's
+    measured ones (`TenderSource.measured`); after one, the stored count, dated by it. The
+    figure is the one the run asks: the count itself, then every page of what it reads.
+    """
+    if not state.areas_read:
+        if state.count is None:
+            requests, total = source.measured.requests, source.measured.total
+            areas, counted_at = source.measured.areas, source.measured.counted_at
+        else:
+            requests, total = state.count["requests"], state.count["total"]
+            areas, counted_at = len(state.count["areas"]), state.count["counted_at"][:10]
+        return {"source": source.host, "requests": requests, "pace_s": pace_s,
+                "counted_at": counted_at,
+                "reads": f"Reads every notice the Bank lists, {total:,} of them, one area "
+                         f"at a time. An area is one of the Bank's {areas} countries and "
+                         "regions.",
+                "basis": "Counted from the Bank's own notice totals."}
+    unread = [(name, n) for name, n in state.count["areas"] if name not in state.areas_read]
+    if not unread:
+        return None
+    started = ("the initial crawl" if state.count_mode == RunMode.INITIAL_CRAWL.value
+               else "the last crawl")
+    then = (", then the notices changed since" if run_mode == RunMode.UPDATE.value else "")
+    return {"source": source.host,
+            "requests": 1 + sum(wc.Area(name, n).pages for name, n in unread),
+            "pace_s": pace_s, "counted_at": state.count["counted_at"][:10],
+            "reads": f"Reads the {wc._counted(len(unread), 'area')} {started} did not "
+                     f"reach{then}.",
+            "basis": f"Counted from the Bank's own notice totals when {started} started. "
+                     "The notices changed since are not in these figures."}
+
+
+def compiled(conn: sqlite3.Connection, source_key: str) -> int:
+    """The source row's `observations`: the tenders compiled from its notices."""
+    return int(conn.execute(
+        "SELECT count(*) FROM tenders t JOIN tender_processes p "
+        "ON p.id = t.tender_process_id JOIN source_site s "
+        "ON s.source_id = p.source_site_id WHERE s.source_key = ?",
+        (source_key,)).fetchone()[0])
+
+
+def progress_unit(job: dict) -> str:
+    """The job payload's unit (#1701, row 19): areas while areas are read, pages in the
+    pass over changes."""
+    return "pages" if (job.get("checkpoint") or {}).get("phase") == "changes" else "areas"
 
 
 def _site_id(conn: sqlite3.Connection, source: tenders.TenderSource) -> int:
@@ -249,6 +338,7 @@ def run_tender_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
             jobs._update(conn, job_id, status=JobStatus.RUNNING.value)
             conn.commit()
 
+            record["phase"] = "areas"
             done = 0
             for area in to_read:
                 resume = record.get("area") or {}
@@ -292,9 +382,14 @@ def run_tender_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
                     keep(progress_done=page + 1, progress_total=0)
                     stop_if_asked()
 
+                # THE TOTAL IS NOT KNOWN IN THE PASS OVER CHANGES (#1701, row 18): the
+                # declared one was the areas', and the bar says the total is unknown.
+                record["phase"] = "changes"
+                jobs.record_source_fetch(conn, job_id, source_key, expected=None,
+                                         basis=None, requests=tally.requests)
                 jobs._update(conn, job_id, stage="reading changes", progress_done=0,
                              progress_total=0)
-                conn.commit()
+                keep()
                 outcome = wc.read_changes(conn, fetcher, source_site_id=site_id,
                                           since=since, tally=tally, log=say,
                                           crawl_job_id=job_id, on_page=changes_page_kept)
