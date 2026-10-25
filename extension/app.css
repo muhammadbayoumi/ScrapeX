@@ -422,7 +422,7 @@
     padding-block-end: var(--sp-2);
     background: var(--surface);
   }
-  .view-heading h1 { margin: 0; font-size: var(--fs-lg); font-weight: var(--fw-bold); }
+  .view-heading h1 { margin: 0; font-size: var(--fs-lg); }
   .view-heading p { margin: 0; color: var(--muted); font-size: var(--fs-xs); }
   .data-view-heading, .source-manager-heading {
     flex-direction: row;
@@ -1097,7 +1097,7 @@
   .output-groups { display: flex; flex-direction: column; gap: var(--sp-4); }
   .output-group + .output-group { border-top: 1px solid var(--line); padding-top: var(--sp-4); }
   .output-group-head { margin-bottom: var(--sp-2); }
-  .output-group-head h3 { margin: 0; font-size: var(--fs-sm); font-weight: var(--fw-bold); }
+  .output-group-head h3 { margin: 0; font-size: var(--fs-sm); }
   .output-group-head p { margin: 2px 0 0; color: var(--muted); font-size: var(--fs-xs); }
   /* Settings is an information architecture, not a stack of identical cards.
      Related controls share one surface and the disclosure rows explain what is
@@ -1872,7 +1872,6 @@
     max-width: 100%;
     margin: var(--sp-1) 0 0;
     font-size: var(--fs-lg);
-    font-weight: var(--fw-bold);
     line-height: var(--lh-tight);
     overflow-wrap: anywhere;
   }
@@ -2388,7 +2387,6 @@
   .manage-account-section {
     margin: var(--sp-5) 0 var(--sp-2);
     font-size: var(--fs-xs);
-    font-weight: var(--fw-medium);
     letter-spacing: .04em;
     text-transform: uppercase;
     color: var(--muted);
@@ -2546,7 +2544,6 @@
   .modal-title {
     margin: 0;
     font-size: var(--fs-md);
-    font-weight: var(--fw-bold);
     line-height: var(--lh-tight);
     text-transform: none;
     letter-spacing: normal;

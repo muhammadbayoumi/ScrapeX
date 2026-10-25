@@ -613,6 +613,7 @@
   overflow-wrap: anywhere;
   font-family: var(--font-mono);
   --fw-regular: var(--fw-regular-mono);
+  font-weight: inherit;
   font-size: var(--fs-lg);
 }
 
