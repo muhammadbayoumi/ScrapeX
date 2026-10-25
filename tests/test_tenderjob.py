@@ -99,16 +99,31 @@ def test_an_area_that_fails_is_left_unread_and_named_first(conn, bank):
     assert job["checkpoint"]["unread"] == {EGYPT: f"{EGYPT}, page 2: HTTP 503 after its tries"}
 
 
-def test_a_page_that_changed_shape_fails_the_crawl_and_says_how_far_it_got(conn, bank):
+def test_refused_notices_never_stop_the_crawl_and_end_it_with_errors(conn, bank):
+    """His ruling of 2026-10-25 (#1779): a page whose every notice is refused goes on with
+    a warning; the run ends completed with errors, counting the notices it did not keep."""
     kenya = notices(300, start=5_000)
     for notice in kenya:
         notice["notice_type"] = "Prequalification Notice"
     bank["bank"] = Bank({EGYPT: notices(1_200), KENYA: kenya})
+    job, ref = run(conn)
+    assert job["status"] == "completed_with_errors"
+    assert job["error_summary"] == "300 notices not kept; each is named in the log by its id."
+    assert job["checkpoint"]["areas_read"] == [EGYPT, KENYA]
+    assert any(level == "warning" and message.startswith(f"every notice on {KENYA}, page 1")
+               for level, message in logged(conn, ref))
+
+
+def test_unread_areas_lead_the_summary_and_refused_notices_follow(conn, bank):
+    egypt = notices(1_200)
+    egypt[0]["notice_type"] = "Prequalification Notice"
+    bank["bank"] = Bank({EGYPT: egypt, KENYA: notices(300, start=5_000)},
+                        fail={(KENYA, 0): 503})
     job, _ = run(conn)
-    assert job["status"] == "failed"
-    assert job["error_summary"].startswith(
-        f"1 of 2 areas read; an update reads the rest. Stopped because the Bank's notices "
-        f"changed shape at {KENYA}, page 1: none of 300 notices could be read")
+    assert job["status"] == "completed_with_errors"
+    assert job["error_summary"] == (f"1 area not read; an update reads it first. {KENYA}, "
+                                    "page 1: HTTP 503 after its tries. 1 notice not kept; it "
+                                    "is named in the log by its id.")
 
 
 # ---- an update ---------------------------------------------------------------------------

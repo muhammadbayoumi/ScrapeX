@@ -16,8 +16,9 @@ WHAT A FAILURE DOES IS HIS RULING (#1701 Q1, option (a), 2026-10-17):
     crawl goes on with the next area;
   * a notice that cannot be kept is counted in Errors, with its id, and the rest of its
     page is kept;
-  * a page none of whose notices can be kept stops the crawl as failed, because that is
-    the Bank changing shape.
+  * a page none of whose notices can be kept never stops the crawl: it says so in a
+    warning, and the crawl goes on (his ruling of 2026-10-25, #1779, which replaced
+    "stops the crawl as failed" on 0 refusals measured in the 12 smallest areas).
 A stop that is not a page's (the owner's Pause or Cancel, a robots.txt refusal, a site
 that keeps refusing) arrives as `CrawlBlocked` and is never taken for a failed page.
 
@@ -61,11 +62,6 @@ Log = Callable[[str, str], None]
 class PageShapeError(ValueError):
     """A response that is not the envelope #1647 recorded: `rows`, `os`, `page`, `total`,
     `procnotices`, and for a count `facets`. The Bank changed what it answers."""
-
-
-class ShapeChanged(RuntimeError):
-    """A page none of whose notices could be kept: the Bank changed the notice's shape.
-    It stops the crawl as failed (his ruling, #1701 Q1 (a))."""
 
 
 @dataclass(frozen=True)
@@ -227,7 +223,8 @@ def _keep(conn: sqlite3.Connection, response: httpx.Response, notices: list[dict
           source_site_id: int, crawl_job_id: int | None, tally: Tally, log: Log,
           where: str) -> None:
     """One page: its response as evidence, then each notice under a savepoint of its own,
-    committed together. Raises `ShapeChanged` when not one notice could be kept.
+    committed together. A page none of whose notices could be kept is not a stop: it
+    says so in a warning, and the crawl goes on (#1779).
 
     WHAT IT DID IS REPORTED ONCE IT IS COMMITTED. An undone page is read again once the
     lock is free, and reports then; and part 3b-2's job writes its log through the
@@ -282,9 +279,11 @@ def _keep(conn: sqlite3.Connection, response: httpx.Response, notices: list[dict
     for notice_id, reason in refused:
         log("error", f"{notice_id!r} not kept: {reason}")
     if notices and len(refused) == len(notices):
-        raise ShapeChanged(f"Stopped because the Bank's notices changed shape at {where}: "
-                           f"none of {_counted(len(notices), 'notice')} could be read "
-                           f"({refused[0][1]})")
+        # NEVER A STOP, his ruling of 2026-10-25 (#1779): every notice is already counted
+        # in Errors and named above; this line says what the whole page suggests.
+        log("warning", f"every notice on {where} was refused "
+                       f"({_counted(len(notices), 'notice')}): the Bank may have changed "
+                       f"their shape. The first: {refused[0][1]}")
 
 
 def read_area(conn: sqlite3.Connection, fetcher, *, source_site_id: int, area: Area,

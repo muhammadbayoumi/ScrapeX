@@ -169,6 +169,7 @@ def run_tender_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
     record.setdefault("areas_read", [])
     record.setdefault("unread", {})
     tally = wc.Tally(**{name: int((job["counters"] or {}).get(name, 0)) for name in COUNTERS})
+    errors_before = tally.errors
     site_id = _site_id(conn, source)
     state = source_state(conn, source_key)
 
@@ -209,7 +210,6 @@ def run_tender_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
                              capture.crawl_settings(conn))
     host = jobs.host_of_url(source.base_url, source_key)
     admit = admission.lane(host) if admission is not None else nullcontext()
-    failed: str | None = None
     try:
         with admit:
             if not jobs.still_wanted(conn, job_ref):
@@ -323,10 +323,6 @@ def run_tender_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
             conn, job, job_ref, source_key, blocked,
             "Resuming goes on from the next unread page")
         return jobs.get_job(conn, job_ref) or job
-    except wc.ShapeChanged as changed:
-        read_whole = len(state.areas_read | set(record["areas_read"]))
-        of = len((record.get("count") or {}).get("areas") or [])
-        failed = (f"{read_whole} of {of} areas read; an update reads the rest. {changed}")
     except Exception as exc:
         say(LogLevel.ERROR, f"failed: {exc}")
         jobs._finish(conn, job_id, JobStatus.FAILED, str(exc))
@@ -336,19 +332,24 @@ def run_tender_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
         directoryjob.log_politeness(conn, job_id, source_key, fetcher)
         conn.commit()
 
-    if failed is not None:
-        say(LogLevel.ERROR, failed)
-        jobs._finish(conn, job_id, JobStatus.FAILED, failed)
-    elif record["unread"]:
+    # WHAT IS LEFT, THE CONSEQUENCE FIRST, so the two-line clamp on Jobs keeps it (#1701,
+    # row 23): areas an update reads first, then a pass cut short, then the notices this
+    # run refused, each already named in the log by its id (#1779: never a stop).
+    said = []
+    if record["unread"]:
         missed = record["unread"]
-        summary = (f"{len(missed)} area{'' if len(missed) == 1 else 's'} not read; an "
-                   f"update reads {'it' if len(missed) == 1 else 'them'} first. "
-                   f"{_reasons(missed)}")
-        say(LogLevel.WARNING, summary)
-        jobs._finish(conn, job_id, JobStatus.COMPLETED_WITH_ERRORS, summary)
-    elif record.get("changes") and not record["changes"]["complete"]:
-        summary = (f"the pass over changes stopped: {record['changes']['reason']}. The next "
-                   f"update reads again from {record['changes']['since']}")
+        said.append(f"{len(missed)} area{'' if len(missed) == 1 else 's'} not read; an "
+                    f"update reads {'it' if len(missed) == 1 else 'them'} first. "
+                    f"{_reasons(missed)}")
+    if record.get("changes") and not record["changes"]["complete"]:
+        said.append(f"the pass over changes stopped: {record['changes']['reason']}. The next "
+                    f"update reads again from {record['changes']['since']}")
+    refused = tally.errors - errors_before
+    if refused:
+        said.append(f"{wc._counted(refused, 'notice')} not kept; "
+                    f"{'it is' if refused == 1 else 'each is'} named in the log by its id.")
+    if said:
+        summary = " ".join(said)
         say(LogLevel.WARNING, summary)
         jobs._finish(conn, job_id, JobStatus.COMPLETED_WITH_ERRORS, summary)
     else:
