@@ -124,7 +124,8 @@ def test_an_update_reads_the_unread_areas_first_then_the_changes_from_the_count(
     job, ref = run(conn, "update")
     assert job["status"] == "completed"
     lines = [message for _, message in logged(conn, ref)]
-    assert lines[0] == "1 area not read yet: 2 requests"
+    # The count and Egypt's two pages: one figure with the cost question (#1701, 13a).
+    assert lines[0] == "1 area not read yet: 3 requests"
     assert f"every area read; reading the notices changed since {SINCE}" in lines
     assert "changes: 2 notices in 1 request" in lines
     record = job["checkpoint"]

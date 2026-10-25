@@ -230,8 +230,10 @@ def run_tender_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
             if not held:
                 say(LogLevel.INFO, wc.count_line(plan))
             elif to_read:
+                # THE COUNT INCLUDED, as `count_line`'s figure is (`Plan.requests`): the
+                # line and the cost question part 3b-2b asks give one number (#1701, 13a).
                 say(LogLevel.INFO, f"{wc._counted(len(to_read), 'area')} not read yet: "
-                                   f"{asked:,} requests")
+                                   f"{1 + asked:,} requests")
             jobs.record_source_fetch(conn, job_id, source_key, expected=1 + asked,
                                      basis="declared", requests=tally.requests)
             keep(progress_done=0, progress_total=len(to_read))
