@@ -20,7 +20,7 @@ from fastapi.testclient import TestClient
 from scrapex import db as dbmod
 from scrapex.databases import DatabaseRegistry
 from scrapex.databases.domain import EngineDatabase
-from scrapex.dbupgrade import BEHIND
+from scrapex.dbupgrade import BEHIND, RESTART_UPGRADES
 
 
 @pytest.fixture()
@@ -86,11 +86,39 @@ def test_an_engine_older_than_the_disk_refuses_and_names_restart(tmp_path, strea
     said = answer.json()["detail"]
     assert f"v{before}," in said and f"v{before + 1} is now installed" in said, (
         f"the refusal does not name both versions: {said!r}")
-    assert "Restart engine" in said, f"the refusal names no control: {said!r}"
+    assert RESTART_UPGRADES[1:] in said, (
+        f"the refusal does not name the control, its screen and what it does: {said!r}")
     for command in ("scrapex ", "python -m", "init-db"):
         assert command not in said, f"the refusal names {command!r}, a command line"
     assert _version(registry.engine.path) == before, "the refusal changed the database"
     assert _backups(registry.engine.path) == [], "the refusal copied the database"
+
+    # AND THE RUN BANNER SAYS THE SAME THING. It printed "press Upgrade database"
+    # from `/api/health` beside this refusal, which was #1634's trap itself.
+    lag = client.get("/api/health").json()["schema_lag"]
+    assert lag["pending"] == [stream.newest.name], lag
+    assert lag["fix"] == RESTART_UPGRADES, lag
+    assert "started before" in lag["message"], lag
+
+
+def test_a_lag_on_an_engine_level_with_the_disk_still_names_upgrade(
+        tmp_path, stream, monkeypatch):
+    """The other branch of the banner's fix. Unreachable on a registry today, since
+    `create_app` refuses a database behind its plan; staged by saying the plan on disk
+    is not newer, so a fix that named Restart for every lag fails here."""
+    import scrapex.dbupgrade as dbupgrade
+    from scrapex.webui.app import create_app
+
+    registry = _registry(tmp_path)
+    registry.initialize()
+    client = TestClient(create_app(databases=registry))
+    stream.land()
+    monkeypatch.setattr(dbupgrade, "newer_plan_on_disk", lambda engine: None)
+
+    lag = client.get("/api/health").json()["schema_lag"]
+
+    assert lag["fix"] == "press Upgrade database on the Database page", lag
+    assert "will fail until they are applied" in lag["message"], lag
 
 
 def test_an_engine_level_with_the_disk_still_upgrades_behind_a_backup(tmp_path, stream):
@@ -116,12 +144,9 @@ def test_an_engine_level_with_the_disk_still_upgrades_behind_a_backup(tmp_path, 
     assert len(_backups(registry.engine.path)) == 1, "it upgraded without a backup"
 
 
-def test_unreadable_migration_files_refuse_in_words_and_change_nothing(
-        tmp_path, stream, monkeypatch):
-    """The refusal reads the plan on disk, so a folder that cannot be read is its own
-    answer, in words, rather than a 500 the panel can only call "HTTP 500". It says
-    Restart is refused for the same reason, and that is asserted, not assumed."""
-    from scrapex import native
+def test_unreadable_migration_files_refuse_in_words_and_change_nothing(tmp_path, stream):
+    """The refusal reads the plan on disk, so a folder that cannot be used is its own
+    answer, in words, rather than a 500 the panel can only call "HTTP 500"."""
     from scrapex.webui.app import create_app
 
     registry = _registry(tmp_path)
@@ -134,19 +159,11 @@ def test_unreadable_migration_files_refuse_in_words_and_change_nothing(
 
     assert answer.status_code == 409, (answer.status_code, answer.text)
     said = answer.json()["detail"]
-    assert "could not be read" in said and "0099 a misnamed file.sql" in said, said
+    assert "could not be used" in said and "0099 a misnamed file.sql" in said, said
     assert "Nothing was changed" in said, said
-    assert "Restart engine is refused for the same reason" in said, said
+    assert "corrected ScrapeX update" in said, said
     assert _version(registry.engine.path) == before
     assert _backups(registry.engine.path) == []
-
-    monkeypatch.setattr(DatabaseRegistry, "defaults", classmethod(
-        lambda cls, **kw: cls(EngineDatabase(registry.engine.path),
-                              pointer_file=tmp_path / "databases.json")))
-    _engine_on_the_port(monkeypatch, running=True)
-    restart = native.startup_check()
-    assert restart["ok"] is False and restart["error"] == "startup_check_failed", restart
-    assert "0099 a misnamed file.sql" in restart["detail"], restart
 
 
 def test_why_the_stale_engine_refuses_rather_than_applies(tmp_path, stream):
@@ -244,20 +261,25 @@ def test_start_with_no_engine_still_sends_him_to_upgrade_database(behind, monkey
     assert _version(path) == before and _backups(path) == []
 
 
-def test_start_asks_about_its_own_port(behind, monkeypatch):
-    """An engine answering on ANOTHER port does not make a Start on this one a
-    Restart: the engine this Start would spawn upgrades the file under it."""
+def test_start_never_takes_restarts_pass(behind, monkeypatch):
+    """An engine that misses Start's own probe and then answers -- or one on another
+    port -- does not make a Start a Restart: the engine this Start would spawn
+    upgrades the file under the running one. Reproduced by the stage-5 re-review
+    with probes answering [None, engine]."""
     from scrapex import native
 
-    monkeypatch.setattr(native, "_engine_answering", lambda port, *a, **k: (
-        {"app": "scrapex"} if port == native.DEFAULT_ENGINE_PORT else None))
+    path, before = behind
+    answers = iter([None])
+    monkeypatch.setattr(native, "_engine_answering",
+                        lambda *a, **k: next(answers, {"app": "scrapex"}))
     spawned: list = []
     monkeypatch.setattr(native, "_spawn_engine", spawned.append)
 
-    answer = native.start_engine({"port": native.DEFAULT_ENGINE_PORT + 131})
+    answer = native.start_engine({"port": native.DEFAULT_ENGINE_PORT})
 
     assert answer["ok"] is False and answer["action"] == "upgrade_database", answer
-    assert spawned == []
+    assert spawned == [], "Start spawned an engine over one that answered late"
+    assert _version(path) == before
 
 
 def test_a_replacement_that_cannot_upgrade_leaves_a_button_that_says_why(

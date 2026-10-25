@@ -253,8 +253,12 @@ def _database_report(*, integrity: bool = True) -> tuple[dict[str, dict] | None,
     return states, None
 
 
-def startup_check(port: int = DEFAULT_ENGINE_PORT) -> dict:
-    """Return a structured, actionable preflight result for engine startup."""
+def startup_check(port: int | None = DEFAULT_ENGINE_PORT) -> dict:
+    """Return a structured, actionable preflight result for engine startup.
+
+    `port` is where a running engine would be looked for; `None` says there is none
+    to replace, which is Start's case (`start_engine`).
+    """
     # Identity only, the question the engine's own start asks: see
     # `cli._cmd_ui` (#1713). Asking more here than the engine asks would pass
     # nothing the engine refuses, and only make Start and Restart wait.
@@ -284,8 +288,10 @@ def startup_check(port: int = DEFAULT_ENGINE_PORT) -> dict:
     # replacement backs the file up and upgrades it on its way up (`cli._cmd_ui`).
     # With no engine running it still blocks: Upgrade database then reaches this host,
     # which says in words why an upgrade failed, and Start does not race it (#1634).
+    # Start never looks: it has just found no engine on its port, and one that
+    # answered late here would let it spawn a second engine over the first.
     if all(state["status"] == BEHIND for _, state in blocked) \
-            and _engine_answering(port) is not None:
+            and port is not None and _engine_answering(port) is not None:
         return {"ok": True, "databases": states or {}}
     details = "; ".join(
         f"{name}: {state['status']}. {state['action']}"
@@ -402,7 +408,7 @@ def start_engine(message: dict) -> dict:
     if answering is not None:
         return {"ok": True, "already_running": True, "confirmed": True, "port": port,
                 "version": answering.get("version")}
-    preflight = startup_check(port)
+    preflight = startup_check(None)
     if not preflight["ok"]:
         return {**preflight, "port": port}
     _spawn_engine(port)
