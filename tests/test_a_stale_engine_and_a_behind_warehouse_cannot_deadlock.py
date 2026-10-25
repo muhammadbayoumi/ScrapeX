@@ -242,6 +242,23 @@ def test_restart_is_not_refused_for_a_database_that_is_only_behind(behind, monke
     assert len(_backups(path)) == 1, "the replacement upgraded without a backup"
 
 
+def test_the_command_restart_sends_is_the_one_that_passes(behind, monkeypatch):
+    """Through the host's own dispatch, as the panel sends it (`checkStartup` in
+    `extension/transport.js`: no port). The tests above call `startup_check` directly,
+    so a dispatch that stopped looking for an engine -- `startup_check(None)`, the
+    obvious edit when a port is threaded through for #1808 -- would bring #1634 back
+    with every one of them green. Found by the third stage-5 review."""
+    from scrapex import native
+
+    _engine_on_the_port(monkeypatch, running=True)
+    restart = native.handle(None, {"command": "CHECK_STARTUP", "request_id": "r"})
+    assert restart["ok"] is True, f"Restart's pre-check refused, the deadlock: {restart}"
+
+    _engine_on_the_port(monkeypatch, running=False)
+    silent = native.handle(None, {"command": "CHECK_STARTUP", "request_id": "s"})
+    assert silent["ok"] is False and silent["action"] == "upgrade_database", silent
+
+
 def test_start_with_no_engine_still_sends_him_to_upgrade_database(behind, monkeypatch):
     """His ruling of 2026-10-25: Restart only. With no engine running, Upgrade database
     reaches the native host, which names a failure in words, so Start stops and offers

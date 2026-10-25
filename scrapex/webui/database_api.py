@@ -64,7 +64,7 @@ def create_database_router(
         # (`cli._cmd_ui`), so that is the control it names.
         try:
             newer = newer_plan_on_disk(registry.engine)
-        except (OSError, ValueError) as exc:
+        except ValueError as exc:
             raise HTTPException(status_code=409, detail=(
                 "Database not upgraded: the migration files on disk could not be used: "
                 f"{exc}. Nothing was changed. A corrected ScrapeX update is needed "
