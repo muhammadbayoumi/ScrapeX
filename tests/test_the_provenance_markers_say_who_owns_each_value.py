@@ -605,8 +605,8 @@ def test_no_value_quietly_starts_being_checked_either():
 # EVERY COLOUR LITERAL IN THE LIGHT AND DARK BLOCKS EITHER SAYS WHOSE IT IS OR IS NAMED
 # HERE (#698). #1040 kept the Apache 4(b) record as it stands, so none of these gains a
 # marker now, and ruled that the next colour cannot arrive without one. So the list only
-# shrinks: #702 retires --red-hover and the dark --accent-active, and #1053 the dark
-# --control-hover. #1049 retired --shadow-color in both themes.
+# shrinks: #702 retires --red-hover and the dark --accent-active. #1049 retired
+# --shadow-color in both themes, and #1053 the dark --control-hover.
 #
 # A colour literal is a hex or a colour function (`rgb()`, `oklch()` and the rest), not a
 # `color-mix()` or `var()` of other tokens, which carry their own statement. A CSS colour
@@ -622,7 +622,7 @@ UNMARKED_COLOURS = frozenset({
     ("dark", "--bg"), ("dark", "--surface"), ("dark", "--surface-subtle"),
     ("dark", "--surface-raised"), ("dark", "--line"), ("dark", "--line-strong"),
     ("dark", "--text"), ("dark", "--muted"), ("dark", "--text-subtle"), ("dark", "--chip"),
-    ("dark", "--accent-active"), ("dark", "--red-hover"), ("dark", "--control-hover"),
+    ("dark", "--accent-active"), ("dark", "--red-hover"),
 })
 
 # Google publishes these, test_the_google_button_follows_googles_rules.py pins all six

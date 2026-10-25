@@ -24,7 +24,8 @@ THREE LAYERS, MOST SPECIFIC FIRST, and `effective` is the only reader of all thr
 
 "Shipped with" is the release's own word on the source: its `sources.yaml` entry for a
 price source, its `directories.Directory` for a directory -- which ships `active` and no
-robots, agent or pace opinion. Clearing a choice returns the field to that (his ruling,
+robots, agent or pace opinion -- and its `tenders.TenderSource` for a tender source, which
+ships `active`, robots and pace. Clearing a choice returns the field to that (his ruling,
 2026-10-08). "No per-source opinion" is what a source that said nothing has today -- inactive, robots
 `default`, no agent, no pace -- and it is NOT his general rules resolved here. Those are
 applied downstream exactly as they are now (`connectors.base.general_fetcher`,
@@ -59,14 +60,16 @@ from .config import (
 )
 from .directories import Directory
 from .robots import RobotsChoice
+from .tenders import TenderSource
 from .vocab import ConnectorFamily
 
 #: The fields `save` accepts and `read` returns. A key outside this set is refused
 #: rather than ignored, for `settings.SETTINGS`' reason: a typo must not look saved.
 FIELDS = ("active", "robots", "robots_custom", "user_agent", "crawl_pace_s")
 
-#: What a source ships with: its manifest entry, its directory, or nothing.
-Shipped = SourceEntry | Directory | None
+#: What a source ships with: its manifest entry, its directory, its tender source, or
+#: nothing.
+Shipped = SourceEntry | Directory | TenderSource | None
 
 
 class UnknownSourceError(LookupError):
@@ -384,6 +387,14 @@ def _shipped_rules(source_key: str, shipped: Shipped) -> SourceRules:
                 f"asked for {source_key!r} with {shipped.key!r}'s directory")
         return SourceRules(active=shipped.active, robots=NO_OPINION.robots,
                            robots_custom=None, user_agent=None, crawl_pace_s=None)
+    if isinstance(shipped, TenderSource):
+        if shipped.key != source_key:
+            raise ValueError(
+                f"asked for {source_key!r} with {shipped.key!r}'s tender source")
+        # Its robots choice and its pace are his rulings for it (`tenders.TenderSource`);
+        # it ships no custom rule and no agent of its own.
+        return SourceRules(active=shipped.active, robots=shipped.robots, robots_custom=None,
+                           user_agent=None, crawl_pace_s=shipped.crawl_pace_s)
     return NO_OPINION
 
 
