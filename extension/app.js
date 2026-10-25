@@ -10884,9 +10884,18 @@ function wireRuntimeRepair() {
         say("The engine has not answered in two minutes. Checking the database…");
         // AND THE SCREEN SAYS SO TOO. Nothing redrew it since the press, so the
         // banner went on reading "Running" from before it, over a note saying the
-        // engine has not answered. The engine check repaints it from what answers
-        // now, the way Check again would.
-        await render();
+        // engine has not answered -- and the release row went on offering an update
+        // to the engine that left. Both are drawn from what answers now, the way
+        // entering the screen draws them, as the successful ending does above.
+        // A redraw that fails is recorded, and must not keep back the buttons this
+        // ending gives back.
+        try {
+          await render();
+          await renderEngines();
+        } catch (error) {
+          markStartup("restart-redraw-failed",
+                      {message: (error && error.message) || "unknown"});
+        }
         try {
           await checkStartup();
           const timeout = Object.assign(

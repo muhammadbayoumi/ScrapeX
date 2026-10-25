@@ -8771,15 +8771,30 @@ def test_the_wait_promises_no_duration(open_panel):
     assert not page.js_errors, page.js_errors
 
 
+#: 0.9.1 published: the engine he restarts (0.9.0) reads "Update available".
+PUBLISHED_091 = {"product": "scrapex-engine", "version": "0.9.1",
+                 "installer": {"name": "scrapex-engine.exe",
+                               "url": "https://example.test/scrapex-engine.exe",
+                               "bytes": 24000000, "sha256": "a" * 64}}
+
+
 def test_a_restart_whose_engine_never_comes_back_redraws_the_screen(open_panel):
     """The engine asked to leave leaves and nothing takes its place: two minutes of
     refused probes, then the database check. Nothing had redrawn the screen since
     the press, so the banner went on reading "Running" -- the engine as it was
-    before Restart -- over a note saying the engine has not answered. The ending
-    redraws it from what answers now: nothing."""
-    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    before Restart -- over a note saying the engine has not answered, and the
+    release row went on offering "Update to 0.9.1" to the engine that left. The
+    ending redraws both from what answers now: nothing.
+
+    What the release row then says for an engine that does not answer --
+    "Available to install" -- is what Check again says too, and #1636 records it."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok",
+                      engine_version="0.9.0", engine_manifest=PUBLISHED_091)
     page.click("#tab-engines")
     open_engine(page)
+    page.wait_for_function(
+        "() => document.getElementById('engine-release-verdict').textContent"
+        " === 'Update available'", timeout=10_000)
     assert text_of(page, "#engine-state-text") == "Running"
     restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART,
                                     dark_ms=10**9)
@@ -8796,7 +8811,40 @@ def test_a_restart_whose_engine_never_comes_back_redraws_the_screen(open_panel):
     assert page.evaluate(
         "() => !document.getElementById('setup').classList.contains('hidden')"), (
         "Run does not say the engine is not running")
+    assert text_of(page, "#engine-release-verdict") == "Available to install", (
+        "the release row still judges the engine that left")
+    assert text_of(page, "#engine-download-label") == "Download engine"
     assert not page.js_errors, page.js_errors
+
+
+def test_a_redraw_that_fails_gives_the_buttons_back(open_panel):
+    """The failed ending redraws the screen before its database check. A redraw
+    that throws -- here the Latest version value, which the release row paints first,
+    is gone from the page -- must
+    not reject the poll's tick with nothing catching it: that left the note on
+    "Checking the database..." and Restart, Upgrade database and the check disabled
+    for good. It is recorded, and the ending finishes."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART,
+                                    dark_ms=10**9)
+    page.evaluate("() => document.getElementById('engine-latest-version').remove()")
+
+    press_restart_and_wait_out_the_two_minutes(page)
+    page.wait_for_function(
+        "() => document.getElementById('engine-restart-note').textContent"
+        " === 'The engine has not answered in two minutes. It may still be starting.'",
+        timeout=10_000)
+
+    for control in ("#runtime-restart", "#runtime-upgrade"):
+        assert not page.locator(control).is_disabled(), f"{control} stayed down"
+    # THE TRACE ITSELF, not its performance-mark copy: under the page's fake clock
+    # that copy is not made (startup-trace.js swallows the failure), the record is.
+    traced = page.evaluate("""() => globalThis.ScrapeXPanelTrace.events()
+        .filter((event) => event.name === 'restart-redraw-failed')
+        .map((event) => event.detail)""")
+    assert traced and traced[0]["message"], "the failed redraw left no record"
 
 
 #: The first `/api/health` after the restart request answers 200 with a body that
