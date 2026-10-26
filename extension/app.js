@@ -1585,7 +1585,8 @@ function sourceIdentity(source, compact = false, metricValue = null, metricLabel
     ? `<span class="source-identity-name" dir="auto">${esc(source.source_name_ar)}</span>` : "";
   return `<span class="source-identity${compact ? " source-identity-compact" : ""}">
     <strong class="source-identity-domain" dir="${domain ? "ltr" : "auto"}">${
-      // WRAP (Jobs only, his choice D): a break after each dot, never inside a label.
+      // WRAP (his choice D: Jobs, Schedules and Activity): a break after each dot,
+      // never inside a label.
       wrap ? (domain || name).split(".").map(esc).join(".<wbr>") : esc(domain || name)}</strong>
     ${domain || arabic ? `<span class="source-identity-names"><span class="source-identity-name-en" dir="ltr">${esc(name)}</span>${
       arabic ? '<span class="source-identity-separator" aria-hidden="true">·</span>' : ""
@@ -5728,12 +5729,16 @@ function finishEstimate(job) {
 
 /** The ended job Activity last announced, as `"<job_ref> <status>"`. */
 let activityAnnounced = "";
+/** The ended job Activity is drawing, or null: a zone change redraws it, because the card
+ *  is drawn once at the end and no later poll touches it again. */
+let activityEnded = null;
 
 function renderActivity(job) {
   const box = $("activity");
-  if (!job) { box.classList.add("hidden"); return; }
+  if (!job) { activityEnded = null; box.classList.add("hidden"); return; }
   box.classList.remove("hidden");
   const ended = isSettled(job);
+  activityEnded = ended ? job : null;
   const source = $("act-source");
   const when = $("act-when");
   source.classList.toggle("hidden", !ended);
@@ -5753,7 +5758,7 @@ function renderActivity(job) {
     // own line -- beside the status, a long domain ran into "Completed with errors" at
     // every width. WRAPPED, his choice D as on Jobs and Schedules (his word, 2026-10-25,
     // on #1074): under the shared rule `etendering.tenderboard.gov.om` lost ".om" at 320 px.
-    fillJobIdentity(source, job, state.sources, { wrap: true });
+    fillJobIdentity(source, job, state.sources);
     when.textContent = timeLine(job, (v, m) => window.ScrapeXTime.format(v, m));
     // SAID ONCE, IN THE JOBS PAGE'S WORDS. Its own announcer sits in a view that is
     // hidden while Run is shown, so the end of a job was drawn here and spoken nowhere
@@ -5874,8 +5879,8 @@ function renderLogs(entries, meta, live = true) {
   const box = $("logbox");
   // Say what is shown out of what exists — the caption that used to read
   // "Last 200 log entries" is now the truth, whatever the count. Written BEFORE the
-  // unchanged-log return below: an ended job's log is usually the last tick's, line
-  // for line, and returning first left it captioned "Live log" (#1074).
+  // unchanged-log return below: a job set_control settles (a cancel it was not holding)
+  // ends with no new line, and returning first left it captioned "Live log" (#1074).
   const total = meta && meta.total != null ? meta.total : entries.length;
   const name = live ? "Live log" : "Log";
   const caption = $("log-caption");
@@ -5890,10 +5895,11 @@ function renderLogs(entries, meta, live = true) {
   // single line had changed. A crawl is mostly quiet: the entries are usually
   // identical to the ones already on screen, and the cheapest correct fix is to
   // notice that and leave the DOM alone.
-  // LIVE OR ENDED IS PART OF WHAT IS SHOWN: an empty log reads "yet" only while lines
-  // can still come, and the ended job's log is usually the last tick's, line for line --
-  // without this the box kept "No log entries yet." under an ended job (#1074).
-  const signature = `${live ? "live" : "ended"}\u0002${logSignatureOf(entries)}`;
+  // AN EMPTY LOG SAYS WHETHER LINES CAN STILL COME: "yet" only while the job is live.
+  // A job cancelled before it started ends with no log at all, and kept "No log entries
+  // yet." (#1074). Only the EMPTY box carries liveness: a non-empty one looks the same
+  // live or ended, and redrawing it at the end would take away a line he had selected.
+  const signature = entries.length ? logSignatureOf(entries) : (live ? "live" : "ended");
   // childElementCount guards the other direction: a view switch can empty this
   // box, and a signature that still matched would then leave it empty forever.
   if (signature === state.logSignature && box.childElementCount) return;
@@ -8208,12 +8214,13 @@ function jobsSetNarrowing({ term = jobsPage.term, statuses = jobsPage.statuses }
 /** Which sources a job ran over, as the panel names a job: the panel's one source
  *  identity (sourceIdentity, components.css:814-931) for the source it leads with, its own
  *  keys in the footer, and "and N others" above it. The Jobs row and Activity's ended job
- *  both draw it (#1074); `wrap` is his choice D, which Jobs, Schedules and Activity take. */
-function fillJobIdentity(box, job, sources, { wrap = false } = {}) {
+ *  both draw it (#1074), wrapped by his choice D, which Jobs, Schedules and Activity take. */
+function fillJobIdentity(box, job, sources) {
   const lead = jobLead(job);
   const source = sourceOf(lead, sources);
   // A key Sources does not list stands as its own name.
-  box.innerHTML = sourceIdentity(source || { source_key: lead }, false, null, "Row", { wrap });
+  box.innerHTML = sourceIdentity(source || { source_key: lead }, false, null, "Row",
+    { wrap: true });
   // THE JOB'S OWN KEYS, for every job (#1624): the footer would name the matched Sources
   // entry, a dataset key where `sourceOf` matched a `site_key`.
   box.querySelector(".source-identity-key").textContent = (job.source_keys || []).join(", ");
@@ -8328,7 +8335,7 @@ function jobsText(node, text) {
 function fillJobRow(row, job, { down = false } = {}) {
   const ref = job.job_ref;
   const sources = state.sources;
-  // IDENTITY: the panel's one source identity (sourceIdentity, components.css:779-860).
+  // IDENTITY: the panel's one source identity (sourceIdentity, components.css:814-931).
   // Several sources name the one it leads with and count the rest.
   const identity = jobsPart(row, "identity");
   const lead = jobLead(job);
@@ -8339,7 +8346,7 @@ function fillJobRow(row, job, { down = false } = {}) {
     identity.dataset.drawn = drawnAs;
     // WRAPPED (his choice D, as Schedules is): the domain and the keys tell one row from
     // another.
-    fillJobIdentity(identity, job, sources, { wrap: true });
+    fillJobIdentity(identity, job, sources);
   }
 
   // STATUS: the engine's word, its glyph and tone; then the kind.
@@ -11822,6 +11829,8 @@ function wireDeferredControls() {
   window.ScrapeXTime.subscribe(() => {
     if (timeZoneControlReady) timeZoneEffect();
     if (state.financeStatus) renderGoogleFinanceStatus(state.financeStatus);
+    // An ended job's start and end, in the new zone: nothing else redraws that card.
+    if (activityEnded) renderActivity(activityEnded);
   });
 
   refreshMode();
