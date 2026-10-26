@@ -10145,6 +10145,14 @@ async function startEngineFromPanel() {
     $("engine-note").textContent = "Upgrading the database…";
     return;
   }
+  // NOR WHILE A RESTART RUNS, its whole wait included (#1517). The restart's own
+  // successor is being launched, and Check again in its dark draws these buttons:
+  // a second launch beside it is a second engine on the same file, and its sweep
+  // or a second upgrader runs beside the successor's (#1810's review).
+  if (restartRunning) {
+    $("engine-note").textContent = "Restarting the engine…";
+    return;
+  }
   const button = $("engine-start");
   const note = $("engine-note");
   button.disabled = true;
@@ -10493,11 +10501,13 @@ const UPGRADE_NO_ANSWER = ["timeout", "crashed"];
 // Settings, and every press copies the whole warehouse before it waits for the
 // write lock -- for up to five minutes of waiting now, not five seconds.
 let upgradeRunning = false;
-// AND NONE WHILE A RESTART RUNS (#1517). Its wait now lasts until a different engine
-// answers -- about 50 s on his machine (#1793) -- and the successor's launch upgrades
-// a database that is only behind on its way up (`cli._cmd_ui`). Re-entering the
-// Database page in that wait turned Upgrade database back on, and pressed in the dark
-// it reaches the native host: a second writer to the same file.
+// AND NONE WHILE A RESTART RUNS (#1517) -- no upgrade and no Start, his ruling: one
+// flag for the restart's whole wait, the database check after its two minutes
+// included. The wait now lasts until a different engine answers, about 50 s on his
+// machine (#1793), and the successor's launch upgrades a database that is only behind
+// on its way up (`cli._cmd_ui`). Re-entering the Database page in that wait turned
+// Upgrade database back on, and Check again in its dark draws the Start buttons:
+// either pressed then is a second writer, or a second engine, on the same file.
 let restartRunning = false;
 
 async function upgradeDatabaseFromPanel() {

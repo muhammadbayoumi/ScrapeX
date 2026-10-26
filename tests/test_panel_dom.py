@@ -9013,6 +9013,97 @@ def test_the_repair_a_failed_restart_names_can_be_pressed(open_panel):
     assert not page.js_errors, page.js_errors
 
 
+#: Every POST the panel sends to the engine, recorded before the restarting stub can
+#: refuse it in the dark. Installed OVER that stub.
+RECORD_POSTS = """() => {
+  const inner = window.fetch;
+  window.__posts = [];
+  window.fetch = async (url, options = {}) => {
+    if ((options.method || 'GET') === 'POST') window.__posts.push(String(url));
+    return inner(url, options);
+  };
+}"""
+
+#: The check the failed ending asks takes a minute to answer, so the restart's
+#: ending -- after its two minutes -- can be pressed through.
+THE_ENDING_CHECK_TAKES_A_MINUTE = """() => {
+  const send = window.chrome.runtime.sendNativeMessage;
+  let checks = 0;
+  window.chrome.runtime.sendNativeMessage = (host, message, callback) => {
+    if (message && message.command === 'CHECK_STARTUP' && ++checks > 1) {
+      window.__nativeCalls.push('CHECK_STARTUP');
+      setTimeout(() => callback({ok: true, installed: true}), 60_000);
+      return;
+    }
+    return send(host, message, callback);
+  };
+}"""
+
+
+def press_start(page) -> None:
+    """What every Start button does -- Run's, and the Jobs and Schedules banners',
+    which call the same handler. Pressed on Run's own button, drawn or not."""
+    page.evaluate("() => document.getElementById('engine-start').click()")
+
+
+def test_start_and_upgrade_are_refused_through_the_whole_restart(open_panel):
+    """HIS RULING, through #1810's review: one flag for the restart's whole wait,
+    the database check after its two minutes included, refusing Start and Upgrade
+    database as the native upgrade's own flag does. Without it a restart that
+    upgrades lets a second upgrader or a second engine start beside its successor
+    -- demonstrated with real processes on #1810 (issuecomment-6413387526).
+
+    Start is pressed in the dark (where Check again would draw it), and again while
+    the ending's database check runs; each is refused with Run's own line and sends
+    nothing. Upgrade database is pressed the same way and stays down. Once the
+    restart ends, Start goes through again."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART,
+                                    dark_ms=10**9)
+    page.evaluate(RECORD_POSTS)
+    page.evaluate(THE_ENDING_CHECK_TAKES_A_MINUTE)
+    page.evaluate("() => { window.__nativeCalls.length = 0; }")
+    page.clock.install()
+    page.click("#runtime-restart")
+
+    def refused(moment: str) -> None:
+        press_start(page)
+        page.clock.run_for(500)
+        assert text_of(page, "#engine-note") == "Restarting the engine…", (
+            f"Start was not refused {moment}")
+        open_database(page)
+        page.clock.run_for(500)
+        upgrade = page.locator("#runtime-upgrade")
+        assert upgrade.is_disabled(), f"Upgrade database was offered {moment}"
+        upgrade.click(force=True)
+        page.clock.run_for(500)
+        page.click("#tab-engines")
+        calls = page.evaluate("window.__nativeCalls")
+        assert "START_ENGINE" not in calls, f"a second engine was started {moment}: {calls}"
+        assert "UPGRADE_DATABASE" not in calls, f"an upgrade was started {moment}: {calls}"
+        posts = page.evaluate("window.__posts")
+        assert not [u for u in posts if "/api/databases/upgrade" in u], (
+            f"an upgrade was asked of the engine {moment}: {posts}")
+
+    page.clock.run_for(30_000)
+    refused("in the dark of the restart")
+    page.clock.run_for(100_000)               # past the two minutes: the check runs
+    assert text_of(page, "#engine-restart-note") == (
+        "The engine has not answered in two minutes. Checking the database…")
+    refused("while the ending's database check runs")
+
+    page.clock.run_for(65_000)                # the check answers; the restart ends
+    page.wait_for_function(
+        "() => !document.getElementById('runtime-restart').disabled", timeout=10_000)
+    press_start(page)
+    page.clock.run_for(500)
+    assert "START_ENGINE" in page.evaluate("window.__nativeCalls"), (
+        "Start is still refused after the restart ended")
+    assert not page.js_errors, page.js_errors
+
+
 def test_the_restart_note_stays_off_a_candidate_engines_screen(open_panel):
     """Every engine shares one detail screen, and a candidate's has no Restart to
     press. The outcome now waits for the successor, so a reader can have opened a
