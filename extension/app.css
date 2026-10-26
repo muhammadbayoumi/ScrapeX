@@ -1280,6 +1280,11 @@
     0% { transform: translateX(-120%); }
     100% { transform: translateX(320%); }
   }
+  /* THE CARD CONTAINS ITS OWN ANNOUNCER. `.visually-hidden` is absolute, and with no
+     positioned ancestor #act-announce sat at its in-flow spot outside the view's scroller,
+     stretched the document past the viewport, and a scroll to Activity slid the whole
+     panel up, rail and header with it, where no wheel could bring them back (#1074). */
+  #activity { position: relative; }
   .act-progress { margin: var(--sp-2) 0; }
   /* An ended job's reason sits where the bar would, with the bar's own spacing. */
   #act-error { margin: var(--sp-2) 0; }

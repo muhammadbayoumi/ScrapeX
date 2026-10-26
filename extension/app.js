@@ -5788,7 +5788,9 @@ function renderActivity(job) {
   // WHY IT ENDED, which only the Jobs row said: Activity read `failed` over counters
   // of 0 and no reason. The Jobs row's rule, so a skip's reason stays muted (#1596).
   const reason = $("act-error");
-  reason.textContent = job.error_summary || "";
+  // Written only when it changed, as `jobsText` does: a zone change redraws this card,
+  // and a rewrite of the same words would take away a reason he had selected.
+  if (reason.textContent !== (job.error_summary || "")) reason.textContent = job.error_summary || "";
   reason.className =
     `${summaryClass(job.status)} job-clamp text-xs${job.error_summary ? "" : " hidden"}`;
   renderProgress(job);
