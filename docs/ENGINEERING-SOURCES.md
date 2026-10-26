@@ -352,7 +352,7 @@ The engine serves the panel's routes and runs crawls in threads of one process, 
 
 Measured on a copy of his warehouse on 2026-10-25, while one thread replayed the 5,175 stored pages his resumed muqawil crawl re-reads. Parsed with BeautifulSoup's `html.parser`, a page cost 91 ms and 244,594 Python frames, `/api/health` answered in 5.5 s (9.4 s at most) against 0.04 s idle, and `/api/sources` in 26 s against 0.56 s. The same replay in a separate process left both at idle, so the cause is the shared lock, not the CPU or the disk. Parsed by `lxml.html` with XPath, a page cost 10 ms and 249 frames, and both routes answered at idle. Lowering the switch interval brought health to 0.07 s but spent the same CPU, so it was not taken.
 
-`lxml.html` shares one parser between threads and serialises them on its own lock, not on the interpreter's. Two crawl threads parse one at a time, and the routes, which do not parse, are not held.
+Each call builds its own `HTMLParser`, the condition lxml's FAQ names for parsing without the lock. The module's shared default parser also released the lock, but three crawl threads took turns on it, about 1× the throughput of one. With a parser each they run 2.2–2.3× one thread's throughput, and the routes are held by neither.
 
 **Decided** by the owner on 2026-10-25, over running each crawl in its own process. That remains the cure for a job whose work cannot leave Python.
 

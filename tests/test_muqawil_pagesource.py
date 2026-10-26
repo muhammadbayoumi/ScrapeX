@@ -495,6 +495,108 @@ def test_an_empty_body_is_a_parse_failure_and_not_a_page_without_contractors(bod
     assert read_ids("<html><body><p>Service Unavailable</p></body></html>") == ()
 
 
+_LINK = '<a href="/en/contractors/{0}/143">x</a>'
+
+
+def _card(number: int) -> str:
+    return f'<div class="section-card">{_LINK.format(number)}</div>'
+
+
+def _listing(*parts: str) -> str:
+    return "<html><body>" + "".join(parts) + "</body></html>"
+
+
+@pytest.mark.parametrize("stopper", [
+    '<span title="a\x00b">t</span>',
+    "<span>" * 300,
+    "<p>" + "x" * 10_500_000 + "</p>",
+    '<p title="' + "x" * 10_500_000 + '">t</p>',
+    "<!--" + "x" * 10_500_000 + "-->",
+], ids=["a NUL inside a tag", "nesting 300 deep", "a 10.5 MB text node",
+        "a 10.5 MB attribute", "a 10.5 MB comment"])
+def test_a_page_libxml2_would_stop_on_is_read_to_its_last_card(stopper):
+    """LIBXML2 STOPS WHERE HTML.PARSER READ ON, and lxml returns the tree it had. In
+    its default recover mode a NUL inside a tag ("Memory allocation failed"), nesting
+    past 255, or a text node, attribute or comment over 10 MB halts the parse, and
+    lxml raises nothing: every card after that point was simply gone. Found by the
+    review of #1819, each case cutting a three-card page to its first card.
+
+    `huge_tree` lifts the caps, and a NUL is read as U+FFFD as the HTML parsing spec
+    reads it, so each page here reads to its last card, as html.parser read it."""
+    assert read_ids(_listing(_card(1), stopper, _card(2), _card(3))) == ("1", "2", "3")
+
+
+def test_a_card_is_a_div_and_its_class_token_is_matched_whole():
+    """`div.section-card`, AS THE CSS SAID IT. A `section` carrying the class is not a
+    card. A tab or a line break separates class tokens as a space does, and
+    `big-section-card` is a different word, not a card with a prefix."""
+    html = _listing(f'<section class="section-card">{_LINK.format(9)}</section>',
+                    f'<div class="wide\tsection-card\nshadow">{_LINK.format(1)}</div>',
+                    f'<div class="big-section-card">{_LINK.format(2)}</div>')
+    assert read_ids(html) == ("1",)
+
+
+def test_a_card_s_id_is_its_first_profile_link_not_its_first_anchor():
+    """A CARD'S ANCHORS ARE NOT ALL PROFILE LINKS. An `<a name>` with no href and a link
+    elsewhere on the site come before the profile here, and the card is still `1`,
+    not a raise and not the first anchor's href."""
+    html = _listing('<div class="section-card"><a name="top">t</a>'
+                    f'<a href="/en/about">a</a>{_LINK.format(1)}</div>')
+    assert read_ids(html) == ("1",)
+
+
+def _city_card(boxes: str) -> FetchedPage:
+    return FetchedPage(url="https://muqawil.org/en/contractors?page=1",
+                       html=_listing(f'<div class="section-card">{_LINK.format(1)}'
+                                     f"{boxes}</div>"),
+                       kind=PageKind.LISTING)
+
+
+def test_the_city_icon_is_the_first_span_under_any_info_icon(source):
+    """`.info-icon span.icon-locaion`: a SPAN, under an `.info-icon` of ANY element,
+    and the FIRST such. An `<i>` carrying the class is not the icon, the `.info-icon`
+    here is a span and still counts, and a later icon's city is not this card's."""
+    page = _city_card(
+        '<div class="info-box"><div class="info-icon"><i class="icon-locaion"></i>'
+        '</div><div class="info-value">DAMMAM</div></div>'
+        '<div class="info-box"><span class="info-icon"><span class="icon-locaion">'
+        '</span></span><div class="info-value">RIYADH</div></div>'
+        '<div class="info-box"><div class="info-icon"><span class="icon-locaion">'
+        '</span></div><div class="info-value">JEDDAH</div></div>')
+    for city, belongs in (("RIYADH", True), ("DAMMAM", False), ("JEDDAH", False)):
+        assert source.belongs_to_slice(page, 0, city) is belongs, city
+
+
+def test_the_city_box_is_the_icon_s_nearest_info_box_of_any_element(source):
+    """`find_parent(class_="info-box")`: the NEAREST ancestor whose class holds the
+    TOKEN, whatever its element. `info-box-inner` is not the token, and the outer box's
+    own `.info-value` is not this icon's city."""
+    page = _city_card(
+        '<div class="info-box"><div class="info-value">OUTER</div>'
+        '<section class="info-box"><div class="info-box-inner"><div class="info-icon">'
+        '<span class="icon-locaion"></span></div></div>'
+        '<div class="info-value">RIYADH</div></section></div>')
+    assert source.belongs_to_slice(page, 0, "RIYADH") is True
+    assert source.belongs_to_slice(page, 0, "OUTER") is False
+
+
+def test_a_class_token_is_split_on_ascii_whitespace_for_the_card_and_the_box(source):
+    """ONE DEFINITION OF A CLASS TOKEN, `_class_is`, FOR EVERY CLASS THIS MODULE READS.
+    HTML splits a class attribute on ASCII whitespace, so a no-break space is part of
+    the token: `info-box\u00a0wide` is not an `info-box`, as `section-card\u00a0wide`
+    is not a card. The box was read with Python's `str.split()` until the review of
+    #1819, which splits on a no-break space, so the box answered one way and the card
+    another. BeautifulSoup split on both; no stored page carries one in a class."""
+    nbsp = "\u00a0"
+    assert read_ids(_listing(
+        f'<div class="section-card{nbsp}wide">{_LINK.format(1)}</div>')) == ()
+    page = _city_card(
+        f'<div class="info-box{nbsp}wide"><div class="info-icon">'
+        '<span class="icon-locaion"></span></div>'
+        '<div class="info-value">RIYADH</div></div>')
+    assert source.belongs_to_slice(page, 0, "RIYADH") is False
+
+
 def test_a_card_is_found_by_its_class_token_as_the_css_selector_found_it():
     """`div.section-card` IN CSS MATCHES A CLASS TOKEN, and the XPath that replaced it
     must too. A card that also carries `shadow` is still a card; `section-cards` is a

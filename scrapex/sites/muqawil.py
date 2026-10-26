@@ -94,12 +94,14 @@ def _class_is(name: str) -> str:
     return f'contains(concat(" ", normalize-space(@class), " "), " {name} ")'
 
 
-#: `div.section-card`, `.info-icon span.icon-locaion` and `.info-value`, the three CSS
-#: selectors this module read through BeautifulSoup, in the XPath lxml evaluates in C.
-#: The icon's `.info-icon` may be ANY ancestor, as CSS's descendant combinator allows,
-#: not only one inside the card.
+#: `div.section-card`, `.info-icon span.icon-locaion`, the icon's nearest `.info-box` and
+#: its `.info-value`: the selectors this module read through BeautifulSoup, in the XPath
+#: lxml evaluates in C, and every class test through `_class_is`, so a class token means
+#: one thing for all four. The icon's `.info-icon` may be ANY ancestor, as CSS's
+#: descendant combinator allows, not only one inside the card.
 _CARD = f"//div[{_class_is('section-card')}]"
 _CITY = f".//span[{_class_is(_CITY_ICON)}][ancestor::*[{_class_is('info-icon')}]]"
+_CITY_BOX = f"ancestor::*[{_class_is('info-box')}][1]"
 _CITY_VALUE = f".//*[{_class_is('info-value')}]"
 
 
@@ -205,10 +207,21 @@ def _cards(html: str) -> list:
     at 5.5 s and `/api/sources` at 26 s; with this parse, 0.04 s and 0.57 s, idle's own
     numbers. Same ids and same city on all 45,776 stored listing pages.
 
+    A PARSER PER CALL, WITH `huge_tree`, AND NUL READ AS U+FFFD, because libxml2 in its
+    default recover mode STOPS on what html.parser read through, and lxml hands back the
+    tree it had: every card after that point vanished without a raise. Measured on the
+    review of #1819: a NUL inside a tag, nesting 256 deep, and a 10 MB text node,
+    attribute or comment each cut a page to its first card. `huge_tree` lifts the depth
+    and size caps html.parser never had. The HTML parsing spec reads a NUL in a tag as
+    U+FFFD, and libxml2 reports it as "Memory allocation failed" and halts. A parser of
+    its own also gives each call its own lock, which is what lets three crawl threads
+    parse at once (ES-8).
+
     AN EMPTY BODY RAISES, where the old parser read it as a page with no cards. It is
     what a 304 hands `fetch`, and `_read_cell` records the raise as a parse failure.
     """
-    root = lxml.html.document_fromstring(html)
+    root = lxml.html.document_fromstring(html.replace("\x00", "\ufffd"),
+                                         parser=lxml.html.HTMLParser(huge_tree=True))
     return [card for card in root.xpath(_CARD) if _profile_link(card) is not None]
 
 
@@ -426,8 +439,7 @@ class MuqawilPageSource:
 
         # `is not None`, NEVER TRUTHINESS: an lxml element's truth is whether it has
         # children, which is not the question asked here, and lxml warns on it.
-        box = next((up for up in icon.iterancestors()
-                    if "info-box" in (up.get("class") or "").split()), None)
+        box = next(iter(icon.xpath(_CITY_BOX)), None)
         value = next(iter(box.xpath(_CITY_VALUE)), None) if box is not None else None
         return _city_of(value) == slice_of.strip().casefold()
 
