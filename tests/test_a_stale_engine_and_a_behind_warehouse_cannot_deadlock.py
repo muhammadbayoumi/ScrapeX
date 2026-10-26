@@ -87,7 +87,13 @@ def test_an_engine_older_than_the_disk_refuses_and_names_restart(tmp_path, strea
     assert f"v{before}," in said and f"v{before + 1} is now installed" in said, (
         f"the refusal does not name both versions: {said!r}")
     assert RESTART_UPGRADES[1:] in said, (
-        f"the refusal does not name the control, its screen and what it does: {said!r}")
+        f"the refusal does not carry the one remedy sentence: {said!r}")
+    # THE WORDS THEMSELVES, not only the constant: compared against itself, a
+    # constant reading #1634's old trap passed every test (the merge gate's M12).
+    # `test_panel_dom.py` ties these names to the panel's real labels.
+    for words in ("Restart engine", "ScrapeX Engine", "Engine screen"):
+        assert words in said, f"the refusal does not say {words!r}: {said!r}"
+    assert "Upgrade database" not in said, f"the refusal sends him back: {said!r}"
     for command in ("scrapex ", "python -m", "init-db"):
         assert command not in said, f"the refusal names {command!r}, a command line"
     assert _version(registry.engine.path) == before, "the refusal changed the database"
@@ -98,6 +104,7 @@ def test_an_engine_older_than_the_disk_refuses_and_names_restart(tmp_path, strea
     lag = client.get("/api/health").json()["schema_lag"]
     assert lag["pending"] == [stream.newest.name], lag
     assert lag["fix"] == RESTART_UPGRADES, lag
+    assert "Restart engine" in lag["fix"] and "Upgrade database" not in lag["fix"], lag
     assert "started before" in lag["message"], lag
 
 

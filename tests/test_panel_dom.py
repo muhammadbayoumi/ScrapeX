@@ -14197,6 +14197,19 @@ def test_the_schema_lag_banner_says_the_engines_fix_and_nothing_against_it(open_
     assert f"Fix: {RESTART_UPGRADES}." in said, said
     assert "before restarting" not in said and "back up first" not in said, said
 
+    # THE NAMES IT GIVES ARE THE PANEL'S OWN. The remedy says where to go and what
+    # to press; each name must be a label this panel draws, or the sentence sends
+    # him looking for something that is not there (the merge gate's M12).
+    labels = {
+        "Engine": page.text_content("#view-engines .view-heading h1"),
+        "ScrapeX Engine": page.text_content("#engine-detail-title"),
+        "Restart engine": page.text_content("#runtime-restart"),
+    }
+    for name, drawn in labels.items():
+        assert (drawn or "").strip() == name, f"the panel draws {drawn!r}, not {name!r}"
+        assert name in RESTART_UPGRADES, f"the remedy does not name {name!r}"
+    assert "Upgrade database" not in RESTART_UPGRADES, RESTART_UPGRADES
+
     older = open_panel(view="run", schema_lag={**lag, "fix": None})
     older.wait_for_selector("#schema-lag:not(.hidden)")
     assert "Fix: press Upgrade database on the Database page." in older.inner_text(
