@@ -1019,6 +1019,26 @@ samp,
   --fw-regular: var(--fw-regular-mono);
 }
 
+/* HEADINGS (#751), Supabase's: every h1-h6 outside a mono context draws the heading face
+   at 600 (apps/design-system/styles/globals.css@86c813ec:120-133), at typography.css's
+   per-level sizes (packages/config/typography.css@86c813ec:53-74), with Tailwind's paired
+   line-heights (the --lh-* tokens) and h1's tracking-tight (theme.css@v4.2.4:385). Supabase
+   puts the sizes in @layer base, under every utility; here a heading's own size rule wins
+   the same way, by coming later or being more specific. A mono heading inherits its
+   parent's weight (preflight's `inherit`; #752), so it is excluded here and sets
+   `font-weight: inherit` itself (scrapex/webui/static/pages/data-model.css).
+   tests/test_the_headings_draw_in_supabases_face.py measures every heading. */
+h1:not(.tech, .code), h2:not(.tech, .code), h3:not(.tech, .code),
+h4:not(.tech, .code), h5:not(.tech, .code), h6:not(.tech, .code) {
+  font-family: var(--font-heading);
+  font-weight: var(--fw-bold);
+}
+h1 { font-size: var(--fs-xl); line-height: var(--lh-2xl); letter-spacing: -0.025em; }
+h2 { font-size: var(--fs-lg); line-height: var(--lh-xl); }
+h3 { font-size: var(--fs); line-height: var(--lh); }
+h4, h5 { font-size: var(--fs-sm); line-height: var(--lh-sm); }
+h6 { font-size: var(--fs-xs); line-height: var(--lh-xs); }
+
 .page-header {
   display: flex;
   align-items: flex-end;
@@ -1882,7 +1902,6 @@ button::before,
   margin: 0;
   color: var(--text);
   font-size: var(--fs-lg);
-  font-weight: var(--fw-regular);
   letter-spacing: normal;
   text-transform: none;
   overflow-wrap: break-word;
