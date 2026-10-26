@@ -259,6 +259,43 @@ def test_the_command_restart_sends_is_the_one_that_passes(behind, monkeypatch):
     assert silent["ok"] is False and silent["action"] == "upgrade_database", silent
 
 
+def test_restarts_pass_waits_as_long_as_the_panel_did(behind):
+    """The panel asks the engine's `/api/health` with 2.5 s before Restart asks this
+    host, so an engine that answered the panel in 2 s must be found here too. A real
+    server that answers after 2.0 s: the 1.5 s look this used to take missed it, and
+    Restart and Upgrade database sent him to each other again (the gate's reviewer
+    measured 1.4 s found and 2.0 s missed)."""
+    import http.server
+    import json
+    import threading
+    import time
+
+    from scrapex import native
+
+    class Slow(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            time.sleep(2.0)
+            body = json.dumps({"app": "scrapex"}).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Slow)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        check = native.startup_check(server.server_address[1])
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    assert check["ok"] is True, f"an engine answering in 2.0 s was not found: {check}"
+
+
 def test_start_with_no_engine_still_sends_him_to_upgrade_database(behind, monkeypatch):
     """His ruling of 2026-10-25: Restart only. With no engine running, Upgrade database
     reaches the native host, which names a failure in words, so Start stops and offers

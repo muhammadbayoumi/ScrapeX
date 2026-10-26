@@ -290,8 +290,11 @@ def startup_check(port: int | None = DEFAULT_ENGINE_PORT) -> dict:
     # which says in words why an upgrade failed, and Start does not race it (#1634).
     # Start never looks: it has just found no engine on its port, and one that
     # answered late here would let it spawn a second engine over the first.
+    # AT LEAST AS PATIENT AS THE PANEL, which asked `/api/health` with 2.5 s
+    # (`engineHealth` in the extension's startup.js) a moment before this: a 1.5 s
+    # look missed an engine the panel had just seen, and the deadlock came back.
     if all(state["status"] == BEHIND for _, state in blocked) \
-            and port is not None and _engine_answering(port) is not None:
+            and port is not None and _engine_answering(port, timeout=5.0) is not None:
         return {"ok": True, "databases": states or {}}
     details = "; ".join(
         f"{name}: {state['status']}. {state['action']}"
