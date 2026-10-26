@@ -396,3 +396,56 @@ def test_a_scheduled_run_after_a_failure_that_left_pages_starts_fresh(
     [ref] = scheduler.fire_due(conn)
 
     assert "partial_source" not in (get_job(conn, ref)["checkpoint"] or {})
+
+
+# ---- one rule for "which job does Continue go on from" (stage 5, must fix D) ---------
+
+def test_the_continue_rule_names_the_stopped_job_and_no_older_one(conn, journal, monkeypatch):
+    """`site_stop_job` is what the scheduler and `/api/sources` both ask. It names the
+    job its site stopped; after a later clean run that used the pages, it names none."""
+    from scrapex.jobs import site_stop_job
+
+    _with_connector(monkeypatch, _BlockedConnector())
+    stopped = create_job(conn, ["GPP_ENERGY"])
+    run_job_once(conn, stopped, {"GPP_ENERGY": make_entry()})
+    assert site_stop_job(conn, "GPP_ENERGY") == stopped
+
+    _with_connector(monkeypatch, _PagedConnector())
+    run_job_once(conn, create_job(conn, ["GPP_ENERGY"], checkpoint={
+        "completed_source_keys": [], "errors": [], "succeeded": 0,
+        "partial_source": "GPP_ENERGY"}), {"GPP_ENERGY": make_entry()})
+    assert site_stop_job(conn, "GPP_ENERGY") is None, (
+        "an old row would keep offering Continue after its pages were used")
+
+
+def test_api_sources_reports_the_job_each_source_continues_from(tmp_path, journal,
+                                                                monkeypatch):
+    """The panel reads it here, so the row's Continue and the engine agree by
+    construction: the stopped job while its pages are kept, None once they are gone."""
+    import shutil
+
+    from fastapi.testclient import TestClient
+
+    from scrapex import db as dbmod
+    from scrapex.config import MANIFEST_FILE
+    from scrapex.webui.app import create_app
+
+    path = tmp_path / "harvest.db"
+    connection = dbmod.connect(path)
+    dbmod.migrate(connection)
+    _with_connector(monkeypatch, _BlockedConnector())
+    stopped = create_job(connection, ["GPP_ENERGY"])
+    run_job_once(connection, stopped, {"GPP_ENERGY": make_entry()})
+    connection.close()
+    manifest = tmp_path / "sources.yaml"
+    shutil.copy(MANIFEST_FILE, manifest)
+    client = TestClient(create_app(path, manifest_path=manifest))
+
+    def row():
+        answer = client.get("/api/sources")
+        assert answer.status_code == 200, answer.text
+        return next(s for s in answer.json()["sources"] if s["source_key"] == "GPP_ENERGY")
+
+    assert (row()["continues_from_job"], row()["kept_pages"]) == (stopped, 2)
+    localinbox.clear(journal, "GPP_ENERGY")
+    assert row()["continues_from_job"] is None

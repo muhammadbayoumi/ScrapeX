@@ -422,7 +422,7 @@ def fire_due(conn: sqlite3.Connection, now: datetime | None = None,
         key = schedule["source_key"]
         checkpoint = ({"completed_source_keys": [], "errors": [], "succeeded": 0,
                        "partial_source": key}
-                      if jobs.site_stop_to_continue(conn, key) else None)
+                      if jobs.site_stop_job(conn, key) else None)
         created.append(create_job(conn, [key], schedule["run_mode"],
                                   checkpoint=checkpoint))
     conn.commit()

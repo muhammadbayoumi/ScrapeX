@@ -580,7 +580,7 @@ class _BlockedConnector(_PagedConnector):
 def test_a_block_keeps_the_pages_and_says_the_site_stopped_it(conn, journal, monkeypatch):
     """His ruling on #1448: a block is a pause, not a failure. The pages fetched
     before it stay for Resume, and the log says the SITE stopped this source, how
-    many pages are kept, and that Resume continues from them."""
+    many pages are kept, and that Continue goes on from them."""
     _with_connector(monkeypatch, _BlockedConnector())
     ref = create_job(conn, ["GPP_ENERGY"])
 
@@ -592,7 +592,9 @@ def test_a_block_keeps_the_pages_and_says_the_site_stopped_it(conn, journal, mon
     blocked = [e for e in logged if "blocked" in e["message"]]
     assert blocked, said
     assert "2 fetched page(s) kept" in blocked[0]["message"], said
-    assert "Resume" in blocked[0]["message"], said
+    # ONE VERB FOR "go on from the kept pages", his ruling on #1772 (2026-10-26):
+    # Continue, because Resume is the word for releasing a held job.
+    assert "Continue" in blocked[0]["message"], said
     assert "5 consecutive refusals" in blocked[0]["message"], said
     assert blocked[0]["level"] == "warning", "the site stopping us is not our error"
     assert not any(m.startswith("failed:") for m in said), said

@@ -52,6 +52,7 @@ from .. import (
     taxonomy,
 )
 from .. import db as dbmod
+from .. import jobs as jobs_mod
 from .. import version as engine_version
 from ..capture import capture_source, crawl_settings
 from ..catalog_models import SiteCreate
@@ -2203,6 +2204,13 @@ def create_app(
             # what it ships with -- the answer the scheduler acts on. The dataset and
             # directory cards below keep their own: no schedule fires a directory yet.
             active = _active_by_source(conn)
+            # WHICH JOB EACH SOURCE WOULD CONTINUE FROM, by the engine's one rule
+            # (`jobs.site_stop_job`, #1772): the panel offers Continue on that job's row
+            # and on no older one. Asked only where pages are kept, so a warehouse with
+            # no interrupted crawl pays nothing for it.
+            continues_from = {
+                entry.source_key: jobs_mod.site_stop_job(conn, entry.source_key)
+                for entry in app.state.manifest.sources}
         finally:
             conn.close()
         out = []
@@ -2243,6 +2251,9 @@ def create_app(
                 # exactly these; a fresh run deletes them (capture.py).
                 "kept_pages": kept["pages"],
                 "kept_at": kept["stopped_at"],
+                # The job its site stopped, whose pages Continue goes on from; None when
+                # the newest run was not a stop by the site or nothing is kept (#1772).
+                "continues_from_job": continues_from[entry.source_key],
             })
 
         # A GENERIC DATASET IS A SOURCE THE OWNER CAN OPEN, and until now it was

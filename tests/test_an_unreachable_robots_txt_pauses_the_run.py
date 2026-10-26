@@ -669,7 +669,7 @@ def test_a_price_source_pauses_and_says_why_not_that_it_was_blocked(
 def test_a_price_source_paused_after_a_page_keeps_it_for_resume(memory, journal,
                                                                  monkeypatch):
     """The journal is untouched by the new cause: the page fetched before the pause
-    stays, and the line says Resume continues from it."""
+    stays, and the line says Continue goes on from it."""
     site = _Site(lambda request: httpx.Response(
         503 if request.url.host == "down.test" else 404))
     _price_wire(monkeypatch, site, connector_for=_TwoHostConnector)

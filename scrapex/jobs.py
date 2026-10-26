@@ -429,27 +429,29 @@ def _warn_if_kept_pages_are_stale(conn: sqlite3.Connection, job_id: int,
                level=LogLevel.WARNING, source_key=source_key)
 
 
-def site_stop_to_continue(conn: sqlite3.Connection, source_key: str) -> bool:
-    """Did this source's last run end with its SITE stopping it, pages still kept?
+def site_stop_job(conn: sqlite3.Connection, source_key: str) -> str | None:
+    """The job a source would continue from, or None: THE ONE RULE (#1772, #1449).
 
-    What the scheduler asks before a firing (#1449, his ruling 2026-10-25): such a
-    source continues from its kept pages instead of clearing them. Read from the newest
-    finished crawl job that names the source, so a later clean run, cancel or failure
-    answers no, and from the journal, so pages already ingested or cleared answer no.
+    A source continues from its kept pages when its newest finished crawl job ended with
+    its SITE stopping it and the pages are still on disk. The scheduler asks this before a
+    firing (his ruling 2026-10-25), and `/api/sources` reports it, so the panel offers
+    Continue on exactly that job and no older one (stage 5, must fix D). Read from the
+    newest finished crawl job naming the source, so a later clean run, cancel or failure
+    answers None, and from the journal, so pages already ingested or cleared answer None.
     """
     from . import localinbox
 
     if not localinbox.journal_state(localinbox.JOURNAL_DIR, source_key)["pages"]:
-        return False
-    rows = conn.execute(
-        "SELECT counters_json FROM crawl_job WHERE job_kind = 'crawl' "
+        return None
+    row = conn.execute(
+        "SELECT job_ref, counters_json FROM crawl_job WHERE job_kind = 'crawl' "
         "AND finished_at IS NOT NULL AND EXISTS ("
         "  SELECT 1 FROM json_each(crawl_job.source_keys) WHERE value = ?) "
-        "ORDER BY job_id DESC LIMIT 1", (source_key,)).fetchall()
-    if not rows:
-        return False
-    slot = ((json.loads(rows[0][0] or "{}").get(SOURCES_KEY) or {}).get(source_key) or {})
-    return slot.get("state") == "stopped_by_site"
+        "ORDER BY job_id DESC LIMIT 1", (source_key,)).fetchone()
+    if row is None:
+        return None
+    slot = ((json.loads(row[1] or "{}").get(SOURCES_KEY) or {}).get(source_key) or {})
+    return row[0] if slot.get("state") == "stopped_by_site" else None
 
 
 def _as_job(row: sqlite3.Row) -> dict:
@@ -935,8 +937,8 @@ def _run_source(run: _SourceRun, conn: sqlite3.Connection, source_key: str) -> b
                             stopped_because=stopped_because(blocked))
         append_log(conn, run.job_id,
                    f"{stopped_because(blocked)} — "
-                   + (f"{kept} fetched page(s) kept; Resume on this source "
-                      "continues from them once the site lets us back in"
+                   + (f"{kept} fetched page(s) kept; Continue on this source "
+                      "goes on from them once the site lets us back in"
                       if kept else
                       "no page was kept, so this source restarts from the top")
                    + ". Paused for this source only; the job carries on with "
