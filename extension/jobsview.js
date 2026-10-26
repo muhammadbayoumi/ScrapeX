@@ -215,6 +215,88 @@ export function progressFraction(job) {
  * `fetch` as `done`/`total`, in a second field: an assumed payload is the same defect as
  * an assumed file path.
  */
+
+// ---- MOCK-R2 (#1772): a site's stop, and the wait before a retry -------------------
+
+/** "2m 30s", Studio's RetryCountdown units (RetryCountdown.tsx@86c813ec:75-95). */
+export function countdownWords(ms) {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  return [[Math.floor(total / 3600), "h"], [Math.floor(total % 3600 / 60), "m"],
+    [total % 60, "s"]].filter(([n]) => n > 0).map(([n, u]) => `${n}${u}`).join(" ");
+}
+
+/** The sources a site stopped in this job, from the engine's own slots. */
+export function stoppedSites(job) {
+  const slots = job?.fetch?.sources || job?.counters?.sources || {};
+  return Object.entries(slots)
+    .filter(([, slot]) => slot && slot.state === "stopped_by_site")
+    .map(([key, slot]) => ({key, kept: Number(slot.kept_pages || 0),
+                            why: String(slot.stopped_because || "")}));
+}
+
+const pages = (n) => `${n.toLocaleString()} page${n === 1 ? "" : "s"}`;
+
+/** One stopped site's sentence. The cause is the engine's own (`stopped_because`);
+ *  "continues" is present tense only on the job Continue goes on from (`live`), and the
+ *  scheduled clause only where a schedule will fire (`next`, formatted by the caller). */
+export function stoppedLine(stop, {site, live, next}) {
+  const cause = `${site} stopped the crawl: ${stop.why}.`;
+  if (!stop.kept) return `${cause} No page was kept; run it to start over.`;
+  const kept = `${pages(stop.kept)} kept`;
+  if (!live) return `${cause} ${pages(stop.kept)} ${stop.kept === 1 ? "was" : "were"} kept then.`;
+  const them = stop.kept === 1 ? "it" : "them";
+  return `${cause} ${kept[0].toUpperCase()}${kept.slice(1)}; ` + (next
+    ? `its next scheduled run, ${next}, continues from ${them}, or press Continue.`
+    : `it continues from ${them} when you press Continue.`);
+}
+
+/** Which stopped sites offer Continue on THIS row: the engine names the job each source
+ *  continues from (`continues_from_job`, `/api/sources`), pages are still kept, and no
+ *  run of the source is live. */
+export function continuableSites(job, sources, liveKeys = new Set()) {
+  return stoppedSites(job).filter((stop) => {
+    const source = (sources || []).find((one) => one?.source_key === stop.key);
+    return source && source.continues_from_job === job.job_ref
+      && Number(source.kept_pages || 0) > 0 && !liveKeys.has(stop.key);
+  }).map((stop) => stop.key);
+}
+
+const WHY_WAITING = {
+  refused: (b) => `the site refused (${b.http_status})`,
+  told_to_wait: () => "the site asked us to wait",
+  challenged: () => "the site showed a bot check",
+};
+
+/** A running job waiting out a refusal: the reason (static) and the time (a timer). */
+export function backoffParts(job, now = Date.now()) {
+  const b = job?.backoff;
+  if (!b || job.status !== "running") return null;
+  if (b.reason === "slowed") {
+    return {why: `the site slowed — reading ${b.in_flight} page${b.in_flight === 1 ? "" : "s"} `
+      + `at a time from it, down from ${b.from_in_flight}`, when: ""};
+  }
+  const why = (WHY_WAITING[b.reason] || WHY_WAITING.refused)(b);
+  const left = Date.parse(b.next_attempt_at) - now;
+  const since = Math.floor((now - Date.parse(b.refused_since)) / 60000);
+  const clock = since >= 60 ? " · refused for over an hour — this is its last try"
+    : since >= 10 ? ` · refused for ${since} min; stops at 60 min, keeping its pages` : "";
+  return {why: why + clock,
+          when: left > 999 ? `next retry in ${countdownWords(left)}` : "retrying soon…"};
+}
+
+/** The look of a running job that is waiting out a refusal (not of a slowed one). */
+export function backoffLook(job) {
+  if (job?.status !== "running" || !job?.backoff || job.backoff.reason === "slowed") return null;
+  return {word: "Waiting for the site", glyph: "material-schedule", tone: "warning"};
+}
+
+/** The mini-player's figure while waiting. */
+export function backoffShort(job, now = Date.now()) {
+  if (!backoffLook(job)) return "";
+  const left = Date.parse(job.backoff.next_attempt_at) - now;
+  return left > 999 ? `retry in ${countdownWords(left)}` : "retrying soon";
+}
+
 export function jobWaitingLine(job) {
   const status = String(job?.status || "");
   if (isSettled(job) || ownsAWorker(job) && status === "running") return "";
@@ -288,7 +370,7 @@ const STATUS_LOOK = {
   partially_completed: ["material-warning", "warning"],
   // #1772: the site stopped it and its pages are kept for Continue. The pause glyph says
   // "it waits to go on", amber says it needs him, as `partially_completed` does.
-  stopped_by_site: ["material-pause-circle", "warning"],
+  stopped_by_site: ["material-pause-circle", "foreground"],   // MOCK-R2: Studio's paused project
   completed_with_errors: ["material-warning", "warning"],
   completed: ["material-check-circle", "brand"],
   cancelled: ["material-block", "default"],
