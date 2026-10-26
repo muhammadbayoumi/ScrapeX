@@ -1293,6 +1293,52 @@ def test_a_translucent_colour_is_scored_as_it_is_seen(top, seen):
     assert _channels(_over(top, "rgb(255, 255, 255)")) == pytest.approx([seen / 255] * 3)
 
 
+def test_a_fill_drawn_over_a_fill_is_scored_as_both_layers():
+    """A `code` chip inside a subtle note is two translucent layers; _over returns an opaque
+    colour, so it chains, and the result is what the eye sees."""
+    values = {"bg": "rgb(255, 255, 255)", "surface": "rgb(255, 255, 255)", "surfaceRaised": "rgb(255, 255, 255)",
+              "surfaceSubtle": "rgb(0 0 0 / 0.5)", "chip": "rgb(0 0 0 / 0.5)"}
+    seen = dict(_seen(values, "chip"))
+    assert _channels(seen["chip over surfaceSubtle over surface"]) == pytest.approx([63.75 / 255] * 3)
+    assert _channels(seen["chip over surface"]) == pytest.approx([127.5 / 255] * 3)
+
+
+def test_a_translucent_fill_is_held_to_the_backdrop_it_reads_worst_on():
+    """Black text on a dark translucent fill passes over a white page and fails over a dark
+    surface: the guard must report the dark one, not the first it tries."""
+    values = {"bg": "rgb(255, 255, 255)", "surface": "rgb(40, 40, 40)", "surfaceRaised": "rgb(255, 255, 255)",
+              "surfaceSubtle": "rgb(0 0 0 / 0.2)", "text": "rgb(0, 0, 0)"}
+    ratio, where = _lowest_ratio(values, "text", "surfaceSubtle")
+    assert where == "surfaceSubtle over surface" and ratio < 4.5, (ratio, where)
+    assert _contrast(values["text"], _over(values["surfaceSubtle"], values["bg"])) > 4.5
+
+
+def test_a_translucent_fill_with_no_known_backdrop_fails_loudly():
+    with pytest.raises(AssertionError, match="nothing says what it is drawn on"):
+        _seen({"accent": "rgb(0 0 0 / 0.5)"}, "accent")
+
+
+def test_a_pair_is_scored_only_where_it_is_drawn():
+    """Green text on a translucent hover fails over a red card it is never drawn on: narrowed
+    to the backdrops it is drawn on, it passes, and a narrowing that widens is refused."""
+    values = {"bg": "rgb(255, 255, 255)", "surface": "rgb(255, 255, 255)", "surfaceRaised": "rgb(255, 255, 255)",
+              "surfaceSubtle": "rgb(250, 250, 250)", "redWeak": "rgb(200, 60, 60)",
+              "controlHover": "rgb(0 0 0 / 0.05)", "accentInk": "rgb(9, 124, 79)"}
+    assert _lowest_ratio(values, "accentInk", "controlHover")[0] < 4.5
+    ratio, where = _lowest_ratio(values, "accentInk", "controlHover", ("bg", "surface"))
+    assert ratio >= 4.5 and "redWeak" not in where, (ratio, where)
+    with pytest.raises(AssertionError, match="is not a narrowing"):
+        _seen(values, "controlHover", ("bg", "accentWeak"))
+
+
+def test_a_translucent_backdrop_fails_loudly():
+    """A backdrop is what a fill is scored over; a translucent one would make every score
+    depend on whatever is under the panel."""
+    with pytest.raises(AssertionError, match="surface is a backdrop and is translucent"):
+        _assert_legible({"bg": "rgb(255, 255, 255)", "surface": "rgb(255 255 255 / 0.9)",
+                         "surfaceRaised": "rgb(255, 255, 255)"}, "synthetic")
+
+
 def _registered_palette_ids() -> list[str]:
     """The registry's own ids, read from the source rather than copied.
 
@@ -1360,6 +1406,7 @@ _THEME_COLOURS_JS = """() => {
       accentContrast: read("--accent-contrast"),
       accentWeak: read("--accent-weak"),
       chip: read("--chip"),
+      controlHover: read("--control-hover"),
       surfaceSubtle: read("--surface-subtle"),
       surfaceRaised: read("--surface-raised"),
       buttonBg: read("--button-bg"),
@@ -1424,6 +1471,16 @@ _TEXT_PAIRS = (
     ("text", "surfaceSubtle"),
     ("text", "surfaceRaised"),
     ("accentInk", "accentWeak"),
+    # #634: secondary text on a subtle fill (.planned-note, #finance-currencies,
+    # .appearance-page-card, .engine-scope-note), and text on a hovered control: a ghost
+    # button's words, and the accent of the rail item and the engine's emphasis action, the
+    # only rules that write --accent-ink on it (extension/app.css:988, :1394). A third
+    # element narrows a pair to the backdrops it is drawn on: the rail sits on --bg or
+    # --surface, and so does every .engine-maintenance-actions row, so the accent is never
+    # on a subtle fill or on the warning card's --red-weak, which the hover fill reaches.
+    ("muted", "surfaceSubtle"),
+    ("text", "controlHover"),
+    ("accentInk", "controlHover", ("bg", "surface")),
 )
 
 #: Non-text pairs and their own floors, which are lower on purpose: a border and a
@@ -1451,6 +1508,11 @@ _SHAPE_PAIRS = (
     # --line is the boundary of most panel borders and a palette may set it (#723).
     # Its value is Supabase's --border, 1.214 light / 1.123 dark, pinned the same way.
     ("line", "surface", 1.1),
+    # #634: and on the page and the raised surfaces (menus, popovers), where an alpha
+    # --line draws differently from the opaque value it replaces. Supabase's --border on
+    # its --popover is 1.088 dark, so that pair is pinned under its own measurement.
+    ("line", "bg", 1.1),
+    ("line", "surfaceRaised", 1.08),
     # The data-model diagram's group colours (scrapex/webui/static/pages/data-model.js),
     # this product's own color-mix() of palette tokens. Each marks a group whose name
     # is also written beside it, as a dot on --bg and a bar on a 10% tint of itself
@@ -1468,23 +1530,54 @@ _SHAPE_PAIRS = (
 )
 
 
-def _assert_legible(values: dict, label: str) -> None:
-    def ratio(foreground: str, background: str) -> float:
-        # A translucent background has no contrast until something is under it, and
-        # this reader does not know what is.
-        assert _alpha(values[background]) == 1, (
-            f"{label}: {background} is translucent ({values[background]}), so "
-            f"{foreground} on it cannot be scored")
-        return _contrast(_over(values[foreground], values[background]), values[background])
+#: The surfaces nothing is drawn under. Each must be opaque: it is what a translucent
+#: fill is scored over.
+_BACKDROPS = ("bg", "surface", "surfaceRaised")
 
-    for foreground, background in _TEXT_PAIRS:
-        assert ratio(foreground, background) >= 4.5, (
-            f"{label}: {foreground} on {background} is not WCAG AA "
-            f"({ratio(foreground, background):.3f})")
+#: Where each fill that may be translucent is drawn (#634: Supabase's --muted, --accent and
+#: --border are alpha values, and here they are --surface-subtle, --chip and --line, with
+#: --control-hover reading --chip). Measured in the panel: every rule that paints the fill,
+#: each element it matches walked up to the first background under it. So a `code` chip sits
+#: in a subtle note, and a ghost button hovers on the setup warning card's --red-weak. A fill
+#: is scored over every one of these, a translucent one in turn over its own, and the lowest
+#: ratio is the one that counts.
+_SITS_ON = {
+    "surfaceSubtle": ("bg", "surface", "surfaceRaised"),
+    "chip": ("bg", "surface", "surfaceRaised", "surfaceSubtle"),
+    "controlHover": ("bg", "surface", "surfaceRaised", "surfaceSubtle", "redWeak"),
+}
+
+
+def _seen(values: dict, name: str, over: tuple = ()) -> list[tuple[str, str]]:
+    """(where, the opaque colour seen) for a background, over every place it is drawn.
+
+    An opaque one is itself. A translucent one is composited over each backdrop _SITS_ON
+    names for it, or over `over` where a pair is drawn on only some of them; one with no
+    entry has no known backdrop and cannot be scored, which is a failure, not a pass."""
+    assert set(over) <= set(_SITS_ON.get(name, ())), f"{over} is not a narrowing of where {name} is drawn"
+    if _alpha(values[name]) == 1:
+        return [(name, values[name])]
+    assert name in _SITS_ON, f"{name} is translucent ({values[name]}) and nothing says what it is drawn on"
+    return [(f"{name} over {where}", _over(values[name], colour))
+            for backdrop in over or _SITS_ON[name] for where, colour in _seen(values, backdrop)]
+
+
+def _lowest_ratio(values: dict, foreground: str, background: str, over: tuple = ()) -> tuple[float, str]:
+    """The lowest contrast of `foreground` on `background` over every place it is drawn."""
+    return min((_contrast(_over(values[foreground], colour), colour), where)
+               for where, colour in _seen(values, background, over))
+
+
+def _assert_legible(values: dict, label: str) -> None:
+    for backdrop in _BACKDROPS:
+        assert _alpha(values[backdrop]) == 1, (
+            f"{label}: {backdrop} is a backdrop and is translucent ({values[backdrop]})")
+    for foreground, background, *over in _TEXT_PAIRS:
+        ratio, where = _lowest_ratio(values, foreground, background, *over)
+        assert ratio >= 4.5, f"{label}: {foreground} on {where} is not WCAG AA ({ratio:.3f})"
     for foreground, background, floor in _SHAPE_PAIRS:
-        assert ratio(foreground, background) >= floor, (
-            f"{label}: {foreground} on {background} is under {floor} "
-            f"({ratio(foreground, background):.3f})")
+        ratio, where = _lowest_ratio(values, foreground, background)
+        assert ratio >= floor, f"{label}: {foreground} on {where} is under {floor} ({ratio:.3f})"
 
 
 @pytest.mark.parametrize("palette", _registered_palette_ids())
@@ -1498,6 +1591,63 @@ def test_every_manual_theme_keeps_text_controls_and_focus_legible(
         });
     }""", [palette, scheme])
     _assert_legible(page.evaluate(_THEME_COLOURS_JS), f"{palette} {scheme}")
+
+
+#: Every rule that paints a fill _SITS_ON maps, with its state pseudo-classes removed so a
+#: hover rule finds the elements it hovers; each element walked up to the first background
+#: under it. A hidden element still computes its ancestors' backgrounds.
+_FILLS_DRAWN_JS = r"""() => {
+    const fills = {"var(--surface-subtle)": "surfaceSubtle", "var(--chip)": "chip",
+                   "var(--control-hover)": "controlHover"};
+    const drawn = [];
+    // The colour the rule itself writes on the fill, resolved: null where it inherits one.
+    const ink = document.body.appendChild(document.createElement("i"));
+    const visit = (rules) => { for (const rule of rules) {
+      if (!rule.selectorText) { if (rule.cssRules) visit(rule.cssRules); continue; }
+      const fill = fills[(rule.style.getPropertyValue("background")
+                          || rule.style.getPropertyValue("background-color")).trim()];
+      if (!fill) continue;
+      ink.style.color = rule.style.getPropertyValue("color");
+      const writes = ink.style.color ? getComputedStyle(ink).color : null;
+      const base = rule.selectorText.replace(/:(hover|focus-visible|focus-within|focus|active)(?![\w-])/g, "");
+      for (const el of document.querySelectorAll(base)) {
+        let at = el.parentElement, under = "rgba(0, 0, 0, 0)";
+        while (at && (under === "rgba(0, 0, 0, 0)" || under === "transparent")) {
+          under = getComputedStyle(at).backgroundColor; at = at.parentElement; }
+        drawn.push({fill, under, writes, selector: rule.selectorText});
+      } } };
+    for (const sheet of document.styleSheets) visit(sheet.cssRules);
+    ink.remove();
+    return drawn;
+}"""
+
+
+@pytest.mark.parametrize("palette", _registered_palette_ids())
+@pytest.mark.parametrize("scheme", ["light", "dark"])
+def test_every_translucent_fill_is_mapped_to_what_it_is_drawn_on(open_panel, palette, scheme):
+    """_SITS_ON is a measurement, and this re-takes it (#634). A fill drawn on a background
+    the map does not list is scored over the wrong ones, and passes on a colour no one sees."""
+    page = open_panel()
+    page.evaluate("""([palette, scheme]) => window.ScrapeXAppearance.set(
+        {mode: "manual", scheme, palette, deviceColors: false})""", [palette, scheme])
+    values = page.evaluate(_THEME_COLOURS_JS)
+    named: dict[str, set] = {}
+    for name, colour in values.items():
+        named.setdefault(colour, set()).add(name)
+    drawn = page.evaluate(_FILLS_DRAWN_JS)
+    assert {one["fill"] for one in drawn} == set(_SITS_ON), "a mapped fill was found drawn nowhere"
+    unmapped = sorted({(one["fill"], one["under"], one["selector"]) for one in drawn
+                       if not named.get(one["under"], set()) & set(_SITS_ON[one["fill"]])})
+    assert not unmapped, f"{palette} {scheme}: drawn on a background _SITS_ON does not list: {unmapped}"
+    # A narrowed pair holds only where a rule writes its colour on the fill.
+    for foreground, fill, *over in _TEXT_PAIRS:
+        if not over:
+            continue
+        writing = [one for one in drawn if one["fill"] == fill and one["writes"] == values[foreground]]
+        assert writing, f"no rule writes {foreground} on {fill}, so its narrowing is measured on nothing"
+        astray = sorted({(one["under"], one["selector"]) for one in writing
+                         if not named.get(one["under"], set()) & set(over[0])})
+        assert not astray, f"{palette} {scheme}: {foreground} on {fill} is drawn where it is not scored: {astray}"
 
 
 def test_vertical_tab_navigation_moves_the_indicator_and_the_content(open_panel):
