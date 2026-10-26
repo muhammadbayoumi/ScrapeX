@@ -140,6 +140,14 @@ export function jobLabel(job, sources = []) {
   return `${kind} · ${sourceTitle(lead, sources)}${more ? ` ${more}` : ""}`;
 }
 
+/** "Listing crawl · muqawil.org: failed" -- what a screen reader hears when a job's
+ *  status changes. ONE SENTENCE FOR ONE EVENT: the Jobs page says it for a row that
+ *  changed, and Activity for the job it drew ending (#1074), and neither view hears the
+ *  other while it is hidden, so both must say the same words. */
+export function statusChangeLine(job, sources = []) {
+  return `${jobLabel(job, sources)}: ${statusWords(job?.status)}`;
+}
+
 /**
  * What the job has done, in the unit it actually measures.
  *

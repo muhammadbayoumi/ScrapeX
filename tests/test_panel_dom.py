@@ -3230,13 +3230,14 @@ def test_a_job_that_ends_within_a_poll_of_the_press_still_shows_how_it_ended(ope
     _press_update_as_a_poll_leaves(page)
     try:
         page.wait_for_function(
-            "() => document.getElementById('act-state').textContent.includes('failed')",
+            "() => document.getElementById('act-state').textContent.includes('Failed')",
             timeout=8_000)
     except PlaywrightTimeout:
         pass
     where = page.evaluate(_WHERE_ACTIVITY_IS)
 
-    assert where["shown"] and "failed" in where["said"], (
+    # THE JOBS PAGE'S WORD: an ended job reads as the Jobs row reads it (#1074).
+    assert where["shown"] and "Failed" in where["said"], (
         f"Activity does not say how a job that ended within a poll of the press ended "
         f"(mini-player shown: {page.is_visible('#miniplayer')}): {where}")
 
@@ -3261,7 +3262,7 @@ def test_a_job_that_ended_before_run_asked_still_shows_how_it_ended(open_panel, 
     assert where["shown"], (
         f"Run shows nothing for a job {action!r} started that already ended: {where}")
     assert where["inView"], f"the ended job was drawn off screen: {where}"
-    assert "failed" in where["said"], (
+    assert "Failed" in where["said"], (
         f"Activity does not say how the job ended: {where['said']!r}")
 
 

@@ -1281,6 +1281,14 @@
     100% { transform: translateX(320%); }
   }
   .act-progress { margin: var(--sp-2) 0; }
+  /* An ended job's reason sits where the bar would, with the bar's own spacing. */
+  #act-error { margin: var(--sp-2) 0; }
+  /* The ended job's identity and time, spaced as the Jobs row spaces them (row-gap sp-1). */
+  #act-source, #act-when { margin: var(--sp-1) 0 0; }
+  /* His choice D, as on Jobs and Schedules (#1074, 2026-10-25): the domain and the keys
+     wrap at the <wbr> sourceIdentity puts after each dot. */
+  #act-source .source-identity-domain,
+  #act-source .source-identity-key { white-space: normal; overflow-wrap: break-word; }
   #act-queue.note { margin: var(--sp-2) 0; padding: var(--sp-2) var(--sp-3);
                     border-inline-start: 3px solid var(--accent); background: var(--chip);
                     border-radius: var(--radius); line-height: 1.5; }
