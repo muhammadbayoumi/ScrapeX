@@ -141,7 +141,7 @@
   --accent: #3fcf8e;          /* brand-default light   PUBLISHED */
   --accent-hover: #65d8a4;    /* brand-default/80 flat derived */
   --accent-active: #8ee8bd;   /* brand-400/80 flat     derived */
-  --accent-ink: #097c4f;      /* brand-600 light       PUBLISHED */
+  --accent-ink: var(--brand-600);
   /* THEIRS, RESOLVED -- and this comment called it a departure for nine days.
      Their --primary-foreground is
      oklch(min(--surface,--foreground-lightness) calc(--chroma*0.45) --hue); with
@@ -153,7 +153,7 @@
      green is 1.99:1 on white, so anything light on this fill fails AA outright.
      Supabase arrives at the same near-black by the same logic. */
   --accent-contrast: #030303;
-  --accent-weak: #d3f8e4;     /* brand-200 light       PUBLISHED */
+  --accent-weak: var(--brand-200);
   /* R-85: THEIRS EXACTLY, AND THIS ONE COST NOTHING.
      oklch(0.68 0.14 75) = #ca8a10, their --warning.
      THE DEPARTURE HERE WAS NEVER REALLY A DEPARTURE FROM THEM. It was justified
@@ -169,11 +169,11 @@
      because matching their VALUE without their PAIRING is what made the old
      departure look necessary. */
   --amber-ink: #080503;
-  --amber-weak: #fff4d5;      /* warning-300 light     PUBLISHED */
+  --amber-weak: var(--warning-300);
   /* A `warning` Button's fill and its hover (Button.tsx@86c813ec:85-100): warning-300
      then warning-400 in light, warning-400 then warning/50 in dark. */
   --warning-button: var(--amber-weak);
-  --warning-button-hover: #ffe3a2; /* warning-400 light   PUBLISHED */
+  --warning-button-hover: var(--warning-400);
   /* A WARNING GLYPH'S COLOUR, NOT A TEXT COLOUR (#1542). Their warning-600 is 3.05:1 on
      --surface: enough for an icon (WCAG 2.2 SC 1.4.11, 3:1), not for 12 px words (SC
      1.4.3, 4.5:1). So a warning status draws its glyph in this and its words in --text,
@@ -181,9 +181,35 @@
      2.997:1 on --bg, so it is drawn only on --surface or --surface-raised;
      test_every_status_colour_on_the_page_is_readable holds the Jobs rows to that. */
   --warning-600: #dc7b18;     /* warning-600 light     PUBLISHED */
+  /* SUPABASE'S STATUS STEPS (#633), the ones their components read: Button.tsx,
+     badge.tsx, alert.tsx, Admonition and StatusIcon at 86c813ec. Each is their literal at
+     the pin (tests/fixtures/supabase-design-tokens.json); a role token that equals a
+     step names it, so the value is written once (tests/test_the_status_ramps_are_supabases.py).
+     --warning-600 is above, with its mandate. --info is their OKLCH --info evaluated, and
+     the four borders are their 30% status borders (semantic.css@86c813ec:167, :250). */
+  --brand-200: #d3f8e4;       /* brand-200 light PUBLISHED */
+  --brand-300: #a9f1ca;       /* brand-300 light PUBLISHED */
+  --brand-400: #72e3ad;       /* brand-400 light PUBLISHED */
+  --brand-500: #16b674;       /* brand-500 light PUBLISHED */
+  --brand-600: #097c4f;       /* brand-600 light PUBLISHED */
+  --destructive-200: #fffcfc; /* destructive-200 light PUBLISHED */
+  --destructive-300: #fff0ee; /* destructive-300 light PUBLISHED */
+  --destructive-400: #fdd8d3; /* destructive-400 light PUBLISHED */
+  --destructive-500: #f3b0a2; /* destructive-500 light PUBLISHED */
+  --destructive-600: #ca3214; /* destructive-600 light PUBLISHED */
+  --warning-200: #fefbf5;     /* warning-200 light PUBLISHED */
+  --warning-300: #fff4d5;     /* warning-300 light PUBLISHED */
+  --warning-400: #ffe3a2;     /* warning-400 light PUBLISHED */
+  --warning-500: #f3ba63;     /* warning-500 light PUBLISHED */
+  --info: #6c5eba;            /* --info light derived */
+  /* Their status borders, each its status colour at 30%; they resolve per scheme. */
+  --border-destructive: color-mix(in srgb, var(--red) 30%, transparent);
+  --border-warning: color-mix(in srgb, var(--amber) 30%, transparent);
+  --border-info: color-mix(in srgb, var(--info) 30%, transparent);
+  --border-brand: #45cd8e4d;  /* --border-brand derived */
   --red: #ab413e;             /* --destructive light   derived */
   --red-hover: #8e332f;
-  --red-weak: #fff0ee;        /* destructive-300 light PUBLISHED */
+  --red-weak: var(--destructive-300);
   --danger-contrast: #fff9f8; /* --destructive-foreground derived */
   /* R-85: THEIRS, AND IT IS THE COSTLIEST OF THE THREE.
      Their --ring is --primary at 55% alpha; flattened over --bg it is #98e3c0 and
@@ -529,13 +555,13 @@
   --chip: #1e1f1e;            /* --accent */
 
   --accent: #3ecf8e;          /* brand-default dark    PUBLISHED */
-  --accent-hover: #85e0ba;    /* brand-600 dark        PUBLISHED */
+  --accent-hover: var(--brand-600);
   /* Their dark brand-500 is #006239, which reads as a hole rather than a press
      next to #3ecf8e. brand-500 LIGHT reused as the pressed tone. */
   --accent-active: #16b674;
   --accent-ink: #3ecf8e;      /* brand-default dark    PUBLISHED */
   --accent-contrast: #131413; /* --primary-foreground  derived */
-  --accent-weak: #002918;     /* brand-300 dark        PUBLISHED */
+  --accent-weak: var(--brand-300);
   /* R-85. THEIR RING SURVIVES THE FLOOR IN DARK AND NOT IN LIGHT, which matters
      before anyone reads the light comment and assumes the departure was
      symmetrical. Their --ring is --primary at 55% alpha; flattened over the dark
@@ -545,13 +571,28 @@
 
   --amber: #f2af48;           /* --warning dark        derived */
   --amber-ink: #080503;       /* --warning-foreground  derived   */
-  --amber-weak: #341c00;      /* warning-300 dark      PUBLISHED */
-  --warning-button: #4a2900;  /* warning-400 dark      PUBLISHED */
+  --amber-weak: var(--warning-300);
+  --warning-button: var(--warning-400);
   --warning-button-hover: color-mix(in srgb, var(--amber) 50%, transparent);
   --warning-600: #db8e00;     /* warning-600 dark      PUBLISHED */
+  --brand-200: #000a07;       /* brand-200 dark  PUBLISHED */
+  --brand-300: #002918;       /* brand-300 dark  PUBLISHED */
+  --brand-400: #00311d;       /* brand-400 dark  PUBLISHED */
+  --brand-500: #006239;       /* brand-500 dark  PUBLISHED */
+  --brand-600: #85e0ba;       /* brand-600 dark  PUBLISHED */
+  --destructive-200: #1d1412; /* destructive-200 dark  PUBLISHED */
+  --destructive-300: #3b1813; /* destructive-300 dark  PUBLISHED */
+  --destructive-400: #541c15; /* destructive-400 dark  PUBLISHED */
+  --destructive-500: #7f2315; /* destructive-500 dark  PUBLISHED */
+  --destructive-600: #f16a50; /* destructive-600 dark  PUBLISHED */
+  --warning-200: #291900;     /* warning-200 dark  PUBLISHED */
+  --warning-300: #341c00;     /* warning-300 dark  PUBLISHED */
+  --warning-400: #4a2900;     /* warning-400 dark  PUBLISHED */
+  --warning-500: #693f05;     /* warning-500 dark  PUBLISHED */
+  --info: #9b8ff0;            /* --info dark derived */
   --red: #fa8880;             /* --destructive dark    derived */
   --red-hover: #fda49d;
-  --red-weak: #3b1813;        /* destructive-300 dark  PUBLISHED */
+  --red-weak: var(--destructive-300);
   --danger-contrast: #090504; /* --destructive-foreground derived */
 
   /* OP-94. This was the literal `#171b21` while --control-bg was not reachable
@@ -594,22 +635,37 @@
     --chip: #1e1f1e;
 
     --accent: #3ecf8e;
-    --accent-hover: #85e0ba;
+    --accent-hover: var(--brand-600);
     --accent-active: #16b674;
     --accent-ink: #3ecf8e;
     --accent-contrast: #131413;
-    --accent-weak: #002918;
+    --accent-weak: var(--brand-300);
     --focus: #2f7a57;
 
     --amber: #f2af48;
     --amber-ink: #080503;
-    --amber-weak: #341c00;
-    --warning-button: #4a2900;  /* warning-400 dark      PUBLISHED */
+    --amber-weak: var(--warning-300);
+    --warning-button: var(--warning-400);
     --warning-button-hover: color-mix(in srgb, var(--amber) 50%, transparent);
     --warning-600: #db8e00;
+    --brand-200: #000a07;
+    --brand-300: #002918;
+    --brand-400: #00311d;
+    --brand-500: #006239;
+    --brand-600: #85e0ba;
+    --destructive-200: #1d1412;
+    --destructive-300: #3b1813;
+    --destructive-400: #541c15;
+    --destructive-500: #7f2315;
+    --destructive-600: #f16a50;
+    --warning-200: #291900;
+    --warning-300: #341c00;
+    --warning-400: #4a2900;
+    --warning-500: #693f05;
+    --info: #9b8ff0;
     --red: #fa8880;
     --red-hover: #fda49d;
-    --red-weak: #3b1813;
+    --red-weak: var(--destructive-300);
     --danger-contrast: #090504;
 
     /* OP-94, the prefers-color-scheme copy of the same defect. */
