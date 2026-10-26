@@ -8576,7 +8576,7 @@ async function loadDatabase() {
     }
     // Not while one runs: re-entering this page mid-upgrade turned it back on,
     // and the press was swallowed by the one-at-a-time guard without a word.
-    if (upgrade) upgrade.disabled = upgradeRunning || pending.length === 0;
+    if (upgrade) upgrade.disabled = upgradeRunning || restartRunning || pending.length === 0;
 
     const health = s.health || {};
     $("db-health-status").textContent = health.status || "unknown";
@@ -8631,7 +8631,7 @@ async function loadDatabase() {
     // refuses anything that is not merely behind, backs up first without exception, and
     // says what it did. Offering it here asks that path the question rather than
     // answering it from a page that just failed to read anything.
-    if (upgrade) upgrade.disabled = upgradeRunning;
+    if (upgrade) upgrade.disabled = upgradeRunning || restartRunning;
     // AND THE SCAN CANNOT BE ASKED FOR WITHOUT THE ENGINE, unlike the upgrade above:
     // `POST /api/storage/integrity` has no native fallback because the native host does
     // not read the warehouse. A button that cannot work is worse than no button.
@@ -10493,6 +10493,12 @@ const UPGRADE_NO_ANSWER = ["timeout", "crashed"];
 // Settings, and every press copies the whole warehouse before it waits for the
 // write lock -- for up to five minutes of waiting now, not five seconds.
 let upgradeRunning = false;
+// AND NONE WHILE A RESTART RUNS (#1517). Its wait now lasts until a different engine
+// answers -- about 50 s on his machine (#1793) -- and the successor's launch upgrades
+// a database that is only behind on its way up (`cli._cmd_ui`). Re-entering the
+// Database page in that wait turned Upgrade database back on, and pressed in the dark
+// it reaches the native host: a second writer to the same file.
+let restartRunning = false;
 
 async function upgradeDatabaseFromPanel() {
   if (upgradeRunning) return;
@@ -10672,10 +10678,16 @@ function wireRuntimeRepair() {
   upgrade.addEventListener("click", upgradeDatabaseFromPanel);
 
   restart.addEventListener("click", async () => {
+    restartRunning = true;
     [restart, upgrade, $("runtime-check-action")].filter(Boolean)
       .forEach((button) => { button.disabled = true; });
-    const release = () => [restart, upgrade, $("runtime-check-action")]
-      .filter(Boolean).forEach((button) => { button.disabled = false; });
+    // EVERY ENDING GOES THROUGH HERE, so the flag that keeps Upgrade database down
+    // while the restart runs cannot outlive it.
+    const release = () => {
+      restartRunning = false;
+      [restart, upgrade, $("runtime-check-action")].filter(Boolean)
+        .forEach((button) => { button.disabled = false; });
+    };
     say("Checking the database before restarting…");
     clearRuntimeIssue();
     // IS THERE AN ENGINE TO RESTART AT ALL. The POST below cannot tell: a
@@ -10770,8 +10782,7 @@ function wireRuntimeRepair() {
       setRuntimeIssue(error);
       say("Restart was refused. The reason is shown above.",
           "Restart was refused. " + refused);
-      [restart, upgrade, $("runtime-check-action")].filter(Boolean)
-        .forEach((button) => { button.disabled = false; });
+      release();
       return;
     }
     // Poll until it answers again, then re-render so every version and status
@@ -10831,21 +10842,28 @@ function wireRuntimeRepair() {
       if (successor) {
         settled = true;
         clearInterval(timer);
-        [restart, upgrade, $("runtime-check-action")].filter(Boolean)
-          .forEach((button) => { button.disabled = false; });
+        release();
         say("The engine is back.");
         // A RESTART IS THE ONE THING THAT CAN CHANGE WHICH WAREHOUSE IS OPEN
         // while this panel stays up, and `setStatus` never sees the engine go
         // down here — the wait above polls `/api/health` directly. So the held
         // path is dropped by hand, and the `render()` below asks the successor
         // rather than repeating what its predecessor said.
-        forgetWarehouse();
-        await render();
-        // AND THE ENGINE SCREEN IS DRAWN THE WAY ENTERING IT DRAWS IT. `render()`
-        // repaints the status and the versions and nothing else, so the Database
-        // line dropped just above stayed blank -- only `renderEngines` asks for
-        // it again -- and the release row went on judging the engine that left.
-        await renderEngines();
+        try {
+          forgetWarehouse();
+          await render();
+          // AND THE ENGINE SCREEN IS DRAWN THE WAY ENTERING IT DRAWS IT. `render()`
+          // repaints the status and the versions and nothing else, so the Database
+          // line dropped just above stayed blank -- only `renderEngines` asks for
+          // it again -- and the release row went on judging the engine that left.
+          await renderEngines();
+          // AND THE DATABASE PAGE, when it is the one open: the outcome is written
+          // there too, under a schema the successor may just have upgraded.
+          if (currentViewName() === "database") await loadDatabase();
+        } catch (error) {
+          markStartup("restart-redraw-failed",
+                      {message: (error && error.message) || "unknown"});
+        }
         return;
       }
       if (attempts >= RESTART_CONFIRM_ATTEMPTS) {
@@ -10892,6 +10910,7 @@ function wireRuntimeRepair() {
         try {
           await render();
           await renderEngines();
+          if (currentViewName() === "database") await loadDatabase();
         } catch (error) {
           markStartup("restart-redraw-failed",
                       {message: (error && error.message) || "unknown"});

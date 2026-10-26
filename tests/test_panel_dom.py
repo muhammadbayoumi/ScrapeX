@@ -8884,6 +8884,135 @@ def test_an_answer_the_poll_cannot_read_is_traced(open_panel):
     assert not page.js_errors, page.js_errors
 
 
+#: The successor reports its schema up to date: its launch applied what the leaving
+#: engine reported pending. Installed OVER the restarting stub.
+THE_SUCCESSOR_IS_UP_TO_DATE = """() => {
+  const inner = window.fetch;
+  window.fetch = async (url, options = {}) => {
+    const response = await inner(url, options);
+    if (!String(url).includes('/api/storage')
+        || window.__engineAnswering() !== 'successor') return response;
+    const body = {...(await response.json())};
+    body.schema = {...(body.schema || {}), version: 18, expected: 18, pending: []};
+    return {ok: true, status: 200, statusText: 'OK', headers: {get: () => null},
+            json: async () => body};
+  };
+}"""
+
+
+def open_database(page) -> None:
+    page.click('nav.side-rail button[data-view="database"]')
+    page.wait_for_selector("#view-database:not(.hidden)")
+
+
+def test_upgrade_stays_down_while_the_restart_runs(open_panel):
+    """The restart's wait now lasts until a different engine answers, about 50 s on
+    his machine (#1793), and the successor's launch upgrades a database that is only
+    behind on its way up. Entering the Database page in that wait re-ran its loader,
+    which turned Upgrade database back on -- one migration pending, nothing running
+    that it knew of -- and pressed in the dark it reaches the native host: a second
+    writer to the same file. It stays down whether the page is entered while the
+    leaving engine still answers or in the dark. When the successor answers, the page
+    is drawn again from it rather than left showing what it replaced."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART,
+                                    bow_out_ms=5_000, dark_ms=20_000)
+    page.evaluate(THE_SUCCESSOR_IS_UP_TO_DATE)
+    page.clock.install()
+    page.click("#runtime-restart")
+    page.clock.run_for(2_000)
+
+    open_database(page)                      # the leaving engine still answers
+    page.clock.run_for(1_000)
+    assert text_of(page, "#db-schema-detail").startswith("1 migration"), (
+        text_of(page, "#db-schema-detail"))
+    assert page.locator("#runtime-upgrade").is_disabled(), (
+        "Upgrade database is offered while the restart runs")
+
+    page.click("#tab-engines")
+    page.clock.run_for(6_000)                 # into the dark
+    open_database(page)
+    page.clock.run_for(1_000)
+    assert page.locator("#runtime-upgrade").is_disabled(), (
+        "Upgrade database is offered in the dark of a restart")
+
+    page.clock.run_for(20_000)                # the successor answers
+    page.wait_for_function(
+        "() => document.getElementById('db-schema-detail').textContent"
+        " === 'Up to date. Nothing to apply.'", timeout=10_000)
+    assert text_of(page, "#runtime-note") == "The engine is back."
+    assert not page.js_errors, page.js_errors
+
+
+def test_upgrade_comes_back_when_the_restart_ends(open_panel):
+    """The flag that keeps Upgrade database down is the restart's own, and it ends
+    with it: after a restart whose engine never comes back, the Database page offers
+    Upgrade database again, as it does with the engine down."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART,
+                                    dark_ms=10**9)
+    press_restart_and_wait_out_the_two_minutes(page)
+    page.wait_for_function(
+        "() => document.getElementById('engine-restart-note').textContent"
+        " === 'The engine has not answered in two minutes. It may still be starting.'",
+        timeout=10_000)
+
+    open_database(page)
+    page.clock.run_for(3_000)
+    assert not page.locator("#runtime-upgrade").is_disabled(), (
+        "Upgrade database stayed down after the restart ended")
+    assert not page.js_errors, page.js_errors
+
+
+#: The check before the restart passes; the one the failed ending asks reports the
+#: database behind, as #1810's check does with no engine running. Installed over the
+#: harness's own host.
+THE_ENDING_CHECK_SAYS_BEHIND = """() => {
+  const send = window.chrome.runtime.sendNativeMessage;
+  let checks = 0;
+  window.chrome.runtime.sendNativeMessage = (host, message, callback) => {
+    if (message && message.command === 'CHECK_STARTUP' && ++checks > 1) {
+      setTimeout(() => callback({ok: false, error: 'startup_blocked',
+        action: 'upgrade_database',
+        detail: 'engine: Needs upgrade. This database is at schema v25 and this build '
+              + 'expects v26.',
+        databases: {engine: {kind: 'engine', ok: false, status: 'Needs upgrade',
+          schema_version: 25}}}), 0);
+      return;
+    }
+    return send(host, message, callback);
+  };
+}"""
+
+
+def test_the_repair_a_failed_restart_names_can_be_pressed(open_panel):
+    """A restart whose engine never comes back ends in the database check, and with
+    no engine running a database that is only behind is refused with
+    `upgrade_database`: the card it draws offers Upgrade database. That card is drawn
+    while the restart still runs, so it must not take the restart's own reason to
+    keep Upgrade down -- nothing gives the card's button back afterwards."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    page.evaluate(THE_ENDING_CHECK_SAYS_BEHIND)
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART,
+                                    dark_ms=10**9)
+    press_restart_and_wait_out_the_two_minutes(page)
+    page.wait_for_function(
+        "() => document.getElementById('engine-restart-note').textContent"
+        ".startsWith('The engine stopped during startup.')", timeout=10_000)
+
+    for card in ("#runtime-error", "#engine-error"):
+        button = page.locator(f"{card} [data-runtime-upgrade]")
+        assert button.count() == 1, f"{card} offers no Upgrade database"
+        assert not button.is_disabled(), f"{card}'s Upgrade database stayed down"
+    assert not page.js_errors, page.js_errors
+
+
 def test_the_restart_note_stays_off_a_candidate_engines_screen(open_panel):
     """Every engine shares one detail screen, and a candidate's has no Restart to
     press. The outcome now waits for the successor, so a reader can have opened a
