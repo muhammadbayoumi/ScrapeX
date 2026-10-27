@@ -53,6 +53,16 @@ test or workflow change.
    this section was already written down: one `gh issue list` surfaced a recorded *must
    fix* that fourteen reviewer sessions had not found, because it was recorded rather
    than hidden in the code.
+
+   **And search the whole tree for the change's twin.** For every rule, mapping, key,
+   API path, status name or config value the change decides, search the engine, the
+   extension, the templates and the generated copies for another place that decides the
+   same thing. A second decider that disagrees, or can drift apart, is a *should fix*
+   named with both `file:line`, because `CLAUDE.md` asks for one source of truth per
+   piece of knowledge. If the change does not touch the twin, file it as an issue. A
+   reviewer reads the diff, so a twin outside the diff is found here or nowhere. #1851
+   is the case: the Data card resolved a directory to its site key, Run sent the row's
+   own key, and no PR touched both.
 1. **Identify the green by head SHA, never by a tally.** A recorded green expires — a
    commit can land after the green that produced it. And a row count is an artifact of
    the CI config, not a number of checks: `gh pr checks` prints a row per run, so an
@@ -162,9 +172,10 @@ eight green mutations that measured nothing.
 | 601–1000 | 4, plus one adversary per **surviving** finding |
 | > 1000 | split first, by the rule above |
 
-**The table sizes the fan-out and nothing else.** Steps 0 and 1 — the record, and the
-green proved by head SHA — run at every size including **none**: they are the two
-cheapest checks in the gate, and no reviewer buys either.
+**The table sizes the fan-out and nothing else.** Steps 0 and 1 — the record, the
+twin search, and the green proved by head SHA — run at every size including **none**:
+they are the cheapest checks in the gate, and no reviewer buys any of them. At the
+**none** row the merging session runs the twin search itself, before its own mutations.
 
 **A cold read is for a change that crosses a surface** — panel ↔ engine ↔ warehouse — not
 for every pass.
