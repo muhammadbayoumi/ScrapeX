@@ -106,8 +106,10 @@ sources:
     # Measured 2026-08-03 over all 3,537 offers: 3,480 resolve from the
     # platform's declared weight+weight_unit, 52 from an option value that
     # names a container, 5 stay silent. Today 92 carry a unit, all kg.
+    #
+    # Version 2 (2026-10-27) adds witness 6, the shop's «يباع بالطن».
     unit_charter:
-      version: 1
+      version: 2
       witnesses:
         # 1. The shop naming a CONTAINER and what is in it: «4 كجم/صندوق»,
         #    "1000 Pcs/Box". First, because it is richer — it says what the
@@ -200,6 +202,40 @@ sources:
         #         the retirement rule below is what stops the 25 standing
         #         beside it.
         - {field: spec_size, lang: und, provenance: stated_field, shape: quantity}
+        #
+        # 6. THE SENTENCE «يباع بالطن», ranked last, and believed only where the
+        #    shop's own weight says the same thing.
+        #
+        #    On 2026-07-29 madar wrote «طن» nowhere a crawl could reach. By the
+        #    crawl of 2026-10-25 its Arabic descriptions said «يباع بالطن» or
+        #    «يسعر بالطن» on 22 products. The owner ruled on 2026-10-26: «وحدة
+        #    الحديد طن كالموقع» — the unit is the tonne, as the site says (#1833).
+        #
+        #    THE SITE DISAGREES WITH ITSELF ON ONE OF THE 22, so the sentence is
+        #    not enough on its own. Measured over every offer of the 22 before
+        #    this was written:
+        #      143 offers (18 rebar products, 3 steel-coil products) state
+        #          weight 1000 kgs, and price ÷ 1000 runs 3.0 to 4.8 SAR/kg:
+        #          the price is a tonne's, and the two statements agree
+        #       19 offers of «Steel Reinforcing Mesh» say «يباع بالطن» too,
+        #          but weigh 5.9 to 61.7 kg each and cost 24 to 199: the price
+        #          is one sheet's, and the sentence describes the steel, not
+        #          what the price buys. The weight refuses them; they stay
+        #          unitless, as the owner's raw-facts rule requires.
+        #    Ranked after every field witness, so an axis or a size the shop
+        #    states for THIS variant still answers first. Only «طن» is admitted:
+        #    the same descriptions also say «يباع بالمتر» (125 offers),
+        #    «بالقطعة» (65) and «بالحبة» (13), and those are his to rule on,
+        #    not this charter's. Run over all 4,726 active offers: 143 gain the
+        #    tonne, 19 are refused by their weight, and the 284 that already
+        #    carry a unit never reach this witness.
+        - field: description_ar
+          lang: ar
+          provenance: stated_in_prose
+          shape: sold_by
+          phrases: [يباع بال, يسعر بال]
+          units: [tonne]
+          confirm: {field: weight, unit_field: weight_unit, quantity: 1000, unit: kg}
       # The site writes the SAME container in two languages, and this maps both
       # to one code. Measured: without it «صندوق» (16) and "box" (24) become two
       # different selling units for one shop's box, and two prices for the same

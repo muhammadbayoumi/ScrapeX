@@ -410,13 +410,12 @@ def _quantity_facts(child: dict) -> tuple[str, str, str]:
     states them — and "" wherever it states nothing.
 
     NOTHING IS DERIVED HERE. madar's rebar publishes weight 1000 with a 0.25
-    minimum in 0.05 steps and never writes «طن» anywhere a crawl can reach
-    (verified exhaustively 2026-07-29: member and parent attributes,
-    description, short_description, every meta field, both category
-    descriptions, both store views, and the full rendered page). The owner
-    ruled «الحقائق الخام فقط» — raw facts only — so this returns the numbers
-    and lets the display layer say "per 1,000 kg". Turning them into a unit
-    would put a word on the row that the shop has never printed.
+    minimum in 0.05 steps. On 2026-07-29 it wrote «طن» nowhere a crawl could
+    reach; by the crawl of 2026-10-25 its own descriptions said «يباع بالطن»,
+    and the unit now comes from that sentence through the charter (sources.yaml,
+    MADAR's sold_by witness), never from these numbers. The owner ruled
+    «الحقائق الخام فقط» — raw facts only — so this returns the numbers as stated
+    and leaves the unit to whatever the shop says in words.
 
     Magento's default for a product nobody configured is min_sale_qty 1 /
     qty_increments 1, which says nothing; it is stored anyway rather than
@@ -485,6 +484,12 @@ def _apply_charter(row: list[str], charter, product: dict | None = None) -> None
         # printed on every variant is how a family's figure becomes each
         # member's, which is the mistake reports.py already names in writing.
         "spec_size": _spec_size(product),
+        # Not a row column either: the product's Arabic description, the same
+        # text stored as description_ar. Where it says «يباع بالطن» the shop is
+        # stating what one of the price is; the charter decides whether to
+        # believe it, and madar's asks the weight to agree first.
+        "description_ar": _clean(
+            (((product or {}).get("description") or {}).get("html")) or ""),
     })
     if resolution is None:
         return

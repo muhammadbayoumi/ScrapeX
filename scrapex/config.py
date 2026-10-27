@@ -447,6 +447,22 @@ class IdentityRules(BaseModel):
     on_ambiguous: str = "review"   # review | keep_separate
 
 
+class UnitConfirm(BaseModel):
+    """What another field of the same row must state for a witness to count.
+
+    `quantity` of `unit` exactly, read from `field` with its unit word in
+    `unit_field`. Not a tolerance and not a conversion: the shop states 1000
+    kgs on every rebar member, and that is the statement being checked.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    field: str
+    unit_field: str
+    quantity: float
+    unit: str
+
+
 class UnitWitness(BaseModel):
     """One field that may state a unit, and what kind of statement it is."""
 
@@ -468,10 +484,31 @@ class UnitWitness(BaseModel):
     # sikaegshop needs. "pair" is a number here and its unit word in
     # `unit_field` — madar's platform publishes weight and weight_unit that way.
     # "container" is «N unit / container», where what you buy is the container
-    # and N of the unit is what is in it.
-    shape: Literal["quantity", "pair", "container"] = "quantity"
+    # and N of the unit is what is in it. "sold_by" is a sentence naming the
+    # unit with no number — «يباع بالطن» — which states that one of the unit is
+    # what the price buys.
+    shape: Literal["quantity", "pair", "container", "sold_by"] = "quantity"
     # Only for shape "pair": where the unit WORD lives.
     unit_field: str = ""
+    # Only for shape "sold_by": the words that open the sentence, each ending
+    # where the unit word begins («يباع بال» + «طن»), and the units such a
+    # sentence may name here. Both are the site's, read off its own pages.
+    phrases: list[str] = []
+    units: list[str] = []
+    # Only for shape "sold_by": a second statement the row must make before the
+    # sentence is believed. madar writes «يباع بالطن» on its steel mesh too,
+    # whose price is per sheet; its weight field says which reading is true.
+    confirm: UnitConfirm | None = None
+
+    @model_validator(mode="after")
+    def _sold_by_names_what_it_reads(self) -> UnitWitness:
+        if self.shape == "sold_by" and not (self.phrases and self.units):
+            raise ValueError(
+                "a sold_by witness must name its phrases and the units they may "
+                "state; without them it would read any word after any verb")
+        if self.shape != "sold_by" and (self.phrases or self.units or self.confirm):
+            raise ValueError("phrases, units and confirm belong to a sold_by witness")
+        return self
 
 
 class UnitCorroborator(BaseModel):
