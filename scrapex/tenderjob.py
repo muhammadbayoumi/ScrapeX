@@ -193,10 +193,16 @@ def cost(state: SourceState, source: tenders.TenderSource, run_mode: str,
 
 
 def compiled(conn: sqlite3.Connection, source_key: str) -> int:
-    """The source row's `observations`: the tenders compiled from its notices."""
+    """The source row's `observations`: the tenders compiled from its notices.
+
+    COUNTED AS PROCESSES, WHICH ARE THE SAME NUMBER. A process is written only inside the
+    savepoint that compiles its tender (`worldbank_collect._keep`), and a failure undoes
+    both, so every process has exactly one `tenders` row (`tender_process_id` is UNIQUE).
+    The processes' covering index answers it without visiting a `tenders` row: measured
+    at the world's 422,285, 30 ms against 86-127 ms, on a route the panel polls (#1769).
+    """
     return int(conn.execute(
-        "SELECT count(*) FROM tenders t JOIN tender_processes p "
-        "ON p.id = t.tender_process_id JOIN source_site s "
+        "SELECT count(*) FROM tender_processes p JOIN source_site s "
         "ON s.source_id = p.source_site_id WHERE s.source_key = ?",
         (source_key,)).fetchone()[0])
 
