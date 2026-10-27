@@ -1479,6 +1479,10 @@
             plain export of every dataset, and a manifest of row counts and
             checksums into your Drive. Nothing on this machine is changed.</p>
           <button id="manage-backup" class="button" type="button">Back up now</button>
+          <!-- What a backup is doing while it runs, step by step (#1834): the
+               list Studio draws for a long job, UpgradingState@86c813ec. -->
+          <ol id="manage-backup-steps" class="job-steps hidden"
+              aria-label="Backup steps"></ol>
           <div id="manage-backup-progress" class="bar hidden" role="progressbar"
                aria-labelledby="manage-backups-title" aria-valuemin="0"
                aria-valuemax="100"><div id="manage-backup-progress-fill"
@@ -2251,6 +2255,8 @@
                   <button id="sheet-choose" class="button ghost" type="button">
                     Choose an existing one</button>
                 </div>
+                <ol id="drive-backup-steps" class="job-steps hidden"
+                    aria-label="Backup steps"></ol>
                 <div id="drive-progress" class="bar hidden" role="progressbar"
                      aria-labelledby="google-heading" aria-valuemin="0"
                      aria-valuemax="100"><div id="drive-progress-fill"

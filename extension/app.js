@@ -11053,6 +11053,7 @@ function driveProgress(fraction, barId = "drive-progress",
 async function runGoogleAction(button, working, action, {
   report = "drive-msg",
   bar = ["drive-progress", "drive-progress-fill"],
+  steps = "drive-backup-steps",
   then = null,
 } = {}) {
   if (!state.token) {
@@ -11069,7 +11070,7 @@ async function runGoogleAction(button, working, action, {
     // seconds to build before an upload starts, and `backUpToDrive` says so
     // while it waits. That sentence has to land on the same screen as the
     // verdict, or the owner watches an empty status line and presses again.
-    const said = await action(state.token, report);
+    const said = await action(state.token, report, steps);
     out(report, esc(said), "ok");
     if (then) await then();
   } catch (error) {
@@ -11080,6 +11081,9 @@ async function runGoogleAction(button, working, action, {
     out(report, esc((error && error.message) || "Something went wrong."), "err");
   } finally {
     driveProgress(null, bar[0], bar[1]);
+    // The steps describe a job that is running; once it is over the verdict
+    // above says how it ended, as Studio's upgrade list gives way to its result.
+    if ($(steps)) $(steps).classList.add("hidden");
     buttons.forEach((id) => { if ($(id)) $(id).disabled = false; });
   }
 }
@@ -11122,12 +11126,158 @@ async function fetchBackupFromDrive(token, report = "drive-msg") {
        + "Open Database and press it to unpack it.";
 }
 
-async function backUpToDrive(token, report = "drive-msg") {
+//: A backup's steps, each in the three tenses Studio's upgrade list writes
+//: (UpgradingState.constants.ts@86c813ec:3-52): before it starts, while it runs,
+//: and once it is done. The first four are the engine's, read from
+//: `/api/bundle/progress`; the last is this panel's own upload.
+const BACKUP_STEPS = [
+  {key: "copy", initial: "Copy the database", progress: "Copying the database",
+   completed: "Copied the database"},
+  {key: "export", initial: "Export every dataset", progress: "Exporting datasets",
+   completed: "Exported every dataset"},
+  {key: "pack", initial: "Check and compress", progress: "Checking and compressing",
+   completed: "Checked and compressed"},
+  {key: "light", initial: "Write the offline copy of the Data page",
+   progress: "Writing the offline copy of the Data page",
+   completed: "Wrote the offline copy of the Data page"},
+  {key: "upload", initial: "Upload to Drive", progress: "Uploading to Drive",
+   completed: "Uploaded to Drive"},
+];
+
+//: An engine older than `/api/bundle/progress` builds in one step the panel cannot
+//: see into, so it is drawn as one.
+const BACKUP_STEPS_UNREPORTED = [
+  {key: "build", initial: "Build the backup on this computer",
+   progress: "Building the backup on this computer",
+   completed: "Built the backup on this computer"},
+  BACKUP_STEPS[BACKUP_STEPS.length - 1],
+];
+
+/**
+ * Draw a long job as its steps: done, running, not reached.
+ *
+ * The running step carries SonnerProgress's parts (sonner-progress.tsx@86c813ec:29-44):
+ * its count at the end of the line, a bar when the count has a total, and a note.
+ * Every step says its state in words, so the marks are decoration.
+ */
+function renderJobSteps(listId, steps, {current, count = "", fraction = null, note = ""} = {}) {
+  const list = $(listId);
+  if (!list) return;
+  const at = steps.findIndex((step) => step.key === current);
+  list.innerHTML = steps.map((step, index) => {
+    const tense = index < at ? "done" : index === at ? "current" : "pending";
+    const words = tense === "done" ? step.completed
+      : tense === "current" ? step.progress : step.initial;
+    const mark = `<span class="job-step-mark" aria-hidden="true">${
+      tense === "done" ? icon("material-check") : ""}</span>`;
+    if (tense !== "current") {
+      return `<li class="job-step" data-state="${tense}">${mark}`
+        + `<div class="job-step-body"><span>${esc(words)}</span></div></li>`;
+    }
+    const percent = fraction === null ? null
+      : Math.max(0, Math.min(100, Math.round(fraction * 100)));
+    const bar = percent === null ? ""
+      : `<div class="job-step-bar" role="progressbar" aria-label="${esc(words)}" `
+        + `aria-valuemin="0" aria-valuemax="100" aria-valuenow="${percent}">`
+        + `<div class="job-step-bar-fill" style="inline-size: ${percent}%"></div></div>`;
+    return `<li class="job-step" data-state="current" aria-current="step">${mark}`
+      + `<div class="job-step-body"><div class="job-step-line"><span>${esc(words)}</span>`
+      + (count ? `<span class="job-step-count">${esc(count)}</span>` : "")
+      + `</div>${bar}`
+      + (note ? `<span class="job-step-note">${esc(note)}</span>` : "")
+      + `</div></li>`;
+  }).join("");
+  list.classList.remove("hidden");
+}
+
+/**
+ * What `/api/bundle/progress` says, in the terms `renderJobSteps` draws.
+ *
+ * SonnerProgress's slots: the percent at the end of the line, and what it is a
+ * percent OF in the note, "3 of 18 datasets" as Studio counts (MembersView.tsx
+ * @86c813ec:149). The dataset is named as the panel names a source everywhere else.
+ */
+function buildStepView(progress) {
+  const {step, done, total, current} = progress;
+  if (!(Number.isFinite(done) && Number.isFinite(total) && total > 0)) {
+    return {current: step};
+  }
+  const percent = `${Math.round((done / total) * 100)}%`;
+  const named = current ? ` · ${sourceTitle(current, state.sources)}` : "";
+  const counted = step === "pack"
+    ? `${fmtMegabytes(done).replace(/ MB$/, "")} of ${fmtMegabytes(total)}`
+    : `${done} of ${total} ${step === "light" ? "tables" : "datasets"}${named}`;
+  return {current: step, count: percent, fraction: done / total, note: counted};
+}
+
+async function backUpToDrive(token, report = "drive-msg", steps = "drive-backup-steps") {
   // The engine builds the bundle; the panel uploads it. Neither half sees the
   // other's secret: the engine never gets the token, the panel never opens the
   // database.
-  out(report, "Building the bundle…", "");
-  const built = await api("/api/bundle", { method: "POST" });
+  const started = new Date().toISOString();
+  out(report, `Backing up. Started at ${esc(window.ScrapeXTime.format(started, "time"))}.`, "");
+  // THE BUILD ANSWERS ONLY WHEN IT IS OVER, so what it is doing meanwhile is asked
+  // of a second route once a second (#1834). Measured on a copy of his warehouse,
+  // a build does not hold the engine: `/api/health` kept its 0.05 s median.
+  let shape = BACKUP_STEPS;
+  let shown = "copy";
+  renderJobSteps(steps, shape, {current: shown});
+  // The names the export step calls datasets by. A panel that never opened Run
+  // holds none, and without them the step names a dataset by its key.
+  sourcesForJobNames();
+  let building = true;
+  const following = (async () => {
+    while (building) {
+      try {
+        const reply = await raw("/api/bundle/progress");
+        if (reply.status === 404) {
+          shape = BACKUP_STEPS_UNREPORTED;
+          shown = "build";
+          if (building) renderJobSteps(steps, shape, {current: shown});
+          return;
+        }
+        const progress = reply.ok ? await reply.json() : null;
+        if (building && progress?.state === "building") {
+          const view = buildStepView(progress);
+          shown = view.current;
+          renderJobSteps(steps, shape, view);
+        }
+      } catch (_) {
+        // A tick that got no answer draws nothing; the next one redraws, and the
+        // build's own reply is what decides whether the backup worked.
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+  })();
+  let built;
+  try {
+    built = await api("/api/bundle", { method: "POST" });
+  } catch (error) {
+    // A 409 is another build, not this one stopping, so its own sentence stands.
+    if (error?.status === 409) throw error;
+    // WHERE IT STOPPED, AND THAT DRIVE IS AS IT WAS: the upload starts only after
+    // this reply, so a build that failed sent nothing (Studio's failed upgrade says
+    // the same of the data, UpgradingState/index.tsx@86c813ec:103-106).
+    const step = shape.find((one) => one.key === shown) || shape[0];
+    const why = isTimeoutError(error)
+      ? "the engine did not finish in time, and may still be building"
+      : error?.kind === "http" && error.message ? error.message
+        : "the engine stopped answering";
+    throw new Error(`The backup stopped while ${step.progress.charAt(0).toLowerCase()}`
+      + `${step.progress.slice(1)}: ${why}. Nothing was uploaded, and the backup `
+      + "already in Drive is untouched.");
+  } finally {
+    building = false;
+  }
+  await following;
+  const uploading = (sent, total) => renderJobSteps(steps, shape, {
+    current: "upload",
+    count: `${total ? Math.round((sent / total) * 100) : 0}%`,
+    fraction: total ? sent / total : 0,
+    note: `${fmtMegabytes(sent).replace(/ MB$/, "")} of ${fmtMegabytes(total)}. `
+      + "Keep this panel open until the upload finishes.",
+  });
+  uploading(0, built.bytes || 0);
   // A SOURCE, NOT THE BYTES. The archive is uploaded one 4 MB chunk at a time,
   // fetched as it is sent, so the panel never holds it: 541,531,989 bytes in one
   // Blob is what came back empty on 2026-09-03. Its size is read from the
@@ -11189,15 +11339,9 @@ async function backUpToDrive(token, report = "drive-msg") {
     archive, name: built.name, panelPack, light,
     manifest: light ? built : {...built, light: null},
     bundleFormat: built.bundle_format,
-    // Both bars, because only the visible one exists on any given screen and
-    // `driveProgress` is a no-op for the other. Cheaper and plainer than
-    // threading the caller's choice through `backUpToDrive`.
-    onProgress: ({sent, total}) => {
-      const fraction = total ? sent / total : 0;
-      driveProgress(fraction);
-      driveProgress(fraction, "manage-backup-progress",
-                    "manage-backup-progress-fill");
-    },
+    // The words and the bar come from one call, so they cannot describe two
+    // different steps (#804).
+    onProgress: ({sent, total}) => uploading(sent, total),
   });
   const pruned = stored.pruned.length
     ? ` ${stored.pruned.length} older backup${stored.pruned.length === 1 ? "" : "s"} removed.`
@@ -11214,7 +11358,10 @@ async function backUpToDrive(token, report = "drive-msg") {
         ? ` The offline copy of the Data page left out ${faults.length} ` +
           `table${faults.length === 1 ? "" : "s"}: ${faults.map((f) => f.key).join(", ")}.`
         : "";
-  return `Backed up ${fmtMegabytes(archive.size)} to Drive.${pruned}${lightNote}`;
+  // WHERE IT LANDED, not only that it did: the name Drive holds it under, in the
+  // one folder ScrapeX writes to.
+  return `Backed up ${fmtMegabytes(archive.size)} to Drive as ${stored.name || built.name}, `
+    + `in the folder ${FOLDER_NAME}.${pruned}${lightNote}`;
 }
 
 async function fetchFromDrive(token) {
@@ -11480,6 +11627,7 @@ function wireGoogleControls() {
       manage, "Backing up…", backUpToDrive, {
         report: "manage-backup-msg",
         bar: ["manage-backup-progress", "manage-backup-progress-fill"],
+        steps: "manage-backup-steps",
         then: loadManageAccount,
       }));
   }

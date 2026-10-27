@@ -1939,3 +1939,113 @@ button::before,
 @media (prefers-reduced-motion: reduce) {
   .sheet { animation: none; }
 }
+
+/* ==========================================================================
+ * Step list — a long job shown as its named steps (#1834).
+ *
+ * Studio's upgrade list (UpgradingState/index.tsx@86c813ec:190-225): the list is
+ * `space-y-2`, a row `flex items-center space-x-4`. The step running draws a spinning
+ * `Loader` 20px in `text-foreground-light`, a done step `SuccessCheck` (SuccessCheck.tsx
+ * @86c813ec:5-14: `size-5 rounded-full border-brand bg-brand text-white dark:text-black`,
+ * a 12px check), a step not reached `w-5 h-5 border rounded-full bg-overlay-hover`. Its
+ * words are `text-sm`, in `text-foreground` running, `text-foreground-light` done and
+ * `text-foreground-lighter` not reached. The step running carries SonnerProgress
+ * (sonner-progress.tsx@86c813ec:29-44): its message at the start, its count at the end
+ * in `text-foreground-light font-mono`, the `Progress` bar under them (progress.tsx
+ * @86c813ec:14-18: `h-1 rounded-full`, the indicator `bg-foreground`), and a
+ * `text-xs text-foreground-lighter` line under that.
+ * ======================================================================== */
+:root {
+  /* Supabase's size-5, 1.25rem. The scale has no 1.25rem step (--sp-5 is 1.5rem). */
+  --job-step-mark: calc(var(--sp-1) * 5);
+}
+.job-steps {
+  display: flex;
+  flex-direction: column;
+  /* The card's width, inside a card that does not stretch its children. */
+  align-self: stretch;
+  gap: var(--sp-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.job-step {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-4);
+  font-size: var(--fs-sm);
+  color: var(--text-subtle);
+}
+.job-step[data-state="done"] { color: var(--muted); }
+.job-step[data-state="current"] { color: var(--text); }
+.job-step-mark {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  inline-size: var(--job-step-mark);
+  block-size: var(--job-step-mark);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  background: var(--chip);
+}
+.job-step[data-state="done"] .job-step-mark {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+.job-step[data-state="done"] .job-step-mark .sx-icon {
+  inline-size: var(--sp-3);
+  block-size: var(--sp-3);
+}
+/* The Loader's motion, Tailwind's `animate-spin` (one turn a second, linear), drawn as
+   a ring: the panel's sprite carries no Loader glyph. */
+.job-step[data-state="current"] .job-step-mark {
+  border: 2px solid var(--line-strong);
+  border-block-start-color: var(--muted);
+  background: none;
+  animation: job-step-spin 1s linear infinite;
+}
+@keyframes job-step-spin {
+  to { transform: rotate(360deg); }
+}
+.job-step-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--sp-2);
+  min-inline-size: 0;
+  /* The row centres a one-line step on its 20px mark. */
+  padding-block-start: calc((var(--job-step-mark) - 1lh) / 2);
+}
+.job-step-line {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--sp-2);
+}
+.job-step-count {
+  flex: none;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.job-step-bar {
+  block-size: var(--sp-1);
+  border-radius: var(--radius-pill);
+  background: var(--chip);
+  overflow: hidden;
+}
+.job-step-bar-fill {
+  block-size: 100%;
+  background: var(--text);
+  transition: inline-size var(--dur-slow) ease;
+}
+.job-step-note {
+  font-size: var(--fs-xs);
+  color: var(--text-subtle);
+  overflow-wrap: anywhere;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .job-step[data-state="current"] .job-step-mark { animation: none; }
+}
