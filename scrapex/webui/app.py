@@ -2018,6 +2018,14 @@ def create_app(
             finally:
                 conn.close()
             if waiting:
+                # AN ENGINE OLDER THAN THE DISK, which is the only way an engine running
+                # on a registry has a lag: `create_app` refuses one behind its plan.
+                # Its Upgrade database refuses a plan it does not know, so sending him
+                # there was #1634's trap; the remedy is the Restart it names.
+                from ..dbupgrade import RESTART_UPGRADES, newer_plan_on_disk
+
+                stale = (app.state.databases is not None
+                         and newer_plan_on_disk(app.state.databases.engine) is not None)
                 schema_lag = {
                     "pending": [name for _n, name in waiting],
                     # NAMED SO IT CAN BE ACTED ON, AND THAT MEANS A BUTTON.
@@ -2036,11 +2044,15 @@ def create_app(
                     # THE PAGE THAT HOLDS THE BUTTON, and it moved on 2026-09-06.
                     # An instruction naming the wrong screen is worse than none: he
                     # looks, does not find it, and concludes the feature is gone.
-                    "fix": ("press Upgrade database on the Database page"),
+                    "fix": (RESTART_UPGRADES if stale
+                            else "press Upgrade database on the Database page"),
                     "message": (
                         f"{len(waiting)} migration(s) on disk are not applied to "
-                        f"this database — {waiting[0][1]} onward. Pages that read "
-                        "the newer columns will fail until they are applied."),
+                        f"this database — {waiting[0][1]} onward. "
+                        + ("This engine started before they arrived, so it cannot "
+                           "apply them." if stale else
+                           "Pages that read the newer columns will fail until they "
+                           "are applied.")),
                 }
         except (DatabaseUnavailableError, DatabaseMigrationError,
                 DatabaseKindError, sqlite3.DatabaseError):
