@@ -22,11 +22,9 @@ from __future__ import annotations
 import json
 
 import pytest
-
 from pydantic import ValidationError
 
-from scrapex.config import (MANIFEST_FILE, ExtractSpec, SourceEntry, UnitWitness,
-                            load_manifest)
+from scrapex.config import MANIFEST_FILE, ExtractSpec, SourceEntry, UnitWitness, load_manifest
 from scrapex.connectors.magento import MagentoGraphqlConnector, _apply_charter
 from scrapex.rowspec import PRODUCT_PRICES, RowView
 from scrapex.units import Charter
@@ -225,11 +223,12 @@ class _Fetcher:
 
 def _crawl() -> dict[str, dict]:
     charter = load_manifest(MANIFEST_FILE).get("MADAR").unit_charter
-    entry = SourceEntry.model_validate(dict(
-        source_key="MADAR", source_name="المدار", base_url="https://www.madar.com",
-        family="magento-graphql", currency="SAR", default_region="SA", vat_mode="incl",
-        extract=[ExtractSpec(kind=ExtractKind.PRODUCT_PRICES, scope=ExtractScope.CENSUS)],
-        unit_charter=charter.model_dump()))
+    entry = SourceEntry.model_validate({
+        "source_key": "MADAR", "source_name": "المدار",
+        "base_url": "https://www.madar.com", "family": "magento-graphql",
+        "currency": "SAR", "default_region": "SA", "vat_mode": "incl",
+        "extract": [ExtractSpec(kind=ExtractKind.PRODUCT_PRICES, scope=ExtractScope.CENSUS)],
+        "unit_charter": charter.model_dump()})
     tables = [t for t in MagentoGraphqlConnector(_Fetcher()).fetch(entry)
               if t.kind == ExtractKind.PRODUCT_PRICES]
     view = RowView(PRODUCT_PRICES, tables[0].header)
