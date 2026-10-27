@@ -15166,3 +15166,37 @@ def test_a_refused_interpretation_says_why_where_he_pressed(open_panel):
     assert seen["view"] == "data", (
         "a refused press navigated to the Run screen, away from the only line saying why")
 
+
+def test_the_schema_lag_banner_says_the_engines_fix_and_nothing_against_it(open_panel):
+    """#1634: the Run banner appended "— back up first, and do it before restarting the
+    engine" to whatever the engine sent. For an engine older than the disk -- the only
+    way a running engine reports a lag -- the engine's fix is a Restart, so the banner
+    told him to restart and not to in one line. The engine's sentence is now the whole
+    instruction; an engine that sends none still gets the Upgrade button's."""
+    from scrapex.dbupgrade import RESTART_UPGRADES
+
+    lag = {"pending": ["0026_tender_history_kept_as_jsonb.sql"], "fix": RESTART_UPGRADES,
+           "message": "1 migration(s) on disk are not applied to this database."}
+    page = open_panel(view="run", schema_lag=lag)
+    page.wait_for_selector("#schema-lag:not(.hidden)")
+    said = page.inner_text("#schema-lag")
+    assert f"Fix: {RESTART_UPGRADES}." in said, said
+    assert "before restarting" not in said and "back up first" not in said, said
+
+    # THE NAMES IT GIVES ARE THE PANEL'S OWN. The remedy says where to go and what
+    # to press; each name must be a label this panel draws, or the sentence sends
+    # him looking for something that is not there (the merge gate's M12).
+    labels = {
+        "Engine": page.text_content("#view-engines .view-heading h1"),
+        "ScrapeX Engine": page.text_content("#engine-detail-title"),
+        "Restart engine": page.text_content("#runtime-restart"),
+    }
+    for name, drawn in labels.items():
+        assert (drawn or "").strip() == name, f"the panel draws {drawn!r}, not {name!r}"
+        assert name in RESTART_UPGRADES, f"the remedy does not name {name!r}"
+    assert "Upgrade database" not in RESTART_UPGRADES, RESTART_UPGRADES
+
+    older = open_panel(view="run", schema_lag={**lag, "fix": None})
+    older.wait_for_selector("#schema-lag:not(.hidden)")
+    assert "Fix: press Upgrade database on the Database page." in older.inner_text(
+        "#schema-lag")

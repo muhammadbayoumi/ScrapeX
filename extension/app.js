@@ -681,7 +681,7 @@ function renderSchemaLag(lag) {
   // until the control moved, and an instruction pointing at the wrong screen is worse
   // than none -- he would look, not find it, and conclude the feature is missing.
   how.textContent = "Fix: " + (lag.fix || "press Upgrade database on the Database page")
-    + " — back up first, and do it before restarting the engine.";
+    + ".";
   const which = el("div", "muted text-xs tech", lag.pending.join(", "));
   box.append(title, what, which, how);
   box.classList.remove("hidden");
