@@ -140,6 +140,8 @@ class ProviderResult:
     checked: bool = True
     error: str = ""
     system_error: bool = False
+    # What a run says about a result it keeps, as `error` would discard the facts.
+    note: str = ""
 
 
 class ReviewAction(StrEnum):

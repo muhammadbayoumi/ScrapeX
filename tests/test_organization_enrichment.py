@@ -1502,6 +1502,223 @@ def test_website_obeys_robots_for_discovered_pages():
     assert "iso_certifications" not in {fact.field_key for fact in result.facts}
 
 
+class _Network:
+    """A site behind the provider's real fetch path, which records every request sent."""
+
+    def __init__(self, pages: dict[str, tuple[int, dict, str]]):
+        self.pages = pages
+        self.asked: list[str] = []
+
+    def __call__(self, request):
+        class Stream:
+            def get_extra_info(self, name):
+                return ("8.8.8.8", 443) if name == "server_addr" else None
+
+        path = f"{request.headers['host']}{request.url.path}"
+        self.asked.append(path)
+        status, headers, body = self.pages.get(path, (404, {}, ""))
+        return httpx.Response(
+            status, headers={"content-type": "text/html", **headers}, text=body,
+            extensions={"network_stream": Stream()}, request=request,
+        )
+
+
+def _provider_on(network: _Network, monkeypatch) -> WebsiteProvider:
+    monkeypatch.setenv("SCRAPEX_WEBSITE_MIN_INTERVAL_MS", "0")
+    monkeypatch.setattr(
+        website_provider, "_public_addresses", lambda host, port=443: ("8.8.8.8",)
+    )
+    monkeypatch.setattr(
+        website_provider, "_new_client",
+        lambda: httpx.Client(transport=httpx.MockTransport(network)),
+    )
+    return WebsiteProvider()
+
+
+_NAMED_SITE = ("<html><title>Example Builders</title><h1>Example Builders</h1>"
+               "<a href='/contact'>Contact</a><a href='/careers'>Careers</a>"
+               "<a href='/about'>About our company</a></html>")
+
+
+def test_the_limit_his_ruling_set_is_ten_requests_per_company():
+    assert website_provider.REQUESTS_PER_COMPANY == 10
+
+
+def test_a_redirect_is_a_request_the_count_sees(monkeypatch):
+    """A hop reached the site and was not counted, so `request_count` read low."""
+    network = _Network({
+        "example.com/robots.txt": (200, {}, ""),
+        "example.com/": (302, {"location": "https://example.com/home"}, ""),
+        "example.com/home": (200, {}, "<html><title>Elsewhere</title></html>"),
+    })
+    provider = _provider_on(network, monkeypatch)
+
+    provider.run(_identity())
+
+    assert network.asked == ["example.com/robots.txt", "example.com/", "example.com/home"]
+    assert provider.requests_made == len(network.asked)
+
+
+def test_a_name_that_does_not_resolve_costs_no_request(monkeypatch):
+    """4,776 of job 148's 7,400 "requests" were this, and none of them left the machine."""
+    network = _Network({})
+    provider = _provider_on(network, monkeypatch)
+    monkeypatch.setattr(website_provider, "_public_addresses", lambda host, port=443: ())
+
+    result = provider.run(_identity())
+
+    assert "does not resolve" in result.error
+    assert network.asked == []
+    assert provider.requests_made == 0
+
+
+def test_a_company_stops_at_the_limit_and_keeps_what_it_read(monkeypatch):
+    monkeypatch.setattr(website_provider, "REQUESTS_PER_COMPANY", 3)
+    network = _Network({
+        "example.com/robots.txt": (200, {}, ""),
+        "example.com/": (200, {}, _NAMED_SITE),
+        "example.com/contact": (200, {}, "<html><a href='tel:+966112223333'>Call</a></html>"),
+    })
+    provider = _provider_on(network, monkeypatch)
+
+    result = provider.run(_identity())
+
+    assert network.asked == ["example.com/robots.txt", "example.com/", "example.com/contact"]
+    assert provider.requests_made == 3
+    assert result.error == "", "stopping at the limit is not a site that failed"
+    assert "limit of 3 requests" in result.note
+    facts = {fact.field_key: fact.value for fact in result.facts}
+    assert facts["website_match_status"] == "verified"
+    assert facts["verified_phone_secondary"] == "+966112223333"
+
+
+def test_a_limit_reached_on_a_linked_pages_robots_keeps_what_was_read(monkeypatch):
+    """A link to the same host on another scheme is a new origin with its own robots.txt,
+    so the limit can land on that check, outside the page fetch. The company keeps its
+    home page's facts rather than losing them to an exception."""
+    monkeypatch.setattr(website_provider, "REQUESTS_PER_COMPANY", 2)
+    network = _Network({
+        "example.com/robots.txt": (200, {}, ""),
+        "example.com/": (200, {}, "<html><title>Example Builders</title>"
+                                  "<a href='http://example.com/contact'>Contact</a></html>"),
+    })
+    provider = _provider_on(network, monkeypatch)
+
+    result = provider.run(_identity())
+
+    assert network.asked == ["example.com/robots.txt", "example.com/"]
+    assert "limit of 2 requests" in result.note
+    assert {fact.field_key: fact.value for fact in result.facts}[
+        "website_match_status"] == "verified"
+
+
+def test_a_company_inside_the_limit_carries_no_note(monkeypatch):
+    """The other side of the test above, so a note cannot be written on every result."""
+    network = _Network({
+        "example.com/robots.txt": (200, {}, ""),
+        "example.com/": (200, {}, _NAMED_SITE),
+    })
+    provider = _provider_on(network, monkeypatch)
+
+    result = provider.run(_identity())
+
+    assert result.error == ""
+    assert result.note == ""
+
+
+def test_the_next_company_starts_its_own_count(monkeypatch):
+    monkeypatch.setattr(website_provider, "REQUESTS_PER_COMPANY", 2)
+    network = _Network({
+        "example.com/robots.txt": (200, {}, ""),
+        "example.com/": (200, {}, _NAMED_SITE),
+        "other.example/robots.txt": (200, {}, ""),
+        "other.example/": (200, {}, _NAMED_SITE),
+    })
+    provider = _provider_on(network, monkeypatch)
+
+    provider.run(_identity())
+    second = provider.run(_identity(email="info@other.example"))
+
+    assert "other.example/" in network.asked
+    assert provider.requests_made == 4
+    assert second.error == ""
+
+
+def test_a_company_whose_limit_ends_before_its_home_page_fails_and_says_why(monkeypatch):
+    monkeypatch.setattr(website_provider, "REQUESTS_PER_COMPANY", 1)
+    network = _Network({"example.com/robots.txt": (200, {}, "")})
+    provider = _provider_on(network, monkeypatch)
+
+    result = provider.run(_identity())
+
+    assert network.asked == ["example.com/robots.txt"]
+    assert result.error == "stopped at the limit of 1 request for one company"
+
+
+def test_a_limit_reached_on_robots_is_not_remembered_as_no_rule(monkeypatch):
+    """An unreadable robots.txt means "no rule" for the whole job. Running out of requests
+    is not the site saying anything, so the next company must still read the real rule."""
+    network = _Network({
+        "example.com/robots.txt": (200, {}, "User-agent: *\nDisallow: /\n"),
+        "example.com/": (200, {}, _NAMED_SITE),
+    })
+    provider = _provider_on(network, monkeypatch)
+
+    monkeypatch.setattr(website_provider, "REQUESTS_PER_COMPANY", 0)
+    stopped = provider.run(_identity())
+    assert "limit of 0 requests" in stopped.error
+    assert network.asked == []
+
+    monkeypatch.setattr(website_provider, "REQUESTS_PER_COMPANY", 10)
+    result = provider.run(_identity())
+
+    assert result.error == "robots.txt disallows organization enrichment"
+    assert "example.com/" not in network.asked
+
+
+def test_a_fetch_handed_in_counts_against_the_limit_too(monkeypatch):
+    monkeypatch.setattr(website_provider, "REQUESTS_PER_COMPANY", 2)
+    fetched = []
+
+    def fetch(url):
+        fetched.append(url)
+        return FetchedPage(url, _NAMED_SITE)
+
+    provider = WebsiteProvider(fetch)
+    result = provider.run(_identity())
+
+    assert len(fetched) == 2
+    assert provider.requests_made == 2
+    assert "limit of 2 requests" in result.note
+
+
+def test_a_company_stopped_at_the_limit_is_counted_and_logged_and_is_not_an_error(
+    conn, monkeypatch
+):
+    class Limited:
+        name = "website"
+
+        def run(self, identity):
+            url = f"https://{identity.external_id}.example"
+            return ProviderResult(self.name, (FieldFact(
+                "website_url", url, self.name, source_url=url, confidence=0.96,
+                verification_status="verified",
+            ),), note="stopped at the limit of 10 requests for one company")
+
+    definition_id = enrichment.create_definition(
+        conn, _request(conn))["enrichment_definition_id"]
+
+    job = _run(conn, definition_id, monkeypatch, Limited())
+
+    assert job["status"] == "completed"
+    assert job["counters"]["provider_limited"] == 4
+    assert "provider_errors" not in job["counters"] or job["counters"]["provider_errors"] == 0
+    logged = [row[0] for row in conn.execute(
+        "SELECT message FROM job_log_entry WHERE job_id=?", (job["job_id"],)
+    ) if "limit of 10 requests" in row[0]]
+    assert len(logged) == 4
+
+
 def test_google_places_requires_identity_evidence_before_verification():
     place = {
         "id": "place-1",

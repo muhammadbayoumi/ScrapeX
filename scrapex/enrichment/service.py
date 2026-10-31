@@ -2088,6 +2088,15 @@ def run_enrichment_job_once(conn: sqlite3.Connection, job_ref: str,
                                 f"{identity.external_id}: {provider_name}: {result.error}",
                                 level=LogLevel.WARNING,
                             )
+                        if result.note:
+                            counters["provider_limited"] = int(
+                                counters.get("provider_limited", 0)
+                            ) + 1
+                            jobs.append_log(
+                                conn, job["job_id"],
+                                f"{identity.external_id}: {provider_name}: {result.note}",
+                                level=LogLevel.WARNING,
+                            )
                         if observation_status in ("completed", "not_found"):
                             changed += sum(
                                 _upsert_fact(
