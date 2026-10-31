@@ -8013,13 +8013,13 @@ function jobsBanner(failure, listShown) {
       : failure.message;
     if (!listShown) action = ["Try again", () => loadJobs()];
   } else if (restartRunning) {
-    // NO START WHILE A RESTART RUNS (#1517, his ruling): its own successor is being
+    // NO START WHILE A RESTART RUNS (#1517, from #1810's review): its own successor is being
     // launched, and a Start beside it is a second engine. Said in the restart's own
     // words, and sent to the Engine page, where its outcome is written.
     box.className = "banner";
     title.textContent = RESTART_UNDER_WAY;
     copy.textContent = (listShown ? `Showing the jobs as read at ${read}. ` : "")
-      + RESTART_UPDATES_ON;
+      + RESTART_SEE_THE_ENGINE_PAGE;
     action = ["Open Engine", () => openEngineDetail(SCRAPEX_ENGINE.id)];
   } else if (!state.engineUp) {
     box.className = "banner";
@@ -8829,7 +8829,7 @@ function scheduleBanner() {
   }
   if (restartRunning) {
     // No Start while a restart runs, as on Jobs (`jobsBanner`).
-    return { tone: "banner", title: RESTART_UNDER_WAY, copy: `${shown}${RESTART_UPDATES_ON}`,
+    return { tone: "banner", title: RESTART_UNDER_WAY, copy: `${shown}${RESTART_SEE_THE_ENGINE_PAGE}`,
       action: ["Open Engine", () => openEngineDetail(SCRAPEX_ENGINE.id)] };
   }
   if (!state.engineUp) {
@@ -10162,7 +10162,7 @@ async function startEngineFromPanel() {
     $("engine-note").textContent = "Upgrading the database…";
     return;
   }
-  // NOR WHILE A RESTART RUNS, its whole wait included (#1517, his ruling). Its own
+  // NOR WHILE A RESTART RUNS, its whole wait included (#1517, from #1810's review). Its own
   // successor is being launched, and a second launch beside it is a second engine on
   // the same file (#1810's review). The restart takes Run's Start and the banners
   // offer none while it runs; this is the one place every Start passes through, so a
@@ -10428,9 +10428,15 @@ const RESTART_CONFIRM_ATTEMPTS = 125;
 
 // WHAT A RESTART SAYS WHILE IT WAITS, in one place: the Engine page's note, and the
 // Jobs and Schedules banners that offer Open Engine instead of Start while it runs
-// (#1517; the words are on the Engine page's study, #1556).
+// (#1517; the words are on the Engine page's study, #1556). EACH STATE OF THE WAIT SAYS
+// ITS OWN SENTENCE, his word at that study's stage 6: one sentence for all of them was
+// false in one or another. The banners are not redrawn as it moves, so theirs is true
+// of every state.
 const RESTART_UNDER_WAY = "Restarting the engine…";
-const RESTART_UPDATES_ON = "The Engine page updates when the new engine answers.";
+const RESTART_OLD_ENGINE_ANSWERS = "The current engine is still answering.";
+const RESTART_NO_ENGINE_ANSWERS = "Waiting for the new engine to start.";
+const RESTART_AN_ENGINE_ANSWERS = "An engine is answering, but it is not confirmed as the new one.";
+const RESTART_SEE_THE_ENGINE_PAGE = "See the Engine page for its progress.";
 
 // HOW RECENT AN ANSWER MUST BE FOR THE RESTART'S TWO-MINUTE ENDING TO SAY AN
 // ENGINE "IS STILL ANSWERING" (#1517). One probe running out of its deadline is a
@@ -10525,9 +10531,10 @@ const UPGRADE_NO_ANSWER = ["timeout", "crashed"];
 // Settings, and every press copies the whole warehouse before it waits for the
 // write lock -- for up to five minutes of waiting now, not five seconds.
 let upgradeRunning = false;
-// AND NONE WHILE A RESTART RUNS (#1517) -- no upgrade and no Start, his ruling: one
-// flag for the restart's whole wait, the database check after its two minutes
-// included. The wait now lasts until a different engine answers, about 50 s on his
+// AND NONE WHILE A RESTART RUNS (#1517) -- no upgrade and no Start, a protection #1810's
+// review demonstrated with real processes (issuecomment-6413387526), which he kept as
+// one on #1556: one flag for the restart's whole wait, the database check after its two
+// minutes included. The wait now lasts until a different engine answers, about 50 s on his
 // machine (#1793), and the successor's launch upgrades a database that is only behind
 // on its way up (`cli._cmd_ui`). Re-entering the Database page in that wait turned
 // Upgrade database back on, and Check again in its dark draws the Start buttons:
@@ -10725,7 +10732,7 @@ function wireRuntimeRepair() {
       .forEach((button) => { button.disabled = true; });
     // AND START AND CHECK AGAIN, as an upgrade holds them (`upgradeDatabaseFromPanel`):
     // a Start in the wait is a second engine beside the successor, and Check again in
-    // the dark draws one (his ruling, #1810's review). And the Engine page's Run
+    // the dark draws one (#1810's review). And the Engine page's Run
     // diagnostics, the twin of the Settings button held above: in the dark it says
     // "Start the engine", and its output stays standing above the outcome. Only what
     // is live now, so the ending gives back only what this took.
@@ -10774,13 +10781,9 @@ function wireRuntimeRepair() {
     // process to leave. Without this gate, a newer process could die during
     // startup and the panel would only be able to say "two minutes".
     const checking = Date.now();
-    // NO DURATION. "A few seconds" was about 50 on his machine (#1793), and this
-    // sentence now stands until a different engine answers. #1556 approved "This
-    // page updates when the engine answers." for its time sentences (round 4); it
-    // was false here twice over -- the same engine answers through a restart that
-    // did not happen, and the Database page, which shows this note too, updates for
-    // no engine -- so it names the new engine and the page that redraws.
-    let before = `${RESTART_UNDER_WAY} ${RESTART_UPDATES_ON}`;
+    // NO DURATION. "A few seconds" was about 50 on his machine (#1793). This opens the
+    // note, and the poll adds what it finds to it, one sentence for each state.
+    let before = RESTART_UNDER_WAY;
     try {
       await checkStartup();
     } catch (startupError) {
@@ -10868,6 +10871,11 @@ function wireRuntimeRepair() {
     // and age does (`RESTART_ANSWER_STILL_FRESH_MS`).
     let wentDark = false;
     let lastAnswer = null;
+    // WHAT THE NOTE ADDS FOR WHAT THE POLL LAST FOUND. A slow probe or a refusing answer
+    // finds nothing new, and the sentence stands. Written only when it changes, so a
+    // screen reader hears a change and not a tick.
+    let found = "";
+    let said = "";
     const timer = setInterval(async () => {
       attempts += 1;
       let successor = false;
@@ -10885,6 +10893,9 @@ function wireRuntimeRepair() {
           const answered = sealedAtOf(await probe.json());
           successor = leaving && answered ? answered !== leaving : wentDark;
           lastAnswer = {same: leaving !== null && answered === leaving, at: Date.now()};
+          if (!successor) {
+            found = lastAnswer.same ? RESTART_OLD_ENGINE_ANSWERS : RESTART_AN_ENGINE_ANSWERS;
+          }
         } else {
           lastAnswer = null;
         }
@@ -10895,6 +10906,7 @@ function wireRuntimeRepair() {
         if (error instanceof TypeError) {
           wentDark = true;
           lastAnswer = null;
+          found = RESTART_NO_ENGINE_ANSWERS;
         } else if (!isTimeoutError(error)) {
           // NOT SWALLOWED: a body that is not JSON, or a request cancelled under
           // the poll, is neither the dark nor a slow engine. The trace keeps it,
@@ -10904,6 +10916,10 @@ function wireRuntimeRepair() {
         }
       }
       if (settled) return;
+      if (found !== said) {
+        said = found;
+        say(`${before} ${found}`);
+      }
       if (successor) {
         settled = true;
         clearInterval(timer);

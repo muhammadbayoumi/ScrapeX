@@ -8949,19 +8949,19 @@ def test_a_refusing_answer_is_not_taken_for_the_same_engine(open_panel):
     assert not page.js_errors, page.js_errors
 
 
-WAITING = "Restarting the engine… The Engine page updates when the new engine answers."
+RESTART_ASKED = "Restarting the engine…"
+OLD_ENGINE_ANSWERS = "Restarting the engine… The current engine is still answering."
+NO_ENGINE_ANSWERS = "Restarting the engine… Waiting for the new engine to start."
+AN_ENGINE_ANSWERS = ("Restarting the engine… An engine is answering, but it is not "
+                     "confirmed as the new one.")
 
 
 def test_the_wait_promises_no_duration(open_panel):
-    """The note stands until a different engine answers, and on his machine that
-    was about 50 s after a restart onto 0.4.66 (#1793) -- "the engine goes quiet for
-    a few seconds" said otherwise for most of it. Read 30 s into a wait the engine
-    has not ended. With a helper, as on his machine: without one the note says
-    the restart goes through the engine instead.
-
-    THE SAME WORDS ON BOTH PAGES, and true on both: the Database page shows this
-    note too, and it is the Engine page that redraws when the new engine answers --
-    "this page" was false there."""
+    """A wait lasts until a different engine answers, and on his machine that was
+    about 50 s after a restart onto 0.4.66 (#1793) -- "the engine goes quiet for a few
+    seconds" said otherwise for most of it. Read 30 s into a wait the engine has not
+    ended. With a helper, as on his machine: without one the note says the restart
+    goes through the engine instead."""
     page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
     page.click("#tab-engines")
     open_engine(page)
@@ -8971,8 +8971,142 @@ def test_the_wait_promises_no_duration(open_panel):
     page.click("#runtime-restart")
     page.clock.run_for(30_000)
 
-    assert text_of(page, "#engine-restart-note") == WAITING
-    assert text_of(page, "#runtime-note") == WAITING
+    assert text_of(page, "#engine-restart-note") == NO_ENGINE_ANSWERS
+    assert text_of(page, "#runtime-note") == NO_ENGINE_ANSWERS
+    assert not page.js_errors, page.js_errors
+
+
+def the_note_on_every_line(page) -> set:
+    """The note, as the Engine page, the Database page and Run each show it."""
+    return {text_of(page, line) for line in
+            ("#engine-restart-note", "#runtime-note", "#engine-note")}
+
+
+def test_each_state_of_the_wait_says_its_own_sentence(open_panel):
+    """HIS WORD ON #1556: a sentence for each state. One sentence for the whole wait
+    was false in one state or another. The note follows what the poll has found, on
+    every line that shows it: asked, the current engine still answering, then none."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART,
+                                    bow_out_ms=5_000, dark_ms=10**9)
+    page.clock.install()
+    page.click("#runtime-restart")
+    page.wait_for_function(
+        "(said) => document.getElementById('engine-restart-note').textContent === said",
+        arg=RESTART_ASKED, timeout=10_000)
+    assert the_note_on_every_line(page) == {RESTART_ASKED}
+
+    page.clock.run_for(2_000)
+    assert the_note_on_every_line(page) == {OLD_ENGINE_ANSWERS}
+    page.clock.run_for(6_000)
+    assert the_note_on_every_line(page) == {NO_ENGINE_ANSWERS}
+    assert not page.js_errors, page.js_errors
+
+
+@pytest.mark.parametrize("engine_build, bow_out_ms", [
+    (False, 10**9), (ENGINE_BEFORE_RESTART, ENGINE_BOW_OUT_MS),
+], ids=["the-leaving-engine-cannot-say", "its-successor-cannot-say"])
+def test_an_answer_that_cannot_be_told_apart_is_said_as_that(open_panel, engine_build, bow_out_ms):
+    """Either side reports no `sealed_at` and no probe was refused, so the answer may be
+    the engine that was asked to leave or its successor. The note says only that."""
+    page = open_panel(engine_build=engine_build, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    restart_the_way_the_engine_does(page, successor_build=None, bow_out_ms=bow_out_ms,
+                                    dark_ms=0)
+    page.clock.install()
+    page.click("#runtime-restart")
+    page.clock.run_for(5_000)
+    assert the_note_on_every_line(page) == {AN_ENGINE_ANSWERS}
+    assert not page.js_errors, page.js_errors
+
+
+def test_a_restart_without_the_helper_keeps_saying_so_in_each_state(open_panel):
+    """With no helper the note opens with how the restart is going. Each state's sentence
+    is added to that, so it does not vanish at the poll's first finding."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="absent")
+    page.click("#tab-engines")
+    open_engine(page)
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART,
+                                    dark_ms=10**9)
+    page.clock.install()
+    page.click("#runtime-restart")
+    page.clock.run_for(5_000)
+    assert text_of(page, "#engine-restart-note") == (
+        "Native helper unavailable — restarting through the engine. "
+        "Waiting for the new engine to start.")
+    assert not page.js_errors, page.js_errors
+
+
+#: `/api/health`, once `window.__findNothing` is set, finds nothing new in the given way.
+PROBES_FIND_NOTHING = """() => {
+  const inner = window.fetch;
+  window.fetch = async (url, options = {}) => {
+    if (String(url).includes('/api/health') && window.__findNothing === 'refuses') {
+      return {ok: false, status: 503, statusText: 'Service Unavailable',
+              headers: {get: () => null}, json: async () => ({})};
+    }
+    if (String(url).includes('/api/health') && window.__findNothing === 'runs-out') {
+      throw new DOMException('signal timed out', 'TimeoutError');
+    }
+    return inner(url, options);
+  };
+}"""
+
+
+@pytest.mark.parametrize("how", ["refuses", "runs-out"])
+def test_a_probe_that_finds_nothing_leaves_the_sentence(open_panel, how):
+    """A refusing answer and a probe that runs out of time say nothing about which
+    engine is there, so the note goes on saying what the poll last found."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART,
+                                    bow_out_ms=10**9)
+    page.evaluate(PROBES_FIND_NOTHING)
+    page.clock.install()
+    page.click("#runtime-restart")
+    page.clock.run_for(5_000)
+    assert the_note_on_every_line(page) == {OLD_ENGINE_ANSWERS}
+
+    page.evaluate("(how) => { window.__findNothing = how; }", how)
+    page.clock.run_for(3_000)
+    assert the_note_on_every_line(page) == {OLD_ENGINE_ANSWERS}
+    assert not page.js_errors, page.js_errors
+
+
+#: The poll's first probe comes back after the restart has ended: the check before the
+#: POST and the naming read are the two `/api/health` calls that precede it.
+THE_FIRST_PROBE_COMES_BACK_LATE = """() => {
+  const inner = window.fetch;
+  let calls = 0;
+  window.fetch = async (url, options = {}) => {
+    if (!String(url).includes('/api/health') || ++calls !== 3) return inner(url, options);
+    const answer = await inner(url, options);
+    await new Promise((settle) => setTimeout(settle, 6_000));
+    return answer;
+  };
+}"""
+
+
+def test_a_late_probe_does_not_write_over_the_ending(open_panel):
+    """A probe can outlast the 1 s interval. One the leaving engine answered, read after
+    the successor was found, must not put "still answering" over "The engine is back."."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART,
+                                    dark_ms=1_000)
+    page.evaluate(THE_FIRST_PROBE_COMES_BACK_LATE)
+    page.clock.install()
+    page.click("#runtime-restart")
+    page.clock.run_for(5_000)
+    assert text_of(page, "#engine-restart-note") == "The engine is back."
+
+    page.clock.run_for(4_000)                  # the late probe has come back
+    assert text_of(page, "#engine-restart-note") == "The engine is back."
     assert not page.js_errors, page.js_errors
 
 
@@ -9349,7 +9483,7 @@ THE_ENDING_CHECK_TAKES_A_MINUTE = """() => {
 
 
 RESTARTING = "Restarting the engine…"
-WAITING_FOR_THE_NEW_ENGINE = "The Engine page updates when the new engine answers."
+SEE_THE_ENGINE_PAGE = "See the Engine page for its progress."
 
 
 def jobs_banner(page) -> dict:
@@ -9364,10 +9498,10 @@ def jobs_banner(page) -> dict:
 
 
 def test_start_and_upgrade_are_refused_through_the_whole_restart(open_panel):
-    """HIS RULING, through #1810's review: one flag for the restart's whole wait, the
-    database check after its two minutes included, refusing Start and Upgrade
-    database as the native upgrade's own flag does. Without it a restart that
-    upgrades lets a second upgrader or a second engine start beside its successor --
+    """A PROTECTION FROM #1810'S REVIEW, kept as one by his word on #1556: one flag for
+    the restart's whole wait, the database check after its two minutes included,
+    refusing Start and Upgrade database as the native upgrade's own flag does. Without
+    it a restart that upgrades lets a second upgrader or a second engine start beside its successor --
     demonstrated with real processes on #1810 (issuecomment-6413387526).
 
     The restart holds what an upgrade holds: Run's Start and Check again, and the
@@ -9400,7 +9534,7 @@ def test_start_and_upgrade_are_refused_through_the_whole_restart(open_panel):
         page.clock.run_for(3_000)
         banner = jobs_banner(page)
         assert banner and banner["title"] == RESTARTING, f"Jobs {moment}: {banner}"
-        assert banner["copy"].endswith(WAITING_FOR_THE_NEW_ENGINE), banner
+        assert banner["copy"].endswith(SEE_THE_ENGINE_PAGE), banner
         assert banner["buttons"] == ["Open Engine"], f"Jobs offers {banner['buttons']} {moment}"
 
         page.click('nav.side-rail button[data-view="schedules"]')
@@ -9440,7 +9574,7 @@ def test_start_and_upgrade_are_refused_through_the_whole_restart(open_panel):
             f"an upgrade was asked of the engine {moment}: {posts}")
 
     page.clock.run_for(30_000)
-    refused("in the dark of the restart", f"{RESTARTING} {WAITING_FOR_THE_NEW_ENGINE}")
+    refused("in the dark of the restart", NO_ENGINE_ANSWERS)
     page.clock.run_for(100_000)               # past the two minutes: the check runs
     assert text_of(page, "#engine-restart-note") == (
         "The engine has not answered in two minutes. Checking the database…")
