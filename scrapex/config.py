@@ -571,7 +571,7 @@ class SourceEntry(BaseModel):
     # WHAT KIND of thing this source publishes (`R-32`). Defaults to `products`
     # because every one of the thirteen sources in the manifest today IS a products
     # source -- so the default is a statement of fact, not a convenience, and no
-    # existing entry has to be edited. A future contractors entry states it.
+    # existing entry has to be edited. A future organizations entry states it.
     category: SourceCategory = SourceCategory.PRODUCTS
     family: ConnectorFamily
     cadence: Cadence = Cadence.MANUAL
