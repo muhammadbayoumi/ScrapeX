@@ -74,7 +74,7 @@ class Source:
     registry: str
 
     def __str__(self) -> str:
-        return (f"{self.state:<11} {self.category.value:<12} {self.key:<18} "
+        return (f"{self.state:<11} {self.category.value:<13} {self.key:<18} "
                 f"{self.collector:<26} {self.registry}")
 
 

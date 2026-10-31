@@ -5,7 +5,8 @@ data to the Google Sheet the mbiX Excel add-in reads.
 **The add-in is never touched** — the two systems meet only at the sheets.
 
 It collects in **categories** — `products` (shops and price sources) and
-`contractors` (directories) today, with `vacancies` and `tenders` to come. Price tracking
+`organizations` (any company, establishment, organization, contractor or office) today,
+with `vacancies` and `tenders` to come. Price tracking
 was the first category, not the category: see
 [CLAUDE.md](CLAUDE.md).
 

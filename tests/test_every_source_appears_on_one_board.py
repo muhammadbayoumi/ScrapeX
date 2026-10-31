@@ -21,6 +21,7 @@ THE THREE THINGS THAT MUST NOT DRIFT, and each has a test below:
 """
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 
 import pytest
@@ -275,6 +276,25 @@ def test_a_new_entry_lands_in_its_category_on_the_board(tmp_path):
 
     assert "SOME_FIRMS" in {one.key for one in found}
     assert {one.state for one in found if one.key == "SOME_FIRMS"} == {"registered"}
+
+
+def test_the_sources_table_keeps_its_columns(monkeypatch, capsys, tmp_path):
+    """`organizations` is the longest category, so a width set for `contractors` pushed
+    each of its rows one column right of its header and of the products rows."""
+    absent = DatabaseRegistry(EngineDatabase(tmp_path / "absent.db"),
+                              pointer_file=tmp_path / "databases.json")
+    monkeypatch.setattr(cli.DatabaseRegistry, "defaults", staticmethod(lambda: absent))
+
+    assert cli._cmd_sources(argparse.Namespace(category=None, json=False)) == 0
+    lines = capsys.readouterr().out.splitlines()
+
+    column = next(line for line in lines if line.startswith("state")).index("source")
+    assert next(line for line in lines if " MADAR " in line).index("MADAR") == column
+    assert next(line for line in lines if " muqawil_org " in line).index("muqawil_org") == column
+    # The summary lines under the table hold their counts in one column too.
+    starts = {line.split()[0]: len(line) - len(line.split(maxsplit=1)[1])
+              for line in lines if line.startswith("  ")}
+    assert starts["products"] == starts["organizations"]
 
 
 def test_the_sources_command_takes_the_new_word_and_refuses_the_old():
