@@ -20,9 +20,11 @@ site's own stated dimensions and the density of steel.
 """
 from __future__ import annotations
 
+import copy
 import re
 from pathlib import Path
 
+from scrapex import changes
 from scrapex import db as dbmod
 from scrapex import reports
 from scrapex.config import ExtractSpec, SourceEntry
@@ -275,6 +277,12 @@ def _row_for(conn, sku: str) -> dict:
 #
 # It says «طن» in its MARKETING PROSE, which is a different thing and is
 # asserted separately below — see the pair of tests at the end of this file.
+#
+# BY 2026-10-25 THAT CHANGED: the shop's own descriptions say «يباع بالطن» on 22
+# products, and MADAR's charter believes it where the weight agrees (#1833,
+# tests/test_madar_believes_its_tonne_where_its_weight_agrees.py). This file's
+# fixtures are the July store, which said nothing, and its source entry declares
+# no charter: what it guards is that a shop which states no unit gets none.
 _NEVER_PUBLISHED = ("tonne", "tonnes", "ton", "tons", "metric ton", "t", "طن")
 
 # «طن» as a WORD, not as the tail of «قطن» (cotton) or «بطن». A substring test
@@ -468,47 +476,61 @@ def test_a_stated_unit_always_wins_over_a_published_weight(tmp_path):
     assert cement["price_basis"] == ""
 
 
-def test_the_mechanism_is_not_a_madar_special_case(tmp_path):
-    """The rule is "a source publishing a decimal quantity against a weight",
-    not "the rebar". It fires inside a ConfigurableProduct too — the steel mesh
-    — which is why the weight rides the OFFER and not the product: its live
-    children span 6.74 .. 66.02 kg, so one figure for the family would be wrong
-    twelve times out of thirteen."""
+def test_a_sheet_sold_one_at_a_time_is_not_quoted_against_its_own_mass(tmp_path):
+    """His ruling of 2026-10-26 on #1833, option B. The mesh is decimal like the
+    rebar, but it is sold 1 at a time in steps of 1, and each child's weight
+    (6.74 .. 66.02 kg live) is that one sheet's mass. "/ 6.74 kg" beside a
+    sheet's 30.19 named a basis the shop never quotes. The rebar's 0.25 / 0.05
+    is a fraction OF its 1,000 kg, which is what makes that weight a basis."""
     conn = _ingest(tmp_path)
     mesh = _row_for(conn, "10404154020")
     assert mesh["price"] == 30.19
     assert mesh["unit"] == ""
-    assert mesh["price_basis"] == "6.74 kg"
+    assert mesh["price_basis"] == ""
+    # The weight is still stored: the rule decides where it is shown, never
+    # whether a fact the shop published is kept.
+    assert tuple(conn.execute(
+        "SELECT so.weight, so.weight_unit FROM source_offer so "
+        "JOIN source_variant sv ON sv.source_variant_id = so.source_variant_id "
+        "WHERE sv.external_sku = '10404154020'").fetchone()) == (6.74, "kg")
 
 
 # ---- price_basis itself, condition by condition ------------------------------
 
-def test_price_basis_needs_all_three_of_the_sources_own_statements():
-    # Everything present: the shop's weight, the shop's unit, the shop's flag.
-    assert price_basis("", 1000, "kg", 1) == "1,000 kg"
+def test_price_basis_needs_every_one_of_the_sources_own_statements():
+    # Everything present: the shop's weight, the shop's unit, the shop's flag,
+    # and a fraction of the weight on sale.
+    assert price_basis("", 1000, "kg", 1, 0.25, 0.05) == "1,000 kg"
     # A stated selling unit is the answer; the weight is then a piece's mass.
-    assert price_basis("kg", 1000, "kg", 1) == ""
+    assert price_basis("kg", 1000, "kg", 1, 0.25, 0.05) == ""
     # The shop does not say the quantity is divisible.
-    assert price_basis("", 1000, "kg", 0) == ""
+    assert price_basis("", 1000, "kg", 0, 0.25, 0.05) == ""
     # The shop publishes no weight.
-    assert price_basis("", None, "kg", 1) == ""
+    assert price_basis("", None, "kg", 1, 0.25, 0.05) == ""
     # The shop publishes a weight and will not say what unit it is in. This is
     # the storeConfig-failed case, and a number with a unit we assumed is worse
     # than no number at all.
-    assert price_basis("", 1000, "", 1) == ""
+    assert price_basis("", 1000, "", 1, 0.25, 0.05) == ""
     # Weightlessness is not a fact any shop states.
-    assert price_basis("", 0, "kg", 1) == ""
+    assert price_basis("", 0, "kg", 1, 0.25, 0.05) == ""
+    # His ruling B (#1833): sold whole, one at a time, the weight is the
+    # piece's own mass. Either a fractional minimum or a fractional step is
+    # enough to say a fraction of the weight is on sale.
+    assert price_basis("", 6.74, "kg", 1, 1, 1) == ""
+    assert price_basis("", 1000, "kg", 1, None, None) == ""
+    assert price_basis("", 1000, "kg", 1, 1, 0.05) == "1,000 kg"
+    assert price_basis("", 1000, "kg", 1, 0.25, 1) == "1,000 kg"
 
 
 def test_the_basis_is_grouped_and_keeps_the_sources_own_precision():
     """1,000 not 1000 — the whole point is that the number is large. And the
     reader's own units: the shop said 1000 kg, so it says 1,000 kg, never 1 t.
     A tonne is a word this shop has not used."""
-    assert price_basis("", 1000, "kg", 1) == "1,000 kg"
-    assert price_basis("", 66.02, "kg", 1) == "66.02 kg"
-    assert price_basis("", 6.74, "kg", 1) == "6.74 kg"
+    assert price_basis("", 1000, "kg", 1, 0.25, 0.05) == "1,000 kg"
+    assert price_basis("", 66.02, "kg", 1, 0.25, 0.05) == "66.02 kg"
+    assert price_basis("", 6.74, "kg", 1, 0.25, 0.05) == "6.74 kg"
     # A store weighing in pounds renders pounds, with nothing here changing.
-    assert price_basis("", 2204.62, "lb", 1) == "2,204.62 lb"
+    assert price_basis("", 2204.62, "lb", 1, 0.25, 0.05) == "2,204.62 lb"
 
 
 def test_a_store_that_will_not_state_its_weight_unit_shows_no_basis(tmp_path):
@@ -623,23 +645,67 @@ def test_folding_two_variants_priced_alike_never_lends_one_its_neighbours_weight
     — already covers any column, which is why the basis was given a column of
     its own instead of being composed at the last moment in the browser.
     """
-    conn = _ingest(tmp_path)
-
-    apart = reports.table_payload(conn, "MADAR")["rows"]
-    by_sku = {r["sku"]: r for r in apart}
-    # Told apart, each says its own weight...
-    assert by_sku["10408150420"]["price_basis"] == "25.86 kg"
-    assert by_sku["104075154020"]["price_basis"] == "22.73 kg"
-    assert by_sku["10408150420"]["price"] == by_sku["104075154020"]["price"]
-
-    # ...and folded together, the row says nothing rather than something false.
-    folded = [r for r in reports.table_payload(conn, "MADAR", fold_variants=True)["rows"]
-              if r.get("variants", 1) > 1 and "10408150420" in str(r.get("sku"))]
-    assert len(folded) == 1, folded
-    assert folded[0]["variants"] == 2
+    # Since #1833's ruling B the mesh carries no basis at all, so the two live
+    # sizes can no longer disagree about one. The fold's rule is asserted on
+    # two rows that do: a shop selling fractions of two different weights at
+    # one price is a state the table can reach, and must never print either.
+    a = {"source_product_id": 7, "price": 84.0, "currency": "SAR",
+         "country_code_alpha2": "SA", "offer_id": 1, "sku": "10408150420",
+         "price_basis": "25.86 kg"}
+    b = dict(a, offer_id=2, sku="104075154020", price_basis="22.73 kg")
+    folded = reports.fold_variant_rows([a, b])
+    assert len(folded) == 1 and folded[0]["variants"] == 2
     assert folded[0]["price_basis"] == ""
+    # ...and a member that does not collide keeps its own.
+    alone = reports.fold_variant_rows([dict(a, price=30.19, price_basis="6.74 kg"), b])
+    assert {r["price_basis"] for r in alone} == {"6.74 kg", "22.73 kg"}
 
-    # The mesh child that does NOT collide keeps its own basis when folding is on.
-    alone = [r for r in reports.table_payload(conn, "MADAR", fold_variants=True)["rows"]
-             if r.get("sku") == "10404154020"]
-    assert alone and alone[0]["price_basis"] == "6.74 kg"
+    # The live pair, crawled: same price, and no basis on either.
+    conn = _ingest(tmp_path)
+    by_sku = {r["sku"]: r for r in reports.table_payload(conn, "MADAR")["rows"]}
+    assert by_sku["10408150420"]["price"] == by_sku["104075154020"]["price"]
+    assert by_sku["10408150420"]["price_basis"] == ""
+    assert by_sku["104075154020"]["price_basis"] == ""
+
+
+def test_every_surface_that_prints_a_price_reads_the_same_basis(tmp_path):
+    """#1833's ruling reaches the five places a MADAR price is printed, not
+    only the table: the inspector, the browse page and the change feed each
+    select the minimum and the step themselves, and each would be free to
+    disagree with the table about what 4,830 is for."""
+    conn = _ingest(tmp_path)
+    ids = dict(conn.execute(
+        "SELECT sv.external_sku, so.offer_id FROM source_offer so "
+        "JOIN source_variant sv ON sv.source_variant_id = so.source_variant_id"))
+    rebar, mesh = ids["101150812"], ids["10404154020"]
+
+    assert reports.offer_identity(conn, "MADAR", rebar)["price_basis"] == "1,000 kg"
+    assert reports.offer_identity(conn, "MADAR", mesh)["price_basis"] == ""
+
+    browsed = {r["sku"]: r for r in reports.browse_observations(conn, "MADAR").rows}
+    assert browsed["101150812"]["price_basis"] == "1,000 kg"
+    assert browsed["10404154020"]["price_basis"] == ""
+
+    # A second crawl moves both prices, so the feed has a price event for each.
+    moved = copy.deepcopy(_CENSUS)
+    items = moved["data"]["products"]["items"]
+    for price in (items[0]["items"][0]["product"]["price_range"]["minimum_price"],):
+        price["final_price"]["value"] = price["regular_price"]["value"] = 4910.0
+    for price in (items[1]["variants"][0]["product"]["price_range"]["minimum_price"],):
+        price["final_price"]["value"] = price["regular_price"]["value"] = 31.0
+
+    class _Moved(_Fetcher):
+        def post(self, url, json=None, **kwargs):
+            answer = super().post(url, json=json, **kwargs)
+            return _Response(moved) if answer._payload is _CENSUS else answer
+
+    ingest_payloads(conn, _entry(), [new_payload(
+        source_key="MADAR", kind=ExtractKind.PRODUCT_PRICES, client="cli",
+        scraped_at="2026-07-31T10:00:00Z", source_url=t.source_url,
+        header=t.header, rows=t.rows) for t in _tables(_Moved())])
+    moves = {e["offer_id"]: e for e in changes.recent_changes(conn, "MADAR")
+             if e.get("field_key") == "price"}
+    assert moves[rebar]["unit"] == "1,000 kg"
+    assert moves[mesh]["unit"] == ""
+    assert [e["unit"] for e in changes.changes_for_offer(conn, rebar)
+            if e.get("field_key") == "price"] == ["1,000 kg"]

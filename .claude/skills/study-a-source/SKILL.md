@@ -211,7 +211,7 @@ the host and what the study settled, and containing, in this order:
 Then the source moves in the registry, not in prose: a manifest row at
 `family: TBD-probe`, `active: false` is the only way a registry says "on the list, no
 collector yet" (`scrapex/vocab.py:420`, `scrapex/sourceboard.py:56`), and validation
-refuses to make it active before it is probed (`scrapex/config.py:552`).
+refuses to make it active before it is probed (`scrapex/config.py:159`).
 
 ## Done means
 
