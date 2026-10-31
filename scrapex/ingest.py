@@ -740,7 +740,17 @@ def _get_offer_id(conn, variant_id: int, r: dict) -> int:
         "AND COALESCE(selling_unit_id,0) = ? AND basis_quantity = ?",
         (variant_id, r["country_code_alpha2"], unit_id or 0, basis),
     )
+    # A row the source dates in the past says nothing about today (the REPORTED
+    # path below), so it neither revives an offer nor takes a unit away.
+    states_today = r.get("provenance") != "reported"
     if found is not None:
+        if states_today:
+            # A RETIRED OFFER THE SHOP STATES AGAIN IS CURRENT AGAIN, as its
+            # product and variant already are when re-seen. Without this the
+            # crawl of 2026-10-25 landed six MADAR prices on offers every read
+            # path hides, and his table kept the sibling's figure from September.
+            conn.execute("UPDATE source_offer SET status = 'active' "
+                         "WHERE offer_id = ? AND status = 'superseded'", (found,))
         if unit_id:
             _apply_unit_facts(conn, found, r)
             _retire_replaced_readings(conn, variant_id, found)
@@ -776,6 +786,27 @@ def _get_offer_id(conn, variant_id: int, r: dict) -> int:
             _apply_quantity_facts(conn, unstated, quantity)
             _retire_replaced_readings(conn, variant_id, unstated)
             return unstated
+    # AN OFFER LOSING ITS UNIT IS NOT A SECOND OFFER EITHER (#1874). The shop
+    # stopped stating it, or a charter stopped believing it: the goods and the
+    # price series are the same, and the Unit column goes blank where it was
+    # filled. Only the one offer it can be: with two stated units on the variant
+    # nothing says which of them this row continues, so it mints as before.
+    if not unit_id and states_today:
+        stated = conn.execute(
+            "SELECT offer_id FROM source_offer WHERE source_variant_id = ? AND branch_id IS NULL "
+            "AND country_code_alpha2 = ? AND customer_segment = 'retail' "
+            "AND selling_unit_id IS NOT NULL AND status = 'active'",
+            (variant_id, r["country_code_alpha2"]),
+        ).fetchall()
+        if len(stated) == 1:
+            conn.execute(
+                "UPDATE source_offer SET selling_unit_id = NULL, basis_quantity = ?, "
+                "selling_unit_raw = NULL, selling_unit_raw_lang = NULL, "
+                "unit_basis_provenance = NULL, unit_basis_witness = NULL, "
+                "content_quantity = NULL, content_unit_id = NULL "
+                "WHERE offer_id = ?", (basis, stated[0][0]))
+            _apply_quantity_facts(conn, stated[0][0], quantity)
+            return stated[0][0]
     minted = _insert(conn, "source_offer", {
         "source_variant_id": variant_id,
         "country_code_alpha2": r["country_code_alpha2"],
@@ -1033,6 +1064,7 @@ def ingest_payloads(conn: sqlite3.Connection, entry: SourceEntry,
     # Only a run that completed may claim it confirmed anything.
     if result.status is RunStatus.SUCCESS:
         _confirm_seen(conn, result)
+        _retire_offers_no_longer_stated(conn, source_id, result)
 
     conn.execute(
         "UPDATE crawl_run SET finished_at = strftime('%Y-%m-%dT%H:%M:%SZ','now'), "
@@ -1043,6 +1075,50 @@ def ingest_payloads(conn: sqlite3.Connection, entry: SourceEntry,
          sum(len(p.rows) for p in payloads), int(requests_count), run_id),
     )
     return result
+
+
+def _retire_offers_no_longer_stated(conn, source_id: int, result: IngestResult) -> None:
+    """Retire an offer this run did not restate, on a variant and country it did.
+
+    An offer's identity holds its country and its unit, so a reading that changes
+    either lands on another offer, and nothing told the old one. It stayed active
+    and could never be confirmed again: on his warehouse SPARK_ESHOP drew 6,331
+    rows for 3,182 variants, and three MADAR cartons kept a price from September
+    beside the live one (#1874).
+
+    Keyed on what the run SAID, as _retire_superseded_attributes is, and scoped
+    the same way. A variant this run did not mention is untouched, and so is
+    another country of one it did: GPP_ENERGY's 164 countries are 164 true offers
+    of one variant, and a run reading some of them proves nothing about the rest.
+    Two units the same run states both stay. "*" is the one exception, because it
+    means the country was not known, so a row naming the country answers for it.
+    Only a successful run gets here, and nothing is deleted.
+    """
+    offers = conn.execute(
+        "SELECT o.offer_id, o.source_variant_id, o.country_code_alpha2 "
+        "FROM source_offer o "
+        "JOIN source_variant v ON v.source_variant_id = o.source_variant_id "
+        "JOIN source_product p ON p.source_product_id = v.source_product_id "
+        "WHERE p.source_id = ? AND o.status = 'active' AND o.branch_id IS NULL "
+        "AND o.customer_segment = 'retail' AND EXISTS ("
+        "  SELECT 1 FROM source_offer sibling "
+        "   WHERE sibling.source_variant_id = o.source_variant_id "
+        "     AND sibling.offer_id <> o.offer_id AND sibling.status = 'active')",
+        (source_id,)).fetchall()
+    restated = {(variant, country) for offer, variant, country in offers
+                if offer in result.seen}
+    restated_variants = {variant for variant, _country in restated}
+    retired = 0
+    for offer, variant, country in offers:
+        if offer in result.seen:
+            continue
+        if (variant, country) in restated or (country == "*" and variant in restated_variants):
+            conn.execute("UPDATE source_offer SET status = 'superseded' WHERE offer_id = ?",
+                         (offer,))
+            retired += 1
+    if retired:
+        result.notices.append(
+            f"retired {retired} offer(s) the source no longer states; their history stays")
 
 
 def _retire_superseded_attributes(conn, stated: dict, result: IngestResult) -> None:
