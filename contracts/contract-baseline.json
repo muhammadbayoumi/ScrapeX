@@ -1,5 +1,5 @@
 {
-  "version": "0.4.73",
+  "version": "0.4.74",
   "schema": [
     "schema.sql v17",
     "0018_a_job_may_interpret_what_a_crawl_stored.sql",
@@ -10,7 +10,8 @@
     "0023_a_scheduled_run_may_be_skipped.sql",
     "0024_one_switch_for_scheduled_runs.sql",
     "0025_tenders_kept_as_ocds_releases.sql",
-    "0026_tender_history_kept_as_jsonb.sql"
+    "0026_tender_history_kept_as_jsonb.sql",
+    "0027_a_job_may_crawl_a_tender_source.sql"
   ],
   "protocol": "1",
   "endpoints": [
