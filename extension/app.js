@@ -14,7 +14,7 @@ import { PROTOCOL_VERSION } from "./transport.js";
 import { ENGINE_CANDIDATES, latestEngineRelease } from "./releases.js";
 import {
   jobsCountLine, jobsNoun, domainOf, filterOptions, isSettled, jobLabel, jobLead, jobMatches,
-  statusChangeLine,
+  NO_LOG_LINE, statusChangeLine,
   jobWaitingLine, liveJob, menuControls, noResultsLine, observeRate, othersLine,
   primaryControl, progressFraction, progressLine, recentRate, refusalLine, sourceOf,
   sourceMatches, sourceTitle, statusLook, summaryClass, timeLine,
@@ -5727,15 +5727,17 @@ function finishEstimate(job) {
   return `~${about}${fmtDuration(remaining)} left`;
 }
 
-/** The ended job Activity last announced, as `"<job_ref> <status>"`. */
-let activityAnnounced = "";
-/** The ended job Activity is drawing, or null: a zone change redraws it, because the card
- *  is drawn once at the end and no later poll touches it again. */
+/** The ended job Activity is drawing, or null. Its card is drawn once, at the end, and no
+ *  later poll touches it, so a change of zone rewrites its times from this (#1074). */
 let activityEnded = null;
+
+function drawActivityWhen(job) {
+  $("act-when").textContent = timeLine(job, (v, m) => window.ScrapeXTime.format(v, m));
+}
 
 function renderActivity(job) {
   const box = $("activity");
-  if (!job) { activityEnded = null; box.classList.add("hidden"); return; }
+  if (!job) { box.classList.add("hidden"); return; }
   box.classList.remove("hidden");
   const ended = isSettled(job);
   activityEnded = ended ? job : null;
@@ -5751,7 +5753,7 @@ function renderActivity(job) {
     // read "elapsed 429h 37m".
     $("act-elapsed").textContent = "";
     const line = document.createElement("div");
-    line.className = "job-line";
+    line.className = "job-line text-xs";
     line.append(...jobStatusNodes(job));
     $("act-state").replaceChildren(line);
     // WHICH JOB ENDED: the panel's one source identity, as the Jobs row names it, on its
@@ -5759,16 +5761,11 @@ function renderActivity(job) {
     // every width. WRAPPED, his choice D as on Jobs and Schedules (his word, 2026-10-25,
     // on #1074): under the shared rule `etendering.tenderboard.gov.om` lost ".om" at 320 px.
     fillJobIdentity(source, job, state.sources);
-    when.textContent = timeLine(job, (v, m) => window.ScrapeXTime.format(v, m));
-    // SAID ONCE, IN THE JOBS PAGE'S WORDS. Its own announcer sits in a view that is
-    // hidden while Run is shown, so the end of a job was drawn here and spoken nowhere
-    // (WCAG 2.2 SC 4.1.3). Once per job and status: this card is redrawn by later reads,
-    // and an ended status never changes again.
-    const said = `${job.job_ref} ${job.status}`;
-    if (activityAnnounced !== said) {
-      activityAnnounced = said;
-      announceIn($("act-announce"), statusChangeLine(job, state.sources));
-    }
+    drawActivityWhen(job);
+    // SAID ONCE, IN THE JOBS PAGE'S WORDS. Its own announcer sits in a view that is hidden
+    // while Run is shown, so the end of a job was drawn here and spoken nowhere (WCAG 2.2
+    // SC 4.1.3). Once because this draws once: `pollJobOnce` clears the ref right after.
+    announceIn($("act-announce"), statusChangeLine(job, state.sources));
   } else {
     // A NEW LIVE JOB DOES NOT CARRY THE LAST ONE'S END: the announcer is visually hidden,
     // not `display: none`, so a screen reader would still read "…: failed" in this card.
@@ -5788,9 +5785,7 @@ function renderActivity(job) {
   // WHY IT ENDED, which only the Jobs row said: Activity read `failed` over counters
   // of 0 and no reason. The Jobs row's rule, so a skip's reason stays muted (#1596).
   const reason = $("act-error");
-  // Written only when it changed, as `jobsText` does: a zone change redraws this card,
-  // and a rewrite of the same words would take away a reason he had selected.
-  if (reason.textContent !== (job.error_summary || "")) reason.textContent = job.error_summary || "";
+  reason.textContent = job.error_summary || "";
   reason.className =
     `${summaryClass(job.status)} job-clamp text-xs${job.error_summary ? "" : " hidden"}`;
   renderProgress(job);
@@ -5917,7 +5912,7 @@ function renderLogs(entries, meta, live = true) {
     `<span class="content">${esc(e.message)}</span></div>`).join("") ||
     // "YET" ONLY WHILE IT CAN STILL COME: a job cancelled before it started ends with no
     // log at all (set_control settles it without one), and will never write a line.
-    `<span class="muted">${live ? "No log entries yet." : "No log entries."}</span>`;
+    `<span class="muted">${live ? "No log entries yet." : NO_LOG_LINE}</span>`;
   if (wasAtBottom) box.scrollTop = box.scrollHeight;
 }
 
@@ -6102,6 +6097,9 @@ async function pollJobOnce() {
     // stay in it. This is the one path where drawing the outgoing job is durable, which
     // is why the handoff above refreshes the cards and draws nothing.
     try {
+      // THE NAME FIRST, as the live branch above reads it: this card is drawn once and
+      // never again, so a slow /api/sources left it naming the job by its key for good.
+      await sourcesForJobNames();
       const done = await api(`/api/jobs/${state.jobRef}`);
       renderActivity(done);
       const log = await api(`/api/jobs/${state.jobRef}/logs`);
@@ -8589,7 +8587,7 @@ async function openJobLog(ref) {
       ? entries.map((entry) => [window.ScrapeXTime.format(entry.logged_at, "short"),
         entry.level || "", entry.source_key || "", entry.message || ""]
         .filter(Boolean).join("  ")).join("\n")
-      : "This job wrote no log.");
+      : NO_LOG_LINE);
   } catch (error) {
     if (!jobsPage.openLogs.has(ref)) return;
     jobsPage.logs.set(ref, `The log could not be read: ${error.message}`);
@@ -11831,8 +11829,9 @@ function wireDeferredControls() {
   window.ScrapeXTime.subscribe(() => {
     if (timeZoneControlReady) timeZoneEffect();
     if (state.financeStatus) renderGoogleFinanceStatus(state.financeStatus);
-    // An ended job's start and end, in the new zone: nothing else redraws that card.
-    if (activityEnded) renderActivity(activityEnded);
+    // An ended job's start and end, in the new zone. Only those: a redraw of the whole card
+    // would take away whatever he had selected on it, for one line's sake.
+    if (activityEnded) drawActivityWhen(activityEnded);
   });
 
   refreshMode();

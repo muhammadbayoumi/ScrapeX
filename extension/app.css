@@ -1290,6 +1290,8 @@
   #act-error { margin: var(--sp-2) 0; }
   /* The ended job's identity and time, spaced as the Jobs row spaces them (row-gap sp-1). */
   #act-source, #act-when { margin: var(--sp-1) 0 0; }
+  /* With no bar and no reason, nothing else separates the time from the counters. */
+  #act-when { margin-bottom: var(--sp-2); }
   /* His choice D, as on Jobs and Schedules (#1074, 2026-10-25): the domain and the keys
      wrap at the <wbr> sourceIdentity puts after each dot. */
   #act-source .source-identity-domain,
