@@ -1069,6 +1069,15 @@ def _retire_superseded_attributes(conn, stated: dict, result: IngestResult) -> N
             f"WHERE source_product_id = ? AND attribute_code = ? "
             f"AND raw_value NOT IN ({marks})",
             (product_id, code, *values)).rowcount
+    # A value of nothing but spaces is not a fact, and a connector no longer
+    # sends one (#1831), so the loop above never restates its code and the row
+    # would stand forever. Only the products this run restated something for:
+    # the scope above holds here too.
+    for product_id in {product_id for product_id, _code in stated}:
+        removed += conn.execute(
+            "DELETE FROM source_product_attribute "
+            "WHERE source_product_id = ? AND TRIM(raw_value) = ''",
+            (product_id,)).rowcount
     if removed:
         # A NOTICE, not an error: this is housekeeping that succeeded. It sat in
         # `errors` until 2026-07-28, where it silently degraded the run.
