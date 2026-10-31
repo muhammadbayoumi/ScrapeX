@@ -1410,7 +1410,9 @@ def _enrichment_rows(builder: RowBuilder, product: dict, filterable: dict,
     mine = (english or {}).get(pid, {})
 
     def add(code, label, value, *, numeric="", unit="", url="", lang=""):
-        if not value:
+        # A single space is how madar's API leaves a field empty: 738 rows on
+        # 39 products, and 14 table columns with nothing in them (#1831).
+        if not str(value or "").strip():
             return
         # WHERE a reader looks comes from ONE shared map (vocab), never from
         # a connector's own guess. Being a site FACET no longer decides it:
