@@ -171,6 +171,6 @@ stores LF and Windows checks out CRLF. Normalise `b"\r\n"` → `b"\n"` first.
 - **Write it as an instruction, not a story.** One clear line. No dates, no quotes, no
   incident reports — the reason lives in the PR that added the rule.
 - **Delete one that stopped being true** before adding, and merge into an existing rule
-  rather than repeating it — but **never delete a control to make room**. Past 150 lines
+  rather than repeating it — but **never delete a control to make room**. Past 200 lines
   the next change here starts by pruning what no longer changes an action; if nothing can
   go, move detail to a comment beside the code or to a `.claude/` skill.
