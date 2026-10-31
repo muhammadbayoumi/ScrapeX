@@ -13,6 +13,7 @@ import { capabilityProblem, deployedFrom, installedVersion, CAPABILITY_REPORTING
 import { PROTOCOL_VERSION } from "./transport.js";
 import { ENGINE_CANDIDATES, latestEngineRelease } from "./releases.js";
 import {
+  backoffLook, backoffParts, backoffShort, continuableSites, stoppedLine, stoppedSites,
   jobsCountLine, jobsNoun, domainOf, filterOptions, isSettled, jobLabel, jobLead, jobMatches,
   jobWaitingLine, liveJob, menuControls, noResultsLine, observeRate, othersLine,
   primaryControl, progressFraction, progressLine, recentRate, refusalLine, sourceOf,
@@ -1698,11 +1699,11 @@ function renderSites() {
       const stopped = kept ? fmtStopped(s.kept_at) : "";
       const keptBlock = kept ? `<span class="source-row-kept">
           <button type="button" class="chip accent" data-resume="${esc(s.source_key)}"
-            title="Continue this crawl from the ${esc(pageCount(kept))} already kept. None of them is fetched again.">Resume ${
+            title="Continue this crawl from the ${esc(pageCount(kept))} already kept. None of them is fetched again.">Continue from ${
               esc(pageCount(kept))}</button>
           <span><strong>${esc(pageCount(kept))} kept</strong> from a run that
-          stopped${stopped ? " " + stopped : ""}. Resume continues from
-          there and re-fetches none of them; starting a run discards them.</span>
+          stopped${stopped ? " " + stopped : ""}. Continue goes on from
+          there and re-fetches none of them; Run starts over and discards them.</span>
         </span>` : "";
       return `<div class="srow ${ready ? "" : "off"}">
         <label>
@@ -5879,11 +5880,11 @@ function renderMiniplayer(job, queued) {
   // ONE NAME FOR ONE JOB (#1542): the same `jobLabel` the Jobs row and the cancel
   // question use, from the Sources identity -- "3 sites" named none of them.
   const named = jobLabel(job, state.sources);
-  $("mini-title").textContent = `${named} — ${job.status.replace(/_/g, " ")}`;
+  $("mini-title").textContent = `${named} — ${backoffLook(job)?.word.toLowerCase() || job.status.replace(/_/g, " ")}`;   // MOCK-R2
   const prog = miniProgress(job);
-  $("mini-pct").textContent = prog.text;
+  $("mini-pct").textContent = backoffShort(job, job.__now ?? Date.now()) || prog.text;   // MOCK-R2
   $("mini-bar").style.width = prog.pct + "%";
-  $("mini-bar").classList.toggle("indeterminate", prog.indeterminate);
+  $("mini-bar").classList.toggle("indeterminate", prog.indeterminate && !backoffLook(job));   // MOCK-R2: no motion while it waits
   const c = job.counters || {};
   const bits = [];
   if (job.current_source_key) bits.push(`now: ${sourceTitle(job.current_source_key, state.sources)}`);
@@ -8230,10 +8231,12 @@ function fillJobRow(row, job, { down = false } = {}) {
   }
 
   // STATUS: the engine's word, its glyph and tone; then the kind.
-  const look = statusLook(job.status);
+  const look = backoffLook(job) || statusLook(job.status);   // MOCK-R2
   const line = jobsPart(row, "statusline");
-  if (line.dataset.drawn !== `${job.status} ${job.job_kind}`) {
-    line.dataset.drawn = `${job.status} ${job.job_kind}`;
+  const lookKey = `${look.word} ${look.glyph} ${job.job_kind}`;   // MOCK-R2: must fix G
+  if (line.dataset.drawn !== lookKey) {
+    if (line.dataset.drawn && backoffLook(job)) jobsAnnounce(`${jobLabel(job, sources)}: waiting for the site`);
+    line.dataset.drawn = lookKey;
     const status = document.createElement("span");
     status.className = `job-status job-tone-${look.tone}`;
     status.append(jobsSvg(look.glyph), document.createTextNode(look.word));
@@ -8290,9 +8293,70 @@ function fillJobRow(row, job, { down = false } = {}) {
     jobsText(jobsPart(row, "progress"), progressLine(job));
   }
   const note = jobsPart(row, "note");
-  const waiting = jobWaitingLine(job);
-  jobsText(note, waiting);
-  note.classList.toggle("hidden", !waiting);
+  // MOCK-R2: the reason is static text; the countdown is its own role="timer" element
+  // (implicit aria-live off), so nothing re-announces it on every poll (must fix F).
+  const waitingOut = backoffParts(job, job.__now ?? Date.now());
+  const stops = stoppedSites(job);
+  const liveKeys = new Set([...jobsPage.jobs.values()].map((held) => held.job)
+    .filter((other) => other && !isSettled(other) && other.job_ref !== ref)
+    .flatMap((other) => other.source_keys || []));
+  const continuable = continuableSites(job, sources, liveKeys);
+  const nextRun = (key) => {
+    const one = state.schedules?.get(key);
+    const source = sourceOf(key, sources);
+    return one && one.enabled !== false && source?.active && one.next_run_at
+      ? window.ScrapeXTime.format(one.next_run_at, "short") : "";
+  };
+  if (waitingOut) {
+    const reason = document.createElement("span");
+    reason.textContent = `${waitingOut.why}${waitingOut.when ? " — " : ""}`;
+    const timer = document.createElement("span");
+    timer.setAttribute("role", "timer");
+    timer.className = "tech";
+    timer.textContent = waitingOut.when;
+    note.replaceChildren(...(waitingOut.when ? [reason, timer] : [reason]));
+    note.classList.remove("hidden");
+  } else if (stops.length) {
+    jobsText(note, stops.map((stop) => stoppedLine(stop, {
+      site: domainOf(sourceOf(stop.key, sources)?.base_url || stop.key),
+      live: continuable.includes(stop.key), next: nextRun(stop.key)})).join(" "));
+    note.classList.remove("hidden");
+  } else {
+    const waiting = jobWaitingLine(job);
+    jobsText(note, waiting);
+    note.classList.toggle("hidden", !waiting);
+  }
+  // MOCK-R2: one Continue per site that can go on, named by its site (must fix C, D).
+  const primarySlot = jobsPart(row, "primary");
+  primarySlot.querySelectorAll("[data-continue]").forEach((b) => b.remove());
+  // MOCK-R2: one Continue sits in the action slot; several take a line of their own under
+  // the sentence, so the status and time column keeps its width at 320 px.
+  let several = row.querySelector('[data-part="continues"]');
+  if (!several) {
+    several = document.createElement("p");
+    several.dataset.part = "continues";
+    several.className = "job-full";
+    note.after(several);
+  }
+  several.replaceChildren();
+  several.classList.toggle("hidden", continuable.length < 2);
+  for (const key of continuable) {
+    const site = domainOf(sourceOf(key, sources)?.base_url || key);
+    const press = document.createElement("button");
+    press.type = "button";
+    press.className = "ghost";
+    press.dataset.continue = key;
+    const busy = jobsPage.pressing.get(`${ref}:${key}`);
+    press.textContent = busy ? "Continuing…" : continuable.length > 1 ? `Continue ${site}` : "Continue";
+    press.setAttribute("aria-label", `Continue ${site} from its kept pages`);
+    if (busy) { press.setAttribute("aria-busy", "true"); press.setAttribute("aria-disabled", "true"); }
+    press.addEventListener("click", () => pressContinue(job, key, press));
+    (continuable.length > 1 ? several : primarySlot).append(press);
+  }
+  if (continuable.length === 1) {
+    primarySlot.classList.remove("hidden");
+    primarySlot.firstElementChild.classList.toggle("hidden", !primaryControl(job));
+  }
 
   // THE FAILURE: two lines, then View log (his choice B). Its toggle opens the log here.
   const failure = jobsPart(row, "failure");
@@ -8497,6 +8561,27 @@ async function openJobLog(ref) {
  * (webui/app.py:4779-4780); any other answer says its own detail; no answer is the
  * engine-lost path. Then the list is re-read, and the player is given a fresh read.
  */
+/** MOCK-R2 (#1772): Continue goes on from a stopped site's kept pages: a new run seeded
+ *  from the journal, the route the Sources row's Continue uses (POST /api/jobs resume). */
+async function pressContinue(job, key, button) {
+  const ref = job.job_ref;
+  if (jobsPage.pressing.get(`${ref}:${key}`)) return;
+  jobsPage.pressing.set(`${ref}:${key}`, "continue");
+  jobsPage.notes.delete(ref);
+  fillJobRow(jobsPage.rows.get(ref), job);
+  try {
+    const source = sourceOf(key, state.sources);
+    await post("/api/jobs", {source_keys: [key], resume: true,
+                             run_mode: Number(source?.observations || 0) > 0 ? "update" : "initial_crawl"});
+    jobsPage.pressing.delete(`${ref}:${key}`);
+    loadJobs();
+  } catch (error) {
+    jobsPage.pressing.delete(`${ref}:${key}`);
+    jobsPage.notes.set(ref, `Continue was refused: ${error.message}`);
+    fillJobRow(jobsPage.rows.get(ref), job);
+  }
+}
+
 async function pressJobControl(job, control, button) {
   if (!job) return;
   const ref = job.job_ref;
