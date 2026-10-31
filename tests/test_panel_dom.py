@@ -6198,6 +6198,27 @@ def test_a_connector_less_source_keeps_its_sentence_and_a_disabled_switch(open_p
     assert page.is_hidden("#source-edit-schedule")
 
 
+def test_a_price_card_does_not_offer_organization_enrichment(open_panel):
+    """His ruling, 2026-10-31: «لا يجب ان تظهر فى list فى المصادر الخاصة بالاسعار». The route
+    404s for a price key (`test_a_dataset_card_offers_what_works.py`), so the row opened a
+    page that could only fail. The dataset card keeps it, in the place it had."""
+    page = open_panel(view="data")
+    settle_view(page, "data")
+
+    def offered(selector):
+        rows = page.locator(selector).locator("[data-split-action]")
+        return [rows.nth(i).get_attribute("data-split-action") for i in range(rows.count())]
+
+    price = offered('.dataset-card[data-open="SHORT"]')
+    assert "enrich" not in price, f"a price card offers enrichment: {price}"
+    assert "table" in price, f"the price card lost its data table: {price}"
+
+    dataset = offered('.dataset-card[data-open="contractors"]')
+    assert dataset[:2] == ["table", "enrich"], (
+        f"the dataset card's menu lost enrichment or changed its order: {dataset}")
+    assert not page.js_errors
+
+
 def test_the_datasets_menu_edits_the_schedule_instead_of_pausing(open_panel):
     page = open_panel(schedules={**SCHEDULE_SOON, "schedules": [
         {**SCHEDULE_SOON["schedules"][0], "source_key": "SHORT"}]})
