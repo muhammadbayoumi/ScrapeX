@@ -1280,6 +1280,22 @@ def _over(top: str, under: str) -> str:
     return "rgb({:.4f}, {:.4f}, {:.4f})".format(*(channel * 255 for channel in mixed))
 
 
+@pytest.mark.parametrize("colour,alpha", [
+    ("#123456", 1.0),
+    ("rgb(1, 2, 3)", 1.0),
+    ("rgba(1, 2, 3, 0.5)", 0.5),
+    ("rgba(0, 0, 0, 0)", 0.0),  # what a clear background computes to
+    ("rgb(1 2 3 / 0.5)", 0.5),
+    ("color(srgb 1 1 1)", 1.0),
+    ("color(srgb 1 1 1 / 0.88)", 0.88),  # a color-mix()
+    ("oklab(0 0 0 / 0)", 0.0),  # a color-mix() that comes to nothing
+])
+def test_alpha_reads_every_form_the_browser_hands_back(colour, alpha):
+    """A reader that only understood `rgba(...)` would call every mixed colour opaque, and
+    pass on exactly the thing it is checking."""
+    assert _alpha(colour) == alpha
+
+
 @pytest.mark.parametrize("top,seen", [
     ("rgb(233, 233, 233)", 233.0),
     ("rgba(0, 0, 0, 0.08)", 234.6),
@@ -9611,22 +9627,6 @@ def test_the_full_bleed_screens_still_bleed_exactly_at_320px(open_panel):
     assert abs((box["x"] + box["width"]) - (main["x"] + main["width"])) < 1, (
         f"Manage account ends at x {box['x'] + box['width']} but main ends at "
         f"{main['x'] + main['width']}")
-
-
-def _alpha_of(css_colour: str) -> float:
-    """Alpha from any form Chrome serialises a computed colour in.
-
-    `color-mix()` comes back as `color(srgb r g b / a)`, a plain declaration as
-    `rgba(r, g, b, a)`, and a fully transparent result as `oklab(0 0 0 / 0)`.
-    A test that only understood `rgba(...)` would read every mixed colour as
-    opaque and pass on exactly the thing it is checking.
-    """
-    text = css_colour.strip()
-    if "/" in text:
-        return float(text.rsplit("/", 1)[1].strip(" )"))
-    if text.startswith("rgba"):
-        return float(text.rsplit(",", 1)[1].strip(" )"))
-    return 1.0 if text.startswith(("rgb", "#", "color(")) else 0.0
 
 
 def test_engine_neutral_controls_keep_text_color_on_hover(open_panel):
