@@ -152,7 +152,12 @@
   position: sticky;
   top: 0;
   z-index: var(--z-sticky);
-  background: var(--grid-header-surface);
+  /* Opaque: it is sticky, and --grid-header-surface is translucent since #634, so the
+   * rows scrolling under it would show through. The tint is a layer over the
+   * scroller's surface, the pattern of the body's pinned cells below. Every header
+   * cell has the same base, so nested cells draw one layer of the tint, not three. */
+  background-color: var(--table-surface);
+  background-image: linear-gradient(var(--grid-header-surface), var(--grid-header-surface));
   user-select: none;
 }
 .dg-row { display: flex; box-sizing: border-box; }
@@ -171,13 +176,14 @@
 /* ---- the header: same as `th` ---- */
 .dg-header-row { border-bottom: var(--table-rule); }
 .dg-col {
-  background: var(--grid-header-surface);
+  background-color: var(--table-surface);
+  background-image: linear-gradient(var(--grid-header-surface), var(--grid-header-surface));
   color: var(--grid-header-text);
   font-weight: var(--grid-header-weight);
   font-size: var(--table-header-font-size);
 }
 .dg-col.dg-sortable { cursor: pointer; }
-.dg-col.dg-sortable:hover { background: var(--grid-header-hover); }
+.dg-col.dg-sortable:hover { background-image: linear-gradient(var(--grid-header-hover), var(--grid-header-hover)); }
 .dg-col.dg-col-moving { opacity: .55; }
 .dg-move-marker {
   position: absolute;
@@ -233,11 +239,14 @@
   background-color: var(--table-surface);
   background-image: linear-gradient(var(--dg-row-tint, transparent), var(--dg-row-tint, transparent));
 }
-.dg-header .dg-pinned { background: var(--grid-header-surface); }
+.dg-header .dg-pinned {
+  background-color: var(--table-surface);
+  background-image: linear-gradient(var(--grid-header-surface), var(--grid-header-surface));
+}
 /* The totals row's pinned cells keep that row's tint, over the header's surface. */
 .dg-header .dg-calcs .dg-pinned {
-  background-color: var(--grid-header-surface);
-  background-image: linear-gradient(var(--dg-calcs-tint), var(--dg-calcs-tint));
+  background-color: var(--table-surface);
+  background-image: linear-gradient(var(--dg-calcs-tint), var(--dg-calcs-tint)), linear-gradient(var(--grid-header-surface), var(--grid-header-surface));
 }
 
 /* ---- row selection: one integrated table column -------------------------- */

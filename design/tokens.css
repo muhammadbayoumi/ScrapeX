@@ -102,12 +102,16 @@
   /* Surfaces and text — Supabase light. Every value here is `derived`: their
      docs publish token NAMES only, and every semantic colour is computed at
      runtime in OKLCH from ~10 scalar inputs, so each was obtained by evaluating
-     their own expressions. See design/appearance.js's header for the method. */
+     their own expressions. See design/appearance.js's header for the method.
+     --surface-subtle, --chip and --line are overlays, not surfaces (#634): each is
+     their --foreground at its alpha, so it draws what theirs draws over whatever
+     is under it. The alphas are written to four decimals, which give the same
+     8-bit alpha as the full expressions. */
   --bg: #fdfdfd;              /* --background */
   --surface: #ffffff;         /* --card */
-  --surface-subtle: #f6f6f6;  /* --muted */
+  --surface-subtle: rgb(3 3 3 / 0.0268);  /* --muted */
   --surface-raised: #ffffff;  /* --popover */
-  --line: #e9e9e9;            /* --border */
+  --line: rgb(3 3 3 / 0.0813);  /* --border */
   /* R-85: THEIRS, AND IT DOES NOT CLEAR THIS REPOSITORY'S OWN FLOOR.
      Their --border-stronger is an alpha overlay of --foreground, so it has no
      single value -- it composites to #cecece over --background and #d0d0d0 over
@@ -132,7 +136,7 @@
   --text: #030303;            /* --foreground */
   --muted: #464646;           /* --muted-foreground */
   --text-subtle: #696969;     /* --tertiary-foreground */
-  --chip: #f3f3f3;            /* --accent */
+  --chip: rgb(3 3 3 / 0.0402);  /* --accent */
 
   /* Brand and semantic colour — Supabase light.
      `light-dark()` is gone on purpose: the dark values live in the two dark
@@ -534,9 +538,9 @@
      guard before it was written. */
   --bg: #131413;              /* --background */
   --surface: #181a19;         /* --card */
-  --surface-subtle: #1a1b1a;  /* --muted */
+  --surface-subtle: rgb(237 239 238 / 0.0329);  /* --muted */
   --surface-raised: #1b1d1c;  /* --popover */
-  --line: #232423;            /* --border */
+  --line: rgb(238 239 238 / 0.0751);  /* --border */
   /* THEIRS, over --card -- and this comment named a token that does not exist.
      It read "scale-900 dark, PUBLISHED"; there is no --scale-900 anywhere in their
      themes. Their --border-stronger is
@@ -552,7 +556,7 @@
   --text: #edefee;            /* --foreground */
   --muted: #bcbdbc;           /* --muted-foreground */
   --text-subtle: #989a99;     /* --tertiary-foreground */
-  --chip: #1e1f1e;            /* --accent */
+  --chip: rgb(237 239 238 / 0.0493);  /* --accent */
 
   --accent: #3ecf8e;          /* brand-default dark    PUBLISHED */
   --accent-hover: var(--brand-600);
@@ -624,15 +628,15 @@
        is a defect nobody looking at one block can see. */
     --bg: #131413;
     --surface: #181a19;
-    --surface-subtle: #1a1b1a;
+    --surface-subtle: rgb(237 239 238 / 0.0329);
     --surface-raised: #1b1d1c;
-    --line: #232423;
+    --line: rgb(238 239 238 / 0.0751);
     --line-strong: #3d3f3e;
     --line-control-hover: #545555;
     --text: #edefee;
     --muted: #bcbdbc;
     --text-subtle: #989a99;
-    --chip: #1e1f1e;
+    --chip: rgb(237 239 238 / 0.0493);
 
     --accent: #3ecf8e;
     --accent-hover: var(--brand-600);
