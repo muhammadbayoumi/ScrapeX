@@ -611,7 +611,13 @@ window.__nativeCalls = [];
 // WEB LOCKS, which refuse on file://, an opaque origin. `__sx_lock_held` is another panel
 // window holding the lock, which one document cannot otherwise show.
 Object.defineProperty(navigator, "locks", {{configurable: true, value: {{
-  request: async (name, options, work) => work(window.__sx_lock_held ? null : {{name}}),
+  request: async (name, options, work) => {{
+    if (typeof options === "function") {{
+      while (window.__sx_lock_held) await new Promise((resolve) => setTimeout(resolve, 50));
+      return options({{name}});
+    }}
+    return work(window.__sx_lock_held ? null : {{name}});
+  }},
 }}}});
 // The BODY of every write, which __calls (a path list) cannot carry — and the
 // body is where "resume" lives, so a test that only saw the path could not

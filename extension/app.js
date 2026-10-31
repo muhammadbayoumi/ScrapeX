@@ -11239,10 +11239,11 @@ const BACKUP_UPLOAD_LOCK = "scrapex-backup-upload";
 
 /** A build that stopped: where, why, and that Drive is as it was (Studio's failed
  *  upgrade says the same of the data, UpgradingState/index.tsx@86c813ec:103-106). */
-function buildStopped(shape, key, why) {
+function buildStopped(shape, key, why, startedAt = "") {
   const step = shape.find((one) => one.key === key) || shape[0];
   const doing = step.progress.charAt(0).toLowerCase() + step.progress.slice(1);
-  return new Error(`The backup stopped while ${doing}: ${String(why).replace(/\.$/, "")}. `
+  const which = startedAt ? ` started ${window.ScrapeXTime.format(startedAt, "datetime")}` : "";
+  return new Error(`The backup${which} stopped while ${doing}: ${String(why).replace(/\.$/, "")}. `
     + "Nothing was uploaded, and the backup already in Drive is untouched.");
 }
 
@@ -11357,14 +11358,22 @@ async function backUpToDrive(token, report = "drive-msg", steps = "drive-backup-
  * reopened after one, finds this build already there.
  */
 async function uploadOnce(token, built, steps, shape) {
-  const said = await navigator.locks.request(BACKUP_UPLOAD_LOCK, {ifAvailable: true}, async (held) => {
-    if (!held) return null;
+  const upload = async () => {
     if ((await drivePointer(token))?.name === built.name) {
       return `${built.name} is already in Drive, in the folder ${FOLDER_NAME}.`;
     }
     return uploadBuilt(token, built, steps, shape);
-  });
-  return said ?? "Another ScrapeX window is uploading this backup. Its progress is shown there.";
+  };
+  const said = await navigator.locks.request(BACKUP_UPLOAD_LOCK, {ifAvailable: true},
+    (held) => (held ? upload() : null));
+  if (said !== null) return said;
+  // WAITS, WITH ITS BUTTONS STILL DISABLED: a new build finishing now is what makes the
+  // other window's upload fail its `If-Range`. When that window ends this one takes the
+  // lock: Drive's pointer then says it arrived, and if that window failed or was closed,
+  // this one uploads it.
+  renderJobSteps(steps, shape, {current: "upload", note:
+    "Another ScrapeX window is uploading this backup. Its progress is shown there."});
+  return navigator.locks.request(BACKUP_UPLOAD_LOCK, upload);
 }
 
 /** The pointer Drive holds now. One it cannot read names nothing, and the next backup
@@ -11516,7 +11525,9 @@ async function showBuildOnOpen(name) {
     return;
   }
   if (record.state === "failed") {
-    out(door.report, esc(buildStopped(BACKUP_STEPS, record.step, record.detail).message), "err");
+    // Read later, perhaps days later, so it says which backup it means.
+    out(door.report, esc(buildStopped(BACKUP_STEPS, record.step, record.detail,
+                                      record.started_at).message), "err");
     return;
   }
   if (record.state !== "built") return;
@@ -11529,8 +11540,9 @@ async function showBuildOnOpen(name) {
   }
   if (pointer?.name === record.result.name || googleActionRunning) return;
   unsentBuild = record.result;
-  out(door.report, `The backup built at ${
-    esc(window.ScrapeXTime.format(record.finished_at, "time"))} has not reached Drive.`, "");
+  out(door.report, `The backup built ${
+    esc(window.ScrapeXTime.format(record.finished_at, "datetime"))} has not reached Drive. `
+    + "Upload to Drive sends it. Back up now builds a new one.", "");
   $(door.send).classList.remove("hidden");
 }
 
