@@ -117,7 +117,8 @@ categories; price is one of them, not the whole tool.**
   `active: true`, or leave `robots` at its default, without his word.
 - **A source is studied before anything is built from it, to one standard**: the
   **`study-a-source` skill**, and the study lands in an issue. One domain is one source,
-  always; its datasets divide inside it.
+  always; its datasets divide inside it. Every source he names shows on Run from then on,
+  inactive, until it is studied and built.
 - **Never start a run you cannot watch to the end.** A crawl outlasts a session and holds
   the write lock while it runs.
 
