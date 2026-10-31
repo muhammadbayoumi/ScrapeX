@@ -24,8 +24,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
-from scrapex import directories, sourceboard
+from scrapex import cli, directories, sourceboard
+from scrapex.config import SourceEntry
 from scrapex.databases import DatabaseRegistry, EngineDatabase
 from scrapex.vocab import SourceCategory
 
@@ -190,7 +192,7 @@ def test_a_paused_site_is_not_reported_as_built(conn):
 
 # ---- categories -------------------------------------------------------------
 
-def test_the_manifest_is_products_and_the_warehouse_is_contractors(conn):
+def test_the_manifest_is_products_and_the_warehouse_is_organizations(conn):
     """His two categories, and where each currently lives."""
     site(conn, "muqawil_org")
 
@@ -199,23 +201,90 @@ def test_the_manifest_is_products_and_the_warehouse_is_contractors(conn):
         by_registry.setdefault(one.registry, set()).add(one.category)
 
     assert by_registry["manifest"] == {SourceCategory.PRODUCTS}
-    assert by_registry["warehouse"] == {SourceCategory.CONTRACTORS}
+    assert by_registry["warehouse"] == {SourceCategory.ORGANIZATIONS}
 
 
 def test_filtering_by_category_returns_only_that_category(conn):
     site(conn, "muqawil_org")
 
     found = sourceboard.board(conn, manifest_file=MANIFEST,
-                              category=SourceCategory.CONTRACTORS)
+                              category=SourceCategory.ORGANIZATIONS)
 
     # THE FILTER IS A RESTRICTION, and that is the contract rather than today's
     # keys: everything it returns is that category, and it drops nothing the
     # unfiltered board puts in that category.
-    assert found, "the crawled directory is a contractors source and was filtered away"
-    assert {one.category for one in found} == {SourceCategory.CONTRACTORS}
+    assert found, "the crawled directory is an organizations source and was filtered away"
+    assert {one.category for one in found} == {SourceCategory.ORGANIZATIONS}
     assert [one.key for one in found] == [
         one.key for one in sourceboard.board(conn, manifest_file=MANIFEST)
-        if one.category == SourceCategory.CONTRACTORS]
+        if one.category == SourceCategory.ORGANIZATIONS]
+
+
+# ---- one category for every kind of body: his ruling, 2026-10-31 --------------
+
+def test_the_tool_has_exactly_two_categories():
+    """«فئة تشمل اى نوع شركة او مؤسسة او منظمة او مقاولين او مكاتب»: one word, not a
+    new word beside `contractors`, so nothing can sit in either of two for one body."""
+    assert {one.value for one in SourceCategory} == {"products", "organizations"}
+
+
+def _entry(**extra) -> dict:
+    return {"source_key": "SOME_FIRMS", "source_name": "Some firms",
+            "base_url": "https://some-firms.test", "family": "TBD-probe",
+            "extract": [{"kind": "product_prices"}], **extra}
+
+
+def test_a_manifest_entry_may_name_organizations():
+    entry = SourceEntry.model_validate(_entry(category="organizations"))
+
+    assert entry.category == SourceCategory.ORGANIZATIONS
+
+
+def test_a_manifest_entry_naming_contractors_is_refused_at_load():
+    """The retired word fails loudly rather than loading as something else."""
+    with pytest.raises(ValidationError, match="category"):
+        SourceEntry.model_validate(_entry(category="contractors"))
+
+
+def test_a_manifest_entry_naming_no_category_stays_products():
+    """Every price source in `sources.yaml` relies on this default, and names none."""
+    assert SourceEntry.model_validate(_entry()).category == SourceCategory.PRODUCTS
+
+
+@pytest.mark.parametrize("key", sorted(directories.BUILDERS))
+def test_every_directory_in_the_code_is_an_organizations_source(key):
+    """muqawil's contractors, Oman's vendors and TVTC's establishments, under one word."""
+    assert {one.key: one.category for one in sourceboard.from_code()}[key] \
+        == SourceCategory.ORGANIZATIONS
+
+
+def test_a_new_entry_lands_in_its_category_on_the_board(tmp_path):
+    manifest = tmp_path / "sources.yaml"
+    manifest.write_text(
+        "sources:\n"
+        "  - source_key: SOME_FIRMS\n"
+        "    source_name: Some firms\n"
+        "    base_url: https://some-firms.test\n"
+        "    category: organizations\n"
+        "    family: TBD-probe\n"
+        "    extract:\n"
+        "      - kind: product_prices\n", encoding="utf-8")
+
+    found = sourceboard.board(None, manifest_file=manifest,
+                              category=SourceCategory.ORGANIZATIONS)
+
+    assert "SOME_FIRMS" in {one.key for one in found}
+    assert {one.state for one in found if one.key == "SOME_FIRMS"} == {"registered"}
+
+
+def test_the_sources_command_takes_the_new_word_and_refuses_the_old():
+    parser = cli.build_parser()
+
+    assert parser.parse_args(["sources", "--category", "organizations"]).category \
+        == "organizations"
+    with pytest.raises(SystemExit) as refused:
+        parser.parse_args(["sources", "--category", "contractors"])
+    assert refused.value.code == 2
 
 
 def test_the_summary_counts_by_category_and_state(conn):
@@ -230,9 +299,9 @@ def test_the_summary_counts_by_category_and_state(conn):
     # `built` from the code half. The total catches what the single literal cell
     # caught -- the crawled row and its code placeholder both counting would put the
     # total one above the number of directories -- without pinning how many there are.
-    assert sum(counted["contractors"].values()) == len(directories.BUILDERS), (
+    assert sum(counted["organizations"].values()) == len(directories.BUILDERS), (
         "the crawled row and the code registry's placeholder were both counted")
-    assert counted["contractors"]["active"] == 1, (
+    assert counted["organizations"]["active"] == 1, (
         "the code registry's `built` overwrote the crawled row's real state")
     # THE PRODUCTS CELL IS THE MANIFEST, and it used to be compared against the whole
     # database-less board — which was the same number only while the manifest was the

@@ -404,10 +404,15 @@ class SourceCategory(StrEnum):
     PRODUCTS, NOT PRICES, AND THE DISTINCTION IS LOAD-BEARING. A price is an
     attribute of a product observed at a time. Naming this category "prices" would
     repeat the exact mistake `R-32` corrects, one level down.
+
+    ORGANIZATIONS, NOT CONTRACTORS: one category for every kind of body. His words,
+    2026-10-31: «فئة تشمل اى نوع شركة او مؤسسة او منظمة او مقاولين او مكاتب». A
+    contractor is one kind of organization, and this word replaces that one rather than
+    standing beside it. `dataset_key: contractors` is a dataset's name and is untouched.
     """
 
     PRODUCTS = "products"
-    CONTRACTORS = "contractors"
+    ORGANIZATIONS = "organizations"
 
 
 class ConnectorFamily(StrEnum):
