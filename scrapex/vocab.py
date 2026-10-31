@@ -435,12 +435,12 @@ class ConnectorFamily(StrEnum):
     HEIDELBERG_PRICE_MATRIX = "heidelberg-price-matrix"
     STATIC_HTML_TABLE = "static-html-table"
     ARAMCO_FUEL_PAGE = "aramco-fuel-page"
+    DATASHEET_ENRICHMENT = "datasheet-enrichment"
+    TBD_PROBE = "TBD-probe"  # placeholder until `scrapex probe` classifies the site
     # One workbook on a document host, found through a landing page, months in rows.
     # A part of the one source worldbank.org (#1912); its layout is its own, so #1900's
     # workbook, with months in columns, is not this family.
     WORLDBANK_PINK_SHEET = "worldbank-pink-sheet"
-    DATASHEET_ENRICHMENT = "datasheet-enrichment"
-    TBD_PROBE = "TBD-probe"  # placeholder until `scrapex probe` classifies the site
 
 
 class RunStatus(StrEnum):

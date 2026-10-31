@@ -52,7 +52,7 @@ Record the user-agent you used and whether it mattered.
 ## Pass 1 · Identity
 
 `scrapex/probe.py:70` answers one question — which of the ten families in
-`scrapex/connectors/factory.py:36` this is, or `TBD-probe` (`scrapex/vocab.py:443`) when it
+`scrapex/connectors/factory.py:34` this is, or `TBD-probe` (`scrapex/vocab.py:420`) when it
 is none of them. **Run it, then distrust it**: it reads a homepage for markers and stops.
 Say in the report what it would answer and where it would be wrong.
 
@@ -210,7 +210,7 @@ the host and what the study settled, and containing, in this order:
 
 Then the source moves in the registry, not in prose: a manifest row at
 `family: TBD-probe`, `active: false` is the only way a registry says "on the list, no
-collector yet" (`scrapex/vocab.py:443`, `scrapex/sourceboard.py:56`), and validation
+collector yet" (`scrapex/vocab.py:420`, `scrapex/sourceboard.py:56`), and validation
 refuses to make it active before it is probed (`scrapex/config.py:552`).
 
 ## Done means
