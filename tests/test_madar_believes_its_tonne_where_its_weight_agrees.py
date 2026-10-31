@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 
 import pytest
 from pydantic import ValidationError
@@ -266,7 +267,7 @@ class _Fetcher:
             return _Response(empty)
         self.asked_for_a_page = True
         items = copy.deepcopy(self.items)
-        if "description" not in query:
+        if not re.search(r"(?<!short_)description\s*\{", query):
             for item in items:
                 item.pop("description", None)
         return _Response({"data": {"products": {
