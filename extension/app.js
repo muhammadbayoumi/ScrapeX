@@ -17,7 +17,7 @@ import {
   statusChangeLine,
   jobWaitingLine, liveJob, menuControls, noResultsLine, observeRate, othersLine,
   primaryControl, progressFraction, progressLine, recentRate, refusalLine, sourceOf,
-  sourceMatches, sourceTitle, statusLook, statusWords, summaryClass, timeLine,
+  sourceMatches, sourceTitle, statusLook, summaryClass, timeLine,
 } from "./jobsview.js";
 import { getToken, accountFor, authorize, forgetToken, revokeToken } from "./identity.js";
 import {
