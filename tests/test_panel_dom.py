@@ -9117,6 +9117,7 @@ def test_upgrade_comes_back_when_the_restart_ends(open_panel):
     page.clock.run_for(3_000)
     assert not page.locator("#runtime-upgrade").is_disabled(), (
         "Upgrade database stayed down after the restart ended")
+    assert "Upgrade database still works" in text_of(page, "#db-schema-detail")
     assert not page.js_errors, page.js_errors
 
 
@@ -9233,7 +9234,8 @@ def test_start_and_upgrade_are_refused_through_the_whole_restart(open_panel):
     page.click("#runtime-restart")
 
     def refused(moment: str, run_line: str) -> None:
-        for held in ("#engine-start", "#setup-recheck", "#engine-recheck"):
+        for held in ("#engine-start", "#setup-recheck", "#engine-recheck",
+                     "#engine-diagnostics"):
             assert page.locator(held).is_disabled(), f"{held} is live {moment}"
         assert text_of(page, "#engine-note") == run_line, (
             f"Run's line {moment}: {text_of(page, '#engine-note')!r}")
@@ -9270,6 +9272,8 @@ def test_start_and_upgrade_are_refused_through_the_whole_restart(open_panel):
         page.clock.run_for(500)
         upgrade = page.locator("#runtime-upgrade")
         assert upgrade.is_disabled(), f"Upgrade database was offered {moment}"
+        assert "still works" not in text_of(page, "#db-schema-detail"), (
+            f"the page promises the Upgrade it holds down {moment}")
         upgrade.click(force=True)
         page.clock.run_for(500)
         page.click("#tab-engines")
@@ -9331,6 +9335,44 @@ def test_schedules_reads_again_when_the_restart_ends(open_panel):
     page.clock.run_for(3_000)
     assert RESTARTING not in text_of(page, banner), (
         "Schedules still says the engine is restarting after it ended")
+    assert not page.js_errors, page.js_errors
+
+
+@pytest.mark.parametrize("view", ["jobs", "schedules"])
+def test_a_good_ending_raises_no_false_alert(open_panel, view):
+    """The page offered Open Engine because its read failed in the dark. At the
+    restart's end the flag drops and the page reads again; with that failure still
+    held, it drew "The engine did not answer" -- an alert, at the moment the engine
+    came back -- for as long as the read took."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART,
+                                    dark_ms=10_000)
+    page.clock.install()
+    page.click("#runtime-restart")
+    page.clock.run_for(3_000)
+    page.click(f'nav.side-rail button[data-view="{view}"]')
+    page.wait_for_selector(f"#view-{view}:not(.hidden)")
+    page.clock.run_for(2_000)
+    page.evaluate("""(view) => {
+      window.__alerts = [];
+      const root = document.getElementById(`view-${view}`);
+      const read = () => root.querySelectorAll('[role="alert"]').forEach(
+        (alert) => window.__alerts.push(alert.textContent));
+      new MutationObserver(read).observe(root, {childList: true, subtree: true,
+                                                characterData: true});
+    }""", view)
+
+    page.clock.run_for(12_000)                 # the successor answers
+    page.wait_for_function(
+        "() => document.getElementById('engine-restart-note').textContent"
+        " === 'The engine is back.'", timeout=10_000)
+    page.clock.run_for(2_000)
+
+    alerts = page.evaluate("window.__alerts")
+    assert not [a for a in alerts if "did not answer" in a], (
+        f"a false alert at a good ending: {alerts}")
     assert not page.js_errors, page.js_errors
 
 

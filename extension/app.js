@@ -8650,9 +8650,11 @@ async function loadDatabase() {
     out("db-integrity-note", "The engine did not answer, so it cannot be checked.",
         "muted");
     $("db-schema-version").textContent = "unreadable";
+    // NOT WHILE A RESTART RUNS, which holds that button down two lines up.
     $("db-schema-detail").textContent =
-      "The engine did not answer, so the version could not be read. Upgrade database "
-      + "still works: it goes through the native host, which does not need the engine.";
+      "The engine did not answer, so the version could not be read."
+      + (restartRunning ? "" : " Upgrade database still works: it goes through the "
+        + "native host, which does not need the engine.");
     // AND THE COPIES ARE CLEARED, not left standing. Rows from an earlier read
     // still offer a restore, and `restore` refuses a path it can no longer list --
     // so a stale row is a button that looks live and cannot work.
@@ -10722,10 +10724,12 @@ function wireRuntimeRepair() {
       .forEach((button) => { button.disabled = true; });
     // AND START AND CHECK AGAIN, as an upgrade holds them (`upgradeDatabaseFromPanel`):
     // a Start in the wait is a second engine beside the successor, and Check again in
-    // the dark draws one (his ruling, #1810's review). Only what is live now, so the
-    // ending gives back only what this took.
-    const held = [$("engine-start"), $("setup-recheck"), $("engine-recheck")]
-      .filter((button) => button && !button.disabled);
+    // the dark draws one (his ruling, #1810's review). And the Engine page's Run
+    // diagnostics, the twin of the Settings button held above: in the dark it says
+    // "Start the engine", and its output stays standing above the outcome. Only what
+    // is live now, so the ending gives back only what this took.
+    const held = [$("engine-start"), $("setup-recheck"), $("engine-recheck"),
+      $("engine-diagnostics")].filter((button) => button && !button.disabled);
     held.forEach((button) => { button.disabled = true; });
     // EVERY ENDING GOES THROUGH HERE, so the flag that keeps Start and Upgrade
     // database down while the restart runs cannot outlive it.
@@ -10734,8 +10738,13 @@ function wireRuntimeRepair() {
       [restart, upgrade, $("runtime-check-action"), ...held].filter(Boolean)
         .forEach((button) => { button.disabled = false; });
       // AND THE PAGES THAT OFFERED OPEN ENGINE INSTEAD OF START read again, now that
-      // it has ended -- the way entering them reads (`showView`).
-      if (currentViewName() === "jobs") loadJobs();
+      // it has ended -- the way entering them reads (`showView`). Jobs draws before its
+      // read, so the failure behind that banner goes first: with the flag down it
+      // would draw "The engine did not answer", a false alert at a good ending.
+      if (currentViewName() === "jobs") {
+        jobsPage.failure = null;
+        loadJobs();
+      }
       if (currentViewName() === "schedules") {
         schedulesPage.loading = loadSchedulesPage({ sourcesToo: true });
       }
