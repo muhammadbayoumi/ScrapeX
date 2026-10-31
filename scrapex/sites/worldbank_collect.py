@@ -16,8 +16,9 @@ WHAT A FAILURE DOES IS HIS RULING (#1701 Q1, option (a), 2026-10-17):
     crawl goes on with the next area;
   * a notice that cannot be kept is counted in Errors, with its id, and the rest of its
     page is kept;
-  * a page none of whose notices can be kept stops the crawl as failed, because that is
-    the Bank changing shape.
+  * a page none of whose notices can be kept never stops the crawl: it says so in a
+    warning, and the crawl goes on (his ruling of 2026-10-25, #1779, which replaced
+    "stops the crawl as failed" on 0 refusals measured in the 12 smallest areas).
 A stop that is not a page's (the owner's Pause or Cancel, a robots.txt refusal, a site
 that keeps refusing) arrives as `CrawlBlocked` and is never taken for a failed page.
 
@@ -63,11 +64,6 @@ class PageShapeError(ValueError):
     `procnotices`, and for a count `facets`. The Bank changed what it answers."""
 
 
-class ShapeChanged(RuntimeError):
-    """A page none of whose notices could be kept: the Bank changed the notice's shape.
-    It stops the crawl as failed (his ruling, #1701 Q1 (a))."""
-
-
 @dataclass(frozen=True)
 class Area:
     """One of the Bank's countries and regions, and how many notices it counted."""
@@ -86,6 +82,11 @@ class Plan:
 
     areas: tuple[Area, ...]
     total: int
+
+    @property
+    def unlisted(self) -> int:
+        """Notices the Bank lists in no area: no area pass reads them (#1647, 2026-10-25)."""
+        return self.total - sum(area.count for area in self.areas)
 
     @property
     def requests(self) -> int:
@@ -163,9 +164,13 @@ def count_areas(fetcher) -> Plan:
             raise PageShapeError(f"{response.url}: {name!r} counts {count!r}")
         areas.append(Area(name=name, count=count))
     total = int(body["total"])
-    if sum(area.count for area in areas) != total:
-        # The 184 counts add up to the total (#1647 §4); when they do not, an area is
-        # missing from the list, and a crawl of the list would miss it without a word.
+    # FEWER IS THE BANK'S INDEX, MORE IS A FAULT. Measured 2026-10-25 (#1647): the 184
+    # areas counted 424,105 of 424,135. Thirty notices name no country and no region, and
+    # even the notice-type facet, seven values, falls short by 36: the facets were never a
+    # census, and 10 Oct's exact sum was that day's. His ruling: the count stands and
+    # `Plan.unlisted` names the gap. Counts adding up to MORE than the total mean an area
+    # counted twice, or two that overlap, and a crawl of them would read notices twice.
+    if sum(area.count for area in areas) > total:
         raise PageShapeError(f"{response.url}: the areas count "
                              f"{sum(a.count for a in areas):,} of {total:,} notices")
     # LARGEST FIRST, so a first crawl that stops has read as many notices as it could.
@@ -227,7 +232,8 @@ def _keep(conn: sqlite3.Connection, response: httpx.Response, notices: list[dict
           source_site_id: int, crawl_job_id: int | None, tally: Tally, log: Log,
           where: str) -> None:
     """One page: its response as evidence, then each notice under a savepoint of its own,
-    committed together. Raises `ShapeChanged` when not one notice could be kept.
+    committed together. A page none of whose notices could be kept is not a stop: it
+    says so in a warning, and the crawl goes on (#1779).
 
     WHAT IT DID IS REPORTED ONCE IT IS COMMITTED. An undone page is read again once the
     lock is free, and reports then; and part 3b-2's job writes its log through the
@@ -282,9 +288,11 @@ def _keep(conn: sqlite3.Connection, response: httpx.Response, notices: list[dict
     for notice_id, reason in refused:
         log("error", f"{notice_id!r} not kept: {reason}")
     if notices and len(refused) == len(notices):
-        raise ShapeChanged(f"Stopped because the Bank's notices changed shape at {where}: "
-                           f"none of {_counted(len(notices), 'notice')} could be read "
-                           f"({refused[0][1]})")
+        # NEVER A STOP, his ruling of 2026-10-25 (#1779): every notice is already counted
+        # in Errors and named above; this line says what the whole page suggests.
+        log("warning", f"every notice on {where} was refused "
+                       f"({_counted(len(notices), 'notice')}): the Bank may have changed "
+                       f"their shape. The first: {refused[0][1]}")
 
 
 def read_area(conn: sqlite3.Connection, fetcher, *, source_site_id: int, area: Area,
@@ -341,9 +349,11 @@ def read_area(conn: sqlite3.Connection, fetcher, *, source_site_id: int, area: A
 
 
 def read_changes(conn: sqlite3.Connection, fetcher, *, source_site_id: int, since: str,
-                 tally: Tally, log: Log, crawl_job_id: int | None = None) -> ChangesRead:
+                 tally: Tally, log: Log, crawl_job_id: int | None = None,
+                 on_page: Callable[[int, int], None] | None = None) -> ChangesRead:
     """Read what changed since `since`, newest change first, keeping each page as it
-    arrives.
+    arrives. `on_page(page, notices)` is called once a page is committed, with the notices
+    it kept: part 3b-2a's progress in pages.
 
     The Bank has no date filter; `srt=api_modified_date&order=desc` sorts (#1647 B6,
     request 20), so a pass reads until a notice older than `since`, or the end of what the
@@ -423,6 +433,8 @@ def read_changes(conn: sqlite3.Connection, fetcher, *, source_site_id: int, sinc
                   crawl_job_id=crawl_job_id, tally=tally, log=log, where=where)
         pages += 1
         notices += len(newer)
+        if on_page is not None:
+            on_page(offset // PAGE_ROWS, len(newer))
         if len(newer) < len(rows) or offset + len(rows) >= total:
             break
         offset += PAGE_ROWS

@@ -77,6 +77,7 @@ SPECIALISED_RUNNERS: dict[str, tuple[str, str]] = {
     "directory_crawl": (".directoryjob", "run_directory_crawl_job_once"),
     "dataset_interpret": (".datasetjob", "run_dataset_interpret_job_once"),
     "profile_crawl": (".profilejob", "run_profile_crawl_job_once"),
+    "tender_crawl": (".tenderjob", "run_tender_crawl_job_once"),
 }
 
 #: DERIVED, NEVER LISTED TWICE. This used to be a literal set of the same strings a
