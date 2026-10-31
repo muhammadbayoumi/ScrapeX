@@ -132,7 +132,7 @@ class Charter:
         self.corroborators = tuple(c["field"] for c in block.get("corroborators", ()))
         # A witness may declare HOW its field speaks. "quantity" is the default
         # and the only shape sikaegshop needs: one field holding "20 kg". The
-        # other two exist because madar states the same fact differently.
+        # others exist because madar states the same fact differently.
         self.shapes = tuple(w.get("shape", "quantity") for w in block.get("witnesses", ()))
         self.unit_fields = tuple(w.get("unit_field", "") for w in block.get("witnesses", ()))
         # A "sold_by" witness's own words, the units they may name, and the
@@ -312,13 +312,9 @@ class Charter:
         return unit, literal
 
     @staticmethod
-    def _confirmed(confirm, fields: dict) -> str | None:
-        """"" when nothing must confirm, the confirming statement when the row
-        makes it, and None when the row says something else or nothing."""
-        if not confirm:
-            return ""
-        if hasattr(confirm, "model_dump"):
-            confirm = confirm.model_dump()
+    def _confirmed(confirm: dict, fields: dict) -> str | None:
+        """The confirming statement when the row makes it, and None when the row
+        says something else or nothing."""
         value = fields.get(confirm["field"])
         word = fields.get(confirm["unit_field"])
         try:

@@ -309,12 +309,14 @@ def price_basis(unit_code: str | None, weight, weight_unit: str | None,
     and promoting it would make the same 109 offers disagree with each other
     about a fact none of them states.
 
-    So the Unit column beside this one stays EMPTY, because empty is the honest
-    answer to "what unit did the shop state?", and what a reader sees here is
-    two facts the shop did publish, side by side: its weight and its own word
-    for the unit that weight is in. Nobody's inference is on screen.
+    So this function fills no Unit column, because empty is the honest answer
+    where the shop stated none, and what a reader sees here is two facts the
+    shop did publish, side by side: its weight and its own word for the unit
+    that weight is in. Nobody's inference is on screen. Where the shop later
+    states a unit in words, its charter puts that on the row (#1833), and rule 1
+    below means this function is never reached for it.
 
-    THREE CONDITIONS, and all three are the SOURCE's:
+    FOUR CONDITIONS, and all four are the SOURCE's:
 
     1. The source states no selling unit. If it does, that IS the answer and
        price_unit() already gives it — riyadh cement says «50كجم» in the name
@@ -2486,12 +2488,12 @@ COLUMN_NOTES: dict[str, str] = {
     "unit": "What one price BUYS: a litre, a 50 kg bag, a 100 m roll. "
             "Empty when the source states no unit — never guessed.",
     "price_basis": "The WEIGHT a price is quoted against, where the source "
-                   "prices by weight and names no unit: madar's rebar is "
-                   "4,830 per 1,000 kg, and per bar it would be nonsense. "
-                   "Both numbers are the shop's — its published weight and "
-                   "its own word for the unit of that weight. Empty wherever "
-                   "the Unit column is filled, and wherever the source does "
-                   "not say its quantity is divisible.",
+                   "names no unit and sells a fraction of that weight: 4,830 "
+                   "per 1,000 kg, which per bar would be nonsense. Both numbers "
+                   "are the shop's — its published weight and its own word for "
+                   "the unit of that weight. Empty wherever the Unit column is "
+                   "filled, and wherever the source's minimum and step are whole "
+                   "numbers, because then the weight is one piece's own mass.",
     "availability": "In stock or out, as the source states it.",
     "tax": "Whether THIS figure includes tax, and at what rate.",
     "tax_included": "The same fact as yes/no, for a spreadsheet.",
@@ -2845,7 +2847,8 @@ _COMPUTED_FROM: dict[str, str] = {
     "variant": "source_variant.variant",
     "unit": "selling_unit + source_offer.basis_quantity",
     "price_basis": ("source_offer.weight + weight_unit, shown only where "
-                    "quantity_is_decimal and no selling_unit"),
+                    "quantity_is_decimal, a fractional minimum_quantity or "
+                    "quantity_increment, and no selling_unit"),
     "discount": "computed: price_observation.price_before − price",
     "discount_pct": "computed: the same two prices, as a percentage",
     "price_usd": "computed: price_observation × currency_rate",

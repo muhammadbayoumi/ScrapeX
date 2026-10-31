@@ -100,8 +100,8 @@ sources:
       # The connector could read it all along; nothing asked for it.
       - kind: enrichment
         scope: census
-    # WHAT ONE OF THESE IS. Two shapes, because madar states it two ways and
-    # neither is the shape sikaegshop uses.
+    # WHAT ONE OF THESE IS. Three shapes beside the plain quantity sikaegshop uses,
+    # because madar states it three more ways.
     #
     # Measured 2026-08-03 over all 3,537 offers: 3,480 resolve from the
     # platform's declared weight+weight_unit, 52 from an option value that
@@ -179,7 +179,7 @@ sources:
         - {field: variant_axes_ar, lang: ar, provenance: stated_field, shape: quantity}
         - {field: variant_axes,    lang: en, provenance: stated_field, shape: quantity}
         #
-        # 5. THE SIZE THE SHOP STATES IN ITS SPECIFICATIONS, ranked last of all.
+        # 5. THE SIZE THE SHOP STATES IN ITS SPECIFICATIONS, last of the fields.
         #    «إسمنت السعودية» carries no size on its variants — its option value
         #    is «Cement Type: Sulphate Resistant» — and states «المقاس: 50 Kg»
         #    in its Specifications panel, which is the shop saying what one bag
@@ -215,20 +215,20 @@ sources:
         #    not enough on its own. Measured over every offer of the 22 before
         #    this was written:
         #      143 offers (18 rebar products, 3 steel-coil products) state
-        #          weight 1000 kgs, and price ÷ 1000 runs 3.0 to 4.8 SAR/kg:
+        #          weight 1000 kgs, and price ÷ 1000 runs 2.9 to 4.8 SAR/kg:
         #          the price is a tonne's, and the two statements agree
-        #       19 offers of «Steel Reinforcing Mesh» say «يباع بالطن» too,
-        #          but weigh 5.9 to 61.7 kg each and cost 24 to 199: the price
-        #          is one sheet's, and the sentence describes the steel, not
-        #          what the price buys. The weight refuses them; they stay
-        #          unitless, as the owner's raw-facts rule requires.
+        #       19 offers of «Steel Reinforcing Mesh» carry «يسعر بالطن» too, in
+        #          the line about contractors, but weigh 5.9 to 61.7 kg each and
+        #          cost 24 to 199: the price is one sheet's, and the sentence is
+        #          not about what this price buys. The weight refuses them; they
+        #          stay unitless, as the owner's raw-facts rule requires.
         #    Ranked after every field witness, so an axis or a size the shop
         #    states for THIS variant still answers first. Only «طن» is admitted:
-        #    the same descriptions also say «يباع بالمتر» (125 offers),
-        #    «بالقطعة» (65) and «بالحبة» (13), and those are his to rule on,
-        #    not this charter's. Run over all 4,726 active offers: 143 gain the
-        #    tonne, 19 are refused by their weight, and the 284 that already
-        #    carry a unit never reach this witness.
+        #    the same descriptions also say «يباع بالمتر» (125 offers, 70 of them
+        #    «بالمتر المكعب»), «بالقطعة» (65) and «بالحبة» (13), and those are his
+        #    to rule on, not this charter's. Run over all 4,726 active offers:
+        #    143 gain the tonne, 19 are refused by their weight, and the 284 that
+        #    already carry a unit never reach this witness.
         - field: description_ar
           lang: ar
           provenance: stated_in_prose

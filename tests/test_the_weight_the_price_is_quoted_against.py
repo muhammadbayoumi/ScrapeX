@@ -524,8 +524,8 @@ def test_price_basis_needs_every_one_of_the_sources_own_statements():
 
 def test_the_basis_is_grouped_and_keeps_the_sources_own_precision():
     """1,000 not 1000 — the whole point is that the number is large. And the
-    reader's own units: the shop said 1000 kg, so it says 1,000 kg, never 1 t.
-    A tonne is a word this shop has not used."""
+    shop's own units: its weight is 1000 kg, so this says 1,000 kg, never 1 t.
+    A tonne reaches the page only as a unit the shop states in words (#1833)."""
     assert price_basis("", 1000, "kg", 1, 0.25, 0.05) == "1,000 kg"
     assert price_basis("", 66.02, "kg", 1, 0.25, 0.05) == "66.02 kg"
     assert price_basis("", 6.74, "kg", 1, 0.25, 0.05) == "6.74 kg"
@@ -707,5 +707,9 @@ def test_every_surface_that_prints_a_price_reads_the_same_basis(tmp_path):
              if e.get("field_key") == "price"}
     assert moves[rebar]["unit"] == "1,000 kg"
     assert moves[mesh]["unit"] == ""
+    # What _display_unit reads it spends: an entry in the feed is `unit`, and the
+    # facts that made it do not ride along to the panel.
+    for spent in ("minimum_quantity", "quantity_increment"):
+        assert spent not in moves[rebar]
     assert [e["unit"] for e in changes.changes_for_offer(conn, rebar)
             if e.get("field_key") == "price"] == ["1,000 kg"]
