@@ -1,7 +1,8 @@
 """A product a complete crawl no longer finds is marked, and only then (#1841).
 
-His ruling of 2026-10-31, option (أ): it stays in the table, marked and filterable;
-it leaves the file mbiX reads; its history stays; and it comes back by itself.
+His ruling of 2026-10-31: it stays in the table, marked and filterable, and it
+stays in the Sheet with the same mark («تبقى فى الشيت بنفس العلامة»). Its history
+stays, and it comes back by itself.
 
 WHY THE MARK SAYS "NO LONGER LISTED" AND NOT "GONE FROM THE SITE". Of three unseen
 madar products opened on 2026-10-31, one answered 404 and two redirected to a new
@@ -27,6 +28,7 @@ from scrapex.connectors.base import ScrapedTable
 from scrapex.connectors.custom_json import CustomJsonConnector
 from scrapex.connectors.magento import MagentoGraphqlConnector
 from scrapex.ingest import ingest_payloads
+from scrapex.publish import workbook_tables
 from scrapex.rowspec import PRODUCT_PRICES
 from scrapex.vocab import ExtractKind, ExtractScope
 from tests.test_ingest import make_entry, make_payload, one_row
@@ -225,15 +227,29 @@ def test_the_browse_filter_finds_the_marked_rows(seeded):
     assert sorted(r["sku"] for r in page.rows) == ["SKU1", "SKU2", "SKU3"]
 
 
-def test_the_export_leaves_it_out(seeded):
-    """A price that no longer exists must not be read by mbiX as a current one."""
+def test_the_sheet_keeps_it_with_the_same_mark(seeded):
+    """His ruling: no product leaves the Sheet. The mark rides the availability
+    column the Sheet already has, so the add-in reads no new column."""
     entry, conn = seeded
     _crawl(conn, entry, _Connector(["1", "2", "3"]))
 
     header, rows = reports.export_source_table(conn, entry.source_key)[:2]
 
-    skus = [row[header.index("sku")] for row in rows]
-    assert sorted(skus) == ["SKU1", "SKU2", "SKU3"]
+    cells = {row[header.index("sku")]: row[header.index("availability")] for row in rows}
+    assert cells == {"SKU1": "in_stock", "SKU2": "in_stock", "SKU3": "in_stock",
+                     "SKU4": "no_longer_listed"}
+
+
+def test_the_publish_path_carries_the_mark(seeded):
+    """workbook_tables is what the Sheet, the .xlsx and the funnel all write."""
+    entry, conn = seeded
+    _crawl(conn, entry, _Connector(["1", "2", "3"]))
+
+    name, header, rows = workbook_tables(conn, entry.source_key)[0]
+
+    assert name == entry.source_key
+    cells = {row[header.index("sku")]: row[header.index("availability")] for row in rows}
+    assert cells["SKU4"] == "no_longer_listed" and cells["SKU1"] == "in_stock"
 
 
 def test_its_history_stays(seeded):

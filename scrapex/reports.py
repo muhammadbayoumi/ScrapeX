@@ -1087,7 +1087,9 @@ _EXPORT_SELECT: dict[str, str] = {
     "price_sale": "po.price_sale",
     "price_trade": "po.price_trade",
     "currency": "po.currency",
-    "availability": "po.availability",
+    # The Sheet carries the same mark as the table, in the column it already has:
+    # his ruling on #1841, and no new column for the add-in to read.
+    "availability": _SHOWN_AVAILABILITY,
     "tax_included": "po.tax_included",
     "business_date": "po.business_date",
     "product_link": "sp.product_link",
@@ -1279,9 +1281,6 @@ def export_source_table(conn: sqlite3.Connection, source_key: str,
     select = ", ".join(f"{_EXPORT_SELECT[alias]} AS {alias}" for alias in aliases)
     rows = conn.execute(
         f"SELECT {select} {_LATEST_PER_OFFER} "
-        # A price the listing no longer carries must not be read by mbiX as a
-        # current one. It stays on the Data page, marked (#1841, his ruling).
-        "AND sp.status <> 'vanished' "
         # TRIM here decides the ORDER, never the content: the cells below are
         # written verbatim. Sorting on the raw column put MADAR's space-padded
         # names at the top of the file, ahead of everything, which is a fact
