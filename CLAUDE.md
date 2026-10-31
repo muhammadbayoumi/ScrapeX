@@ -1,7 +1,7 @@
 # ScrapeX — how we change this code
 
-ScrapeX is contract-driven web data collection into a SQLite warehouse, publishing to the
-Google Sheet the mbiX Excel add-in reads (`scrapex/publish.py`, [README.md](README.md)). A
+ScrapeX is contract-driven web data collection into a SQLite warehouse, publishing to a
+Google Sheet (`scrapex/publish.py`, [README.md](README.md)). A
 second Sheet runs the other way — the Apps Script staging inbox `scrapex funnel-test`
 posts to (`scrapex/funnel.py` → `apps_script/` → `scrapex/ingest.py`). **It collects in
 categories; price is one of them, not the whole tool.**
