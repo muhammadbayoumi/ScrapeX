@@ -13,7 +13,7 @@ import { capabilityProblem, deployedFrom, installedVersion, CAPABILITY_REPORTING
 import { PROTOCOL_VERSION } from "./transport.js";
 import { ENGINE_CANDIDATES, latestEngineRelease } from "./releases.js";
 import {
-  backoffLook, backoffParts, backoffShort, continuableSites, stoppedLine, stoppedSites,
+  backoffLook, backoffParts, backoffShort, continuableSites, pageCount, stoppedLine, stoppedSites, stoppedSummary,
   jobsCountLine, jobsNoun, domainOf, filterOptions, isSettled, jobLabel, jobLead, jobMatches,
   jobWaitingLine, liveJob, menuControls, noResultsLine, observeRate, othersLine,
   primaryControl, progressFraction, progressLine, recentRate, refusalLine, sourceOf,
@@ -1634,7 +1634,6 @@ const keptPages = (source) => Number(source?.kept_pages || 0);
  * carries its raw UTC in a title and re-renders on a zone change for free. */
 const fmtStopped = (iso) => window.ScrapeXTime.markup(iso, "short");
 
-const pageCount = (n) => `${n.toLocaleString()} page${n === 1 ? "" : "s"}`;
 
 /** Start a run that CONTINUES the journal instead of clearing it. */
 async function resumeSource(key, button) {
@@ -1703,7 +1702,7 @@ function renderSites() {
               esc(pageCount(kept))}</button>
           <span><strong>${esc(pageCount(kept))} kept</strong> from a run that
           stopped${stopped ? " " + stopped : ""}. Continue goes on from
-          there and re-fetches none of them; Run starts over and discards them.</span>
+          there and re-fetches none of them; starting a new run discards them.</span>
         </span>` : "";
       return `<div class="srow ${ready ? "" : "off"}">
         <label>
@@ -5880,10 +5879,11 @@ function renderMiniplayer(job, queued) {
   // ONE NAME FOR ONE JOB (#1542): the same `jobLabel` the Jobs row and the cancel
   // question use, from the Sources identity -- "3 sites" named none of them.
   const named = jobLabel(job, state.sources);
-  $("mini-title").textContent = `${named} — ${backoffLook(job)?.word.toLowerCase() || job.status.replace(/_/g, " ")}`;   // MOCK-R2
+  $("mini-title").textContent = backoffLook(job) ? named : `${named} — ${job.status.replace(/_/g, " ")}`;   // MOCK-R3: the figure carries the wait
   const prog = miniProgress(job);
   $("mini-pct").textContent = backoffShort(job, job.__now ?? Date.now()) || prog.text;   // MOCK-R2
-  $("mini-bar").style.width = prog.pct + "%";
+  // MOCK-R3: while it waits, how far it really got, never the 100% an unknown total draws.
+  $("mini-bar").style.width = (backoffLook(job) ? Math.round((progressFraction(job) || 0) * 100) : prog.pct) + "%";
   $("mini-bar").classList.toggle("indeterminate", prog.indeterminate && !backoffLook(job));   // MOCK-R2: no motion while it waits
   const c = job.counters || {};
   const bits = [];
@@ -8309,17 +8309,21 @@ function fillJobRow(row, job, { down = false } = {}) {
   };
   if (waitingOut) {
     const reason = document.createElement("span");
-    reason.textContent = `${waitingOut.why}${waitingOut.when ? " — " : ""}`;
+    reason.textContent = `${waitingOut.why}${waitingOut.label ? " — " : ""}`;
     const timer = document.createElement("span");
     timer.setAttribute("role", "timer");
-    timer.className = "tech";
-    timer.textContent = waitingOut.when;
-    note.replaceChildren(...(waitingOut.when ? [reason, timer] : [reason]));
+    const figure = document.createElement("span");
+    figure.className = "tech";
+    figure.textContent = waitingOut.duration;
+    timer.append(`${waitingOut.label}${waitingOut.duration ? " " : ""}`, figure);
+    note.replaceChildren(...(waitingOut.label ? [reason, timer] : [reason]));
     note.classList.remove("hidden");
   } else if (stops.length) {
-    jobsText(note, stops.map((stop) => stoppedLine(stop, {
-      site: domainOf(sourceOf(stop.key, sources)?.base_url || stop.key),
-      live: continuable.includes(stop.key), next: nextRun(stop.key)})).join(" "));
+    const hostOf = (key) => domainOf(sourceOf(key, sources)?.base_url || key);
+    jobsText(note, stops.length > 1 ? stoppedSummary(stops, hostOf)
+      : stoppedLine(stops[0], {site: hostOf(stops[0].key),
+                               live: continuable.includes(stops[0].key),
+                               next: nextRun(stops[0].key)}));
     note.classList.remove("hidden");
   } else {
     const waiting = jobWaitingLine(job);
@@ -8352,6 +8356,19 @@ function fillJobRow(row, job, { down = false } = {}) {
     if (busy) { press.setAttribute("aria-busy", "true"); press.setAttribute("aria-disabled", "true"); }
     press.addEventListener("click", () => pressContinue(job, key, press));
     (continuable.length > 1 ? several : primarySlot).append(press);
+  }
+  // MOCK-R3: nothing kept, so the way on is a new run: the row says so and offers it.
+  if (stops.length === 1 && !stops[0].kept) {
+    const fresh = document.createElement("button");
+    fresh.type = "button";
+    fresh.className = "ghost";
+    fresh.dataset.continue = stops[0].key;
+    fresh.textContent = "Start a new run";
+    fresh.setAttribute("aria-label", `Start a new run of ${domainOf(sourceOf(stops[0].key, sources)?.base_url || stops[0].key)}`);
+    fresh.addEventListener("click", () => document.querySelector('nav.side-rail button[data-view="run"]').click());
+    primarySlot.append(fresh);
+    primarySlot.classList.remove("hidden");
+    primarySlot.firstElementChild.classList.add("hidden");
   }
   if (continuable.length === 1) {
     primarySlot.classList.remove("hidden");
@@ -8578,6 +8595,7 @@ async function pressContinue(job, key, button) {
   } catch (error) {
     jobsPage.pressing.delete(`${ref}:${key}`);
     jobsPage.notes.set(ref, `Continue was refused: ${error.message}`);
+    await loadSources({ownsRun: false});   // MOCK-R3: so the sentence above stops promising it
     fillJobRow(jobsPage.rows.get(ref), job);
   }
 }

@@ -379,6 +379,14 @@ a.card:hover {
   background: var(--accent-weak);
 }
 
+/* An Admonition's actions: `flex flex-row gap-2 mt-3` (Admonition.tsx@86c813ec). */
+.banner-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin-top: var(--sp-3);
+}
+
 .banner.danger {
   border-color: color-mix(in srgb, var(--red) 55%, var(--line));
   background: var(--red-weak);

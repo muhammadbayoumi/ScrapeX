@@ -222,7 +222,7 @@ export function progressFraction(job) {
 export function countdownWords(ms) {
   const total = Math.max(0, Math.floor(ms / 1000));
   return [[Math.floor(total / 3600), "h"], [Math.floor(total % 3600 / 60), "m"],
-    [total % 60, "s"]].filter(([n]) => n > 0).map(([n, u]) => `${n}${u}`).join(" ");
+    [total % 60, "s"]].filter(([n]) => n > 0).map(([n, u]) => `${n}${u}`).join("\u00a0");
 }
 
 /** The sources a site stopped in this job, from the engine's own slots. */
@@ -234,20 +234,29 @@ export function stoppedSites(job) {
                             why: String(slot.stopped_because || "")}));
 }
 
-const pages = (n) => `${n.toLocaleString()} page${n === 1 ? "" : "s"}`;
+/** "212 pages": the one plural rule for a kept count. */
+export const pageCount = (n) => `${n.toLocaleString()} page${n === 1 ? "" : "s"}`;
 
-/** One stopped site's sentence. The cause is the engine's own (`stopped_because`);
- *  "continues" is present tense only on the job Continue goes on from (`live`), and the
- *  scheduled clause only where a schedule will fire (`next`, formatted by the caller). */
+/** One stopped site's sentence. The frame is true of every cause, a block or an unreachable
+ *  robots.txt alike; the cause is the engine's own short form. "Continue goes on" only on
+ *  the job Continue goes on from (`live`); the scheduled clause only where one will fire. */
 export function stoppedLine(stop, {site, live, next}) {
-  const cause = `${site} stopped the crawl: ${stop.why}.`;
-  if (!stop.kept) return `${cause} No page was kept; run it to start over.`;
-  const kept = `${pages(stop.kept)} kept`;
-  if (!live) return `${cause} ${pages(stop.kept)} ${stop.kept === 1 ? "was" : "were"} kept then.`;
+  const cause = `The crawl of ${site} stopped: ${stop.why}.`;
+  if (!stop.kept) return `${cause} No page was kept. Start a new run to fetch it from the top.`;
+  if (!live) return `${cause} ${pageCount(stop.kept)} ${stop.kept === 1 ? "was" : "were"} kept then.`;
   const them = stop.kept === 1 ? "it" : "them";
-  return `${cause} ${kept[0].toUpperCase()}${kept.slice(1)}; ` + (next
-    ? `its next scheduled run, ${next}, continues from ${them}, or press Continue.`
-    : `it continues from ${them} when you press Continue.`);
+  return `${cause} ${pageCount(stop.kept)} kept` + (next
+    ? `. Its next scheduled run (${next}) continues from ${them}; Continue goes on now.`
+    : `; Continue goes on from ${them}.`);
+}
+
+/** Two or more stopped sites in one job: the count first, one short clause per site. Each
+ *  full cause stays in the job's log. */
+export function stoppedSummary(stops, hostOf) {
+  const parts = stops.map((stop) => `${hostOf(stop.key)} (${stop.kept
+    ? `${pageCount(stop.kept)} kept` : "no page kept"})`);
+  return `Stopped by ${stops.length} sites: ${parts.join(", ")}. `
+    + "Each Continue below goes on from its site's pages; View log has the causes.";
 }
 
 /** Which stopped sites offer Continue on THIS row: the engine names the job each source
@@ -261,27 +270,38 @@ export function continuableSites(job, sources, liveKeys = new Set()) {
   }).map((stop) => stop.key);
 }
 
-const WHY_WAITING = {
-  refused: (b) => `the site refused (${b.http_status})`,
-  told_to_wait: () => "the site asked us to wait",
-  challenged: () => "the site showed a bot check",
-};
+const STOP_CLAUSE = "at 60 min the crawl stops and keeps its pages";
 
-/** A running job waiting out a refusal: the reason (static) and the time (a timer). */
+/** "the site refused (429) for 42 min": the reason and its clock, in one form. */
+function waitingReason(b, since) {
+  const span = since > 60 ? `${Math.floor(since / 60)} h ${since % 60} min` : `${since} min`;
+  const long = since >= 10;
+  if (b.reason === "told_to_wait") {
+    return `the site asked us to wait${long ? `, ${span} so far` : ""}`;
+  }
+  const what = b.reason === "challenged" ? "the site showed a bot check"
+    : `the site refused (${b.http_status})`;
+  if (!long) return what;
+  return since >= 60
+    ? `${what} for ${span}; if this retry is refused, the crawl stops and keeps its pages`
+    : `${what} for ${span}; ${STOP_CLAUSE}`;
+}
+
+/** A running job waiting out a refusal: the static reason, and the time for a timer. */
 export function backoffParts(job, now = Date.now()) {
   const b = job?.backoff;
   if (!b || job.status !== "running") return null;
   if (b.reason === "slowed") {
-    return {why: `the site slowed — reading ${b.in_flight} page${b.in_flight === 1 ? "" : "s"} `
-      + `at a time from it, down from ${b.from_in_flight}`, when: ""};
+    return {why: b.in_flight < b.from_in_flight
+      ? `the site slowed — reading ${b.in_flight} at a time from it, down from ${b.from_in_flight}`
+      : `the site slowed — already reading ${b.in_flight} at a time from it`,
+    label: "", duration: ""};
   }
-  const why = (WHY_WAITING[b.reason] || WHY_WAITING.refused)(b);
   const left = Date.parse(b.next_attempt_at) - now;
   const since = Math.floor((now - Date.parse(b.refused_since)) / 60000);
-  const clock = since >= 60 ? " · refused for over an hour — this is its last try"
-    : since >= 10 ? ` · refused for ${since} min; stops at 60 min, keeping its pages` : "";
-  return {why: why + clock,
-          when: left > 999 ? `next retry in ${countdownWords(left)}` : "retrying soon…"};
+  return {why: waitingReason(b, since),
+          label: left > 999 ? "next retry in" : "retrying soon…",
+          duration: left > 999 ? countdownWords(left) : ""};
 }
 
 /** The look of a running job that is waiting out a refusal (not of a slowed one). */
@@ -368,8 +388,8 @@ const STATUS_LOOK = {
   requires_review: ["material-warning", "warning"],
   failed: ["material-cancel", "destructive"],
   partially_completed: ["material-warning", "warning"],
-  // #1772: the site stopped it and its pages are kept for Continue. The pause glyph says
-  // "it waits to go on", amber says it needs him, as `partially_completed` does.
+  // #1772: Studio's paused project, PauseCircle in the foreground tone
+  // (ProjectCardStatus.tsx@86c813ec:110-114, 173-177).
   stopped_by_site: ["material-pause-circle", "foreground"],   // MOCK-R2: Studio's paused project
   completed_with_errors: ["material-warning", "warning"],
   completed: ["material-check-circle", "brand"],
