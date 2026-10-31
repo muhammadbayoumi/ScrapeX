@@ -446,7 +446,9 @@ def test_the_retirement_sweep_speaks_through_notices_not_errors():
 
     assert result.errors == []
     assert result.contained == []
-    assert len(result.notices) == 1 and "retired 3" in result.notices[0]
+    # Two DELETEs, each reporting 3: the code this run restated, and that
+    # product's blanks (#1831).
+    assert len(result.notices) == 1 and "retired 6" in result.notices[0]
 
 
 # ---- the trade tier has to REACH the warehouse -------------------------------

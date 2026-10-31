@@ -1593,31 +1593,82 @@ def test_every_manual_theme_keeps_text_controls_and_focus_legible(
     _assert_legible(page.evaluate(_THEME_COLOURS_JS), f"{palette} {scheme}")
 
 
-#: Every rule that paints a fill _SITS_ON maps, with its state pseudo-classes removed so a
-#: hover rule finds the elements it hovers; each element walked up to the first background
-#: under it. A hidden element still computes its ancestors' backgrounds.
+#: A colour read while a theme change is still animating is an interpolation, not the token.
+_NO_TRANSITIONS = "*, *::before, *::after { transition: none !important; animation: none !important; }"
+
+#: Every rule that paints a fill _SITS_ON maps, through any alias of it, with its state
+#: pseudo-classes removed so a hover rule finds the elements it hovers. For each element it
+#: matches: `fill`, the name _SITS_ON knows it by, null where the rule paints a color-mix or a
+#: gradient of one; `paints`, what the rule paints resolved, one colour per fill a gradient
+#: names; `layers`, the backgrounds under it, nearest first, which a hidden element computes
+#: too; `writes`, the colour the rule itself writes, null where it inherits one; and `texts`,
+#: the words that sit on it (tests/test_the_words_on_a_fill_are_legible_over_what_is_under_them.py).
 _FILLS_DRAWN_JS = r"""() => {
-    const fills = {"var(--surface-subtle)": "surfaceSubtle", "var(--chip)": "chip",
-                   "var(--control-hover)": "controlHover"};
+    const fills = new Map([["--surface-subtle", "surfaceSubtle"], ["--chip", "chip"],
+                           ["--control-hover", "controlHover"]]);
+    const named = (value) => [...value.matchAll(/var\(\s*(--[\w-]+)/g)].map((match) => match[1])
+      .filter((name) => fills.has(name));
+    const each = (visit) => {
+      const walk = (rules) => { for (const rule of rules) {
+        if (rule.style) visit(rule);
+        if (rule.cssRules) walk(rule.cssRules);
+      } };
+      for (const sheet of document.styleSheets) walk(sheet.cssRules);
+    };
+    // An alias keeps its fill's name; a mix of one paints something else, so it has none.
+    for (let grew = true; grew;) {
+      grew = false;
+      each((rule) => { for (const prop of rule.style) {
+        if (!prop.startsWith("--") || fills.has(prop)) continue;
+        const value = rule.style.getPropertyValue(prop).trim();
+        const [first] = named(value);
+        if (first) { fills.set(prop, value === `var(${first})` ? fills.get(first) : null); grew = true; }
+      } });
+    }
+    const clear = (colour) => /^(transparent|rgba\(0, 0, 0, 0\))$|\/ 0\)$/.test(colour);
+    // A pressed option's words sit on the segments' ::before thumb (design/grid-theme.css:718),
+    // --accent, which no walk of backgrounds can see; ("accentContrast", "accent") scores them.
+    const notWords = "script, style, template, noscript, [aria-hidden='true'], .grid-lang-option[aria-pressed='true']";
+    const probe = document.createElement("i");
     const drawn = [];
-    // The colour the rule itself writes on the fill, resolved: null where it inherits one.
-    const ink = document.body.appendChild(document.createElement("i"));
-    const visit = (rules) => { for (const rule of rules) {
-      if (!rule.selectorText) { if (rule.cssRules) visit(rule.cssRules); continue; }
-      const fill = fills[(rule.style.getPropertyValue("background")
-                          || rule.style.getPropertyValue("background-color")).trim()];
-      if (!fill) continue;
-      ink.style.color = rule.style.getPropertyValue("color");
-      const writes = ink.style.color ? getComputedStyle(ink).color : null;
+    each((rule) => {
+      if (!rule.selectorText) return;
+      const value = (rule.style.getPropertyValue("background")
+                     || rule.style.getPropertyValue("background-color")).trim();
+      const inside = named(value);
+      if (!inside.length) return;
+      const ink = rule.style.getPropertyValue("color");
       const base = rule.selectorText.replace(/:(hover|focus-visible|focus-within|focus|active)(?![\w-])/g, "");
       for (const el of document.querySelectorAll(base)) {
-        let at = el.parentElement, under = "rgba(0, 0, 0, 0)";
-        while (at && (under === "rgba(0, 0, 0, 0)" || under === "transparent")) {
-          under = getComputedStyle(at).backgroundColor; at = at.parentElement; }
-        drawn.push({fill, under, writes, selector: rule.selectorText});
-      } } };
-    for (const sheet of document.styleSheets) visit(sheet.cssRules);
-    ink.remove();
+        // Resolved where it is drawn, because an ancestor may set the token.
+        el.appendChild(probe);
+        const paint = (css) => { probe.style.background = css; return getComputedStyle(probe).backgroundColor; };
+        const paints = value.includes("gradient(") ? inside.map((name) => paint(`var(${name})`)) : [paint(value)];
+        probe.style.background = "";
+        probe.style.color = ink;
+        const writes = ink ? getComputedStyle(probe).color : null;
+        probe.remove();
+        const layers = [];
+        for (let at = el.parentElement; at; at = at.parentElement) layers.push(getComputedStyle(at).backgroundColor);
+        const resting = getComputedStyle(el).color;
+        const texts = new Map();
+        const words = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+        for (let node = words.nextNode(); node; node = words.nextNode()) {
+          const holder = node.parentElement;
+          if (!node.textContent.trim() || texts.has(holder) || holder.matches(notWords)
+              || holder.closest(":disabled, [aria-disabled='true']")) continue;
+          // Words on a background of their own are on that, not on this fill.
+          let own = false;
+          for (let at = holder; at !== el; at = at.parentElement) own = own || !clear(getComputedStyle(at).backgroundColor);
+          if (own) continue;
+          const colour = getComputedStyle(holder).color;
+          texts.set(holder, {colour: ink && (holder === el || colour === resting) ? writes : colour,
+                             classes: [...holder.classList], sample: node.textContent.trim().slice(0, 30)});
+        }
+        drawn.push({fill: value === `var(${inside[0]})` ? fills.get(inside[0]) : null, selector: rule.selectorText,
+                    paints, layers, writes, texts: [...texts.values()]});
+      }
+    });
     return drawn;
 }"""
 
@@ -1628,13 +1679,15 @@ def test_every_translucent_fill_is_mapped_to_what_it_is_drawn_on(open_panel, pal
     """_SITS_ON is a measurement, and this re-takes it (#634). A fill drawn on a background
     the map does not list is scored over the wrong ones, and passes on a colour no one sees."""
     page = open_panel()
+    page.add_style_tag(content=_NO_TRANSITIONS)
     page.evaluate("""([palette, scheme]) => window.ScrapeXAppearance.set(
         {mode: "manual", scheme, palette, deviceColors: false})""", [palette, scheme])
     values = page.evaluate(_THEME_COLOURS_JS)
     named: dict[str, set] = {}
     for name, colour in values.items():
         named.setdefault(colour, set()).add(name)
-    drawn = page.evaluate(_FILLS_DRAWN_JS)
+    drawn = [{**one, "under": next((layer for layer in one["layers"] if _alpha(layer) > 0), "nothing")}
+             for one in page.evaluate(_FILLS_DRAWN_JS) if one["fill"]]
     assert {one["fill"] for one in drawn} == set(_SITS_ON), "a mapped fill was found drawn nowhere"
     unmapped = sorted({(one["fill"], one["under"], one["selector"]) for one in drawn
                        if not named.get(one["under"], set()) & set(_SITS_ON[one["fill"]])})
