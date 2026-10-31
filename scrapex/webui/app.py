@@ -452,7 +452,7 @@ TEMPLATES.env.globals["UNCLEAN_JOB_STATUSES"] = sorted(
 TEMPLATES.env.globals["SKIPPED_JOB_STATUS"] = JobStatus.SKIPPED.value
 STATIC_DIR = Path(__file__).parent / "static"
 PAGE_SIZE = 50
-AVAILABILITY_OPTIONS = ("in_stock", "out_of_stock", "unknown")
+AVAILABILITY_OPTIONS = ("in_stock", "out_of_stock", "unknown", "no_longer_listed")
 # The page sizes offered. The largest is the cap browse_observations already
 # enforces (reports.py) — offering a number the server would silently clamp
 # would be a lie told by a dropdown.

@@ -502,6 +502,10 @@ def _apply_charter(row: list[str], charter, product: dict | None = None) -> None
 
 
 class MagentoGraphqlConnector:
+    # True once fetch has walked every listing page the store said it has. Read
+    # by capture, which marks what the walk did not find (#1841).
+    census_proven = False
+
     connector_id = "magento-graphql"
 
     def __init__(self, fetcher: HttpFetcher) -> None:
@@ -610,8 +614,11 @@ class MagentoGraphqlConnector:
             # quiet data loss the warnings exist to prevent.
             before = len(notes)
             page_rows: list[list[str]] = []
+            page_refused: list[str] = []
             for product in items:
                 made = self._product_rows(builder, product, ctx)
+                if not made:
+                    page_refused.append(str(product.get("uid") or ""))
                 for built in made:
                     _apply_charter(built, charter, product)
                 page_rows.extend(made)
@@ -633,6 +640,7 @@ class MagentoGraphqlConnector:
                 warnings=list(notes) if page == 1 else notes[before:],
                 defects=list(defects),
                 page_token=token,
+                refused_products=page_refused,
             )
             total_pages = ((products.get("page_info") or {}).get("total_pages")) or page
             # The store has just told us how many listing pages there are, so
@@ -644,6 +652,7 @@ class MagentoGraphqlConnector:
                              len([p for p in range(page + 1, int(total_pages) + 1)
                                   if f"page-{p}" not in self.skip_tokens]))
             if page >= total_pages:
+                self.census_proven = True
                 break
             page += 1
         # The details the same responses already carried — descriptions and

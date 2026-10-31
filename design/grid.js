@@ -1396,9 +1396,11 @@
         const badge = document.createElement("span");
         // Status is spelled out, never carried by colour alone.
         badge.className = "badge" + (value === "in_stock" ? " ok"
-                                   : value === "out_of_stock" ? " off" : "");
+                                   : value === "out_of_stock" || value === "no_longer_listed"
+                                     ? " off" : "");
         badge.textContent = value === "in_stock" ? "In stock"
-                          : value === "out_of_stock" ? "Out of stock" : "Unknown";
+                          : value === "out_of_stock" ? "Out of stock"
+                          : value === "no_longer_listed" ? "No longer listed" : "Unknown";
         return badge;
       };
     }

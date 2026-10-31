@@ -1045,6 +1045,43 @@ def ingest_payloads(conn: sqlite3.Connection, entry: SourceEntry,
     return result
 
 
+def mark_unlisted_products(conn, entry, payloads, refused, result: IngestResult,
+                           job_id=None) -> None:
+    """A complete crawl marks the active products it did not find (#1841).
+
+    The caller holds the proof, as sightings.mark_departures' does: this cannot
+    see from inside whether the crawl was complete. Nothing is deleted, and being
+    listed again re-activates the product and records `returned`.
+
+    `max_drop_pct` is the bound the volume canary already reads. A site redesign
+    must not mark a catalogue gone, so past it nothing is marked and the run says.
+    """
+    seen = {RowView(PRODUCT_PRICES, payload.header).as_dict(row)["external_product_id"]
+            for payload in payloads if payload.kind == ExtractKind.PRODUCT_PRICES
+            for row in payload.rows}
+    if not seen:
+        return
+    active = conn.execute(
+        "SELECT sp.source_product_id, sp.external_product_id FROM source_product sp "
+        "JOIN source_site ss ON ss.source_id = sp.source_id "
+        "WHERE ss.source_key = ? AND sp.status = 'active'", (entry.source_key,)).fetchall()
+    gone = [row[0] for row in active if row[1] not in seen and row[1] not in set(refused)]
+    if not gone:
+        return
+    if entry.max_drop_pct is not None and len(gone) * 100 > entry.max_drop_pct * len(active):
+        result.notices.append(
+            f"{len(gone)} of {len(active)} product(s) were missing from this complete crawl, "
+            f"over the {entry.max_drop_pct}% this source allows: not marked as no longer listed")
+        return
+    for product_id in gone:
+        conn.execute("UPDATE source_product SET status = 'vanished' WHERE source_product_id = ?",
+                     (product_id,))
+        record_change(conn, ChangeType.REMOVED, "status", previous_value="active",
+                      new_value="vanished", source_product_id=product_id,
+                      run_id=result.run_id, job_id=job_id)
+    result.notices.append(f"{len(gone)} product(s) are no longer listed; their history stays")
+
+
 def _retire_superseded_attributes(conn, stated: dict, result: IngestResult) -> None:
     """Drop the values a product no longer states, for the exact facts this run
     restated.

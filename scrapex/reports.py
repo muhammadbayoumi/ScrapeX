@@ -213,6 +213,12 @@ def browse_google_finance_rates(conn: sqlite3.Connection, *,
 
 
 # One row per offer = its LATEST observation (current price), reused by browse+count.
+# What the Availability column says. An observation is what the shop stated on a
+# day, so a product gone from the listing is not a value of po.availability: it is
+# the product's own state, and it speaks for the row where the row is shown (#1841).
+_SHOWN_AVAILABILITY = ("CASE WHEN sp.status = 'vanished' THEN 'no_longer_listed' "
+                       "ELSE po.availability END")
+
 _LATEST_PER_OFFER = (
     "FROM price_observation po "
     "JOIN source_offer so ON so.offer_id = po.offer_id "
@@ -477,7 +483,7 @@ def _browse_filters(search: str | None, availability: str | None,
             params.append(code)
         clause += ")"
     if availability:
-        clause += " AND po.availability = ?"
+        clause += f" AND {_SHOWN_AVAILABILITY} = ?"
         params.append(availability)
     # Per-column filters. Built by iterating FILTERABLE, never the caller's dict,
     # so an unknown key cannot reach SQL even if one slipped past parse_filters.
@@ -523,7 +529,7 @@ FILTERABLE: dict[str, tuple[str, str]] = {
     "variant": ("sv.variant", "text"),
     "sku": ("sv.external_sku", "text"),
     "price": ("po.price", "number"),
-    "availability": ("po.availability", "exact"),
+    "availability": (_SHOWN_AVAILABILITY, "exact"),
     "price_changed_on": ("po.business_date", "date"),
     "last_confirmed_on": ("ost.last_confirmed_at", "date"),
     "curation": ("sp.curation", "exact"),
@@ -599,7 +605,7 @@ def browse_observations(conn: sqlite3.Connection, source_key: str, *, search: st
     total = int(conn.execute(f"SELECT COUNT(*) {_LATEST_PER_OFFER}{filt}", base_params).fetchone()[0])
     rows = conn.execute(
         "SELECT sp.product_name_ar, sv.variant_ar, sv.external_sku, po.price, "
-        "       po.price_before, po.price_sale, po.currency, po.availability, po.tax_included, "
+        f"       po.price_before, po.price_sale, po.currency, {_SHOWN_AVAILABILITY}, po.tax_included, "
         "       po.business_date, sp.product_link, sp.curation, so.country_code_alpha2, "
         "       ost.last_confirmed_at, su.unit_code, so.basis_quantity, so.offer_id, "
         # Appended LAST: every index above is positional. The tax rules are
@@ -1273,6 +1279,9 @@ def export_source_table(conn: sqlite3.Connection, source_key: str,
     select = ", ".join(f"{_EXPORT_SELECT[alias]} AS {alias}" for alias in aliases)
     rows = conn.execute(
         f"SELECT {select} {_LATEST_PER_OFFER} "
+        # A price the listing no longer carries must not be read by mbiX as a
+        # current one. It stays on the Data page, marked (#1841, his ruling).
+        "AND sp.status <> 'vanished' "
         # TRIM here decides the ORDER, never the content: the cells below are
         # written verbatim. Sorting on the raw column put MADAR's space-padded
         # names at the top of the file, ahead of everything, which is a fact
@@ -2089,7 +2098,7 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
     total = int(conn.execute(f"SELECT COUNT(*) {_LATEST_PER_OFFER}", (source_key,)).fetchone()[0])
     rows = conn.execute(
         "SELECT sp.product_name_ar, sv.variant_ar, sv.external_sku, po.price, "
-        "       po.price_before, po.price_sale, po.currency, po.availability, "
+        f"       po.price_before, po.price_sale, po.currency, {_SHOWN_AVAILABILITY}, "
         "       po.business_date, sp.product_link, sp.curation, so.country_code_alpha2, "
         "       ost.last_confirmed_at, su.unit_code, so.basis_quantity, so.offer_id, "
         "       po.official_source_name, po.official_source_link, sp.brand, "
@@ -2811,6 +2820,7 @@ _TABLE_BY_ALIAS = {
 }
 
 _COMPUTED_FROM: dict[str, str] = {
+    "availability": "price_observation.availability, or no_longer_listed by source_product.status",
     "category": "source_product.category_path",
     "category_ar": "source_product.category_path_ar",
     "variant": "source_variant.variant",
