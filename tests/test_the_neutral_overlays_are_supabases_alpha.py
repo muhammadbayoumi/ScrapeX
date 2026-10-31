@@ -66,7 +66,7 @@ def grid(browser, tmp_path, request):  # noqa: F811
         yield page
 
 
-@pytest.mark.parametrize("selector", [".dg-header", ".dg-header .dg-col", ".dg-header .dg-pinned"])
+@pytest.mark.parametrize("selector", [".dg-header", ".dg-header .dg-col:not(.dg-pinned)", ".dg-header .dg-pinned"])
 def test_the_grid_header_is_opaque_with_its_tint_as_a_layer(grid, selector):
     """It is sticky: whatever scrolls under a translucent header shows through it."""
     paint = grid.evaluate("""(selector) => { const el = document.querySelector(selector); if (!el) return null;
@@ -78,7 +78,7 @@ def test_the_grid_header_is_opaque_with_its_tint_as_a_layer(grid, selector):
 
 def test_a_hovered_grid_column_stays_opaque(grid):
     """A `background` shorthand on the hover rule would reset the base and let the rows through."""
-    column = grid.locator(".dg-header .dg-col.dg-sortable").first
+    column = grid.locator(".dg-header .dg-col.dg-sortable:not(.dg-pinned)").first
     rest = column.evaluate("(el) => getComputedStyle(el).backgroundImage")
     column.hover()
     color, image = column.evaluate("(el) => { const cs = getComputedStyle(el); return [cs.backgroundColor, cs.backgroundImage]; }")
@@ -91,5 +91,5 @@ def test_the_header_tint_does_not_stack_through_its_layers(grid):
     eye gets is one layer of the tint, not three (by computation 243 would go to 226 in light)."""
     seen = grid.evaluate("""() => { const read = (el) => { const cs = getComputedStyle(el);
           return [cs.backgroundColor, cs.backgroundImage]; };
-        return [read(document.querySelector('.dg-header')), read(document.querySelector('.dg-header .dg-col'))]; }""")
+        return [read(document.querySelector('.dg-header')), read(document.querySelector('.dg-header .dg-col:not(.dg-pinned)'))]; }""")
     assert seen[0] == seen[1], "a column does not draw what the header draws, so the tint is not one layer"

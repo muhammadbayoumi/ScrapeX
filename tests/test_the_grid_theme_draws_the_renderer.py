@@ -182,6 +182,15 @@ def test_the_totals_rows_pinned_cells_keep_its_tint(page):
     assert pinned and all(tint in image for image in pinned), (tint, cells)
 
 
+def test_a_pinned_totals_cell_is_opaque_under_its_tints(page):
+    """It is sticky, and --grid-header-surface is translucent since #634: as the cell's own
+    colour it would let the columns scrolling under it show through."""
+    build(page, PINNED)
+    colours = page.evaluate("""() => Array.from(document.querySelectorAll('.dg-header .dg-calcs .dg-cell.dg-pinned'))
+      .map((c) => getComputedStyle(c).backgroundColor)""")
+    assert colours and all(alpha(colour) == 1 for colour in colours), colours
+
+
 def computed(page, selector: str, props: list[str], pseudo: str | None = None) -> dict:
     return page.evaluate("""([sel, props, pseudo]) => {
       const el = document.querySelector(sel);
