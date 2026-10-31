@@ -7892,8 +7892,9 @@ function jobsTick(jobs, order) {
  *  anything else is no answer, and "not running" is said only once the probe agrees. */
 function jobsFailed(from, error) {
   const http = Boolean(error && error.kind === "http");
-  // A FAILED START STAYS SAID until something answers. The reads that follow it fail
-  // too, with the engine still down, and each would otherwise put "Start the engine"
+  // A FAILED START STAYS SAID until something answers, or a restart ends: that press has
+  // cleared the card those words point at (`wireRuntimeRepair`). The reads that follow it
+  // fail too, with the engine still down, and each would otherwise put "Start the engine"
   // back over "The engine did not start" within a tick (#1608's second gate pass).
   const startFailed = Boolean(error && error.startFailed)
     || Boolean(!http && jobsPage.failure && jobsPage.failure.startFailed);
