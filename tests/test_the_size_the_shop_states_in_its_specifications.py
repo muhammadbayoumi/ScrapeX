@@ -169,7 +169,12 @@ def test_a_legacy_reading_nothing_replaces_is_left_alone(conn):
 def test_a_witnessed_reading_never_retires_another_witnessed_one(conn):
     """Two STATED units are two offers — "15 per litre" and "15 per gallon" —
     and ingest has said so in writing since the sika fix. Only a row that says
-    of ITSELF that nobody can name its source may be retired."""
+    of ITSELF that nobody can name its source may be retired by another ROW.
+
+    The RUN may go further (#1874): what a successful run did not restate on a
+    variant it did restate retires, see
+    tests/test_an_offer_the_shop_no_longer_states_retires.py. Two units the
+    same run states both stay, which is what this rule protects."""
     from scrapex.ingest import _get_offer_id
     witnessed = conn.execute(
         "INSERT INTO source_offer (source_variant_id, country_code_alpha2, "
