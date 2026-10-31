@@ -1479,6 +1479,8 @@
             plain export of every dataset, and a manifest of row counts and
             checksums into your Drive. Nothing on this machine is changed.</p>
           <button id="manage-backup" class="button" type="button">Back up now</button>
+          <button id="manage-backup-send" class="button ghost hidden" type="button">
+            Upload to Drive</button>
           <!-- What a backup is doing while it runs, step by step (#1834): the
                list Studio draws for a long job, UpgradingState@86c813ec. -->
           <ol id="manage-backup-steps" class="job-steps hidden"
@@ -2231,6 +2233,8 @@
                 <div class="row">
                   <button id="drive-backup" class="button" type="button">
                     Back up to Drive</button>
+                  <button id="drive-backup-send" class="button ghost hidden" type="button">
+                    Upload to Drive</button>
                   <!-- "Check", not "Fetch": it downloads nothing and installs
                        nothing. The id stays `drive-restore` because renaming it
                        would touch the wiring, the DOM harness and three tests

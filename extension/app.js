@@ -398,6 +398,7 @@ function showView(name, animate = true) {
   if (name === "source") loadCurrentPage();
   if (name === "engines") renderEngines();
   if (name === "manage-account") loadManageAccount();
+  showBuildOnOpen(name);
 }
 
 function currentViewName() {
@@ -11050,6 +11051,10 @@ function driveProgress(fraction, barId = "drive-progress",
  * spliced into one Drive object. `If-Range` catches that between panel windows,
  * which this cannot; inside one document, not starting it is better.
  */
+//: True while a Google action runs in this document: what stops a screen opening from
+//: starting a second follow of the build this panel already follows.
+let googleActionRunning = false;
+
 async function runGoogleAction(button, working, action, {
   report = "drive-msg",
   bar = ["drive-progress", "drive-progress-fill"],
@@ -11064,7 +11069,9 @@ async function runGoogleAction(button, working, action, {
   const buttons = ["drive-backup", "drive-restore", "drive-fetch",
                    "sheet-create", "manage-backup"];
   buttons.forEach((id) => { if ($(id)) $(id).disabled = true; });
-  out(report, esc(working), "");
+  googleActionRunning = true;
+  Object.values(BACKUP_DOORS).forEach((door) => $(door.send)?.classList.add("hidden"));
+  if (working) out(report, esc(working), "");
   try {
     // The action reports its own progress too -- a bundle takes about 104
     // seconds to build before an upload starts, and `backUpToDrive` says so
@@ -11084,6 +11091,7 @@ async function runGoogleAction(button, working, action, {
     // The steps describe a job that is running; once it is over the verdict
     // above says how it ended, as Studio's upgrade list gives way to its result.
     if ($(steps)) $(steps).classList.add("hidden");
+    googleActionRunning = false;
     buttons.forEach((id) => { if ($(id)) $(id).disabled = false; });
   }
 }
@@ -11160,7 +11168,9 @@ const BACKUP_STEPS_UNREPORTED = [
  * its count at the end of the line, a bar when the count has a total, and a note.
  * Every step says its state in words, so the marks are decoration.
  */
-function renderJobSteps(listId, steps, {current, count = "", fraction = null, note = ""} = {}) {
+function renderJobSteps(listId, steps, {
+  current, count = "", fraction = null, note = "", warning = "",
+} = {}) {
   const list = $(listId);
   if (!list) return;
   const at = steps.findIndex((step) => step.key === current);
@@ -11185,6 +11195,8 @@ function renderJobSteps(listId, steps, {current, count = "", fraction = null, no
       + (count ? `<span class="job-step-count">${esc(count)}</span>` : "")
       + `</div>${bar}`
       + (note ? `<span class="job-step-note">${esc(note)}</span>` : "")
+      + (warning ? `<span class="job-step-warning">${
+        icon("material-warning")}<span>${esc(warning)}</span></span>` : "")
       + `</div></li>`;
   }).join("");
   list.classList.remove("hidden");
@@ -11210,66 +11222,163 @@ function buildStepView(progress) {
   return {current: step, count: percent, fraction: done / total, note: counted};
 }
 
+//: How often a build is asked how it is doing. Measured on a copy of his warehouse, a
+//: build does not hold the engine: `/api/health` kept its 0.05 s median (#1834).
+const BUILD_TICK_MS = 1000;
+//: No answer for this long is an engine that stopped, not a slow one: a crawl at a full
+//: core held `/api/health` at a 5.5 s median (#1819).
+const BUILD_SILENCE_MS = 30000;
+//: No change for this long is said, and stops nothing. The longest stretch with nothing
+//: to report measured 25 s on his 2.5 GB warehouse: one dataset, MADAR (#1834).
+const BUILD_STALL_MS = 600000;
+//: Held by the one panel window uploading a backup. A panel window is a document of its
+//: own, and two following one build would both upload it, which spends one of the three
+//: backups Drive keeps. A Web Lock is released by the browser when its window closes, so
+//: a panel closed mid-upload leaves nothing behind to clear (W3C Web Locks API).
+const BACKUP_UPLOAD_LOCK = "scrapex-backup-upload";
+
+/** A build that stopped: where, why, and that Drive is as it was (Studio's failed
+ *  upgrade says the same of the data, UpgradingState/index.tsx@86c813ec:103-106). */
+function buildStopped(shape, key, why) {
+  const step = shape.find((one) => one.key === key) || shape[0];
+  const doing = step.progress.charAt(0).toLowerCase() + step.progress.slice(1);
+  return new Error(`The backup stopped while ${doing}: ${String(why).replace(/\.$/, "")}. `
+    + "Nothing was uploaded, and the backup already in Drive is untouched.");
+}
+
+function sayBackingUp(report, startedAt, more = "") {
+  out(report, `Backing up. Started at ${
+    esc(window.ScrapeXTime.format(startedAt, "time"))}.${more}`, "");
+}
+
+/** Follow a build the engine is running, to its end. Returns what it built. */
+async function followBuild(begun, steps) {
+  let view = buildStepView(begun);
+  let moved = "";
+  let movedAt = Date.now();
+  let answeredAt = Date.now();
+  renderJobSteps(steps, BACKUP_STEPS, view);
+  for (;;) {
+    await new Promise((resolve) => setTimeout(resolve, BUILD_TICK_MS));
+    let record = null;
+    try {
+      const reply = await raw("/api/bundle/progress");
+      if (reply.ok) record = await reply.json();
+    } catch (_) {
+      // Counted below: one tick with no answer is a slow engine, not a stopped one.
+    }
+    if (!record) {
+      if (Date.now() - answeredAt > BUILD_SILENCE_MS) {
+        throw buildStopped(BACKUP_STEPS, view.current, "the engine stopped answering");
+      }
+      continue;
+    }
+    answeredAt = Date.now();
+    // The record lives in the engine's memory, so a restart takes the build with it.
+    if (record.build_id !== begun.build_id) {
+      throw buildStopped(BACKUP_STEPS, view.current, "the engine restarted, and the build went with it");
+    }
+    if (record.state === "built") return record.result;
+    if (record.state === "failed") {
+      throw buildStopped(BACKUP_STEPS, record.step, record.detail);
+    }
+    view = buildStepView(record);
+    const position = `${record.step}/${record.done}`;
+    if (position !== moved) {
+      moved = position;
+      movedAt = Date.now();
+    }
+    // Studio's words for a job past its usual time (RestoringState.tsx@86c813ec:159-163).
+    renderJobSteps(steps, BACKUP_STEPS, {...view, warning: Date.now() - movedAt > BUILD_STALL_MS
+      ? "This is taking longer than usual. The engine is answering, and this step has "
+        + "not moved for 10 minutes."
+      : ""});
+  }
+}
+
+/** Follow the build to its end, then send it to Drive. */
+async function followThenUpload(token, begun, report, steps) {
+  // The names the steps call datasets by. A panel that never opened Run holds none, and
+  // without them a step names a dataset by its key.
+  sourcesForJobNames();
+  sayBackingUp(report, begun.started_at, " You can close this panel while it builds.");
+  const built = await followBuild(begun, steps);
+  sayBackingUp(report, begun.started_at);
+  return uploadOnce(token, built, steps, BACKUP_STEPS);
+}
+
+/** An engine older than `/api/bundle/start` builds inside one request and says nothing
+ *  until it ends, so the build is drawn as one step. */
+async function buildOnOlderEngine(report, steps) {
+  sayBackingUp(report, new Date().toISOString());
+  renderJobSteps(steps, BACKUP_STEPS_UNREPORTED, {current: "build"});
+  try {
+    return await api("/api/bundle", { method: "POST" });
+  } catch (error) {
+    // A 409 is another build, not this one stopping, so its own sentence stands.
+    if (error?.status === 409) throw error;
+    throw buildStopped(BACKUP_STEPS_UNREPORTED, "build", isTimeoutError(error)
+      ? "the engine did not finish in time, and may still be building"
+      : error?.kind === "http" && error.message ? error.message
+        : "the engine stopped answering");
+  }
+}
+
 async function backUpToDrive(token, report = "drive-msg", steps = "drive-backup-steps") {
   // The engine builds the bundle; the panel uploads it. Neither half sees the
   // other's secret: the engine never gets the token, the panel never opens the
   // database.
-  const started = new Date().toISOString();
-  out(report, `Backing up. Started at ${esc(window.ScrapeXTime.format(started, "time"))}.`, "");
-  // THE BUILD ANSWERS ONLY WHEN IT IS OVER, so what it is doing meanwhile is asked
-  // of a second route once a second (#1834). Measured on a copy of his warehouse,
-  // a build does not hold the engine: `/api/health` kept its 0.05 s median.
-  let shape = BACKUP_STEPS;
-  let shown = "copy";
-  renderJobSteps(steps, shape, {current: shown});
-  // The names the export step calls datasets by. A panel that never opened Run
-  // holds none, and without them the step names a dataset by its key.
-  sourcesForJobNames();
-  let building = true;
-  const following = (async () => {
-    while (building) {
-      try {
-        const reply = await raw("/api/bundle/progress");
-        if (reply.status === 404) {
-          shape = BACKUP_STEPS_UNREPORTED;
-          shown = "build";
-          if (building) renderJobSteps(steps, shape, {current: shown});
-          return;
-        }
-        const progress = reply.ok ? await reply.json() : null;
-        if (building && progress?.state === "building") {
-          const view = buildStepView(progress);
-          shown = view.current;
-          renderJobSteps(steps, shape, view);
-        }
-      } catch (_) {
-        // A tick that got no answer draws nothing; the next one redraws, and the
-        // build's own reply is what decides whether the backup worked.
-      }
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-    }
-  })();
-  let built;
+  let reply;
   try {
-    built = await api("/api/bundle", { method: "POST" });
-  } catch (error) {
-    // A 409 is another build, not this one stopping, so its own sentence stands.
-    if (error?.status === 409) throw error;
-    // WHERE IT STOPPED, AND THAT DRIVE IS AS IT WAS: the upload starts only after
-    // this reply, so a build that failed sent nothing (Studio's failed upgrade says
-    // the same of the data, UpgradingState/index.tsx@86c813ec:103-106).
-    const step = shape.find((one) => one.key === shown) || shape[0];
-    const why = isTimeoutError(error)
-      ? "the engine did not finish in time, and may still be building"
-      : error?.kind === "http" && error.message ? error.message
-        : "the engine stopped answering";
-    throw new Error(`The backup stopped while ${step.progress.charAt(0).toLowerCase()}`
-      + `${step.progress.slice(1)}: ${why}. Nothing was uploaded, and the backup `
-      + "already in Drive is untouched.");
-  } finally {
-    building = false;
+    // STARTS THE BUILD, OR JOINS THE ONE RUNNING: either way this answers at once with
+    // the build to follow, so a press can never make two (R-76 option (a), his choice
+    // of 2026-10-31 on #1834).
+    reply = await raw("/api/bundle/start", {method: "POST"});
+  } catch (_) {
+    throw new Error("The backup did not start: the engine could not be reached. "
+      + "Nothing was uploaded, and the backup already in Drive is untouched.");
   }
-  await following;
+  if (reply.status === 404) {
+    return uploadOnce(token, await buildOnOlderEngine(report, steps), steps,
+                      BACKUP_STEPS_UNREPORTED);
+  }
+  if (!reply.ok) {
+    const refused = await reply.json().catch(() => ({}));
+    throw new Error(`The backup did not start: ${refused.detail || reply.statusText}.`);
+  }
+  return followThenUpload(token, await reply.json(), report, steps);
+}
+
+/**
+ * Upload a built backup, from one panel window, once.
+ *
+ * ASKED OF DRIVE, NOT REMEMBERED: the pointer names the last backup that arrived whole
+ * (`backUp` writes it last), so a window that waited out another's upload, or a panel
+ * reopened after one, finds this build already there.
+ */
+async function uploadOnce(token, built, steps, shape) {
+  const said = await navigator.locks.request(BACKUP_UPLOAD_LOCK, {ifAvailable: true}, async (held) => {
+    if (!held) return null;
+    if ((await drivePointer(token))?.name === built.name) {
+      return `${built.name} is already in Drive, in the folder ${FOLDER_NAME}.`;
+    }
+    return uploadBuilt(token, built, steps, shape);
+  });
+  return said ?? "Another ScrapeX window is uploading this backup. Its progress is shown there.";
+}
+
+/** The pointer Drive holds now. One it cannot read names nothing, and the next backup
+ *  replaces it, so it must not stop that backup. */
+async function drivePointer(token) {
+  try {
+    return await readLatest(token, await folderId(token));
+  } catch (error) {
+    if (error?.kind === "malformed-pointer") return null;
+    throw error;
+  }
+}
+
+async function uploadBuilt(token, built, steps, shape) {
   const uploading = (sent, total) => renderJobSteps(steps, shape, {
     current: "upload",
     count: `${total ? Math.round((sent / total) * 100) : 0}%`,
@@ -11362,6 +11471,80 @@ async function backUpToDrive(token, report = "drive-msg", steps = "drive-backup-
   // one folder ScrapeX writes to.
   return `Backed up ${fmtMegabytes(archive.size)} to Drive as ${stored.name || built.name}, `
     + `in the folder ${FOLDER_NAME}.${pruned}${lightNote}`;
+}
+
+//: Each screen a backup can be pressed from, and where it answers.
+const BACKUP_DOORS = {
+  "manage-account": {
+    press: "manage-backup", send: "manage-backup-send", report: "manage-backup-msg",
+    bar: ["manage-backup-progress", "manage-backup-progress-fill"],
+    steps: "manage-backup-steps", then: loadManageAccount,
+  },
+  settings: {
+    press: "drive-backup", send: "drive-backup-send", report: "drive-msg",
+    bar: ["drive-progress", "drive-progress-fill"], steps: "drive-backup-steps",
+  },
+};
+
+//: What this screen's Upload to Drive sends: the build the engine finished, and Drive
+//: does not hold.
+let unsentBuild = null;
+
+/**
+ * What a build did while no panel was watching, said when a screen opens (#1834).
+ *
+ * THE BUILD OUTLIVES THE PANEL, so a press is not the only way in. A build still running
+ * is followed and uploaded, because he pressed for that and is here to see it. One that
+ * finished waits for a press: an upload of 860 MB does not start because a page opened.
+ */
+async function showBuildOnOpen(name) {
+  const door = BACKUP_DOORS[name];
+  if (!door || !state.token || googleActionRunning) return;
+  let record;
+  try {
+    const reply = await raw("/api/bundle/progress");
+    // An older engine has no such route. One that cannot answer is the page's own reads'
+    // to report, and they do.
+    if (!reply.ok) return;
+    record = await reply.json();
+  } catch (_) {
+    return;
+  }
+  if (record.state === "building") {
+    runGoogleAction($(door.press), "", (token, report, steps) =>
+      followThenUpload(token, record, report, steps), door);
+    return;
+  }
+  if (record.state === "failed") {
+    out(door.report, esc(buildStopped(BACKUP_STEPS, record.step, record.detail).message), "err");
+    return;
+  }
+  if (record.state !== "built") return;
+  let pointer;
+  try {
+    pointer = await drivePointer(state.token);
+  } catch (error) {
+    // Drive's own read failing is the page's to report; nothing is offered on a guess.
+    return;
+  }
+  if (pointer?.name === record.result.name || googleActionRunning) return;
+  unsentBuild = record.result;
+  out(door.report, `The backup built at ${
+    esc(window.ScrapeXTime.format(record.finished_at, "time"))} has not reached Drive.`, "");
+  $(door.send).classList.remove("hidden");
+}
+
+function wireBackupDoors() {
+  for (const door of Object.values(BACKUP_DOORS)) {
+    const send = $(door.send);
+    if (!send) continue;
+    send.addEventListener("click", () => {
+      const built = unsentBuild;
+      if (!built) return;
+      runGoogleAction(send, "", (token, report, steps) =>
+        uploadOnce(token, built, steps, BACKUP_STEPS), door);
+    });
+  }
 }
 
 async function fetchFromDrive(token) {
@@ -11588,6 +11771,7 @@ async function createSpreadsheet(token) {
 }
 
 function wireGoogleControls() {
+  wireBackupDoors();
   const actions = [
     ["drive-backup", "Backing up…", backUpToDrive],
     ["drive-restore", "Asking Drive about the latest backup…", fetchFromDrive],

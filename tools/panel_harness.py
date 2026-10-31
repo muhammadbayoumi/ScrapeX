@@ -608,6 +608,11 @@ const COPY_CHECK_ECHOES = {str(copy_check_echoes).lower()};
 const ENGINE_MANIFEST = {json.dumps(engine_manifest)};
 window.__calls = [];
 window.__nativeCalls = [];
+// WEB LOCKS, which refuse on file://, an opaque origin. `__sx_lock_held` is another panel
+// window holding the lock, which one document cannot otherwise show.
+Object.defineProperty(navigator, "locks", {{configurable: true, value: {{
+  request: async (name, options, work) => work(window.__sx_lock_held ? null : {{name}}),
+}}}});
 // The BODY of every write, which __calls (a path list) cannot carry — and the
 // body is where "resume" lives, so a test that only saw the path could not
 // tell a resume from a run that discards the journal.

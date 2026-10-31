@@ -2045,6 +2045,18 @@ button::before,
   color: var(--text-subtle);
   overflow-wrap: anywhere;
 }
+/* Past its usual time: the warning colour on the icon, the words in the foreground
+   (the repository's warning-words row, #1542). */
+.job-step-warning {
+  display: flex;
+  gap: var(--sp-2);
+  font-size: var(--fs-xs);
+  color: var(--text);
+}
+.job-step-warning .sx-icon {
+  flex: none;
+  color: var(--amber);
+}
 
 @media (prefers-reduced-motion: reduce) {
   .job-step[data-state="current"] .job-step-mark { animation: none; }
