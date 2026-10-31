@@ -8619,6 +8619,8 @@ def test_a_restart_nobody_saw_happen_is_reported_as_not_done(
     assert page.evaluate("window.__backSaidWhile") is None, (
         "the panel said 'The engine is back.' about an engine it could not tell was new")
     assert text_of(page, "#runtime-note") == there
+    # RUN'S LINE TOO, in the form that names the Engine page: Restart is not on Run.
+    assert text_of(page, "#engine-note") == there
     checks = [c for c in page.evaluate("window.__nativeCalls") if c == "CHECK_STARTUP"]
     assert checks == ["CHECK_STARTUP"], (
         f"the check before the restart is the only one; the ending ran {checks}")
@@ -9040,23 +9042,35 @@ THE_ENDING_CHECK_TAKES_A_MINUTE = """() => {
 }"""
 
 
-def press_start(page) -> None:
-    """What every Start button does -- Run's, and the Jobs and Schedules banners',
-    which call the same handler. Pressed on Run's own button, drawn or not."""
-    page.evaluate("() => document.getElementById('engine-start').click()")
+RESTARTING = "Restarting the engine…"
+WAITING_FOR_THE_NEW_ENGINE = "The Engine page updates when the new engine answers."
+
+
+def jobs_banner(page) -> dict:
+    """The Jobs page's banner, read whole: its title, its sentence, its buttons."""
+    return page.evaluate("""() => {
+      const banner = document.querySelector('#view-jobs .banner');
+      if (!banner) return null;
+      return {title: banner.querySelector('strong').textContent,
+              copy: banner.querySelector('p').textContent,
+              buttons: [...banner.querySelectorAll('button')].map((b) => b.textContent)};
+    }""")
 
 
 def test_start_and_upgrade_are_refused_through_the_whole_restart(open_panel):
-    """HIS RULING, through #1810's review: one flag for the restart's whole wait,
-    the database check after its two minutes included, refusing Start and Upgrade
+    """HIS RULING, through #1810's review: one flag for the restart's whole wait, the
+    database check after its two minutes included, refusing Start and Upgrade
     database as the native upgrade's own flag does. Without it a restart that
-    upgrades lets a second upgrader or a second engine start beside its successor
-    -- demonstrated with real processes on #1810 (issuecomment-6413387526).
+    upgrades lets a second upgrader or a second engine start beside its successor --
+    demonstrated with real processes on #1810 (issuecomment-6413387526).
 
-    Start is pressed in the dark (where Check again would draw it), and again while
-    the ending's database check runs; each is refused with Run's own line and sends
-    nothing. Upgrade database is pressed the same way and stays down. Once the
-    restart ends, Start goes through again."""
+    The restart holds what an upgrade holds: Run's Start and Check again, and the
+    Engine page's Check again, which draws Start in the dark. Jobs offers Open
+    Engine in the restart's own words instead of Start. Upgrade database stays down.
+    A Start control the restart did not take is refused at the one place every
+    Start passes through. All of it holds again while the ending's database check
+    runs. When the restart ends, Run's line carries its ending, not the wait, Start
+    goes through again, and Jobs reads again."""
     page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
     page.click("#tab-engines")
     open_engine(page)
@@ -9068,11 +9082,40 @@ def test_start_and_upgrade_are_refused_through_the_whole_restart(open_panel):
     page.clock.install()
     page.click("#runtime-restart")
 
-    def refused(moment: str) -> None:
-        press_start(page)
+    def refused(moment: str, run_line: str) -> None:
+        for held in ("#engine-start", "#setup-recheck", "#engine-recheck"):
+            assert page.locator(held).is_disabled(), f"{held} is live {moment}"
+        assert text_of(page, "#engine-note") == run_line, (
+            f"Run's line {moment}: {text_of(page, '#engine-note')!r}")
+
+        page.click('nav.side-rail button[data-view="jobs"]')
+        page.wait_for_selector("#view-jobs:not(.hidden)")
+        page.clock.run_for(3_000)
+        banner = jobs_banner(page)
+        assert banner and banner["title"] == RESTARTING, f"Jobs {moment}: {banner}"
+        assert banner["copy"].endswith(WAITING_FOR_THE_NEW_ENGINE), banner
+        assert banner["buttons"] == ["Open Engine"], f"Jobs offers {banner['buttons']} {moment}"
+
+        page.click('nav.side-rail button[data-view="schedules"]')
+        page.wait_for_selector("#view-schedules:not(.hidden)")
+        page.clock.run_for(3_000)
+        schedules = page.evaluate("""() => {
+          const banner = document.querySelector('#view-schedules [data-role="banner"]');
+          return banner && {text: banner.textContent,
+                            buttons: [...banner.querySelectorAll('button')].map((b) => b.textContent)};
+        }""")
+        assert schedules and RESTARTING in schedules["text"], f"Schedules {moment}: {schedules}"
+        assert schedules["buttons"] == ["Open Engine"], (
+            f"Schedules offers {schedules['buttons']} {moment}")
+
+        # A Start the restart did not take -- given back by hand -- is refused where
+        # every Start passes through.
+        page.evaluate("""() => { const start = document.getElementById('engine-start');
+            start.disabled = false; start.click(); start.disabled = true; }""")
         page.clock.run_for(500)
-        assert text_of(page, "#engine-note") == "Restarting the engine…", (
-            f"Start was not refused {moment}")
+        assert text_of(page, "#engine-note") == RESTARTING, (
+            f"a Start the restart did not take went through {moment}")
+
         open_database(page)
         page.clock.run_for(500)
         upgrade = page.locator("#runtime-upgrade")
@@ -9088,19 +9131,56 @@ def test_start_and_upgrade_are_refused_through_the_whole_restart(open_panel):
             f"an upgrade was asked of the engine {moment}: {posts}")
 
     page.clock.run_for(30_000)
-    refused("in the dark of the restart")
+    refused("in the dark of the restart", f"{RESTARTING} {WAITING_FOR_THE_NEW_ENGINE}")
     page.clock.run_for(100_000)               # past the two minutes: the check runs
     assert text_of(page, "#engine-restart-note") == (
         "The engine has not answered in two minutes. Checking the database…")
-    refused("while the ending's database check runs")
+    refused("while the ending's database check runs",
+            "The engine has not answered in two minutes. Checking the database…")
 
+    page.click('nav.side-rail button[data-view="jobs"]')    # open when it ends
+    page.wait_for_selector("#view-jobs:not(.hidden)")
     page.clock.run_for(65_000)                # the check answers; the restart ends
     page.wait_for_function(
         "() => !document.getElementById('runtime-restart').disabled", timeout=10_000)
-    press_start(page)
+    page.clock.run_for(3_000)
+    assert text_of(page, "#engine-note") == (
+        "The engine has not answered in two minutes. It may still be starting."), (
+        "Run's line kept what the restart said while it waited")
+    banner = jobs_banner(page)
+    assert banner is None or banner["title"] != RESTARTING, (
+        f"Jobs still says the engine is restarting after it ended: {banner}")
+    assert not page.locator("#engine-start").is_disabled()
+    page.evaluate("() => document.getElementById('engine-start').click()")
     page.clock.run_for(500)
     assert "START_ENGINE" in page.evaluate("window.__nativeCalls"), (
         "Start is still refused after the restart ended")
+    assert not page.js_errors, page.js_errors
+
+
+def test_schedules_reads_again_when_the_restart_ends(open_panel):
+    """Schedules offers Open Engine instead of Start while a restart runs. Left open
+    across the restart's end, it must not go on saying the engine is restarting."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART,
+                                    dark_ms=10**9)
+    page.clock.install()
+    page.click("#runtime-restart")
+    page.clock.run_for(30_000)
+    page.click('nav.side-rail button[data-view="schedules"]')
+    page.wait_for_selector("#view-schedules:not(.hidden)")
+    page.clock.run_for(3_000)
+    banner = '#view-schedules [data-role="banner"]'
+    assert RESTARTING in text_of(page, banner)
+
+    page.clock.run_for(100_000)                # past the two minutes; the restart ends
+    page.wait_for_function(
+        "() => !document.getElementById('runtime-restart').disabled", timeout=10_000)
+    page.clock.run_for(3_000)
+    assert RESTARTING not in text_of(page, banner), (
+        "Schedules still says the engine is restarting after it ended")
     assert not page.js_errors, page.js_errors
 
 

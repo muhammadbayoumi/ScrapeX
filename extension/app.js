@@ -8011,6 +8011,15 @@ function jobsBanner(failure, listShown) {
       ? `Showing the jobs as read at ${read}. The engine answered: ${failure.message}`
       : failure.message;
     if (!listShown) action = ["Try again", () => loadJobs()];
+  } else if (restartRunning) {
+    // NO START WHILE A RESTART RUNS (#1517, his ruling): its own successor is being
+    // launched, and a Start beside it is a second engine. Said in the restart's own
+    // words, and sent to the Engine page, where its outcome is written.
+    box.className = "banner";
+    title.textContent = RESTART_UNDER_WAY;
+    copy.textContent = (listShown ? `Showing the jobs as read at ${read}. ` : "")
+      + RESTART_UPDATES_ON;
+    action = ["Open Engine", () => openEngineDetail(SCRAPEX_ENGINE.id)];
   } else if (!state.engineUp) {
     box.className = "banner";
     title.textContent = listShown ? "Engine stopped answering" : "Engine not running";
@@ -8071,7 +8080,7 @@ function jobsState(box, failure, listShown = false, empty = "") {
   const narrowed = empty === "results"
     ? noResultsLine({ term: jobsPage.term, statuses: jobsPage.statuses.size }) : "";
   const drawn = JSON.stringify([failure, listShown, empty, narrowed, state.engineUp,
-    jobsPage.readAt, jobsPage.starting, window.ScrapeXTime.zone()]);
+    restartRunning, jobsPage.readAt, jobsPage.starting, window.ScrapeXTime.zone()]);
   if (box.dataset.drawn === drawn) return;
   box.dataset.drawn = drawn;
   // A REDRAW HE CAUSED -- Start engine becoming Starting… -- replaces the button he
@@ -8814,6 +8823,11 @@ function scheduleBanner() {
         : failure.what === "sources" ? "Unable to read sources" : "Unable to read schedules",
       copy: listShown ? `${shown}The engine answered: ${failure.message}` : failure.message,
       action: listShown ? null : ["Try again", () => loadSchedulesPage()] };
+  }
+  if (restartRunning) {
+    // No Start while a restart runs, as on Jobs (`jobsBanner`).
+    return { tone: "banner", title: RESTART_UNDER_WAY, copy: `${shown}${RESTART_UPDATES_ON}`,
+      action: ["Open Engine", () => openEngineDetail(SCRAPEX_ENGINE.id)] };
   }
   if (!state.engineUp) {
     const title = listShown ? "Engine stopped answering" : "Engine not running";
@@ -10145,12 +10159,13 @@ async function startEngineFromPanel() {
     $("engine-note").textContent = "Upgrading the database…";
     return;
   }
-  // NOR WHILE A RESTART RUNS, its whole wait included (#1517). The restart's own
-  // successor is being launched, and Check again in its dark draws these buttons:
-  // a second launch beside it is a second engine on the same file, and its sweep
-  // or a second upgrader runs beside the successor's (#1810's review).
+  // NOR WHILE A RESTART RUNS, its whole wait included (#1517, his ruling). Its own
+  // successor is being launched, and a second launch beside it is a second engine on
+  // the same file (#1810's review). The restart takes Run's Start and the banners
+  // offer none while it runs; this is the one place every Start passes through, so a
+  // control it did not take -- a banner drawn the moment before -- is refused too.
   if (restartRunning) {
-    $("engine-note").textContent = "Restarting the engine…";
+    $("engine-note").textContent = RESTART_UNDER_WAY;
     return;
   }
   const button = $("engine-start");
@@ -10407,6 +10422,12 @@ async function render() {
 // 125 rather than 122 leaves the ceiling above the engine's own, so the engine
 // is always the one that gives up first and can say why.
 const RESTART_CONFIRM_ATTEMPTS = 125;
+
+// WHAT A RESTART SAYS WHILE IT WAITS, in one place: the Engine page's note, and the
+// Jobs and Schedules banners that offer Open Engine instead of Start while it runs
+// (#1517; the words are on the Engine page's study, #1556).
+const RESTART_UNDER_WAY = "Restarting the engine…";
+const RESTART_UPDATES_ON = "The Engine page updates when the new engine answers.";
 
 // HOW RECENT AN ANSWER MUST BE FOR THE RESTART'S TWO-MINUTE ENDING TO SAY AN
 // ENGINE "IS STILL ANSWERING" (#1517). One probe running out of its deadline is a
@@ -10673,8 +10694,16 @@ function wireRuntimeRepair() {
   //
   // Unhidden as it is filled: an empty status line under the actions reads as a
   // control that did nothing.
-  const say = (text, reason = "") => {
+  //
+  // AND RUN'S LINE, beside the Start a restart now holds for its whole wait, as an
+  // upgrade does (`tell`); without it a refusal or an ending was nowhere on Run, and
+  // what it last said outlived the restart. Run's line sits above Run's own issue
+  // card, so it takes the form that carries its reason -- except where a sentence
+  // names Restart, which is on the Engine page and not on Run (`run`).
+  const say = (text, reason = "", run = reason || text) => {
     note.textContent = text;
+    const line = $("engine-note");
+    if (line) line.textContent = run;
     const here = $("engine-restart-note");
     if (!here) return;
     here.textContent = reason || text;
@@ -10691,12 +10720,25 @@ function wireRuntimeRepair() {
     restartRunning = true;
     [restart, upgrade, $("runtime-check-action")].filter(Boolean)
       .forEach((button) => { button.disabled = true; });
-    // EVERY ENDING GOES THROUGH HERE, so the flag that keeps Upgrade database down
-    // while the restart runs cannot outlive it.
+    // AND START AND CHECK AGAIN, as an upgrade holds them (`upgradeDatabaseFromPanel`):
+    // a Start in the wait is a second engine beside the successor, and Check again in
+    // the dark draws one (his ruling, #1810's review). Only what is live now, so the
+    // ending gives back only what this took.
+    const held = [$("engine-start"), $("setup-recheck"), $("engine-recheck")]
+      .filter((button) => button && !button.disabled);
+    held.forEach((button) => { button.disabled = true; });
+    // EVERY ENDING GOES THROUGH HERE, so the flag that keeps Start and Upgrade
+    // database down while the restart runs cannot outlive it.
     const release = () => {
       restartRunning = false;
-      [restart, upgrade, $("runtime-check-action")].filter(Boolean)
+      [restart, upgrade, $("runtime-check-action"), ...held].filter(Boolean)
         .forEach((button) => { button.disabled = false; });
+      // AND THE PAGES THAT OFFERED OPEN ENGINE INSTEAD OF START read again, now that
+      // it has ended -- the way entering them reads (`showView`).
+      if (currentViewName() === "jobs") loadJobs();
+      if (currentViewName() === "schedules") {
+        schedulesPage.loading = loadSchedulesPage({ sourcesToo: true });
+      }
     };
     say("Checking the database before restarting…");
     clearRuntimeIssue();
@@ -10725,7 +10767,7 @@ function wireRuntimeRepair() {
     // was false here twice over -- the same engine answers through a restart that
     // did not happen, and the Database page, which shows this note too, updates for
     // no engine -- so it names the new engine and the page that redraws.
-    let before = "Restarting the engine… The Engine page updates when the new engine answers.";
+    let before = `${RESTART_UNDER_WAY} ${RESTART_UPDATES_ON}`;
     try {
       await checkStartup();
     } catch (startupError) {
@@ -10889,18 +10931,23 @@ function wireRuntimeRepair() {
         const stillAnswering = lastAnswer !== null
           && Date.now() - lastAnswer.at <= RESTART_ANSWER_STILL_FRESH_MS;
         if (stillAnswering && lastAnswer.same) {
-          say("Unable to restart the engine: the same engine is still answering after "
-              + "two minutes. Press Restart engine on the Engine page to try again.",
+          const elsewhere = "Unable to restart the engine: the same engine is still "
+            + "answering after two minutes. Press Restart engine on the Engine page to "
+            + "try again.";
+          say(elsewhere,
               "Unable to restart the engine: the same engine is still answering after "
-              + "two minutes. Press Restart engine to try again.");
+              + "two minutes. Press Restart engine to try again.",
+              elsewhere);
           release();
           return;
         }
         if (stillAnswering) {
-          say("Unable to confirm the restart: no new engine was detected in two "
-              + "minutes. Press Restart engine on the Engine page to try again.",
+          const elsewhere = "Unable to confirm the restart: no new engine was detected "
+            + "in two minutes. Press Restart engine on the Engine page to try again.";
+          say(elsewhere,
               "Unable to confirm the restart: no new engine was detected in two "
-              + "minutes. Press Restart engine to try again.");
+              + "minutes. Press Restart engine to try again.",
+              elsewhere);
           release();
           return;
         }
@@ -10909,8 +10956,8 @@ function wireRuntimeRepair() {
         // error, missing registry, or other startup blocker is not lost. It
         // scans the whole file, so it is said, and the buttons stay down, until
         // it answers.
-        say("The engine has not answered in two minutes. Checking the database…");
-        // AND THE SCREEN SAYS SO TOO. Nothing redrew it since the press, so the
+        //
+        // THE SCREEN SAYS SO TOO. Nothing redrew it since the press, so the
         // banner went on reading "Running" from before it, over a note saying the
         // engine has not answered -- and the release row went on offering an update
         // to the engine that left. Both are drawn from what answers now, the way
@@ -10925,6 +10972,9 @@ function wireRuntimeRepair() {
           markStartup("restart-redraw-failed",
                       {message: (error && error.message) || "unknown"});
         }
+        // SAID AFTER THE REDRAW, which writes Run's line from the engine check --
+        // "Start it or check again", about a Start this restart still holds.
+        say("The engine has not answered in two minutes. Checking the database…");
         try {
           await checkStartup();
           const timeout = Object.assign(
