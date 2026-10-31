@@ -9121,6 +9121,108 @@ def test_upgrade_comes_back_when_the_restart_ends(open_panel):
     assert not page.js_errors, page.js_errors
 
 
+def test_the_database_page_left_open_promises_upgrade_again_after_the_ending(open_panel):
+    """Drawn in the dark of a restart, the page holds Upgrade database down and does
+    not promise it. Left open across an ending with no engine, the button comes back,
+    and the sentence must come back with it: that is the moment the repair is most
+    needed, and he has no reason to leave the page and enter it again."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART,
+                                    dark_ms=10**9)
+    page.clock.install()
+    page.click("#runtime-restart")
+    page.clock.run_for(30_000)                 # into the dark
+    open_database(page)
+    page.clock.run_for(3_000)
+    assert "Upgrade database still works" not in text_of(page, "#db-schema-detail")
+    assert page.locator("#runtime-upgrade").is_disabled()
+
+    page.clock.run_for(100_000)                # past the two minutes; the restart ends
+    page.wait_for_function(
+        "() => !document.getElementById('runtime-restart').disabled", timeout=10_000)
+    page.clock.run_for(3_000)
+    assert not page.locator("#runtime-upgrade").is_disabled(), (
+        "Upgrade database stayed down after the restart ended")
+    assert "Upgrade database still works" in text_of(page, "#db-schema-detail"), (
+        "the page left open does not say what the same page says when entered")
+    assert not page.js_errors, page.js_errors
+
+
+def test_the_database_page_left_open_is_drawn_again_while_the_ending_checks(open_panel):
+    """The ending's database check can run for two more minutes. Through it, a page
+    last drawn from the engine that left must not go on showing what that engine said
+    under "Checking the database…". The restart has not ended, so Upgrade stays down
+    and is not promised."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="nonresponsive")
+    page.click("#tab-engines")
+    open_engine(page)
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART,
+                                    dark_ms=10**9)
+    page.clock.install()
+    page.click("#runtime-restart")
+    page.clock.run_for(2_000)                  # the host is silent; the engine still answers
+    open_database(page)
+    page.clock.run_for(1_000)
+    assert text_of(page, "#db-schema-detail").startswith("1 migration"), (
+        text_of(page, "#db-schema-detail"))
+
+    page.clock.run_for(121_000)                # the check before the restart runs out
+    page.clock.run_for(127_000)                # the two minutes; the ending's check is out
+    page.wait_for_function(
+        "() => document.getElementById('runtime-note').textContent"
+        " === 'The engine has not answered in two minutes. Checking the database…'",
+        timeout=10_000)
+    assert text_of(page, "#db-schema-detail") == (
+        "The engine did not answer, so the version could not be read."), (
+        "the page still shows what the engine that left said")
+    assert page.locator("#runtime-upgrade").is_disabled(), (
+        "Upgrade database is offered while the ending's check runs")
+    assert not page.js_errors, page.js_errors
+
+
+#: The database has nothing to apply, whichever engine is asked.
+NOTHING_IS_PENDING = """() => {
+  const inner = window.fetch;
+  window.fetch = async (url, options = {}) => {
+    const response = await inner(url, options);
+    if (!String(url).includes('/api/storage')) return response;
+    const body = {...(await response.json())};
+    body.schema = {...(body.schema || {}), version: 18, expected: 18, pending: []};
+    return {ok: true, status: 200, statusText: 'OK', headers: {get: () => null},
+            json: async () => body};
+  };
+}"""
+
+
+def test_a_restart_that_did_not_happen_offers_no_upgrade_with_nothing_to_apply(open_panel):
+    """The ending gives back every button the restart took, Upgrade database included.
+    On a Database page left open with nothing pending, that left a live Upgrade under
+    "Up to date. Nothing to apply." until he entered the page again."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    page.evaluate(NOTHING_IS_PENDING)
+    restart_the_way_the_engine_does(page, successor_build=None, bow_out_ms=10**9)
+    page.clock.install()
+    page.click("#runtime-restart")
+    page.clock.run_for(2_000)
+    open_database(page)
+    page.clock.run_for(1_000)
+    assert text_of(page, "#db-schema-detail") == "Up to date. Nothing to apply."
+
+    page.clock.run_for(130_000)                # past the two minutes; the restart ends
+    page.wait_for_function(
+        "() => !document.getElementById('runtime-restart').disabled", timeout=10_000)
+    page.clock.run_for(3_000)
+    assert "the same engine is still answering" in text_of(page, "#runtime-note")
+    assert text_of(page, "#db-schema-detail") == "Up to date. Nothing to apply."
+    assert page.locator("#runtime-upgrade").is_disabled(), (
+        "Upgrade database is live with nothing to apply")
+    assert not page.js_errors, page.js_errors
+
+
 #: The check before the restart passes; the one the failed ending asks reports the
 #: database behind, as #1810's check does with no engine running. Installed over the
 #: harness's own host.
@@ -9373,6 +9475,102 @@ def test_a_good_ending_raises_no_false_alert(open_panel, view):
     alerts = page.evaluate("window.__alerts")
     assert not [a for a in alerts if "did not answer" in a], (
         f"a false alert at a good ending: {alerts}")
+    assert not page.js_errors, page.js_errors
+
+
+#: The successor takes this long over a page's own read, so that anything the page draws
+#: before its read answers can be seen. It must follow `restart_the_way_the_engine_does`.
+THE_SUCCESSOR_READS_SLOWLY = """() => {
+  const inner = window.fetch;
+  window.fetch = async (url, options = {}) => {
+    if (/\\/api\\/(jobs|schedules)/.test(String(url))
+        && window.__engineAnswering() === 'successor') {
+      await new Promise((settle) => setTimeout(settle, 1500));
+    }
+    return inner(url, options);
+  };
+}"""
+
+#: Every alert drawn on a page from now on, read as it is drawn.
+RECORD_THE_ALERTS = """(view) => {
+  window.__alerts = [];
+  const root = document.getElementById(`view-${view}`);
+  const read = () => root.querySelectorAll('[role="alert"]').forEach(
+    (alert) => window.__alerts.push(alert.textContent));
+  new MutationObserver(read).observe(root, {childList: true, subtree: true,
+                                            characterData: true});
+}"""
+
+
+def into_the_dark_on(page, view, *, read_first=False) -> None:
+    """Press Restart, then open `view` in the dark, so its read fails behind the banner."""
+    nav = f'nav.side-rail button[data-view="{view}"]'
+    if read_first:
+        page.click(nav)
+        page.wait_for_selector(f"#view-{view}:not(.hidden)")
+        page.wait_for_timeout(1_200)
+    page.click("#tab-engines")
+    open_engine(page)
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART,
+                                    dark_ms=10_000)
+    page.evaluate(THE_SUCCESSOR_READS_SLOWLY)
+    page.clock.install()
+    page.click("#runtime-restart")
+    page.clock.run_for(3_000)
+    page.click(nav)
+    page.wait_for_selector(f"#view-{view}:not(.hidden)")
+    page.clock.run_for(2_000)
+
+
+def successor_answers(page) -> None:
+    page.clock.run_for(12_000)
+    page.wait_for_function(
+        "() => document.getElementById('engine-restart-note').textContent"
+        " === 'The engine is back.'", timeout=10_000)
+
+
+def test_a_good_ending_raises_no_false_alert_over_the_list_schedules_read(open_panel):
+    """With a list to show, Schedules is drawn by the engine check as well as by its own
+    read (`updateEngineState`), so the check at the good ending drew the failure from
+    the dark as an alert while the read was still out."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    into_the_dark_on(page, "schedules", read_first=True)
+    assert RESTARTING in text_of(page, '#view-schedules [data-role="banner"]')
+    page.evaluate(RECORD_THE_ALERTS, "schedules")
+
+    successor_answers(page)
+    page.clock.run_for(2_000)
+
+    alerts = page.evaluate("window.__alerts")
+    assert not [a for a in alerts if "did not answer" in a], (
+        f"a false alert at a good ending: {alerts}")
+    assert not page.js_errors, page.js_errors
+
+
+@pytest.mark.parametrize("view, read_first", [("jobs", False), ("schedules", True)],
+                         ids=["jobs-first-opened-in-the-wait", "schedules-with-its-list"])
+def test_a_page_left_during_the_wait_raises_no_false_alert_on_return(
+        open_panel, view, read_first):
+    """The banner's own Open Engine takes him off the page, and the restart ends there.
+    What failed in the dark must not greet him as "The engine did not answer" when he
+    comes back to an engine that is answering. Jobs draws it on entry. Schedules draws
+    it when an engine check lands while its read is out, as one does here."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    into_the_dark_on(page, view, read_first=read_first)
+    page.click(f'#view-{view} button:has-text("Open Engine")')
+    page.wait_for_selector("#view-engine-detail:not(.hidden)")
+    page.evaluate(RECORD_THE_ALERTS, view)
+
+    successor_answers(page)
+    page.click(f'nav.side-rail button[data-view="{view}"]')
+    page.wait_for_selector(f"#view-{view}:not(.hidden)")
+    page.evaluate("() => document.getElementById('setup-recheck').click()")
+    page.wait_for_timeout(500)
+    page.clock.run_for(3_000)
+
+    alerts = page.evaluate("window.__alerts")
+    assert not [a for a in alerts if "did not answer" in a], (
+        f"a false alert after the engine came back: {alerts}")
     assert not page.js_errors, page.js_errors
 
 

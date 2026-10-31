@@ -10737,17 +10737,20 @@ function wireRuntimeRepair() {
       restartRunning = false;
       [restart, upgrade, $("runtime-check-action"), ...held].filter(Boolean)
         .forEach((button) => { button.disabled = false; });
-      // AND THE PAGES THAT OFFERED OPEN ENGINE INSTEAD OF START read again, now that
-      // it has ended -- the way entering them reads (`showView`). Jobs draws before its
-      // read, so the failure behind that banner goes first: with the flag down it
-      // would draw "The engine did not answer", a false alert at a good ending.
-      if (currentViewName() === "jobs") {
-        jobsPage.failure = null;
-        loadJobs();
-      }
-      if (currentViewName() === "schedules") {
-        schedulesPage.loading = loadSchedulesPage({ sourcesToo: true });
-      }
+      // WHAT FAILED IN THE DARK GOES FIRST, on screen or off: with the flag down, these
+      // pages would draw it as "The engine did not answer", a false alert at a good
+      // ending, until their next read says otherwise.
+      jobsPage.failure = null;
+      schedulesPage.failure = null;
+      // AND THE PAGES WHOSE WORDS READ THE FLAG read again, now that it has ended -- the
+      // way entering them reads (`showView`). Jobs and Schedules offered Open Engine
+      // instead of Start. The Database page held Upgrade database down and stopped
+      // promising it, and the button given back above may have nothing to apply: the
+      // successor may just have upgraded the schema.
+      const open = currentViewName();
+      if (open === "jobs") loadJobs();
+      if (open === "schedules") schedulesPage.loading = loadSchedulesPage({ sourcesToo: true });
+      if (open === "database") loadDatabase();
     };
     say("Checking the database before restarting…");
     clearRuntimeIssue();
@@ -10918,9 +10921,6 @@ function wireRuntimeRepair() {
           // line dropped just above stayed blank -- only `renderEngines` asks for
           // it again -- and the release row went on judging the engine that left.
           await renderEngines();
-          // AND THE DATABASE PAGE, when it is the one open: the outcome is written
-          // there too, under a schema the successor may just have upgraded.
-          if (currentViewName() === "database") await loadDatabase();
         } catch (error) {
           markStartup("restart-redraw-failed",
                       {message: (error && error.message) || "unknown"});
