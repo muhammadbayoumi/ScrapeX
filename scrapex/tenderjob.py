@@ -21,16 +21,22 @@ so the record is the one source of truth and nothing else can drift from it.
 WHERE A PASS OVER CHANGES STARTS (his ruling of 2026-10-24, #1701): the first pass after a
 first crawl starts from when that crawl took its count, and each later pass from the
 newest change held when the last COMPLETE pass ended -- each less one day (`MARGIN`).
+
+ONE WRITER AT A TIME (`CLAUDE.md`; his ruling of 2026-10-31, #1775): a page is written inside
+the warehouse's write lock, and read outside it. Another app holding it pauses the job
+instead of failing it, because the record already holds its place; a Resume reads the undone
+page again.
 """
 from __future__ import annotations
 
 import json
 import sqlite3
-from contextlib import nullcontext
-from dataclasses import dataclass
+from contextlib import contextmanager, nullcontext
+from dataclasses import dataclass, fields
 from datetime import timedelta
 
 from . import capture, catalog, directoryjob, source_settings, tenders
+from . import db as dbmod
 from .catalog_models import SiteCreate
 from .connectors.base import CrawlBlocked, CrawlInterrupted, source_fetcher
 from .normalize import parse_instant
@@ -46,7 +52,7 @@ JOB_KIND = "tender_crawl"
 MARGIN = timedelta(days=1)
 
 #: What a run counts, in the words part 3b-2b's control shows (#1701, rows 19-20).
-COUNTERS = ("requests", "notices", "releases_new", "releases_unchanged", "errors")
+COUNTERS = tuple(field.name for field in fields(wc.Tally))
 
 #: The modes a tender crawl runs. A full rebuild is not one (#1701 Q3): the history keeps
 #: every notice it read, and an update reads what changed. History backfill is a price mode.
@@ -168,16 +174,21 @@ def run_tender_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
     record = _record(job_ref, job.get("checkpoint_json"))
     record.setdefault("areas_read", [])
     record.setdefault("unread", {})
+    # THE JOB'S, NOT THIS PASS'S: a resume carries on what the passes before it counted, and
+    # the job's outcome rests on all of it.
     tally = wc.Tally(**{name: int((job["counters"] or {}).get(name, 0)) for name in COUNTERS})
-    errors_before = tally.errors
     site_id = _site_id(conn, source)
     state = source_state(conn, source_key)
+    db_file = conn.execute("PRAGMA database_list").fetchone()[2]
+    plan = None
 
     def say(level: str, message: str) -> None:
-        """The collector's words, into the job log. The collector calls it outside every
-        page's transaction (#1765), so committing here commits nothing half-kept."""
+        """The collector's words, into the job log, committed by the `keep` that follows.
+
+        NO COMMIT HERE. Every refused notice is named, his ruling of 2026-10-31 (#1779), and
+        a commit each measured 400-589 ms and 9.36 MB of WAL a 1,000 lines, against 13-15 ms
+        and 0.2 MB for one. Nothing is left open across a request."""
         jobs.append_log(conn, job_id, message, level=level, source_key=source_key)
-        conn.commit()
 
     def keep(**progress) -> None:
         """This job's record, counters and progress, written together and committed."""
@@ -199,8 +210,31 @@ def run_tender_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
         if control in {JobControl.PAUSE.value, JobControl.CANCEL.value}:
             raise CrawlInterrupted(control)
 
-    jobs.note_a_re_entry(conn, job, unit="area(s)", source_key=source_key,
-                         consequence="The areas it read whole are not read again")
+    @contextmanager
+    def page_write():
+        """Around one page's write: the warehouse's one writer, and inside it the seal, the
+        only point where that answer cannot go stale (`capture._refuse_if_superseded`)."""
+        with dbmod.write_lock(db_file):
+            capture._refuse_if_superseded(conn)
+            yield
+
+    def resuming() -> str:
+        """What a Resume does from here: an area goes on from its record, a pass over changes
+        has no place to go on from, and `since` stands until one ends."""
+        if record.get("phase") == "changes":
+            return ("Resuming reads the pass over changes again from its start, and what it "
+                    "kept is not kept twice")
+        return ("Resuming goes on from the next unread page, and the areas read whole are not "
+                "read again")
+
+    if record.get("phase") == "changes":
+        jobs.note_a_re_entry(conn, job, unit="page(s)", source_key=source_key,
+                             opening="reading the changes again from their start",
+                             consequence="What it kept is not kept twice")
+    else:
+        jobs.note_a_re_entry(conn, job, unit="area(s)", source_key=source_key,
+                             opening="going on from the next unread page",
+                             consequence="The areas it read whole are not read again")
     jobs._update(conn, job_id, status=JobStatus.PREPARING.value, stage="counting notices",
                  current_source_key=source_key, last_heartbeat_at=utc_now_iso(),
                  **({} if job["started_at"] else {"started_at": utc_now_iso()}))
@@ -210,8 +244,19 @@ def run_tender_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
                              capture.crawl_settings(conn))
     host = jobs.host_of_url(source.base_url, source_key)
     admit = admission.lane(host) if admission is not None else nullcontext()
+
+    @contextmanager
+    def then_how_it_treated_the_site():
+        """Said on every ending and before it is settled, so the summary is the last line
+        (#1701, row 21)."""
+        try:
+            yield
+        finally:
+            directoryjob.log_politeness(conn, job_id, source_key, fetcher)
+            conn.commit()
+
     try:
-        with admit:
+        with admit, then_how_it_treated_the_site():
             if not jobs.still_wanted(conn, job_ref):
                 say(LogLevel.INFO, "stopped while waiting for the site's turn, so nothing "
                                    "was read")
@@ -224,56 +269,79 @@ def run_tender_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
             record["count"] = {"counted_at": utc_now_iso(), "total": plan.total,
                                "requests": plan.requests, "unlisted": plan.unlisted,
                                "areas": [[area.name, area.count] for area in plan.areas]}
+            record["phase"] = "areas"
             held = state.areas_read | set(record["areas_read"])
-            to_read = [area for area in plan.areas if area.name not in held]
-            asked = sum(area.pages for area in to_read)
+            resume = record.get("area") or {}
+            # THE AREA A STOP CAME INSIDE IS READ FIRST. An area left unread earlier comes
+            # back on a resume, and read before it, it would end the resume point.
+            to_read = sorted((area for area in plan.areas if area.name not in held),
+                             key=lambda area: area.name != resume.get("name"))
+            resumed = to_read[0] if to_read and to_read[0].name == resume.get("name") else None
+            first_page = 0
+            if resumed is not None and resume["count"] == resumed.count:
+                first_page = resume["next_page"]
+            left = wc.requests_for(to_read) - first_page
             if not held:
                 say(LogLevel.INFO, wc.count_line(plan))
-            if plan.unlisted:
-                # HIS RULING OF 2026-10-25 (#1647): named, and the crawl starts.
-                say(LogLevel.WARNING,
-                    f"{wc._counted(plan.unlisted, 'notice')} the Bank lists in no area: an "
-                    "area pass cannot read them, and the pass over changes reads each one "
-                    "when it changes")
             elif to_read:
                 # THE COUNT INCLUDED, as `count_line`'s figure is (`Plan.requests`): the
                 # line and the cost question part 3b-2b asks give one number (#1701, 13a).
                 say(LogLevel.INFO, f"{wc._counted(len(to_read), 'area')} not read yet: "
-                                   f"{1 + asked:,} requests")
-            jobs.record_source_fetch(conn, job_id, source_key, expected=1 + asked,
+                                   f"{left:,} requests")
+            elif job["run_mode"] == RunMode.INITIAL_CRAWL.value:
+                say(LogLevel.INFO, "every area is already read, so an initial crawl has "
+                                   "nothing to read")
+            if plan.unlisted:
+                # HIS RULING OF 2026-10-25 (#1647): named, and the crawl starts.
+                one = plan.unlisted == 1
+                say(LogLevel.WARNING,
+                    f"{wc._counted(plan.unlisted, 'notice')} the Bank lists in no area: an "
+                    f"area pass cannot read {'it' if one else 'them'}, and the pass over "
+                    f"changes reads {'it' if one else 'each one'} when it changes")
+            if resumed is not None and resume["count"] != resumed.count:
+                # ONLY THE RECORD CAN SEE THIS MOVE: `read_area`'s guard compares with the
+                # count just taken. A notice gone from a page read before the stop slides one
+                # in from the next page read, and that one would be in neither.
+                say(LogLevel.INFO, f"{resumed.name}: the Bank now counts {resumed.count:,} "
+                                   f"notices, not the {resume['count']:,} it counted before "
+                                   "this job stopped; reading it again from its first page")
+            # THE JOB'S FIGURES, NOT THIS PASS'S; the count is in both `tally` and `left`.
+            jobs.record_source_fetch(conn, job_id, source_key,
+                                     expected=tally.requests - 1 + left,
                                      basis="declared", requests=tally.requests)
-            keep(progress_done=0, progress_total=len(to_read))
+            keep(progress_done=len(record["areas_read"]),
+                 progress_total=len(record["areas_read"]) + len(to_read))
             # A STOP ASKED DURING THE COUNT IS HONOURED BEFORE `running` IS CLAIMED: that
             # write would erase the transitional state the panel is showing him.
             stop_if_asked()
             jobs._update(conn, job_id, status=JobStatus.RUNNING.value)
             conn.commit()
 
-            done = 0
+            counted = {area.name: area.count for area in to_read}
+
+            def page_kept(name: str, page: int) -> None:
+                record["area"] = {"name": name, "next_page": page + 1, "count": counted[name]}
+                jobs.record_source_fetch(conn, job_id, source_key, requests=tally.requests)
+                keep()
+                stop_if_asked()
+
             for area in to_read:
-                resume = record.get("area") or {}
-                first_page = int(resume.get("next_page", 0)) if resume.get("name") == area.name else 0
-
-                def page_kept(name: str, page: int) -> None:
-                    record["area"] = {"name": name, "next_page": page + 1}
-                    jobs.record_source_fetch(conn, job_id, source_key,
-                                             requests=tally.requests)
-                    keep()
-                    stop_if_asked()
-
                 jobs._update(conn, job_id, stage=f"reading {area.name}")
                 conn.commit()
                 read = wc.read_area(conn, fetcher, source_site_id=site_id, area=area,
-                                    tally=tally, log=say, first_page=first_page,
+                                    tally=tally, log=say, lock=page_write,
+                                    first_page=first_page if area is resumed else 0,
                                     crawl_job_id=job_id, on_page=page_kept)
                 record.pop("area", None)
                 if read.complete:
                     record["areas_read"].append(area.name)
                     record["unread"].pop(area.name, None)
-                    done += 1
                 else:
                     record["unread"][area.name] = read.reason
-                keep(progress_done=done)
+                keep(progress_done=len(record["areas_read"]))
+                # A FAILED PAGE IS A BOUNDARY TOO: `page_kept` never ran for it, and on a Bank
+                # failing every page nothing else would ever answer his Pause or Cancel.
+                stop_if_asked()
 
             whole = {area.name for area in plan.areas} <= (
                 state.areas_read | set(record["areas_read"]))
@@ -284,19 +352,20 @@ def run_tender_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
                     held_whole_at=state.held_whole_at).since()
                 say(LogLevel.INFO, f"every area read; reading the notices changed since "
                                    f"{since}")
+                record["phase"] = "changes"
 
                 def changes_page_kept(page: int, notices: int) -> None:
-                    say(LogLevel.INFO, f"changes: {notices:,} notices in 1 request")
+                    say(LogLevel.INFO, f"changes, page {page + 1}: "
+                                       f"{wc._counted(notices, 'notice')}")
                     jobs.record_source_fetch(conn, job_id, source_key,
                                              requests=tally.requests)
                     keep(progress_done=page + 1, progress_total=0)
                     stop_if_asked()
 
-                jobs._update(conn, job_id, stage="reading changes", progress_done=0,
-                             progress_total=0)
-                conn.commit()
+                jobs._update(conn, job_id, stage="reading changes")
+                keep(progress_done=0, progress_total=0)
                 outcome = wc.read_changes(conn, fetcher, source_site_id=site_id,
-                                          since=since, tally=tally, log=say,
+                                          since=since, tally=tally, log=say, lock=page_write,
                                           crawl_job_id=job_id, on_page=changes_page_kept)
                 record["changes"] = {
                     "since": since, "complete": outcome.complete,
@@ -311,8 +380,7 @@ def run_tender_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
             jobs._update(conn, job_id, status=JobStatus.PAUSED.value,
                          control=JobControl.NONE.value, stage=None,
                          last_heartbeat_at=utc_now_iso())
-            say(LogLevel.INFO, "paused between pages. Resuming goes on from the next "
-                               "unread page, and the areas read whole are not read again")
+            say(LogLevel.INFO, f"paused between pages. {resuming()}")
         elif not jobs.still_wanted(conn, job_ref):
             # THE ROW OUTRANKS THE INSTRUCTION, as at every other stop: a job something
             # else already settled is not settled again.
@@ -322,21 +390,38 @@ def run_tender_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
             say(LogLevel.INFO, "cancelled between pages. What was kept stays kept, and an "
                                "update reads the rest")
             jobs._finish(conn, job_id, JobStatus.CANCELLED, None)
-            conn.commit()
+        conn.commit()
         return jobs.get_job(conn, job_ref) or job
     except CrawlBlocked as blocked:
-        directoryjob.pause_for_the_site(
-            conn, job, job_ref, source_key, blocked,
-            "Resuming goes on from the next unread page")
+        directoryjob.pause_for_the_site(conn, job, job_ref, source_key, blocked, resuming())
         return jobs.get_job(conn, job_ref) or job
     except Exception as exc:
-        say(LogLevel.ERROR, f"failed: {exc}")
-        jobs._finish(conn, job_id, JobStatus.FAILED, str(exc))
+        # ANOTHER APP HOLDS THE WAREHOUSE (`CLAUDE.md`: wait for it, never route around it).
+        # The page was undone and the record holds its place, so a Resume loses nothing. Any
+        # other `OperationalError` is a fault of the warehouse, and fails below. A lock that
+        # outlasts this write too escapes to the worker, which records it and settles the job.
+        if isinstance(exc, dbmod.DbLockedError) or (
+                isinstance(exc, sqlite3.OperationalError) and "locked" in str(exc).lower()):
+            directoryjob.pause_because(conn, job, job_ref, source_key,
+                                       f"another app holds the warehouse ({exc})", resuming())
+            return jobs.get_job(conn, job_ref) or job
+        # THE CONSEQUENCE LEADS, so the two-line clamp on Jobs keeps it (#1701, row 24), and
+        # the error is named by its type too, for an `httpx` error's message can be empty.
+        if plan is None:
+            lead = "The count failed, so this run read nothing."
+        elif record.get("phase") == "changes":
+            lead = "The pass over changes failed, and the next update reads it again."
+        else:
+            held = state.areas_read | set(record["areas_read"])
+            lead = (f"{sum(area.name in held for area in plan.areas)} of {len(plan.areas)} "
+                    "areas read; an update reads the rest.")
+        first_line = next(iter(str(exc).splitlines()), "")
+        named = f"{type(exc).__name__}: {first_line}" if first_line else type(exc).__name__
+        summary = f"{lead} {named}"
+        jobs._finish(conn, job_id, JobStatus.FAILED, summary)
+        say(LogLevel.ERROR, summary)
         conn.commit()
         raise
-    finally:
-        directoryjob.log_politeness(conn, job_id, source_key, fetcher)
-        conn.commit()
 
     # WHAT IS LEFT, THE CONSEQUENCE FIRST, so the two-line clamp on Jobs keeps it (#1701,
     # row 23): areas an update reads first, then a pass cut short, then the notices this
@@ -344,20 +429,19 @@ def run_tender_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
     said = []
     if record["unread"]:
         missed = record["unread"]
-        said.append(f"{len(missed)} area{'' if len(missed) == 1 else 's'} not read; an "
-                    f"update reads {'it' if len(missed) == 1 else 'them'} first. "
-                    f"{_reasons(missed)}")
+        said.append(f"{wc._counted(len(missed), 'area')} not read; an update reads "
+                    f"{'it' if len(missed) == 1 else 'them'} first. {_reasons(missed)}")
     if record.get("changes") and not record["changes"]["complete"]:
         said.append(f"the pass over changes stopped: {record['changes']['reason']}. The next "
-                    f"update reads again from {record['changes']['since']}")
-    refused = tally.errors - errors_before
+                    f"update reads again from {record['changes']['since']}.")
+    refused = tally.errors
     if refused:
         said.append(f"{wc._counted(refused, 'notice')} not kept; "
                     f"{'it is' if refused == 1 else 'each is'} named in the log by its id.")
     if said:
         summary = " ".join(said)
-        say(LogLevel.WARNING, summary)
         jobs._finish(conn, job_id, JobStatus.COMPLETED_WITH_ERRORS, summary)
+        say(LogLevel.WARNING, summary)
     else:
         jobs._finish(conn, job_id, JobStatus.COMPLETED, None)
     conn.commit()

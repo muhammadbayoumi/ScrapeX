@@ -18,7 +18,9 @@ WHAT A FAILURE DOES IS HIS RULING (#1701 Q1, option (a), 2026-10-17):
     page is kept;
   * a page none of whose notices can be kept never stops the crawl: it says so in a
     warning, and the crawl goes on (his ruling of 2026-10-25, #1779, which replaced
-    "stops the crawl as failed" on 0 refusals measured in the 12 smallest areas).
+    "stops the crawl as failed" on 0 refusals measured in the 12 smallest areas). The
+    warning says Pause or Cancel stops it (his addition of 2026-10-31), and
+    `Tally.pages_refused` counts those pages for the panel to suggest the same.
 A stop that is not a page's (the owner's Pause or Cancel, a robots.txt refusal, a site
 that keeps refusing) arrives as `CrawlBlocked` and is never taken for a failed page.
 
@@ -26,13 +28,17 @@ KEPT PAGE BY PAGE (#1733 item 5): one transaction a page, so the WAL holds one p
 1,000 notices, not an area of up to 47,395. Each notice inside it is undone to a
 savepoint of its own when it cannot be kept (#1733 item 3): `store_release` writes the
 release before every refusal that can follow it. A page that cannot be committed is undone
-whole, and what it did reaches the tally and the log only once it is committed.
+whole, and what it did reaches the tally and the log only once it is committed. The
+caller's `lock` wraps that write and nothing else (#1775): never a fetch, or every write
+the panel makes waits out the crawl's pace (`capture.capture_source`'s `lock`, for the
+same reason).
 """
 from __future__ import annotations
 
 import math
 import sqlite3
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
 from datetime import datetime
 from itertools import pairwise
@@ -76,6 +82,12 @@ class Area:
         return math.ceil(self.count / PAGE_ROWS)
 
 
+def requests_for(areas: Iterable[Area]) -> int:
+    """The count itself, then every page of `areas`: one figure for what reading them costs,
+    the plan's line and the cost question part 3b-2b asks (#1701, 13a)."""
+    return 1 + sum(area.pages for area in areas)
+
+
 @dataclass(frozen=True)
 class Plan:
     """What one count found: every area, largest first, and the notices in all."""
@@ -90,8 +102,8 @@ class Plan:
 
     @property
     def requests(self) -> int:
-        """The count itself, then every page of every area: 537 for the world."""
-        return 1 + sum(area.pages for area in self.areas)
+        """The figure for every area: 537 for the world."""
+        return requests_for(self.areas)
 
 
 @dataclass
@@ -103,6 +115,8 @@ class Tally:
     releases_new: int = 0
     releases_unchanged: int = 0
     errors: int = 0
+    #: Pages none of whose notices could be kept: the panel's reason to suggest a stop (#1779).
+    pages_refused: int = 0
 
 
 @dataclass(frozen=True)
@@ -230,57 +244,59 @@ def _get(fetcher, params: dict[str, str], where: str) -> tuple[httpx.Response | 
 
 def _keep(conn: sqlite3.Connection, response: httpx.Response, notices: list[dict], *,
           source_site_id: int, crawl_job_id: int | None, tally: Tally, log: Log,
-          where: str) -> None:
+          where: str, lock: Callable[[], AbstractContextManager]) -> None:
     """One page: its response as evidence, then each notice under a savepoint of its own,
     committed together. A page none of whose notices could be kept is not a stop: it
     says so in a warning, and the crawl goes on (#1779).
 
     WHAT IT DID IS REPORTED ONCE IT IS COMMITTED. An undone page is read again once the
     lock is free, and reports then; and part 3b-2's job writes its log through the
-    warehouse, so a line written inside the page would commit half of it."""
+    warehouse, so a line written inside the page would be undone with it."""
     # BEFORE THE LOCK (#1733): nothing is written yet, so no transaction holds it.
     packed = tenderstore.pack(response.content)
     new = unchanged = 0
     refused: list[tuple[Any, str]] = []
-    try:
-        response_id = tenderstore.store_response(
-            conn, target_uri=str(response.url), status_code=response.status_code,
-            content_type=response.headers.get("content-type", ""),
-            headers=dict(response.headers), body=packed, crawl_job_id=crawl_job_id)
-        for notice in notices:
-            # INSIDE THE PAGE'S OPEN TRANSACTION, so in the sqlite3 module's legacy mode its
-            # RELEASE commits nothing on its own (#1733 item 3).
-            conn.execute("SAVEPOINT notice")
-            try:
-                stored = tenderstore.store_release(
-                    conn, source_site_id=source_site_id,
-                    release=wb.release_from_notice(notice), fetched_response_id=response_id)
-            except sqlite3.OperationalError:
-                # NOT A NOTICE'S FAULT: a lock another app holds, or the disk. Counted as a
-                # refused notice it would skip notices in silence; the page is undone below
-                # (`CLAUDE.md`: wait for the lock, never route around it).
-                raise
-            except Exception as exc:  # any shape, recorded with its id (#1733 item 4)
-                conn.execute("ROLLBACK TO notice")
+    with lock():
+        try:
+            response_id = tenderstore.store_response(
+                conn, target_uri=str(response.url), status_code=response.status_code,
+                content_type=response.headers.get("content-type", ""),
+                headers=dict(response.headers), body=packed, crawl_job_id=crawl_job_id)
+            for notice in notices:
+                # INSIDE THE PAGE'S OPEN TRANSACTION, so in the sqlite3 module's legacy mode
+                # its RELEASE commits nothing on its own (#1733 item 3).
+                conn.execute("SAVEPOINT notice")
+                try:
+                    stored = tenderstore.store_release(
+                        conn, source_site_id=source_site_id,
+                        release=wb.release_from_notice(notice), fetched_response_id=response_id)
+                except sqlite3.OperationalError:
+                    # NOT A NOTICE'S FAULT: a lock another app holds, or the disk. Counted as
+                    # a refused notice it would skip notices in silence; the page is undone
+                    # below (`CLAUDE.md`: wait for the lock, never route around it).
+                    raise
+                except Exception as exc:  # any shape, recorded with its id (#1733 item 4)
+                    conn.execute("ROLLBACK TO notice")
+                    conn.execute("RELEASE notice")
+                    reason = (str(exc) if isinstance(exc, wb.NoticeShapeError)
+                              else f"{type(exc).__name__}: {exc}")
+                    refused.append((notice.get("id"), reason))
+                    continue
                 conn.execute("RELEASE notice")
-                reason = (str(exc) if isinstance(exc, wb.NoticeShapeError)
-                          else f"{type(exc).__name__}: {exc}")
-                refused.append((notice.get("id"), reason))
-                continue
-            conn.execute("RELEASE notice")
-            if stored.new:
-                new += 1
-            else:
-                unchanged += 1
-        # The evidence of a page that changed shape is kept: it is what shows how it changed.
-        conn.commit()
-    except BaseException:
-        # THE PAGE IS UNDONE WHOLE, whatever stopped it: a lock another app holds at its
-        # first write or at the commit, the disk, an interrupt. Left open, the transaction
-        # would keep the write lock, and the next read would refuse to start inside it.
-        if conn.in_transaction:
-            conn.rollback()
-        raise
+                if stored.new:
+                    new += 1
+                else:
+                    unchanged += 1
+            # The evidence of a page that changed shape is kept: it shows how it changed.
+            conn.commit()
+        except BaseException:
+            # THE PAGE IS UNDONE WHOLE, whatever stopped it: a lock another app holds at its
+            # first write or at the commit, the disk, an interrupt. Left open, the
+            # transaction would keep the write lock, and the next read would refuse to start
+            # inside it.
+            if conn.in_transaction:
+                conn.rollback()
+            raise
     tally.notices += len(notices)
     tally.releases_new += new
     tally.releases_unchanged += unchanged
@@ -288,21 +304,25 @@ def _keep(conn: sqlite3.Connection, response: httpx.Response, notices: list[dict
     for notice_id, reason in refused:
         log("error", f"{notice_id!r} not kept: {reason}")
     if notices and len(refused) == len(notices):
-        # NEVER A STOP, his ruling of 2026-10-25 (#1779): every notice is already counted
-        # in Errors and named above; this line says what the whole page suggests.
+        # NEVER A STOP, his ruling of 2026-10-25 (#1779), and he is told he can make it one,
+        # his addition of 2026-10-31: every notice is already counted in Errors and named
+        # above; this line says what the whole page suggests.
+        tally.pages_refused += 1
         log("warning", f"every notice on {where} was refused "
                        f"({_counted(len(notices), 'notice')}): the Bank may have changed "
-                       f"their shape. The first: {refused[0][1]}")
+                       f"their shape. The first: {refused[0][1]}. The crawl goes on; Pause or "
+                       "Cancel on Jobs stops it.")
 
 
 def read_area(conn: sqlite3.Connection, fetcher, *, source_site_id: int, area: Area,
               tally: Tally, log: Log, first_page: int = 0, crawl_job_id: int | None = None,
-              on_page: Callable[[str, int], None] | None = None) -> AreaRead:
+              on_page: Callable[[str, int], None] | None = None,
+              lock: Callable[[], AbstractContextManager] = nullcontext) -> AreaRead:
     """Read one area page by page, from `first_page`, keeping each page as it arrives.
 
-    `on_page(area, page)` is called once a page is committed: it is the point a paused
-    run goes on from (part 3b-2's checkpoint). An area left unread returns its reason,
-    which is also logged; a stop raises."""
+    `on_page(area, page)` is called once a page is committed, so a paused run goes on from
+    `page + 1` (part 3b-2's checkpoint). `lock` wraps each page's write, and only that. An
+    area left unread returns its reason, which is also logged; a stop raises."""
     if conn.in_transaction:
         raise ValueError("read_area commits page by page; call it outside a transaction")
     if area.count > OFFSET_LIMIT:
@@ -338,7 +358,7 @@ def read_area(conn: sqlite3.Connection, fetcher, *, source_site_id: int, area: A
             log("warning", short)
             return AreaRead(complete=False, pages_read=read, reason=short)
         _keep(conn, response, rows, source_site_id=source_site_id,
-              crawl_job_id=crawl_job_id, tally=tally, log=log, where=where)
+              crawl_job_id=crawl_job_id, tally=tally, log=log, where=where, lock=lock)
         read += 1
         notices += len(rows)
         if on_page is not None:
@@ -350,10 +370,11 @@ def read_area(conn: sqlite3.Connection, fetcher, *, source_site_id: int, area: A
 
 def read_changes(conn: sqlite3.Connection, fetcher, *, source_site_id: int, since: str,
                  tally: Tally, log: Log, crawl_job_id: int | None = None,
-                 on_page: Callable[[int, int], None] | None = None) -> ChangesRead:
+                 on_page: Callable[[int, int], None] | None = None,
+                 lock: Callable[[], AbstractContextManager] = nullcontext) -> ChangesRead:
     """Read what changed since `since`, newest change first, keeping each page as it
     arrives. `on_page(page, notices)` is called once a page is committed, with the notices
-    it kept: part 3b-2a's progress in pages.
+    it kept: part 3b-2a's progress in pages. `lock` wraps each page's write, and only that.
 
     The Bank has no date filter; `srt=api_modified_date&order=desc` sorts (#1647 B6,
     request 20), so a pass reads until a notice older than `since`, or the end of what the
@@ -430,7 +451,7 @@ def read_changes(conn: sqlite3.Connection, fetcher, *, source_site_id: int, sinc
                  if at is None or at >= since_at]
         if newer:
             _keep(conn, response, newer, source_site_id=source_site_id,
-                  crawl_job_id=crawl_job_id, tally=tally, log=log, where=where)
+                  crawl_job_id=crawl_job_id, tally=tally, log=log, where=where, lock=lock)
         pages += 1
         notices += len(newer)
         if on_page is not None:

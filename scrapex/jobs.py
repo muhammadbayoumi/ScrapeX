@@ -1215,7 +1215,8 @@ def worker_is_alive(conn: sqlite3.Connection, max_age_s: float = HEARTBEAT_MAX_A
 
 
 def note_a_re_entry(conn: sqlite3.Connection, job: dict, *, unit: str,
-                    consequence: str, source_key: str | None = None) -> int:
+                    consequence: str, source_key: str | None = None,
+                    opening: str = "starting again from the beginning") -> int:
     """Say that this pass is not the job's first, and what the previous one had done.
 
     ISSUE 796, MEASURED ON HIS WAREHOUSE 2026-09-07. Two `dataset_interpret` jobs logged
@@ -1259,6 +1260,9 @@ def note_a_re_entry(conn: sqlite3.Connection, job: dict, *, unit: str,
     name a job it cannot identify for exactly the same reason. So the line states what it
     knows: this pass is not the first, and here is where the last one got to.
 
+    `opening` IS THE RUNNER'S WHEN IT DOES NOT START AGAIN. The tender crawl goes on from a
+    page its record holds, and "from the beginning" would name a cost he is not paying.
+
     Returns what the previous pass had reached, or 0 when this is a first entry and
     nothing was said.
     """
@@ -1267,7 +1271,7 @@ def note_a_re_entry(conn: sqlite3.Connection, job: dict, *, unit: str,
     done = int(job.get("progress_done") or 0)
     append_log(
         conn, int(job["job_id"]),
-        "starting again from the beginning: this is not this job's first pass"
+        f"{opening}: this is not this job's first pass"
         + (f", and the last one had reached {done:,} {unit}" if done else "")
         + f". {consequence}",
         # A WARNING, LIKE THE SWEEP LINE IT FOLLOWS. It is news rather than a fault, and

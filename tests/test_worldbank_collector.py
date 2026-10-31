@@ -8,7 +8,9 @@ the envelope that response shows (`rows`, `os`, `page`, `total`, `procnotices`).
 His ruling on #1701 Q1, option (a), is what a failure does:
   * a page that fails after its tries leaves its area unread, and the crawl goes on;
   * a notice the converter refuses is counted in Errors with its id;
-  * a page whose every notice is refused stops the crawl as failed: the Bank changed shape.
+  * a page whose every notice is refused never stops the crawl: it goes on with a warning
+    that says it can be stopped (his ruling of 2026-10-25 and his addition of 2026-10-31,
+    #1779, which replaced "stops the crawl as failed").
 """
 from __future__ import annotations
 
@@ -175,6 +177,54 @@ def test_notices_the_bank_lists_in_no_area_are_named_and_the_count_stands():
     assert len(plan.areas) == 183 and plan.total == 422_285
     assert plan.unlisted == popped
     assert wc.count_areas(Bank(facets=FACETS)).unlisted == 0
+
+
+def test_one_figure_for_the_requests_of_any_areas():
+    """The count itself, then every page: the plan line, the job's declared total and the
+    cost question give this one number (#1701, 13a)."""
+    plan = wc.count_areas(Bank(facets=FACETS))
+    assert wc.requests_for(plan.areas) == plan.requests == 537
+    assert wc.requests_for([wc.Area("a", 1_001), wc.Area("b", 1)]) == 4
+    assert wc.requests_for([]) == 1
+
+
+class Held:
+    """A write lock that says what ran inside it."""
+
+    def __init__(self, seen):
+        self.seen = seen
+
+    def __enter__(self):
+        self.seen.append("lock")
+
+    def __exit__(self, *_):
+        self.seen.append("unlock")
+
+
+@pytest.mark.parametrize("reader", ["area", "changes"])
+def test_the_lock_wraps_the_pages_write_and_not_its_packing_or_its_fetch(conn, monkeypatch,
+                                                                         reader):
+    """#1775: the write lock is held for the write and nothing else. Packing and the network
+    stay outside it, or every UI write waits out a crawl's pace."""
+    seen = []
+    real_pack, real_store = tenderstore.pack, tenderstore.store_response
+    monkeypatch.setattr(tenderstore, "pack", lambda body: (seen.append("pack"),
+                                                           real_pack(body))[1])
+    monkeypatch.setattr(tenderstore, "store_response",
+                        lambda c, **kw: (seen.append("store"), real_store(c, **kw))[1])
+    bank = Bank({EGYPT: notices(3)}, changed=stamped(notices(3, start=100),
+                                                     ["2026-10-12T09:00:00Z"] * 3))
+    real_get = bank.get
+    bank.get = lambda url, params=None, **kw: (seen.append("fetch"),
+                                               real_get(url, params=params, **kw))[1]
+    if reader == "area":
+        wc.read_area(conn, bank, source_site_id=site(conn), area=wc.Area(EGYPT, 3),
+                     tally=wc.Tally(), log=Log(), lock=lambda: Held(seen))
+    else:
+        wc.read_changes(conn, bank, source_site_id=site(conn), since="2026-10-09T16:11:00Z",
+                        tally=wc.Tally(), log=Log(), lock=lambda: Held(seen))
+    assert seen == ["fetch", "pack", "lock", "store", "unlock"]
+    assert not conn.in_transaction
 
 
 def test_the_count_line_is_the_contracts():
@@ -408,6 +458,9 @@ def test_a_page_whose_every_notice_is_refused_never_stops_the_crawl(conn):
                                   "notices): the Bank may have changed their shape. The "
                                   "first: ")
     assert "'Prequalification Notice'" in warnings[0]
+    # His addition of 2026-10-31: the crawl goes on, and he is told he can stop it.
+    assert warnings[0].endswith("The crawl goes on; Pause or Cancel on Jobs stops it.")
+    assert tally.pages_refused == 1
     # Its evidence is kept: the response is what shows how the shape changed.
     assert count(conn, "fetched_responses") == 2
     assert not conn.in_transaction
