@@ -14758,7 +14758,11 @@ _GAPS = """() => {
                                          : document.getElementById(id))
       .find((el) => !el.classList.contains("hidden"));
     const margin = (id) => getComputedStyle(document.getElementById(id)).marginTop;
+    const reason = document.getElementById("act-error");
+    const counters = document.getElementById("act-counters").getBoundingClientRect().top;
     return {underTime: Math.round(next.getBoundingClientRect().top - bottom("act-when")),
+            underReason: reason.classList.contains("hidden") ? null
+              : Math.round(counters - bottom("act-error")),
             source: margin("act-source"), when: margin("act-when")};
 }"""
 
@@ -14777,6 +14781,7 @@ def test_the_ended_card_is_spaced_in_every_state(open_panel, ended):
     settle_view(page, "run")
     at = page.evaluate(_GAPS)
     assert at["underTime"] == 8, f"under the time line: {at}"
+    assert at["underReason"] in (None, 8), f"under the reason: {at}"
     assert at["source"] == at["when"] == "4px", f"the Jobs row's row-gap: {at}"
 
 
