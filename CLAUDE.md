@@ -116,7 +116,8 @@ categories; price is one of them, not the whole tool.**
   `crawl_obey_disallow` ships at `0` (`scrapex/settings.py:99`): never set a source
   `active: true`, or leave `robots` at its default, without his word.
 - **A source is studied before anything is built from it, to one standard**: the
-  **`study-a-source` skill**, and the study lands in an issue.
+  **`study-a-source` skill**, and the study lands in an issue. One domain is one source,
+  always; its datasets divide inside it.
 - **Never start a run you cannot watch to the end.** A crawl outlasts a session and holds
   the write lock while it runs.
 
@@ -152,13 +153,11 @@ is pip-installed editable against a checkout that may not be this worktree —
 the worktree root, and in a scratch script assert on a **symbol you just added**;
 `__file__` catches a misdirected import, never a misdirected edit.
 
-**One machine, two accounts: `gh auth switch` is global.** It repoints every session, and
-the others fail mid-run with `Repository not found` — GitHub answers 404, not 403, on a
-private repository the active token cannot see, so a wrong account reads as a deleted one.
-Ask `gh auth status` before believing it. Scope the account to your own process instead —
-`export GH_TOKEN=$(gh auth token --user <the repo's owner>)` — which `gh` obeys over the
-active account and `git` takes through its github.com-scoped helper. Every command is a
-new process, so put it in front of each, and never park it in a file to make it last.
+**One machine, two accounts: `gh auth switch` is global.** It repoints every session, so
+ask `gh auth status` before believing a failure. Scope the account to your own process
+instead — `export GH_TOKEN=$(gh auth token --user <the repo's owner>)` — which `gh` obeys
+over the active account and `git` takes through its github.com-scoped helper. Every command
+is a new process, so put it in front of each, and never park it in a file to make it last.
 
 **Never hash a repo file's raw bytes.** `.gitattributes` sets `* text=auto`, so the repo
 stores LF and Windows checks out CRLF. Normalise `b"\r\n"` → `b"\n"` first.
