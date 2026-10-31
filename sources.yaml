@@ -991,3 +991,41 @@ sources:
       enrichment drops unit_measure, the hidden field that says what a price is
       for — per m² on 898 of 1,249 ceramic products, per tile on 65, unstated on
       286). The family becomes magento-graphql when that connector can read it.
+
+  # ---- studied 2026-10-31 (#1912): one workbook a month, a part of worldbank.org ----
+  - source_key: WORLDBANK_PINK_SHEET
+    source_name_ar: أسعار السلع العالمية (الورقة الوردية)
+    source_name: World Bank Pink Sheet
+    base_url: https://www.worldbank.org
+    family: worldbank-pink-sheet
+    default_language: en
+    # His answer on #1912 Q4: weekly, and adjustable by the user, which the panel's
+    # Schedules page already does. A check costs 2 requests and about 553 KB.
+    cadence: weekly
+    authority: official
+    # Off until he says otherwise: no schedule fires it, and a run from the panel does.
+    active: false
+    currency: USD
+    # A world market price has no country, and '*' is the warehouse's word for that.
+    default_region: "*"
+    # The stored bit only. No clause on tax exists in the workbook (0 of 81 rows), so
+    # there is no `tax:` rule here and every row reads Unverified, as NATURAL_GAS does.
+    vat_mode: excl
+    # The same choice as worldbank_org's tenders (scrapex/tenders.py), the same source by
+    # his ruling on #1898. www.worldbank.org allows the path and thedocs has no robots.txt.
+    robots: obey
+    crawl_pace_s: 2.5
+    extract:
+      - kind: commodity_price
+        scope: targeted
+        regions: ["*"]
+      - kind: enrichment
+        scope: targeted
+    # 67 of 70 series reach the newest month. No max_drop_pct: a History run stores about
+    # 41,000 rows, so the weekly run after it would read as a 98% drop.
+    min_expected_rows: 60
+    notes: >-
+      World Bank Commodity Price Data: 70 priced series in USD, monthly since 1960, from
+      CMO-Historical-Data-Monthly.xlsx on thedocs.worldbank.org. Each value is a month's
+      average of a named international market, stored as wholesale. Study: #1912. A part
+      of the one source worldbank.org; how its parts register is #1872.

@@ -275,7 +275,7 @@ Then delete the row from this file — a site must not be tracked in two places 
 ## The ten families that already have a connector
 
 So "can the tool run this one?" is answerable without re-reading the code.
-Evidence: `scrapex/connectors/factory.py:33-44`.
+Evidence: `scrapex/connectors/factory.py:36-48`.
 
 `shopify-json` · `magento-graphql` · `woocommerce-storeapi` · `salla-html` ·
 `zid-html` · `hybris-occ` · `custom-json-api` · `heidelberg-price-matrix` ·
