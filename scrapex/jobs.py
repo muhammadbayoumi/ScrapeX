@@ -32,7 +32,13 @@ from urllib.parse import urlsplit
 from . import db as dbmod
 from .archive import backup_database
 from .capture import CaptureResult, capture_source
-from .connectors.base import CrawlBlocked, CrawlInterrupted, HostRefused, stopped_because
+from .connectors.base import (
+    CrawlBlocked,
+    CrawlInterrupted,
+    HostRefused,
+    stopped_because,
+    stopped_brief,
+)
 from .ingest import canary_breach, previous_rows_seen
 from .payload import utc_now_iso
 from .vocab import (
@@ -934,15 +940,14 @@ def _run_source(run: _SourceRun, conn: sqlite3.Connection, source_key: str) -> b
         with run.lock:
             run.stopped_sites.append(source_key)
         record_source_fetch(conn, run.job_id, source_key, kept_pages=kept,
-                            stopped_because=stopped_because(blocked))
+                            stopped_because=stopped_brief(blocked))
         append_log(conn, run.job_id,
                    f"{stopped_because(blocked)} — "
-                   + (f"{kept} fetched page(s) kept; Continue on this source "
-                      "goes on from them once the site lets us back in"
+                   + (f"{kept} fetched page(s) kept; Continue goes on from them"
                       if kept else
-                      "no page was kept, so this source restarts from the top")
-                   + ". Paused for this source only; the job carries on with "
-                     "the others",
+                      "no page was kept; a new run fetches it from the top")
+                   + ("; the job carries on with its other sources"
+                      if len(run.job["source_keys"]) > 1 else ""),
                    level=LogLevel.WARNING, source_key=source_key)
     except Exception as exc:
         run.errors.append(f"{source_key}: {exc}")

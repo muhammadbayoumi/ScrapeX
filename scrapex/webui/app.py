@@ -4933,8 +4933,8 @@ def create_app(
                 # 'resume' would be the opposite of what was asked for.
                 raise HTTPException(
                     status_code=409,
-                    detail=f"{source_keys[0]} has no kept pages to resume — "
-                           "start a run instead")
+                    detail=f"{source_keys[0]} has no kept pages to continue from. "
+                           "Start a new run instead.")
             checkpoint = {"completed_source_keys": [], "errors": [], "succeeded": 0,
                           "partial_source": source_keys[0]}
         if job_kind == directoryjob.JOB_KIND and body.get("resume_run_ref"):

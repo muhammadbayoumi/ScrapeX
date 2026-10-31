@@ -449,3 +449,100 @@ def test_api_sources_reports_the_job_each_source_continues_from(tmp_path, journa
     assert (row()["continues_from_job"], row()["kept_pages"]) == (stopped, 2)
     localinbox.clear(journal, "GPP_ENERGY")
     assert row()["continues_from_job"] is None
+
+
+# ---- the words: the row's short form, the log, the refusal (#1772 stage 5, round 2) --
+
+class _BriefBlock(_PagedConnector):
+    """A block carrying the short form the breaker writes."""
+
+    def fetch(self, entry):
+        blocked = CrawlBlocked("5 refusals in a row (last: HTTP 429 on https://x.test/p). "
+                               "Stopping rather than pressing a site that has said no.")
+        blocked.brief = "5 refusals in a row, last HTTP 429"
+        raise blocked
+        yield  # pragma: no cover -- a generator, as the real ones are
+
+
+def test_the_slot_carries_the_short_form_and_the_log_the_whole_sentence(
+        conn, journal, monkeypatch):
+    """The row shows the engine's own short form, so no surface shortens its words; the
+    log keeps the sentence with the URL."""
+    from scrapex.jobs import job_logs
+
+    _with_connector(monkeypatch, _BriefBlock())
+    ref = create_job(conn, ["GPP_ENERGY"])
+
+    job = run_job_once(conn, ref, {"GPP_ENERGY": make_entry()})
+
+    assert job["counters"]["sources"]["GPP_ENERGY"]["stopped_because"] == (
+        "5 refusals in a row, last HTTP 429")
+    said = [e["message"] for e in job_logs(conn, ref) if "refusals in a row" in e["message"]]
+    assert said and "https://x.test/p" in said[0], said
+
+
+def test_the_breaker_writes_the_short_form_it_stops_with():
+    """The real `HttpFetcher` breaker, not a fixture: the form the row will show."""
+    from scrapex.connectors.base import HttpFetcher, stopped_brief
+
+    fetcher = HttpFetcher()
+    fetcher._consecutive_refusals = fetcher.BLOCK_LIMIT
+    with pytest.raises(CrawlBlocked) as caught:
+        fetcher._trip_breaker_if_needed("https://x.test/p", 429)
+    assert stopped_brief(caught.value) == "5 refusals in a row, last HTTP 429"
+    assert "https://x.test/p" in str(caught.value), "the log's sentence lost its URL"
+
+
+def test_a_stop_with_no_short_form_says_its_whole_sentence():
+    from scrapex.connectors.base import stopped_brief
+
+    assert stopped_brief(RobotsUnreachable("robots.txt at x answered 503")) == (
+        "robots.txt at x answered 503")
+
+
+@pytest.mark.parametrize("others", [False, True])
+def test_the_log_line_says_stopped_not_paused_and_names_others_only_if_any(
+        conn, journal, monkeypatch, others):
+    """Ruling (a): the source stops, it is not paused. A one-source job has no others to
+    carry on with, and Continue goes on whenever he presses it."""
+    from scrapex.jobs import job_logs
+
+    if others:
+        entries = _two_sources(monkeypatch, _BlockedConnector(), _PagedConnector())
+        ref = create_job(conn, ["GPP_ENERGY", "GPP_OTHER"])
+    else:
+        _with_connector(monkeypatch, _BlockedConnector())
+        entries = {"GPP_ENERGY": make_entry()}
+        ref = create_job(conn, ["GPP_ENERGY"])
+
+    run_job_once(conn, ref, entries)
+
+    [line] = [e["message"] for e in job_logs(conn, ref)
+              if e["source_key"] == "GPP_ENERGY" and "blocked by the site" in e["message"]]
+    assert "2 fetched page(s) kept; Continue goes on from them" in line, line
+    assert "aused" not in line, line
+    assert ("other sources" in line) is others, line
+
+
+def test_a_continue_with_nothing_kept_is_refused_in_the_one_verb(tmp_path, journal):
+    import shutil
+
+    from fastapi.testclient import TestClient
+
+    from scrapex import db as dbmod
+    from scrapex.config import MANIFEST_FILE
+    from scrapex.webui.app import create_app
+
+    path = tmp_path / "harvest.db"
+    connection = dbmod.connect(path)
+    dbmod.migrate(connection)
+    connection.close()
+    manifest = tmp_path / "sources.yaml"
+    shutil.copy(MANIFEST_FILE, manifest)
+    client = TestClient(create_app(path, manifest_path=manifest))
+
+    answer = client.post("/api/jobs", json={"source_keys": ["GPP_ENERGY"], "resume": True})
+
+    assert answer.status_code == 409, answer.text
+    assert answer.json()["detail"] == (
+        "GPP_ENERGY has no kept pages to continue from. Start a new run instead.")

@@ -330,6 +330,16 @@ def refuse_listed_host(request: httpx.Request) -> None:
         raise HostRefused(refusal(entry))
 
 
+def stopped_brief(blocked: CrawlBlocked) -> str:
+    """What the panel's row says stopped a site's run: the engine's own short form (#1772).
+
+    `stopped_because` is the log's sentence, and the breaker's is three clauses and a URL.
+    The row, the notice and the notification show this instead, so no surface shortens the
+    engine's words by itself. A stop with no short form says its whole sentence.
+    """
+    return getattr(blocked, "brief", None) or stopped_because(blocked)
+
+
 def stopped_because(blocked: CrawlBlocked) -> str:
     """How a job log names what stopped a site's run -- ONE spelling for every runner.
 
@@ -1203,10 +1213,12 @@ class HttpFetcher:
 
     def _trip_breaker_if_needed(self, url: str, status: int) -> None:
         if self._consecutive_refusals >= self.BLOCK_LIMIT:
-            raise CrawlBlocked(
+            blocked = CrawlBlocked(
                 f"{self._consecutive_refusals} refusals in a row (last: HTTP {status} "
                 f"on {url}). Stopping rather than pressing a site that has said no — "
                 "slow the crawl down or spread it over more runs, and retry later.")
+            blocked.brief = f"{self._consecutive_refusals} refusals in a row, last HTTP {status}"
+            raise blocked
 
     @staticmethod
     def _retry_after_s(response: httpx.Response) -> float | None:
