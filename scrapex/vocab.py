@@ -270,6 +270,25 @@ _DETAIL_GROUP_BY_CODE: dict[str, DetailGroup] = {
     # with the sale and not a property of the goods: two shops selling the
     # same item can warrant it differently.
     "pa_الضمان": DetailGroup.STORE,
+    # The 15 madar codes that went unasked because the note naming them was
+    # dropped (#1836). The owner delegated the filing on 2026-10-26 (#1835), so
+    # it follows his boundary above. ejf_percentage has no label and no value on
+    # any product: its meaning is unknown, and it is filed by the same default.
+    "drilling_capacity": DetailGroup.SPECIFICATIONS,
+    "max_flow_lpm": DetailGroup.SPECIFICATIONS,
+    "impact_energy_j": DetailGroup.SPECIFICATIONS,
+    "max_head_m": DetailGroup.SPECIFICATIONS,
+    "max_torque_nm": DetailGroup.SPECIFICATIONS,
+    "fuel_tank_l": DetailGroup.SPECIFICATIONS,
+    "wire_gauge": DetailGroup.SPECIFICATIONS,
+    "grit": DetailGroup.SPECIFICATIONS,
+    "melamine_top": DetailGroup.SPECIFICATIONS,
+    "drill_bit_length": DetailGroup.SPECIFICATIONS,
+    "drill_bit_size": DetailGroup.SPECIFICATIONS,
+    "number_of_teeth": DetailGroup.SPECIFICATIONS,
+    "roll_specification": DetailGroup.SPECIFICATIONS,
+    "ejf_percentage": DetailGroup.SPECIFICATIONS,
+    "product_model": DetailGroup.MORE_INFORMATION,
 }
 
 # Shapes rather than names, for the families a site invents freely. A
