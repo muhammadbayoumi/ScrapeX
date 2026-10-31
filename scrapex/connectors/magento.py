@@ -652,6 +652,9 @@ class MagentoGraphqlConnector:
         if wants_enrichment:
             extra = RowBuilder(ENRICHMENT)
             attribute_rows: list[list[str]] = []
+            # Every price table has been yielded by now, so a note raised from
+            # here on reaches the run only on the details table (#1836).
+            raised_from = len(notes)
             filterable = self._filterable(endpoint, notes)
             # The human label for EVERY attribute, in each store's own
             # words — «المصنع» beside "Manufacturer" — where the facet list
@@ -682,11 +685,12 @@ class MagentoGraphqlConnector:
                     "information by default — decide where they belong and "
                     "add them to vocab._DETAIL_GROUP_BY_CODE: "
                     + ", ".join(sorted(unknown_codes)[:20]))
-            if attribute_rows:
+            raised = notes[raised_from:]
+            if attribute_rows or raised:
                 yield ScrapedTable(
                     source_key=source.source_key, kind=ENRICHMENT.kind,
                     source_url=endpoint, header=extra.header,
-                    rows=attribute_rows,
+                    rows=attribute_rows, warnings=raised,
                 )
 
     def _attribute_labels(self, endpoint: str, store: str | None,
@@ -1410,7 +1414,9 @@ def _enrichment_rows(builder: RowBuilder, product: dict, filterable: dict,
     mine = (english or {}).get(pid, {})
 
     def add(code, label, value, *, numeric="", unit="", url="", lang=""):
-        if not value:
+        # A single space is how madar's API leaves a field empty: 738 rows on
+        # 39 products, and 14 table columns with nothing in them (#1831).
+        if not str(value or "").strip():
             return
         # WHERE a reader looks comes from ONE shared map (vocab), never from
         # a connector's own guess. Being a site FACET no longer decides it:
