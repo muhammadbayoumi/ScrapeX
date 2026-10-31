@@ -1088,7 +1088,7 @@ _EXPORT_SELECT: dict[str, str] = {
     "price_trade": "po.price_trade",
     "currency": "po.currency",
     # The Sheet carries the same mark as the table, in the column it already has:
-    # his ruling on #1841, and no new column for the add-in to read.
+    # his ruling on #1841.
     "availability": _SHOWN_AVAILABILITY,
     "tax_included": "po.tax_included",
     "business_date": "po.business_date",

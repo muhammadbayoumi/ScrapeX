@@ -229,7 +229,7 @@ def test_the_browse_filter_finds_the_marked_rows(seeded):
 
 def test_the_sheet_keeps_it_with_the_same_mark(seeded):
     """His ruling: no product leaves the Sheet. The mark rides the availability
-    column the Sheet already has, so the add-in reads no new column."""
+    column the Sheet already has, so the header does not move."""
     entry, conn = seeded
     _crawl(conn, entry, _Connector(["1", "2", "3"]))
 
