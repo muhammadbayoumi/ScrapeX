@@ -17,12 +17,16 @@ from scrapex.ingest import ingest_payloads
 from scrapex.payload import new_payload
 from scrapex.vocab import ExtractKind, ExtractScope
 
+# Invented, so no ruling can ever file it: a real code the map does not know today
+# is one the map may learn tomorrow, as drilling_capacity did in #1858.
+_UNKNOWN_CODE = "a_code_no_shop_has_ever_published"
+
 _PRODUCT = {
     "__typename": "SimpleProduct", "uid": "QU5H", "sku": "51116-TSB", "url_key": "drill",
     "name": "مثقاب", "stock_status": "IN_STOCK", "categories": [], "weight": 2,
     "is_qty_decimal": False, "min_sale_qty": 1, "qty_increments": 1,
     "only_x_left_in_stock": None,
-    "custom_attributesV2": {"items": [{"code": "drilling_capacity", "value": "85 mm"}]},
+    "custom_attributesV2": {"items": [{"code": _UNKNOWN_CODE, "value": "85 mm"}]},
     "price_range": {"minimum_price": {"regular_price": {"value": 100.0},
                                       "final_price": {"value": 100.0}},
                     "maximum_price": {"final_price": {"value": 100.0}}},
@@ -53,7 +57,7 @@ class _Fetcher:
             return _Response({"data": {"products": {"aggregations": []}}})
         if "customAttributeMetadataV2" in query:
             return _Response({"data": {"customAttributeMetadataV2": {"items": [
-                {"code": "drilling_capacity", "label": "قدرة الثقب"}]}}})
+                {"code": _UNKNOWN_CODE, "label": "قدرة الثقب"}]}}})
         empty = {"data": {"products": {
             "items": [], "page_info": {"current_page": 1, "total_pages": 1}}}}
         if (kwargs.get("headers") or {}).get("Store") or "category_uid" in query or page != 1:
@@ -84,7 +88,7 @@ def _warnings(tables) -> list[str]:
 def test_a_new_detail_code_reaches_the_run():
     """The standing rule's own question, and the reason this file exists."""
     warned = _warnings(_tables(_Fetcher()))
-    assert any("detail codes are new" in w and "drilling_capacity" in w for w in warned), warned
+    assert any("detail codes are new" in w and _UNKNOWN_CODE in w for w in warned), warned
 
 
 def test_a_failed_facet_query_reaches_the_run():
