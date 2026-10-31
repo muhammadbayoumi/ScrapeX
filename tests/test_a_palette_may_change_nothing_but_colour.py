@@ -225,11 +225,17 @@ def test_the_tile_shows_the_colours_the_theme_ships():
         for m in re.finditer(r"^\s*(--[a-z0-9-]+)\s*:\s*([^;]+);", _without_comment_bodies(block), re.M):
             declared[(theme, m.group(1))] = m.group(2).strip().lower()
 
+    def shipped(theme: str, token: str) -> str:
+        """The colour a token ships: followed through a role token that names a step (#633)."""
+        value = declared[(theme, token)]
+        alias = re.fullmatch(r"var\((--[a-z0-9-]+)\)", value)
+        return declared[(theme, alias.group(1))] if alias else value
+
     colours = re.search(r"colors:\s*\[([^\]]*)\]", _palette_entries()["supabase"])
     assert colours, "the supabase palette entry declares no colors array"
     shown = [c.lower() for c in re.findall(r'"(#[0-9a-fA-F]{3,8})"', colours.group(1))]
-    expected = [declared[("dark", "--bg")], declared[("dark", "--accent")],
-                declared[("dark", "--accent-hover")], declared[("light", "--bg")]]
+    expected = [shipped("dark", "--bg"), shipped("dark", "--accent"),
+                shipped("dark", "--accent-hover"), shipped("light", "--bg")]
     assert shown == expected, (
         f"the tile shows {shown}, and tokens.css ships {expected} "
         f"(dark --bg, --accent, --accent-hover, light --bg)")
