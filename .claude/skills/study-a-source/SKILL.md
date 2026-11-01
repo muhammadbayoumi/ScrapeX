@@ -123,8 +123,11 @@ been found before, and a `no` is a finding as much as a `yes`.
     it carries are fields. A default it falls back to when a field is missing is the site's
     guess, not a value the site stated. Never store it as one.
 
-A field that names a person is reported with exactly what it holds (a first name? contact
-details?) and recommended out. Taking it is his decision.
+**Contacts are first-class: every phone, fax, email, website, address, map link and social
+account, with where it lives, its filled count and its shape, and a field the site lacks is
+named as absent.** Recommend keeping them (his ruling on #1913, #1916 and #1655, 2026-11-01).
+A named individual's value stays out of the issue, as a shape and a count. Whether a source's
+terms allow collecting them is a separate question, and it goes to him.
 
 For each field found, one row:
 
@@ -132,7 +135,10 @@ For each field found, one row:
 |---|---|---|---|---|---|
 | `exWorkMaxPrice` | `/api/products` → `[].exWorkMaxPrice` | `1725.00` | no | `price_observation` | the ceiling of a tiered price |
 
-**A field the site publishes and we do not take is a decision, not an oversight.** Say why.
+**A field the site publishes and we do not take is a decision, not an oversight.** Anything
+that can enrich the data is recommended in, and sibling datasets on the domain with it. The
+reason against one is measured: it is empty, it is constant, or reading it moves something
+on the site.
 
 ## Pass 5 · Price and its dimensions (products)
 
@@ -205,8 +211,10 @@ the host and what the study settled, and containing, in this order:
    (Passes 3, 4, 6).
 5. Price dimensions (Pass 5).
 6. Reuse / build / blocked (Pass 7).
-7. The questions only he can answer, each with options and the measured cost of each.
-8. The request log: every URL, in order, with its status.
+7. **What to take: everything found, each dataset and field on one line with a proposal, for
+   him to decide.** The study reports and proposes; what is taken and what is left is his.
+8. The questions only he can answer, each with options and the measured cost of each.
+9. The request log: every URL, in order, with its status.
 
 Then the source moves in the registry, not in prose: a manifest row at
 `family: TBD-probe`, `active: false` is the only way a registry says "on the list, no
@@ -223,6 +231,7 @@ refuses to make it active before it is probed (`scrapex/config.py:552`).
 - [ ] Every fact the site states twice has its agreement counted over the census.
 - [ ] Every field has a sample value taken from a real response, not an example.
 - [ ] Every field has a destination, or is named as having none and costed.
+- [ ] Everything found is listed with a proposal, and nothing is decided for him.
 - [ ] Nothing was authenticated, bought, or bypassed.
 - [ ] No connector, no `sources.yaml` edit, no crawl, no `active: true` in this change.
 - [ ] The issue exists and the questions for him are at the end of it, with options.
