@@ -1654,7 +1654,7 @@ def price_extremes(conn: sqlite3.Connection, source_key: str, limit: int = 50) -
         "JOIN source_variant sv ON sv.source_variant_id = so.source_variant_id "
         "JOIN source_product sp ON sp.source_product_id = sv.source_product_id "
         "JOIN source_site ss ON ss.source_id = sp.source_id "
-        "WHERE ss.source_key = ? AND sv.status = 'active' "
+        "WHERE ss.source_key = ? AND sv.status = 'active' AND so.status = 'active' "
         f"AND po.currency = {current_currency} "
         "GROUP BY so.offer_id "
         "ORDER BY sp.product_name_ar, so.country_code_alpha2 LIMIT ?",

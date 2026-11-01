@@ -53,7 +53,7 @@ Record the user-agent you used and whether it mattered.
 ## Pass 1 · Identity
 
 `scrapex/probe.py:70` answers one question — which of the ten families in
-`scrapex/connectors/factory.py:34` this is, or `TBD-probe` (`scrapex/vocab.py:444`) when it
+`scrapex/connectors/factory.py:34` this is, or `TBD-probe` (`scrapex/vocab.py:449`) when it
 is none of them. **Run it, then distrust it**: it reads a homepage for markers and stops.
 Say in the report what it would answer and where it would be wrong.
 
@@ -219,13 +219,16 @@ the host and what the study settled, and containing, in this order:
 
 Then the source moves in the registry, not in prose: a manifest row at
 `family: TBD-probe`, `active: false` is the only way a registry says "on the list, no
-collector yet" (`scrapex/vocab.py:444`, `scrapex/sourceboard.py:56`), and validation
+collector yet" (`scrapex/vocab.py:449`, `scrapex/sourceboard.py:56`), and validation
 refuses to make it active before it is probed (`scrapex/config.py:552`).
 
 **Once the issue is filed, open that domain's build task straight away, one task per domain,**
 so finished studies do not pile up: «جلسة دراسة المصادر عندما تنتهى من دراسة مصدر تفتح مباشرة
-task لبنائه حتى لاا تتتراكم علينا». A task is a card until he starts it. Its prompt stands alone:
-the issue, his answers so far, and the questions still open, which that session asks him first.
+task لبنائه حتى لاا تتتراكم علينا». It is a card, and nothing runs until he starts it
+(`spawn_task`, or `start_session` with `own_initiative`). His click spends a whole session even
+if it stops at its first check, so the card's text says what the build waits for. The prompt
+stands alone: the issue, his answers so far, and the questions still open, which that session
+asks him first.
 
 ## Done means
 
