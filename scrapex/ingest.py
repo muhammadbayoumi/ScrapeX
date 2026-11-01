@@ -49,6 +49,10 @@ class IngestResult:
     # product_id -> the external variant ids THIS run published, for the
     # stand-in retirement sweep. Run bookkeeping, not result contract.
     _seen_variant_ids: dict = field(default_factory=dict, repr=False)
+    # How many offers this run brought back or left without a unit, for the job's
+    # log. Run bookkeeping too.
+    _offers_back: int = field(default=0, repr=False)
+    _units_lost: int = field(default=0, repr=False)
     skipped_ignored: int = 0     # rows under an owner-ignored product
     rejected_out_of_scope: int = 0
     # Two kinds of trouble, kept apart because they mean different things:
@@ -724,7 +728,18 @@ def _retire_replaced_readings(conn, variant_id: int, offer_id: int) -> None:
         (variant_id, offer_id, offer_id))
 
 
-def _get_offer_id(conn, variant_id: int, r: dict) -> int:
+def _bring_back(conn, offer_id: int, result: IngestResult | None) -> None:
+    """A RETIRED OFFER THE SHOP STATES AGAIN IS CURRENT AGAIN, as its product and
+    variant already are when re-seen. Without this the crawl of 2026-10-25 landed
+    six MADAR prices on offers his table hides, and it kept the sibling's figure
+    from September."""
+    back = conn.execute("UPDATE source_offer SET status = 'active' "
+                        "WHERE offer_id = ? AND status = 'superseded'", (offer_id,)).rowcount
+    if result is not None:
+        result._offers_back += back
+
+
+def _get_offer_id(conn, variant_id: int, r: dict, result: IngestResult | None = None) -> int:
     vat = 1 if r["tax_included"] == "1" else 0
     unit_id = _get_unit_id(conn, canonical_unit(r.get("unit", ""), r.get("currency", "")))
     basis = _basis_quantity(r.get("basis_quantity", ""))
@@ -745,12 +760,7 @@ def _get_offer_id(conn, variant_id: int, r: dict) -> int:
     states_today = r.get("provenance") != "reported"
     if found is not None:
         if states_today:
-            # A RETIRED OFFER THE SHOP STATES AGAIN IS CURRENT AGAIN, as its
-            # product and variant already are when re-seen. Without this the
-            # crawl of 2026-10-25 landed six MADAR prices on offers every read
-            # path hides, and his table kept the sibling's figure from September.
-            conn.execute("UPDATE source_offer SET status = 'active' "
-                         "WHERE offer_id = ? AND status = 'superseded'", (found,))
+            _bring_back(conn, found, result)
         if unit_id:
             _apply_unit_facts(conn, found, r)
             _retire_replaced_readings(conn, variant_id, found)
@@ -764,12 +774,19 @@ def _get_offer_id(conn, variant_id: int, r: dict) -> int:
     # had a unit adopts the one this run states — same offer, better described,
     # and the Unit column fills in where it was blank. Only a move BETWEEN two
     # stated units mints a new offer, which is what "15 per litre and 15 per
-    # gallon are different offers" actually means.
+    # gallon are different offers" actually means (and a unit-less row that cannot
+    # say which of two stated units it continues, below).
+    #
+    # THE LIVE OFFER FIRST, THEN A RETIRED ONE, WHICH COMES BACK. The sweep at the
+    # end of a run can retire a unit-less offer, and a later row stating a unit is
+    # still that series: left retired, its price would land where his table cannot
+    # show it (#1874).
     if unit_id:
         unstated = _find_id(
             conn,
             "SELECT offer_id FROM source_offer WHERE source_variant_id = ? AND branch_id IS NULL "
-            "AND country_code_alpha2 = ? AND customer_segment = 'retail' AND selling_unit_id IS NULL",
+            "AND country_code_alpha2 = ? AND customer_segment = 'retail' AND selling_unit_id IS NULL "
+            "ORDER BY status = 'active' DESC",
             (variant_id, r["country_code_alpha2"]),
         )
         if unstated is not None:
@@ -784,6 +801,8 @@ def _get_offer_id(conn, variant_id: int, r: dict) -> int:
                 (unit_id, basis, *unit_facts.values(),
                  content["content_quantity"], content["content_unit_id"], unstated))
             _apply_quantity_facts(conn, unstated, quantity)
+            if states_today:
+                _bring_back(conn, unstated, result)
             _retire_replaced_readings(conn, variant_id, unstated)
             return unstated
     # AN OFFER LOSING ITS UNIT IS NOT A SECOND OFFER EITHER (#1874). The shop
@@ -806,6 +825,8 @@ def _get_offer_id(conn, variant_id: int, r: dict) -> int:
                 "content_quantity = NULL, content_unit_id = NULL "
                 "WHERE offer_id = ?", (basis, stated[0][0]))
             _apply_quantity_facts(conn, stated[0][0], quantity)
+            if result is not None:
+                result._units_lost += 1
             return stated[0][0]
     minted = _insert(conn, "source_offer", {
         "source_variant_id": variant_id,
@@ -1053,6 +1074,12 @@ def ingest_payloads(conn: sqlite3.Connection, entry: SourceEntry,
     # over it, so the superseded one goes now that the run has restated
     # everything the product publishes.
     _retire_superseded_attributes(conn, stated_details, result)
+    if result._units_lost:
+        result.notices.append(f"{result._units_lost} offer(s) no longer state a unit: "
+                              "the Unit column is blank and their history stays")
+    if result._offers_back:
+        result.notices.append(f"{result._offers_back} retired offer(s) are stated again "
+                              "and are back in the table")
     # Stand-ins are retired before the derive: a run that just published a
     # product's real variants must not leave the range low end posing as a
     # current offer beside them.
@@ -1083,13 +1110,13 @@ def _retire_offers_no_longer_stated(conn, source_id: int, result: IngestResult) 
     An offer's identity holds its country and its unit, so a reading that changes
     either lands on another offer, and nothing told the old one. It stayed active
     and could never be confirmed again: on his warehouse SPARK_ESHOP drew 6,331
-    rows for 3,182 variants, and three MADAR cartons kept a price from September
-    beside the live one (#1874).
+    rows for 3,182 variants, and three MADAR cartons kept a price from August or
+    September beside the live one (#1874).
 
     Keyed on what the run SAID, as _retire_superseded_attributes is, and scoped
     the same way. A variant this run did not mention is untouched, and so is
-    another country of one it did: GPP_ENERGY's 164 countries are 164 true offers
-    of one variant, and a run reading some of them proves nothing about the rest.
+    another country of one it did: GPP_ENERGY's 698 offers are one per country on
+    6 variants, and a run reading some of them proves nothing about the rest.
     Two units the same run states both stay. "*" is the one exception, because it
     means the country was not known, so a row naming the country answers for it.
     Only a successful run gets here, and nothing is deleted.
@@ -1497,7 +1524,7 @@ def _persist_row(conn, source_id, run_id, r, observed_at, result: IngestResult,
                       source_variant_id=variant_id, new_value=r["variant_ar"] or None,
                       run_id=run_id, job_id=job_id)
 
-    offer_id = _get_offer_id(conn, variant_id, r)
+    offer_id = _get_offer_id(conn, variant_id, r, result)
     v = _observation_values(r, observed_at)
 
     # A REPORTED row is the source's own statement about an earlier date — not

@@ -145,10 +145,14 @@ def test_a_legacy_reading_nothing_replaces_is_left_alone(conn):
     lose an answer to gain a principle. MADAR carried 92 unwitnessed offers and
     only 18 had a witnessed sibling; the other 74 had to survive.
 
-    THE CRAWL IS RUN, not just the row inserted. An earlier version of this
-    test asserted on a row it had written itself and never called
-    _get_offer_id, so deleting the whole "unless something replaced it" clause
-    left it green — a guard for the condition that matters, guarding nothing."""
+    The ROW is run, not just inserted. An earlier version of this test asserted
+    on a row it had written itself and never called _get_offer_id, so deleting
+    the whole "unless something replaced it" clause left it green — a guard for
+    the condition that matters, guarding nothing.
+
+    This is the row's rule. The RUN goes further (#1874): an offer a successful
+    run did not restate, on a variant it did, retires with its history kept, see
+    tests/test_an_offer_the_shop_no_longer_states_retires.py."""
     from scrapex.ingest import _get_offer_id
     alone = _legacy_offer(conn, 25.0)
     other = _legacy_offer(conn, 30.0)
