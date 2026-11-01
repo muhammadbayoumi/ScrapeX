@@ -341,6 +341,10 @@ def _replace_chartered_unit(row: list[str], product: dict, charter: Charter) -> 
 
 
 class CustomJsonConnector:
+    # True once fetch has walked every page and met the total the API stated.
+    # Read by capture, which marks what the walk did not find (#1841).
+    census_proven = False
+
     connector_id = "custom-json-api"
 
     def __init__(self, fetcher: HttpFetcher) -> None:
@@ -371,16 +375,21 @@ class CustomJsonConnector:
         pages = min(_total_pages(first), _MAX_PAGES)
         for page in range(2, pages + 1):
             products += _items(self._fetcher.get(f"{endpoint}?page={page}").json())
+        stated = (first.get("pagination") or {}).get("total") if isinstance(first, dict) else None
+        self.census_proven = pages == _total_pages(first) and stated == len(products)
 
         rows: list[list[str]] = []
         seen: set[str] = set()
         id_at = builder.header.index("external_product_id")
         sku_at = builder.header.index("external_sku")
         by_id: dict[str, list[str]] = {}
+        refused: list[str] = []
         for product in products:
             row = self._row(builder, product, base, currency, vat,
                             source.default_region, charter)
             if row is None:
+                refused.append(str(product.get("product_id") or product.get("id")
+                                   or product.get("sku") or ""))
                 continue
             key = row[id_at]
             if key in seen:
@@ -395,7 +404,8 @@ class CustomJsonConnector:
 
         def price_table() -> ScrapedTable:
             return ScrapedTable(source.source_key, PRODUCT_PRICES.kind, endpoint,
-                                builder.header, rows, warnings=notes)
+                                builder.header, rows, warnings=notes,
+                                refused_products=refused)
 
         # A SECOND table, and the only thing that costs extra requests: the
         # per-product detail pass. Only when the manifest declares enrichment,

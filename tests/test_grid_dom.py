@@ -55,6 +55,7 @@ def _payload() -> dict:
             {"key": "brand", "label": "Brand"},
             {"key": "observations", "label": "Observations"},
             {"key": "country_code_alpha2", "label": "Country code"},
+            {"key": "availability", "label": "Availability"},
         ],
         "rows": [
             # A padded name. Sorted raw it files ahead of everything; the
@@ -62,7 +63,8 @@ def _payload() -> dict:
             row(PADDED_NAME, "معجون", 4.23, "2 kg", " ", 1, "Saudi Arabia", "SA", 1),
             row("Alpha cement", "أسمنت", 135.24, "10 kg", "AKS", 2, "Egypt", "EG", 2),
             row("Zinc sheet", "زنك", 9.66, "2.5 kg", "3M", 1, "Andorra", "AD", 3),
-            row("Beta rebar", "حديد", 0.81, "", "", 2, "United Arab Emirates", "AE", 4),
+            {**row("Beta rebar", "حديد", 0.81, "", "", 2, "United Arab Emirates", "AE", 4),
+             "availability": "no_longer_listed"},
         ],
         "tax_states": [{"tax_short": "Incl. 15%", "tax": "Includes VAT"}],
         "total": 4, "returned": 4, "truncated": False,
@@ -165,6 +167,16 @@ def _sorted_names(page, field, direction):
 
 
 # ---- the record is the record ------------------------------------------------
+
+def test_availability_spells_out_a_product_no_longer_listed(page):
+    """His ruling on #1841: the row stays, marked. Spelled out, never colour alone,
+    and the mark is what a complete crawl knows: not listed, not why."""
+    badges = page.evaluate(
+        "() => [...document.querySelectorAll('#grid .badge')]"
+        ".map(b => [b.textContent.trim(), b.className])")
+    assert ["No longer listed", "badge off"] in badges, badges
+    assert ["In stock", "badge ok"] in badges, badges
+
 
 def test_the_padded_name_is_delivered_and_kept_verbatim(page):
     """The grid must not tidy what the site published."""
