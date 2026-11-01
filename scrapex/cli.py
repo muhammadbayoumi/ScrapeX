@@ -554,7 +554,7 @@ def _cmd_sources(args: argparse.Namespace) -> int:
     installation has no database (`R-23` calls that the normal first run), and a
     report that needs data before it can list what could produce data is a report a
     new user cannot use. So the products half comes from the contract file and the
-    contractors half is added only if a warehouse is actually there.
+    organizations half is added only if a warehouse is actually there.
     """
     from . import sourceboard
 
@@ -575,14 +575,14 @@ def _cmd_sources(args: argparse.Namespace) -> int:
         if conn is None:
             print("no warehouse yet, so only the contract file is listed. "
                   "Run 'scrapex init-db' to create one.\n")
-        print(f"{'state':<11} {'category':<12} {'source':<18} "
+        print(f"{'state':<11} {'category':<13} {'source':<18} "
               f"{'collector':<26} registry")
         for one in found:
             print(one)
         print()
         for category_name, states in sorted(sourceboard.summary(found).items()):
             counts = ", ".join(f"{n} {state}" for state, n in sorted(states.items()))
-            print(f"  {category_name:<12} {counts}")
+            print(f"  {category_name:<13} {counts}")
         # SAID OUT LOUD, because it is the answer to half his question: the state
         # that means "on the list, waiting its turn" is implemented and empty.
         if not any(one.state == "registered" for one in found):
