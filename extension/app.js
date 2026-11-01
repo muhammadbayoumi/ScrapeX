@@ -33,7 +33,7 @@ import {
 } from "./sheets.js";
 // `deadlineForLocalRequest` and `fetchWithDeadline` left with the request path
 // they belonged to; backend.js is their only caller now.
-import { afterIdle, afterNextPaint, isTimeoutError, markStartup }
+import { afterIdle, afterNextPaint, isTimeoutError, markStartup, STARTUP_DEADLINES }
   from "./startup.js";
 // Where the engine is, and how this page asks it — shared with the Console and
 // the Data page rather than private to the panel. The panel calls it by the
@@ -5232,8 +5232,10 @@ function renderEngineDetail(id) {
   $("engine-diagnostics-output").classList.toggle("hidden", !installed);
   // The restart report goes with the button that writes it. Without this a
   // sentence about the ScrapeX engine survives onto a candidate backend's
-  // screen, which is the one place the page promises nothing to press.
-  if (!installed) $("engine-restart-note").classList.add("hidden");
+  // screen, which is the one place the page promises nothing to press. Back on
+  // ScrapeX Engine it shows again, with whatever the restart last said there.
+  $("engine-restart-note").classList.toggle(
+    "hidden", !installed || !$("engine-restart-note").textContent);
   if (!installed) $("engine-install-steps").classList.add("hidden");
   // AND THE UPDATE SENTENCE, for exactly the reason above and found the same way.
   // It was added as a sibling of `#engine-detail-actions` and not to this list, so
@@ -7896,8 +7898,9 @@ function jobsTick(jobs, order) {
  *  anything else is no answer, and "not running" is said only once the probe agrees. */
 function jobsFailed(from, error) {
   const http = Boolean(error && error.kind === "http");
-  // A FAILED START STAYS SAID until something answers. The reads that follow it fail
-  // too, with the engine still down, and each would otherwise put "Start the engine"
+  // A FAILED START STAYS SAID until something answers, or a restart ends: that press has
+  // cleared the card those words point at (`wireRuntimeRepair`). The reads that follow it
+  // fail too, with the engine still down, and each would otherwise put "Start the engine"
   // back over "The engine did not start" within a tick (#1608's second gate pass).
   const startFailed = Boolean(error && error.startFailed)
     || Boolean(!http && jobsPage.failure && jobsPage.failure.startFailed);
@@ -8015,6 +8018,15 @@ function jobsBanner(failure, listShown) {
       ? `Showing the jobs as read at ${read}. The engine answered: ${failure.message}`
       : failure.message;
     if (!listShown) action = ["Try again", () => loadJobs()];
+  } else if (restartRunning) {
+    // NO START WHILE A RESTART RUNS (#1517, from #1810's review): its own successor is being
+    // launched, and a Start beside it is a second engine. Said in the restart's own
+    // words, and sent to the Engine page, where its outcome is written.
+    box.className = "banner";
+    title.textContent = RESTART_UNDER_WAY;
+    copy.textContent = (listShown ? `Showing the jobs as read at ${read}. ` : "")
+      + RESTART_SEE_THE_ENGINE_PAGE;
+    action = ["Open Engine", () => openEngineDetail(SCRAPEX_ENGINE.id)];
   } else if (!state.engineUp) {
     box.className = "banner";
     title.textContent = listShown ? "Engine stopped answering" : "Engine not running";
@@ -8075,7 +8087,7 @@ function jobsState(box, failure, listShown = false, empty = "") {
   const narrowed = empty === "results"
     ? noResultsLine({ term: jobsPage.term, statuses: jobsPage.statuses.size }) : "";
   const drawn = JSON.stringify([failure, listShown, empty, narrowed, state.engineUp,
-    jobsPage.readAt, jobsPage.starting, window.ScrapeXTime.zone()]);
+    restartRunning, jobsPage.readAt, jobsPage.starting, window.ScrapeXTime.zone()]);
   if (box.dataset.drawn === drawn) return;
   box.dataset.drawn = drawn;
   // A REDRAW HE CAUSED -- Start engine becoming Starting… -- replaces the button he
@@ -8580,7 +8592,7 @@ async function loadDatabase() {
     }
     // Not while one runs: re-entering this page mid-upgrade turned it back on,
     // and the press was swallowed by the one-at-a-time guard without a word.
-    if (upgrade) upgrade.disabled = upgradeRunning || pending.length === 0;
+    if (upgrade) upgrade.disabled = upgradeRunning || restartRunning || pending.length === 0;
 
     const health = s.health || {};
     $("db-health-status").textContent = health.status || "unknown";
@@ -8635,7 +8647,7 @@ async function loadDatabase() {
     // refuses anything that is not merely behind, backs up first without exception, and
     // says what it did. Offering it here asks that path the question rather than
     // answering it from a page that just failed to read anything.
-    if (upgrade) upgrade.disabled = upgradeRunning;
+    if (upgrade) upgrade.disabled = upgradeRunning || restartRunning;
     // AND THE SCAN CANNOT BE ASKED FOR WITHOUT THE ENGINE, unlike the upgrade above:
     // `POST /api/storage/integrity` has no native fallback because the native host does
     // not read the warehouse. A button that cannot work is worse than no button.
@@ -8645,9 +8657,11 @@ async function loadDatabase() {
     out("db-integrity-note", "The engine did not answer, so it cannot be checked.",
         "muted");
     $("db-schema-version").textContent = "unreadable";
+    // NOT WHILE A RESTART RUNS, which holds that button down two lines up.
     $("db-schema-detail").textContent =
-      "The engine did not answer, so the version could not be read. Upgrade database "
-      + "still works: it goes through the native host, which does not need the engine.";
+      "The engine did not answer, so the version could not be read."
+      + (restartRunning ? "" : " Upgrade database still works: it goes through the "
+        + "native host, which does not need the engine.");
     // AND THE COPIES ARE CLEARED, not left standing. Rows from an earlier read
     // still offer a restore, and `restore` refuses a path it can no longer list --
     // so a stale row is a button that looks live and cannot work.
@@ -8818,6 +8832,11 @@ function scheduleBanner() {
         : failure.what === "sources" ? "Unable to read sources" : "Unable to read schedules",
       copy: listShown ? `${shown}The engine answered: ${failure.message}` : failure.message,
       action: listShown ? null : ["Try again", () => loadSchedulesPage()] };
+  }
+  if (restartRunning) {
+    // No Start while a restart runs, as on Jobs (`jobsBanner`).
+    return { tone: "banner", title: RESTART_UNDER_WAY, copy: `${shown}${RESTART_SEE_THE_ENGINE_PAGE}`,
+      action: ["Open Engine", () => openEngineDetail(SCRAPEX_ENGINE.id)] };
   }
   if (!state.engineUp) {
     const title = listShown ? "Engine stopped answering" : "Engine not running";
@@ -10149,6 +10168,15 @@ async function startEngineFromPanel() {
     $("engine-note").textContent = "Upgrading the database…";
     return;
   }
+  // NOR WHILE A RESTART RUNS, its whole wait included (#1517, from #1810's review). Its own
+  // successor is being launched, and a second launch beside it is a second engine on
+  // the same file (#1810's review). The restart takes Run's Start and the banners
+  // offer none while it runs; this is the one place every Start passes through, so a
+  // control it did not take -- a banner drawn the moment before -- is refused too.
+  if (restartRunning) {
+    $("engine-note").textContent = RESTART_UNDER_WAY;
+    return;
+  }
   const button = $("engine-start");
   const note = $("engine-note");
   button.disabled = true;
@@ -10404,6 +10432,36 @@ async function render() {
 // is always the one that gives up first and can say why.
 const RESTART_CONFIRM_ATTEMPTS = 125;
 
+// WHAT A RESTART SAYS WHILE IT WAITS, in one place: the Engine page's note, and the
+// Jobs and Schedules banners that offer Open Engine instead of Start while it runs
+// (#1517; the words are on the Engine page's study, #1556). EACH STATE OF THE WAIT SAYS
+// ITS OWN SENTENCE, his word at that study's stage 6: one sentence for all of them was
+// false in one or another. The banners are not redrawn as it moves, so theirs is true
+// of every state.
+const RESTART_UNDER_WAY = "Restarting the engine…";
+const RESTART_OLD_ENGINE_ANSWERS = "The current engine is still answering.";
+const RESTART_NO_ENGINE_ANSWERS = "Waiting for the new engine to start.";
+const RESTART_AN_ENGINE_ANSWERS = "An engine is answering, but it is not confirmed as the new one.";
+const RESTART_SEE_THE_ENGINE_PAGE = "See the Engine page for the restart's progress.";
+
+// HOW RECENT AN ANSWER MUST BE FOR THE RESTART'S NOTE AND ITS TWO-MINUTE ENDING TO SAY
+// AN ENGINE "IS STILL ANSWERING" (#1517). One probe running out of its deadline is a
+// busy engine -- his `/api/health` measured 1.92-2.21 s against `engineHealth`'s
+// 2.5 s before #1770 cut it to about 0.2 s (#1764), and an engine busy with other
+// work can be slow again -- and must not turn two minutes of answers into "has
+// not answered". Four deadlines without an answer is an engine that has stopped
+// answering, and the ending asks the database check instead.
+const RESTART_ANSWER_STILL_FRESH_MS = 4 * STARTUP_DEADLINES.engineHealth;
+
+// WHEN THE PROCESS ANSWERING `/api/health` STARTED SERVING, which is what tells
+// one engine from the next across a restart (#1517): a successor seals later.
+// `null` for an engine too old to report it, and for the one whose provenance
+// check failed (scrapex/provenance.py `report`).
+function sealedAtOf(health) {
+  const stamp = health && health.build && health.build.sealed_at;
+  return typeof stamp === "string" && stamp ? stamp : null;
+}
+
 // THE UPDATE POLL, BOUNDED BY THE ENGINE'S OWN NUMBER AND NOT BY A GUESS.
 // `scrapex/release.py` sets `DOWNLOAD_TIMEOUT_S = 900.0` and says why in its own
 // words -- "~70 MB over somebody's home connection, and failing a real download
@@ -10479,6 +10537,15 @@ const UPGRADE_NO_ANSWER = ["timeout", "crashed"];
 // Settings, and every press copies the whole warehouse before it waits for the
 // write lock -- for up to five minutes of waiting now, not five seconds.
 let upgradeRunning = false;
+// AND NONE WHILE A RESTART RUNS (#1517) -- no upgrade and no Start, a protection #1810's
+// review demonstrated with real processes (issuecomment-6413387526), which he kept as
+// one on #1556: one flag for the restart's whole wait, the database check after its two
+// minutes included. The wait now lasts until a different engine answers, about 50 s on his
+// machine (#1793), and the successor's launch upgrades a database that is only behind
+// on its way up (`cli._cmd_ui`). Re-entering the Database page in that wait turned
+// Upgrade database back on, and Check again in its dark draws the Start buttons:
+// either pressed then is a second writer, or a second engine, on the same file.
+let restartRunning = false;
 
 async function upgradeDatabaseFromPanel() {
   if (upgradeRunning) return;
@@ -10643,21 +10710,62 @@ function wireRuntimeRepair() {
   //
   // Unhidden as it is filled: an empty status line under the actions reads as a
   // control that did nothing.
-  const say = (text, reason = "") => {
+  //
+  // AND RUN'S LINE, beside the Start a restart now holds for its whole wait, as an
+  // upgrade does (`tell`); without it a refusal or an ending was nowhere on Run, and
+  // what it last said outlived the restart. Run's line sits above Run's own issue
+  // card, so it takes the form that carries its reason -- except where a sentence
+  // names Restart, which is on the Engine page and not on Run (`run`).
+  const say = (text, reason = "", run = reason || text) => {
     note.textContent = text;
+    const line = $("engine-note");
+    if (line) line.textContent = run;
     const here = $("engine-restart-note");
     if (!here) return;
     here.textContent = reason || text;
-    here.classList.toggle("hidden", !(reason || text));
+    // AND ONLY ON SCRAPEX ENGINE'S OWN SCREEN. Every engine shares this view, and
+    // the outcome now waits for the successor -- up to two minutes and more -- so
+    // a reader can have opened a candidate by then, whose screen has no Restart
+    // to press. Reopening ScrapeX Engine shows it (`renderEngineDetail`).
+    here.classList.toggle("hidden", !(reason || text) || !theInstalledEngineIsOnScreen());
   };
 
   upgrade.addEventListener("click", upgradeDatabaseFromPanel);
 
   restart.addEventListener("click", async () => {
+    restartRunning = true;
     [restart, upgrade, $("runtime-check-action")].filter(Boolean)
       .forEach((button) => { button.disabled = true; });
-    const release = () => [restart, upgrade, $("runtime-check-action")]
-      .filter(Boolean).forEach((button) => { button.disabled = false; });
+    // AND START AND CHECK AGAIN, as an upgrade holds them (`upgradeDatabaseFromPanel`):
+    // a Start in the wait is a second engine beside the successor, and Check again in
+    // the dark draws one (#1810's review). And the Engine page's Run
+    // diagnostics, the twin of the Settings button held above: in the dark it says
+    // "Start the engine", and its output stays standing above the outcome. Only what
+    // is live now, so the ending gives back only what this took.
+    const held = [$("engine-start"), $("setup-recheck"), $("engine-recheck"),
+      $("engine-diagnostics")].filter((button) => button && !button.disabled);
+    held.forEach((button) => { button.disabled = true; });
+    // EVERY ENDING GOES THROUGH HERE, so the flag that keeps Start and Upgrade
+    // database down while the restart runs cannot outlive it.
+    const release = () => {
+      restartRunning = false;
+      [restart, upgrade, $("runtime-check-action"), ...held].filter(Boolean)
+        .forEach((button) => { button.disabled = false; });
+      // WHAT FAILED IN THE DARK GOES FIRST, on screen or off: with the flag down, these
+      // pages would draw it as "The engine did not answer", a false alert at a good
+      // ending, until their next read says otherwise.
+      jobsPage.failure = null;
+      schedulesPage.failure = null;
+      // AND THE PAGES WHOSE WORDS READ THE FLAG read again, now that it has ended -- the
+      // way entering them reads (`showView`). Jobs and Schedules offered Open Engine
+      // instead of Start. The Database page held Upgrade database down and stopped
+      // promising it, and the button given back above may have nothing to apply: the
+      // successor may just have upgraded the schema.
+      const open = currentViewName();
+      if (open === "jobs") loadJobs();
+      if (open === "schedules") schedulesPage.loading = loadSchedulesPage({ sourcesToo: true });
+      if (open === "database") loadDatabase();
+    };
     say("Checking the database before restarting…");
     clearRuntimeIssue();
     // IS THERE AN ENGINE TO RESTART AT ALL. The POST below cannot tell: a
@@ -10679,7 +10787,9 @@ function wireRuntimeRepair() {
     // process to leave. Without this gate, a newer process could die during
     // startup and the panel would only be able to say "two minutes".
     const checking = Date.now();
-    let before = "Restarting — the engine goes quiet for a few seconds.";
+    // NO DURATION. "A few seconds" was about 50 on his machine (#1793). This opens the
+    // note, and the poll adds what it finds to it, one sentence for each state.
+    let before = RESTART_UNDER_WAY;
     try {
       await checkStartup();
     } catch (startupError) {
@@ -10700,6 +10810,27 @@ function wireRuntimeRepair() {
         : "Native helper unavailable — restarting through the engine.";
     }
     say(before);
+    // WHICH ENGINE IS ASKED TO LEAVE, read just before it is asked (#1517). It
+    // answers the POST below and goes on answering for 1.5 s after it (`bow_out`,
+    // scrapex/webui/app.py), and the poll asks after one -- so the first answer
+    // the poll gets is the leaving engine's. Taking it for its successor's said
+    // "The engine is back." about the engine that was leaving, and painted what
+    // that engine said. `build.sealed_at` is the moment a process started serving
+    // (scrapex/provenance.py), so the successor is the answer whose value differs.
+    // Read HERE and not from the probe above, because the database check between
+    // them can take minutes. `null` -- an engine too old to report it, or no
+    // answer -- leaves the poll to wait until it has seen the engine go dark.
+    let leaving = null;
+    try {
+      const asked = await raw("/api/health", {cache: "no-store"});
+      if (!asked.ok) throw new Error(`HTTP ${asked.status}`);
+      leaving = sealedAtOf(await asked.json());
+    } catch (error) {
+      // NOT SWALLOWED: the poll falls back to the weaker test, the dark, and the
+      // trace says why -- the same record `askWhichWarehouse` leaves.
+      markStartup("restart-identity-unknown",
+                  {message: (error && error.message) || "unknown"});
+    }
     // A thrown fetch is the SUCCESS path — the engine exits mid-answer and the
     // socket dies. An answered fetch that is not ok is the opposite, and the
     // first version of this treated both the same: it looked only for 404 and
@@ -10725,8 +10856,7 @@ function wireRuntimeRepair() {
       setRuntimeIssue(error);
       say("Restart was refused. The reason is shown above.",
           "Restart was refused. " + refused);
-      [restart, upgrade, $("runtime-check-action")].filter(Boolean)
-        .forEach((button) => { button.disabled = false; });
+      release();
       return;
     }
     // Poll until it answers again, then re-render so every version and status
@@ -10736,8 +10866,28 @@ function wireRuntimeRepair() {
     // 2 s here), so ticks overlap, and each one that finished after the last
     // ran the whole ending: up to three two-minute scans at once. One ends it.
     let settled = false;
+    // WHAT THE POLL HAS SEEN, for the two questions `leaving` cannot answer alone.
+    // `wentDark`: a probe was refused, so the port closed and the engine asked to
+    // leave has left -- the only proof there is when either side reports no
+    // `sealed_at`. A probe that ran out of time is NOT that: a busy engine is
+    // slow, not gone. `lastAnswer`: the latest answer read, for the two-minute
+    // ending -- `same` only when its `sealed_at` was the leaving engine's own, the
+    // one proof that the restart did not happen -- and when it came. A refused
+    // probe or a refusing answer ends it; a probe that ran out of time does not,
+    // and age does (`RESTART_ANSWER_STILL_FRESH_MS`).
+    let wentDark = false;
+    let lastAnswer = null;
+    // WHAT THE NOTE ADDS FOR WHAT THE POLL LAST FOUND. A slow probe or a refusing answer
+    // finds nothing new, and the sentence stands until the answer it names is too old.
+    // Written only when it changes, so a screen reader hears a change and not a tick.
+    let found = "";
+    let said = "";
+    // WHETHER AN ENGINE IS STILL ANSWERING, decided once for the note and the ending.
+    const stillAnswering = () => lastAnswer !== null
+      && Date.now() - lastAnswer.at <= RESTART_ANSWER_STILL_FRESH_MS;
     const timer = setInterval(async () => {
       attempts += 1;
+      let successor = false;
       try {
         // `/api/health`, NOT the engine-scoped one. That route is mounted only
         // when the engine was started with a registry; started against an
@@ -10748,32 +10898,118 @@ function wireRuntimeRepair() {
         // asks until it answers -- so the status must not throw. What it gains is
         // a deadline it never had, on the one screen where a person is waiting.
         const probe = await raw("/api/health", {cache: "no-store"});
-        if (settled) return;
         if (probe.ok) {
-          settled = true;
-          clearInterval(timer);
-          [restart, upgrade, $("runtime-check-action")].filter(Boolean)
-            .forEach((button) => { button.disabled = false; });
-          say("The engine is back.");
-          // A RESTART IS THE ONE THING THAT CAN CHANGE WHICH WAREHOUSE IS OPEN
-          // while this panel stays up, and `setStatus` never sees the engine go
-          // down here — the wait above polls `/api/health` directly. So the held
-          // path is dropped by hand, and the `render()` below asks the successor
-          // rather than repeating what its predecessor said.
+          const answered = sealedAtOf(await probe.json());
+          successor = leaving && answered ? answered !== leaving : wentDark;
+          lastAnswer = {same: leaving !== null && answered === leaving, at: Date.now()};
+          found = lastAnswer.same ? RESTART_OLD_ENGINE_ANSWERS : RESTART_AN_ENGINE_ANSWERS;
+        } else {
+          lastAnswer = null;
+        }
+      } catch (error) {
+        // A refused connection is the one failure fetch reports as a TypeError
+        // (the Fetch standard's "network error"); a deadline is a TimeoutError
+        // and a body that is not JSON is a SyntaxError, and neither is the dark.
+        if (error instanceof TypeError) {
+          wentDark = true;
+          lastAnswer = null;
+          found = RESTART_NO_ENGINE_ANSWERS;
+        } else if (isTimeoutError(error)) {
+          // TOO LONG WITHOUT AN ANSWER: the sentence that says one is arriving goes, and
+          // the note says only that the restart is under way. "Waiting for the new
+          // engine" names no answer, so it stands.
+          if (found !== RESTART_NO_ENGINE_ANSWERS && !stillAnswering()) found = "";
+        } else {
+          // NOT SWALLOWED: a body that is not JSON, or a request cancelled under
+          // the poll, is neither the dark nor a slow engine. The trace keeps it,
+          // as it keeps `restart-identity-unknown`.
+          markStartup("restart-probe-unread",
+                      {message: (error && error.message) || "unknown"});
+        }
+      }
+      if (settled) return;
+      if (found !== said) {
+        said = found;
+        say(found ? `${before} ${found}` : before);
+      }
+      if (successor) {
+        settled = true;
+        clearInterval(timer);
+        release();
+        say("The engine is back.");
+        // A RESTART IS THE ONE THING THAT CAN CHANGE WHICH WAREHOUSE IS OPEN
+        // while this panel stays up, and `setStatus` never sees the engine go
+        // down here — the wait above polls `/api/health` directly. So the held
+        // path is dropped by hand, and the `render()` below asks the successor
+        // rather than repeating what its predecessor said.
+        try {
           forgetWarehouse();
           await render();
-          return;
+          // AND THE ENGINE SCREEN IS DRAWN THE WAY ENTERING IT DRAWS IT. `render()`
+          // repaints the status and the versions and nothing else, so the Database
+          // line dropped just above stayed blank -- only `renderEngines` asks for
+          // it again -- and the release row went on judging the engine that left.
+          await renderEngines();
+        } catch (error) {
+          markStartup("restart-redraw-failed",
+                      {message: (error && error.message) || "unknown"});
         }
-      } catch (_) { /* still down, which is expected */ }
-      if (settled) return;
+        return;
+      }
       if (attempts >= RESTART_CONFIRM_ATTEMPTS) {
         settled = true;
         clearInterval(timer);
+        // AN ENGINE IS STILL ANSWERING, so no successor stopped during startup:
+        // the database check below explains that case, and here it would explain
+        // nothing -- by scanning the whole file, on a host older than #1793's
+        // identity-only check (extension/transport.js). "The same engine" is said only where
+        // `sealed_at` proves it. Without that -- either side reports none, and no
+        // refused probe was seen -- the answer may be a successor whose start the
+        // poll missed, so only what is known is said.
+        if (stillAnswering() && lastAnswer.same) {
+          const elsewhere = "Unable to restart the engine: the same engine is still "
+            + "answering after two minutes. Press Restart engine on the Engine page to "
+            + "try again.";
+          say(elsewhere,
+              "Unable to restart the engine: the same engine is still answering after "
+              + "two minutes. Press Restart engine to try again.",
+              elsewhere);
+          release();
+          return;
+        }
+        if (stillAnswering()) {
+          const elsewhere = "Unable to confirm the restart: no new engine was detected "
+            + "in two minutes. Press Restart engine on the Engine page to try again.";
+          say(elsewhere,
+              "Unable to confirm the restart: no new engine was detected in two "
+              + "minutes. Press Restart engine to try again.",
+              elsewhere);
+          release();
+          return;
+        }
         // The process may have failed before it could expose /api/health. Ask
         // the native host for the same current-build preflight so a schema
         // error, missing registry, or other startup blocker is not lost. It
         // scans the whole file, so it is said, and the buttons stay down, until
         // it answers.
+        //
+        // THE SCREEN SAYS SO TOO. Nothing redrew it since the press, so the
+        // banner went on reading "Running" from before it, over a note saying the
+        // engine has not answered -- and the release row went on offering an update
+        // to the engine that left. Both are drawn from what answers now, the way
+        // entering the screen draws them, as the successful ending does above.
+        // A redraw that fails is recorded, and must not keep back the buttons this
+        // ending gives back.
+        try {
+          await render();
+          await renderEngines();
+          if (currentViewName() === "database") await loadDatabase();
+        } catch (error) {
+          markStartup("restart-redraw-failed",
+                      {message: (error && error.message) || "unknown"});
+        }
+        // SAID AFTER THE REDRAW, which writes Run's line from the engine check --
+        // "Start it or check again", about a Start this restart still holds.
         say("The engine has not answered in two minutes. Checking the database…");
         try {
           await checkStartup();
