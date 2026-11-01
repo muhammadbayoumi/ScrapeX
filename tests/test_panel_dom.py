@@ -9008,7 +9008,7 @@ def test_each_state_of_the_wait_says_its_own_sentence(open_panel):
 
 def test_the_note_is_written_only_when_its_state_changes(open_panel):
     """It is `role="status"`, so a screen reader hears each write. The whole of a good
-    restart is five sentences, and neither a steady tick nor the found successor writes."""
+    restart is five sentences, and a steady tick writes nothing."""
     page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
     page.click("#tab-engines")
     open_engine(page)
@@ -9123,11 +9123,40 @@ def test_a_probe_that_finds_nothing_leaves_the_sentence(open_panel, how):
     assert not page.js_errors, page.js_errors
 
 
-def test_a_sentence_about_an_answer_goes_when_the_answers_stop(open_panel):
+@pytest.mark.parametrize("engine_build, sentence, refused_once", [
+    (ENGINE_BEFORE_RESTART, OLD_ENGINE_ANSWERS, False),
+    (False, AN_ENGINE_ANSWERS, False),
+    (ENGINE_BEFORE_RESTART, OLD_ENGINE_ANSWERS, True),
+], ids=["the-current-engine", "an-engine-it-cannot-tell", "after-one-refusing-answer"])
+def test_a_sentence_about_an_answer_goes_when_the_answers_stop(
+        open_panel, engine_build, sentence, refused_once):
     """The two-minute ending takes four deadlines without an answer for an engine that has
     stopped answering. The note decides the same way: past that it says only that the
-    restart is under way, and it does not stand until the ending says the opposite."""
-    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    restart is under way, and it does not stand until the ending says the opposite. One
+    refusing answer on the way does not take it out of that rule."""
+    page = open_panel(engine_build=engine_build, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    restart_the_way_the_engine_does(page, successor_build=None, bow_out_ms=10**9)
+    page.evaluate(PROBES_FIND_NOTHING)
+    page.clock.install()
+    page.click("#runtime-restart")
+    page.clock.run_for(5_000)
+    assert the_note_on_every_line(page) == {sentence}
+
+    if refused_once:
+        page.evaluate("() => { window.__findNothing = 'refuses'; }")
+        page.clock.run_for(1_000)
+    page.evaluate("() => { window.__findNothing = 'runs-out'; }")
+    page.clock.run_for(12_000)
+    assert the_note_on_every_line(page) == {RESTART_ASKED}
+    assert not page.js_errors, page.js_errors
+
+
+def test_the_opening_stands_alone_when_the_answers_stop_without_the_helper(open_panel):
+    """With no helper the note opens with how the restart is going. Once no answer is
+    arriving, that opening is all it says, and it does not fall back to the usual one."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="absent")
     page.click("#tab-engines")
     open_engine(page)
     restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART,
@@ -9136,11 +9165,10 @@ def test_a_sentence_about_an_answer_goes_when_the_answers_stop(open_panel):
     page.clock.install()
     page.click("#runtime-restart")
     page.clock.run_for(5_000)
-    assert the_note_on_every_line(page) == {OLD_ENGINE_ANSWERS}
-
     page.evaluate("() => { window.__findNothing = 'runs-out'; }")
     page.clock.run_for(12_000)
-    assert the_note_on_every_line(page) == {RESTART_ASKED}
+    assert text_of(page, "#engine-restart-note") == (
+        "Native helper unavailable — restarting through the engine.")
     assert not page.js_errors, page.js_errors
 
 
@@ -9588,7 +9616,8 @@ def test_start_and_upgrade_are_refused_through_the_whole_restart(open_panel):
     """A PROTECTION FROM #1810'S REVIEW, kept as one by his word on #1556: one flag for
     the restart's whole wait, the database check after its two minutes included,
     refusing Start and Upgrade database as the native upgrade's own flag does. Without
-    it a restart that upgrades lets a second upgrader or a second engine start beside its successor --
+    it a restart that upgrades lets a second upgrader or a second engine start beside
+    its successor --
     demonstrated with real processes on #1810 (issuecomment-6413387526).
 
     The restart holds what an upgrade holds: Run's Start and Check again, and the

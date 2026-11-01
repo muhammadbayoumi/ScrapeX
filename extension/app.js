@@ -10438,8 +10438,8 @@ const RESTART_NO_ENGINE_ANSWERS = "Waiting for the new engine to start.";
 const RESTART_AN_ENGINE_ANSWERS = "An engine is answering, but it is not confirmed as the new one.";
 const RESTART_SEE_THE_ENGINE_PAGE = "See the Engine page for the restart's progress.";
 
-// HOW RECENT AN ANSWER MUST BE FOR THE RESTART'S TWO-MINUTE ENDING TO SAY AN
-// ENGINE "IS STILL ANSWERING" (#1517). One probe running out of its deadline is a
+// HOW RECENT AN ANSWER MUST BE FOR THE RESTART'S NOTE AND ITS TWO-MINUTE ENDING TO SAY
+// AN ENGINE "IS STILL ANSWERING" (#1517). One probe running out of its deadline is a
 // busy engine -- his `/api/health` measured 1.92-2.21 s against `engineHealth`'s
 // 2.5 s before #1770 cut it to about 0.2 s (#1764), and an engine busy with other
 // work can be slow again -- and must not turn two minutes of answers into "has
@@ -10872,8 +10872,8 @@ function wireRuntimeRepair() {
     let wentDark = false;
     let lastAnswer = null;
     // WHAT THE NOTE ADDS FOR WHAT THE POLL LAST FOUND. A slow probe or a refusing answer
-    // finds nothing new, and the sentence stands. Written only when it changes, so a
-    // screen reader hears a change and not a tick.
+    // finds nothing new, and the sentence stands until the answer it names is too old.
+    // Written only when it changes, so a screen reader hears a change and not a tick.
     let found = "";
     let said = "";
     // WHETHER AN ENGINE IS STILL ANSWERING, decided once for the note and the ending.
@@ -10910,9 +10910,9 @@ function wireRuntimeRepair() {
           found = RESTART_NO_ENGINE_ANSWERS;
         } else if (isTimeoutError(error)) {
           // TOO LONG WITHOUT AN ANSWER: the sentence that says one is arriving goes, and
-          // the note says only that the restart is under way. After the dark there is no
-          // answer to age, and "Waiting for the new engine" stands.
-          if (lastAnswer !== null && !stillAnswering()) found = "";
+          // the note says only that the restart is under way. "Waiting for the new
+          // engine" names no answer, so it stands.
+          if (found !== RESTART_NO_ENGINE_ANSWERS && !stillAnswering()) found = "";
         } else {
           // NOT SWALLOWED: a body that is not JSON, or a request cancelled under
           // the poll, is neither the dark nor a slow engine. The trace keeps it,
