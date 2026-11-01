@@ -223,10 +223,11 @@ def test_filtering_by_category_returns_only_that_category(conn):
 
 # ---- one category for every kind of body: his ruling, 2026-10-31 --------------
 
-def test_the_tool_has_exactly_two_categories():
+def test_the_tool_has_exactly_three_categories():
     """«فئة تشمل اى نوع شركة او مؤسسة او منظمة او مقاولين او مكاتب»: one word, not a
-    new word beside `contractors`, so nothing can sit in either of two for one body."""
-    assert {one.value for one in SourceCategory} == {"products", "organizations"}
+    new word beside `contractors`, so nothing can sit in either of two for one body. And
+    tenders, his «نعم، أضفها», because a tender is not a company."""
+    assert {one.value for one in SourceCategory} == {"products", "organizations", "tenders"}
 
 
 def _entry(**extra) -> dict:
@@ -239,6 +240,12 @@ def test_a_manifest_entry_may_name_organizations():
     entry = SourceEntry.model_validate(_entry(category="organizations"))
 
     assert entry.category == SourceCategory.ORGANIZATIONS
+
+
+def test_a_manifest_entry_may_name_tenders():
+    entry = SourceEntry.model_validate(_entry(category="tenders"))
+
+    assert entry.category == SourceCategory.TENDERS
 
 
 def test_a_manifest_entry_naming_contractors_is_refused_at_load():
@@ -295,6 +302,22 @@ def test_the_sources_table_keeps_its_columns(monkeypatch, capsys, tmp_path):
     starts = {line.split()[0]: len(line) - len(line.split(maxsplit=1)[1])
               for line in lines if line.startswith("  ")}
     assert starts["products"] == starts["organizations"]
+
+
+def test_the_sources_command_takes_tenders():
+    assert cli.build_parser().parse_args(["sources", "--category", "tenders"]).category \
+        == "tenders"
+
+
+def test_a_tenders_row_keeps_the_table_s_columns():
+    """`tenders` is shorter than the column, so its row starts the key where the others do."""
+    def key_at(category):
+        row = sourceboard.Source(key="K", category=category, name="n", base_url="https://k.test",
+                                 collector="c", state="registered", registry="manifest")
+        return str(row).index(" K ") + 1
+
+    assert key_at(SourceCategory.TENDERS) == key_at(SourceCategory.ORGANIZATIONS) \
+        == key_at(SourceCategory.PRODUCTS)
 
 
 def test_the_sources_command_takes_the_new_word_and_refuses_the_old():
