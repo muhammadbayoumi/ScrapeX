@@ -398,8 +398,8 @@ class SourceCategory(StrEnum):
     «ونعمل category للمصادر لدينا الان 2 منتجات ومقاولين».
 
     `R-32`: the tool is collection first, and price tracking was the FIRST category
-    rather than the category. `jobs` and `tenders` are named as coming and are not
-    here yet -- an enum value with nothing behind it is a promise, not a vocabulary.
+    rather than the category. `jobs` is named as coming and is not here yet -- an enum
+    value with nothing behind it is a promise, not a vocabulary.
 
     PRODUCTS, NOT PRICES, AND THE DISTINCTION IS LOAD-BEARING. A price is an
     attribute of a product observed at a time. Naming this category "prices" would
@@ -409,10 +409,15 @@ class SourceCategory(StrEnum):
     2026-10-31: «فئة تشمل اى نوع شركة او مؤسسة او منظمة او مقاولين او مكاتب». A
     contractor is one kind of organization, and this word replaces that one rather than
     standing beside it. `dataset_key: contractors` is a dataset's name and is untouched.
+
+    TENDERS, ITS OWN CATEGORY, because a tender is not a company. His answer, 2026-11-01,
+    asked whether to add a third category for the five tender domains: «نعم، أضفها». Tender
+    sources register in `scrapex/tenders.py`.
     """
 
     PRODUCTS = "products"
     ORGANIZATIONS = "organizations"
+    TENDERS = "tenders"
 
 
 class ConnectorFamily(StrEnum):
