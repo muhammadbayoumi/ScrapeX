@@ -32,9 +32,10 @@ below are its shape, generalised.
   - in the request log, each request made against a `Disallow` line.
 
   Whether a collector obeys `robots.txt` is his choice for each source, in the panel
-  (`scrapex/robots.py:34`), and the study is what lets him make it knowingly. The terms
-  are a contract, not a technical request: a clause that forbids automated collection
-  goes to him as a finding of its own, because the risk of ignoring it is his.
+  (`scrapex/robots.py:34`), and the study is what lets him make it knowingly. A clause on
+  automated collection, redistribution or commercial use is a finding the study states
+  plainly, and it blocks nothing: approvals are handled by the team concerned, and the tool
+  is not used commercially (his word, 2026-11-01, #1655).
 - **Never authenticate, never pay, never bypass a block.** A field behind a login is
   recorded as existing and gated — that is a finding, and getting at it is his decision.
 - Every claim about the site cites the response that carries it. Every claim about ScrapeX
@@ -126,8 +127,8 @@ been found before, and a `no` is a finding as much as a `yes`.
 **Contacts are first-class: every phone, fax, email, website, address, map link and social
 account, with where it lives, its filled count and its shape, and a field the site lacks is
 named as absent.** Recommend keeping them (his ruling on #1913, #1916 and #1655, 2026-11-01).
-A named individual's value stays out of the issue, as a shape and a count. Whether a source's
-terms allow collecting them is a separate question, and it goes to him.
+A named individual's value stays out of the issue, as a shape and a count. What a source's terms say about them is
+recorded with the other clauses, and it blocks nothing.
 
 For each field found, one row:
 
