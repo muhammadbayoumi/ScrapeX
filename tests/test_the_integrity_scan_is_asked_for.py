@@ -717,6 +717,27 @@ def test_a_bundle_that_does_not_verify_is_refused_and_leaves_nothing(served):
     assert left == [], f"a staging tree was left behind on refusal: {left}"
 
 
+def test_a_bundle_with_an_entry_that_leaves_the_folder_is_refused_in_words(served):
+    """The entry names came across a network. The refusal reaches the panel as a body it
+    can read, nothing lands outside the staging tree, and the tree itself goes."""
+    import zipfile
+
+    client, path = served
+    hostile = path.parent / "scrapex-bundle-20260910-333333.zip"
+    outside = path.parent / "landed-outside.txt"
+    with zipfile.ZipFile(hostile, "w") as out:
+        out.writestr("manifest.json", "{}")
+        out.writestr(f"{os.pardir}/{outside.name}", "outside")
+
+    refused = client.post("/api/storage/adopt-bundle", json={"name": hostile.name})
+
+    assert refused.status_code == 400, refused.text
+    assert "escapes the bundle" in refused.json()["detail"], refused.json()
+    assert not outside.exists(), "an entry landed outside the staging tree"
+    assert [p.name for p in path.parent.glob("adopt-*")] == []
+    assert client.get("/api/storage").json()["backups"] == []
+
+
 # ---- what the review of #877 found, and the guards that hold it ------------
 #
 # Two must fix and seven should fix came back on this branch. The two that

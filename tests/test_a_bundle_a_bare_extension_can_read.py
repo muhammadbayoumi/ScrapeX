@@ -300,6 +300,28 @@ def test_an_archive_entry_that_escapes_the_folder_is_refused(tmp_path):
     assert not (tmp_path / "escaped.txt").exists(), "the file was written anyway"
 
 
+def test_every_entry_of_an_archive_asks_the_one_check(tmp_path, monkeypatch):
+    """The refusal above would pass under any check that refuses the same names, so this
+    pins that it is `name_inside`: the shared rule, and the shape code scanning can read."""
+    archive = tmp_path / "plain.zip"
+    with zipfile.ZipFile(archive, "w") as out:
+        out.writestr("manifest.json", "{}")
+        out.writestr("sub/data.json", "{}")
+    asked = []
+    real = bundle.name_inside
+
+    def spying(folder, name):
+        asked.append(name)
+        return real(folder, name)
+
+    monkeypatch.setattr(bundle, "name_inside", spying)
+
+    bundle.unpack(archive, tmp_path / "dest")
+
+    assert asked == ["manifest.json", "sub/data.json"]
+    assert (tmp_path / "dest" / "sub" / "data.json").is_file()
+
+
 def test_the_database_in_the_bundle_is_a_real_openable_warehouse(warehouse, tmp_path):
     """The .db is the artefact a machine restores FROM, so it has to be a
     database and not a copy of a half-written page. sqlite3's own backup API is
