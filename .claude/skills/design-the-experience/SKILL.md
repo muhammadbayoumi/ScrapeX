@@ -132,7 +132,13 @@ screen that will not exist.
   - each transitional status;
   - the limit or paging case;
   - a live tick: what he selected, typed, focused or opened survives the redraw;
-  - a short panel, 320 px high: the last element of the page can be scrolled to.
+  - a short panel, 320 px high: the last element of the page can be scrolled to;
+  - every optional block absent at once: no bar and no reason leaves what is on either
+    side of them touching;
+  - a scroll to the element, measured after the view's entry animation: the document
+    still equals the viewport. `.visually-hidden` is absolute, so a live region with
+    no positioned ancestor stretches the document and the scroll slides the whole
+    panel; during the animation a transformed view contains it, and nothing shows.
 - **Numbered markers** on the elements, and **one reference sheet**: marker · element ·
   reference · class. Each image shows the three widths side by side.
 - Send the images to him, and post the sheet on the study issue.

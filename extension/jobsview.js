@@ -140,6 +140,18 @@ export function jobLabel(job, sources = []) {
   return `${kind} · ${sourceTitle(lead, sources)}${more ? ` ${more}` : ""}`;
 }
 
+/** What a job that ended with no log says, on Activity and in the Jobs log: one job read
+ *  two ways on two screens until #1074's sixth review measured it. */
+export const NO_LOG_LINE = "This job wrote no log.";
+
+/** "Listing crawl · muqawil.org: failed" -- what a screen reader hears when a job's
+ *  status changes. ONE SENTENCE FOR ONE EVENT: the Jobs page says it for a row that
+ *  changed, and Activity for the job it drew ending (#1074), and neither view hears the
+ *  other while it is hidden, so both must say the same words. */
+export function statusChangeLine(job, sources = []) {
+  return `${jobLabel(job, sources)}: ${statusWords(job?.status)}`;
+}
+
 /**
  * What the job has done, in the unit it actually measures.
  *

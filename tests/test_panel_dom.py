@@ -3449,13 +3449,14 @@ def test_a_job_that_ends_within_a_poll_of_the_press_still_shows_how_it_ended(ope
     _press_update_as_a_poll_leaves(page)
     try:
         page.wait_for_function(
-            "() => document.getElementById('act-state').textContent.includes('failed')",
+            "() => document.getElementById('act-state').textContent.includes('Failed')",
             timeout=8_000)
     except PlaywrightTimeout:
         pass
     where = page.evaluate(_WHERE_ACTIVITY_IS)
 
-    assert where["shown"] and "failed" in where["said"], (
+    # THE JOBS PAGE'S WORD: an ended job reads as the Jobs row reads it (#1074).
+    assert where["shown"] and "Failed" in where["said"], (
         f"Activity does not say how a job that ended within a poll of the press ended "
         f"(mini-player shown: {page.is_visible('#miniplayer')}): {where}")
 
@@ -3480,7 +3481,7 @@ def test_a_job_that_ended_before_run_asked_still_shows_how_it_ended(open_panel, 
     assert where["shown"], (
         f"Run shows nothing for a job {action!r} started that already ended: {where}")
     assert where["inView"], f"the ended job was drawn off screen: {where}"
-    assert "failed" in where["said"], (
+    assert "Failed" in where["said"], (
         f"Activity does not say how the job ended: {where['said']!r}")
 
 
@@ -14438,3 +14439,453 @@ def test_the_schema_lag_banner_says_the_engines_fix_and_nothing_against_it(open_
     older.wait_for_selector("#schema-lag:not(.hidden)")
     assert "Fix: press Upgrade database on the Database page." in older.inner_text(
         "#schema-lag")
+
+
+# ---- Activity draws an ended job as it ended (#1074) -----------------------------------
+#
+# He reported it twice: a finished job stayed drawn as if it were running, under a moving
+# bar that said "so far". Five review rounds then each found something the last fix broke,
+# and every test below is one of those, so each states the failure it guards.
+
+_ACTIVITY_REF = "job_38ae55034628"
+_A_503 = ("Server error '503 Service Unavailable' for url 'https://pt-api.tvtc.gov.sa/api/v1/"
+          "public-inquiries/licensed-establishments/plans?locale=en&limit=1000&page=1'")
+_ACTIVITY_SOURCES = [
+    {"kind": "directory", "source_key": "tvtc_training_plans",
+     "base_url": "https://pt-api.tvtc.gov.sa", "source_name": "TVTC licensed training plans",
+     "family": "generic", "active": False, "implemented": True, "observations": 0,
+     "products": 0},
+    {"kind": "directory", "source_key": "oman_tenderboard",
+     "base_url": "https://etendering.tenderboard.gov.om",
+     "source_name": "Oman Tender Board / ESNAD registered vendors", "family": "generic",
+     "active": True, "implemented": True, "observations": 23240, "products": 23240},
+    {"source_key": "MADAR", "base_url": "https://www.madar.com", "source_name": "Madar",
+     "source_name_ar": "المدار", "family": "magento-graphql",
+     "active": True, "implemented": True, "observations": 3483, "products": 1200},
+    {"source_key": "ELSEWEDYSHOP", "base_url": "https://elsewedyshop.com",
+     "source_name": "Elsewedy Shop", "family": "shopify-json", "active": True,
+     "implemented": True, "observations": 900, "products": 300},
+]
+
+
+def _a_fetch(requests, expected=None, basis=None, as_of=None):
+    return {"requests": requests, "expected": expected, "basis": basis, "as_of": as_of,
+            "unknown_sources": [] if expected else ["tvtc_training_plans"], "sources": {}}
+
+
+def _a_live_job(**over):
+    return _running_job(**{
+        "job_ref": _ACTIVITY_REF, "job_kind": "directory_crawl",
+        "source_keys": ["tvtc_training_plans"], "current_source_key": "tvtc_training_plans",
+        "created_at": "2026-10-25T07:54:09Z", "started_at": "2026-10-25T07:54:10Z",
+        "finished_at": None, "error_summary": None, "fetch": _a_fetch(2), **over})
+
+
+def _its_end(status, **over):
+    return _a_live_job(**{"status": status, "stage": None, "current_source_key": None,
+                          "finished_at": "2026-10-25T07:54:21Z", "fetch": _a_fetch(3), **over})
+
+
+def _open_with_a_live_job(open_panel, logs=(), width=None, height=None):
+    """The job is live first: `pollJobOnce` draws an ended job only for a ref it was following.
+
+    THE ZONE IS PINNED, because his machine is Asia/Riyadh and CI is UTC."""
+    page = open_panel(jobs=[_a_live_job()], logs=list(logs), sources=_ACTIVITY_SOURCES,
+                      view="run", ready="idle")
+    if width:
+        page.set_viewport_size({"width": width, "height": height})
+    page.evaluate("() => window.ScrapeXTime.set('Asia/Riyadh')")
+    page.wait_for_function(
+        "() => !document.getElementById('activity').classList.contains('hidden')")
+    return page
+
+
+def _end_the_job(page, ended):
+    page.evaluate("""(ended) => {
+        ROUTES["/api/jobs"] = {jobs: []};
+        ROUTES["/api/jobs/" + ended.job_ref] = ended;
+        document.dispatchEvent(new Event("visibilitychange"));
+    }""", ended)
+    page.wait_for_function(
+        "() => !document.getElementById('act-when').classList.contains('hidden')",
+        timeout=8_000)
+    # The log is read after the job, in the same task: its caption is the last thing drawn.
+    page.wait_for_function(
+        "() => document.getElementById('log-caption').textContent.startsWith('Log')",
+        timeout=8_000)
+
+
+def _start_a_new_job(page):
+    live = _a_live_job(job_ref="job_second000001", job_kind="crawl", source_keys=["MADAR"],
+                       current_source_key="MADAR", fetch=_a_fetch(10, 50, "declared"))
+    page.evaluate("""(job) => {
+        ROUTES["/api/jobs"] = {jobs: [job]};
+        ROUTES["/api/jobs/" + job.job_ref] = job;
+        document.dispatchEvent(new Event("visibilitychange"));
+    }""", live)
+    page.wait_for_function(
+        "() => document.getElementById('act-state').textContent.includes('running')",
+        timeout=8_000)
+
+
+def _read(page, selector):
+    """The words as he reads them. ICU writes U+202F before AM on some builds and U+00A0
+    is the status line's own separator, so neither decides a test."""
+    return re.sub(r"[\s  ]+", " ", page.inner_text(selector)).strip()
+
+
+def _hidden(page, selector):
+    return page.evaluate("(s) => document.querySelector(s).classList.contains('hidden')",
+                         selector)
+
+
+def _bar_moves(page):
+    return page.evaluate(
+        "() => document.getElementById('act-bar').classList.contains('indeterminate')")
+
+
+@pytest.mark.parametrize("ended,state,when,label", [
+    # The job he reported: a 503 on the first page, no total, so no bar at all.
+    (_its_end("failed", error_summary=_A_503),
+     "Failed · Listing crawl", "Started 25 Oct, 10:54 AM → 10:54 AM", None),
+    # #1074's interpretation: 8 s read "elapsed 429h 37m" over "starting…".
+    (_its_end("completed", job_kind="dataset_interpret", source_keys=["oman_tenderboard"],
+              progress={"done": 472, "total": 472, "unit": "page pair(s)"},
+              fetch={"requests": 0, "expected": None, "basis": None, "as_of": None,
+                     "unknown_sources": [], "sources": {}}, counters={}),
+     "Completed · Interpretation", "Started 25 Oct, 10:54 AM → 10:54 AM",
+     "472 of 472 page pair(s)"),
+    # A KNOWN TOTAL KEEPS ITS WORDS: the first version of this fix dropped the basis and
+    # the date, which Run says nowhere else, from a bar that was already still.
+    (_its_end("failed", error_summary=_A_503,
+              fetch=_a_fetch(33, 91, "estimate", "2026-10-19")),
+     "Failed · Listing crawl", "Started 25 Oct, 10:54 AM → 10:54 AM",
+     "33 of ~91 requests (36%) · estimate from the last crawl (19 Oct)"),
+    # It read "elapsed 10m 30s · ~2s left".
+    (_its_end("cancelled", finished_at="2026-10-25T08:09:40Z",
+              fetch=_a_fetch(40, 91, "declared")),
+     "Cancelled · Listing crawl", "Started 25 Oct, 10:54 AM → cancelled 11:09 AM",
+     "40 of 91 requests (44%) · the site's own page count"),
+    # Never started, so it reads from when it was added.
+    (_its_end("cancelled", started_at=None, finished_at="2026-10-25T07:55:02Z",
+              fetch=_a_fetch(0, 91, "estimate", "2026-10-19")),
+     "Cancelled · Listing crawl", "Added 25 Oct, 10:54 AM → cancelled 10:55 AM",
+     "0 of ~91 requests (0%) · estimate from the last crawl (19 Oct)"),
+    (_its_end("completed", started_at="2026-10-24T20:50:00Z",
+              finished_at="2026-10-25T01:10:00Z", fetch=_a_fetch(91, 91, "declared")),
+     "Completed · Listing crawl", "Started 24 Oct, 11:50 PM → 25 Oct, 4:10 AM",
+     "91 of 91 requests (100%) · the site's own page count"),
+], ids=["failed-no-total", "interpretation", "failed-with-an-estimate", "cancelled",
+        "cancelled-before-it-started", "finished-another-day"])
+def test_an_ended_job_is_drawn_as_it_ended(open_panel, ended, state, when, label):
+    """Nothing on the card may describe a job that is still running."""
+    page = _open_with_a_live_job(open_panel)
+    _end_the_job(page, ended)
+
+    assert _read(page, "#act-state") == state
+    assert _read(page, "#act-when") == when
+    assert _read(page, "#act-elapsed") == "", "elapsed and an estimate count from now"
+    assert not _bar_moves(page), "a bar that moves says work is still happening"
+    if label is None:
+        assert _hidden(page, ".act-progress"), "no total: no bar, as on the Jobs row"
+    else:
+        assert not _hidden(page, ".act-progress")
+        assert _read(page, "#act-progress-label") == label
+
+
+def test_an_ended_job_says_why_it_ended(open_panel):
+    page = _open_with_a_live_job(open_panel)
+    _end_the_job(page, _its_end("failed", error_summary=_A_503))
+    assert not _hidden(page, "#act-error")
+    assert _read(page, "#act-error") == re.sub(r"\s+", " ", _A_503)
+    assert "err" in page.get_attribute("#act-error", "class").split()
+
+
+def test_a_job_that_ended_cleanly_shows_no_reason_line(open_panel):
+    page = _open_with_a_live_job(open_panel)
+    _end_the_job(page, _its_end("completed", fetch=_a_fetch(91, 91, "declared")))
+    assert _hidden(page, "#act-error")
+
+
+def test_the_ended_card_names_its_job_as_the_jobs_row_does(open_panel):
+    """HIS CHOICE D, HIS RULING OF 2026-10-25: under the shared rule Oman's domain lost ".om"
+    at 320 px, with nothing to reveal it. So the break comes after each dot, as on Jobs and
+    Schedules, and the whole domain stays on the card."""
+    page = _open_with_a_live_job(open_panel, width=320, height=800)
+    _end_the_job(page, _its_end("completed", source_keys=["oman_tenderboard"],
+                                fetch=_a_fetch(91, 91, "declared")))
+    domain = page.locator("#act-source .source-identity-domain")
+    assert _read(page, "#act-source .source-identity-domain") == \
+        "etendering.tenderboard.gov.om"
+    assert domain.locator("wbr").count() == 3
+    # THE WRAP RULE ITSELF, because the layout cannot see the cut: `scrollWidth` reads 0 on an
+    # inline element, and a Range stops at the ellipsis, so checks on either passed with the
+    # rule gone. The `<wbr>`s above do nothing under the shared rule's `nowrap`.
+    for part in ("domain", "key"):
+        assert page.evaluate("""(part) => getComputedStyle(document.querySelector(
+            `#act-source .source-identity-${part}`)).whiteSpace""", part) == "normal", (
+            f"the {part} is cut at 320 px under the shared nowrap")
+    assert _read(page, "#act-source .source-identity-key") == "oman_tenderboard"
+
+
+def test_an_ended_job_of_several_sources_names_the_first_and_counts_the_rest(open_panel):
+    page = _open_with_a_live_job(open_panel)
+    _end_the_job(page, _its_end("partially_completed", job_kind="crawl",
+                                source_keys=["MADAR", "ELSEWEDYSHOP"]))
+    said = _read(page, "#act-source")
+    assert _read(page, "#act-source .source-identity-domain") == "madar.com"
+    assert "and 1 other" in said
+    assert "MADAR, ELSEWEDYSHOP" in said, "the job's own keys, as #1624 keeps them"
+    # The Arabic name carries its own direction: beside "and 1 other" under the card's
+    # first attempt, plaintext bidi split the English around it.
+    assert page.get_attribute("#act-source .source-identity-name", "dir") == "auto"
+
+
+def test_the_end_is_said_once_in_the_jobs_pages_words(open_panel):
+    """#jobs-announce is in a view that is hidden while Run is shown, so the end of a job was
+    drawn here and spoken nowhere (WCAG 2.2 SC 4.1.3). And it does not carry over: the node
+    is visually hidden, not `display: none`, so a screen reader still reaches stale words."""
+    page = _open_with_a_live_job(open_panel)
+    page.evaluate("""() => {
+        window.__said = [];
+        new MutationObserver(() => {
+          const text = document.getElementById("act-announce").textContent;
+          if (text) window.__said.push(text);
+        }).observe(document.getElementById("act-announce"), {childList: true});
+    }""")
+    _end_the_job(page, _its_end("failed", error_summary=_A_503))
+    page.wait_for_function("() => window.__said.length > 0")
+    assert page.evaluate("() => window.__said") == [
+        "Listing crawl · pt-api.tvtc.gov.sa: failed"]
+
+    # A change of zone rewrites the time and says nothing.
+    page.evaluate("() => window.ScrapeXTime.set('America/New_York')")
+    page.wait_for_function(
+        "() => document.getElementById('act-when').textContent.includes('3:54')")
+    page.wait_for_timeout(100)
+    assert len(page.evaluate("() => window.__said")) == 1, "the end was announced twice"
+
+    _start_a_new_job(page)
+    assert page.text_content("#act-announce") == "", "the last job's end, on a live card"
+
+
+def test_a_job_with_no_log_says_yet_only_while_lines_can_still_come(open_panel):
+    """`set_control` settles a cancel it is not holding with no log line, so such a job ends
+    with no log at all. "yet" would promise lines it will never write, and the box keeps its
+    DOM when the entries match, so the words have to be redrawn on purpose."""
+    page = _open_with_a_live_job(open_panel, logs=[])
+    page.wait_for_function(
+        "() => document.getElementById('logbox').textContent.includes('No log entries yet.')")
+    assert _read(page, "#log-caption") == "Live log"
+
+    _end_the_job(page, _its_end("cancelled", started_at=None))
+    # THE JOBS LOG'S OWN SENTENCE: one job read two ways on two screens.
+    assert _read(page, "#logbox") == "This job wrote no log."
+    assert _read(page, "#log-caption") == "Log"
+
+
+def test_a_job_ending_with_the_same_log_keeps_the_line_he_selected(open_panel):
+    """Only an empty log carries live-or-ended in its signature. A version that carried it
+    always redrew an identical log at the end, and his selection went with it; `main` kept
+    it. A paused job cancelled is the case: `set_control` adds no line."""
+    entries = [{"level": "info", "message": "crawl starting"},
+               {"level": "info", "message": "SELECT-ME line two of the log"}]
+    page = _open_with_a_live_job(open_panel, logs=entries)
+    page.wait_for_function(
+        "() => document.getElementById('logbox').textContent.includes('SELECT-ME')")
+    page.evaluate("""() => {
+        const line = [...document.querySelectorAll("#logbox .logline .content")]
+          .find((el) => el.textContent.includes("SELECT-ME"));
+        window.__line = line;
+        const range = document.createRange();
+        range.selectNodeContents(line);
+        const selection = getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+    }""")
+    _end_the_job(page, _its_end("cancelled"))
+    assert page.evaluate("() => window.__line.isConnected"), "the log was redrawn"
+    assert page.evaluate("() => getSelection().toString()") == "SELECT-ME line two of the log"
+
+
+def test_the_ended_card_follows_a_change_of_zone(open_panel):
+    """The card is drawn once at the end and no poll touches it again, so "10:54 AM" stayed
+    on screen after the zone moved, or after `pullRemote` adopted another device's zone."""
+    page = _open_with_a_live_job(open_panel)
+    _end_the_job(page, _its_end("failed", error_summary=_A_503))
+    assert _read(page, "#act-when") == "Started 25 Oct, 10:54 AM → 10:54 AM"
+    # ONLY THE TIME IS REWRITTEN: a redraw of the whole card took away whatever he had
+    # selected on it, and re-sent the progress label to its live region.
+    page.evaluate("""() => {
+        window.__kept = ["act-error", "act-progress-label", "act-state", "act-source",
+                         "act-counters"].map((id) => document.getElementById(id).firstChild);
+    }""")
+
+    page.evaluate("() => window.ScrapeXTime.set('America/New_York')")
+    page.wait_for_function(
+        "() => document.getElementById('act-when').textContent.includes('3:54')")
+    assert _read(page, "#act-when") == "Started 25 Oct, 3:54 AM → 3:54 AM"
+    assert page.evaluate("() => window.__kept.every((node) => !node || node.isConnected)"), (
+        "more than the time was rewritten")
+
+
+def test_a_new_job_resets_the_whole_ended_card(open_panel):
+    page = _open_with_a_live_job(open_panel, logs=[{"level": "info", "message": "a line"}])
+    _end_the_job(page, _its_end("failed", error_summary=_A_503))
+    _start_a_new_job(page)
+
+    for gone in ("#act-source", "#act-when", "#act-error"):
+        assert _hidden(page, gone), f"{gone} outlived the job it described"
+    assert not _hidden(page, ".act-progress")
+    assert _read(page, "#act-progress-label").startswith("10 of 50 requests")
+    assert _read(page, "#act-elapsed").startswith("elapsed")
+    page.wait_for_function(
+        "() => document.getElementById('log-caption').textContent.startsWith('Live log')")
+
+    # And a zone change now leaves it live: nothing redraws the job that ended.
+    page.evaluate("() => window.ScrapeXTime.set('America/New_York')")
+    page.wait_for_timeout(100)
+    assert "running" in _read(page, "#act-state")
+    assert _hidden(page, "#act-when")
+
+
+def test_a_running_job_is_drawn_as_it_always_was(open_panel):
+    """THE LIVE PATH DOES NOT CHANGE. The other tests here are about a job that ended; this
+    one holds the words of one that has not."""
+    page = _open_with_a_live_job(open_panel, logs=[{"level": "info", "message": "a line"}])
+    page.wait_for_function(
+        "() => document.getElementById('log-caption').textContent.startsWith('Live log')")
+    assert _read(page, "#act-state") == "running · fetching tvtc_training_plans"
+    assert _read(page, "#act-elapsed").startswith("elapsed")
+    assert _bar_moves(page)
+    assert _read(page, "#act-progress-label").startswith("2 requests so far")
+    for gone in ("#act-source", "#act-when", "#act-error"):
+        assert _hidden(page, gone)
+    assert page.text_content("#act-announce") == ""
+
+
+_NO_SLIDE = """(block) => {
+    document.getElementById("activity").scrollIntoView({block});
+    return {document: document.documentElement.scrollHeight,
+            viewport: document.documentElement.clientHeight,
+            scrolled: window.scrollY,
+            rail: Math.round(document.querySelector("nav.side-rail").getBoundingClientRect().top)};
+}"""
+
+
+@pytest.mark.parametrize("width,height", [(320, 320), (400, 600)])
+@pytest.mark.parametrize("ended", [False, True], ids=["live", "ended"])
+def test_a_scroll_to_activity_does_not_slide_the_panel(open_panel, width, height, ended):
+    """THE CARD CONTAINS ITS OWN ANNOUNCER. `.visually-hidden` is absolute, and with no
+    positioned ancestor #act-announce sat at its in-flow spot outside the view's scroller and
+    stretched the document. followStartedJob's and the mini-player's scrolls then slid the
+    whole panel up, rail and header with it, where no wheel could bring them back: rail top
+    -97, document 1112 against a 320 viewport, on a LIVE job as well."""
+    page = _open_with_a_live_job(open_panel, width=width, height=height)
+    if ended:
+        _end_the_job(page, _its_end("failed", error_summary=_A_503))
+    # AFTER THE ENTRY ANIMATION, OR THIS PASSES WITH THE RULE GONE. `showView` animates with
+    # a transform, and a transformed view is a containing block: until it settles it holds
+    # the announcer itself, and the document reads 320 where it reads 1014 a moment later.
+    settle_view(page, "run")
+    for block in ("start", "center"):
+        at = page.evaluate(_NO_SLIDE, block)
+        assert at["document"] == at["viewport"], f"{block}: the document is stretched: {at}"
+        assert at["scrolled"] == 0 and at["rail"] == 0, f"{block}: the panel slid: {at}"
+
+
+@pytest.mark.parametrize("ended,width,label", [
+    # An interpretation cancelled part-way: its own count, not requests.
+    (_its_end("cancelled", job_kind="dataset_interpret", counters={},
+              progress={"done": 300, "total": 909, "unit": "page pair(s)"},
+              fetch={"requests": 0, "expected": None, "basis": None, "as_of": None,
+                     "unknown_sources": [], "sources": {}}),
+     "33%", "300 of 909 page pair(s)"),
+    (_its_end("cancelled", fetch=_a_fetch(40, 91, "declared")),
+     "44%", "40 of 91 requests (44%) · the site's own page count"),
+], ids=["its-own-count", "requests"])
+def test_an_ended_bar_stops_at_how_far_the_job_got(open_panel, ended, width, label):
+    """472 of 472 cannot tell a full bar from a correct one, so these stopped part-way."""
+    page = _open_with_a_live_job(open_panel)
+    _end_the_job(page, ended)
+    assert page.evaluate("() => document.getElementById('act-bar').style.width") == width
+    assert _read(page, "#act-progress-label") == label
+
+
+def test_the_ended_card_keeps_the_jobs_rows_classes_and_a_live_announcer(open_panel):
+    """Each of these is the whole of a decision, and nothing else would notice it going:
+    the status message role (WCAG 2.2 SC 4.1.3), the two lines of his choice B, and the
+    Jobs row's size for its status line."""
+    page = _open_with_a_live_job(open_panel)
+    _end_the_job(page, _its_end("failed", error_summary=_A_503))
+    assert page.get_attribute("#act-announce", "role") == "status"
+    assert page.get_attribute("#act-announce", "aria-live") == "polite"
+    assert "visually-hidden" in page.get_attribute("#act-announce", "class").split()
+    assert "job-clamp" in page.get_attribute("#act-error", "class").split()
+    assert "text-xs" in page.get_attribute("#act-state .job-line", "class").split()
+
+
+_GAPS = """() => {
+    const bottom = (id) => document.getElementById(id).getBoundingClientRect().bottom;
+    const next = ["act-progress", "act-error", "act-counters"]
+      .map((id) => id === "act-progress" ? document.querySelector(".act-progress")
+                                         : document.getElementById(id))
+      .find((el) => !el.classList.contains("hidden"));
+    const margin = (id) => getComputedStyle(document.getElementById(id)).marginTop;
+    const reason = document.getElementById("act-error");
+    const counters = document.getElementById("act-counters").getBoundingClientRect().top;
+    return {underTime: Math.round(next.getBoundingClientRect().top - bottom("act-when")),
+            underReason: reason.classList.contains("hidden") ? null
+              : Math.round(counters - bottom("act-error")),
+            source: margin("act-source"), when: margin("act-when")};
+}"""
+
+
+@pytest.mark.parametrize("ended", [
+    _its_end("cancelled"),
+    _its_end("completed", fetch=_a_fetch(91, 91, "declared")),
+    _its_end("failed", error_summary=_A_503),
+    _its_end("failed", error_summary=_A_503, fetch=_a_fetch(33, 91, "declared")),
+], ids=["no-total-no-reason", "a-bar", "a-reason", "a-bar-and-a-reason"])
+def test_the_ended_card_is_spaced_in_every_state(open_panel, ended):
+    """With no total and no reason, the common end of a source's first crawl, the time line
+    touched the counters: 0 px, against 8 px with a bar or a reason."""
+    page = _open_with_a_live_job(open_panel)
+    _end_the_job(page, ended)
+    settle_view(page, "run")
+    at = page.evaluate(_GAPS)
+    assert at["underTime"] == 8, f"under the time line: {at}"
+    assert at["underReason"] in (None, 8), f"under the reason: {at}"
+    assert at["source"] == at["when"] == "4px", f"the Jobs row's row-gap: {at}"
+
+
+def test_an_ended_job_is_named_even_when_the_sources_come_late(open_panel):
+    """The card is drawn once and never again. Opened on Data, with /api/sources 800 ms slower
+    than the job, it named the job `muqawil_org` for good and said so aloud, where the Jobs
+    row says `muqawil.org`."""
+    page = open_panel(jobs=[], view="data", route_delays={"/api/sources": 800})
+    page.wait_for_selector('.dataset-card[data-open="contractors"]', timeout=5_000)
+    page.evaluate(_QUEUES_WHAT_IS_POSTED, [None, 0])
+    page.evaluate("(job) => { ROUTES['/api/jobs/job_stub'] = job; }",
+                  _card_job("directory_crawl", status="failed", stage=None))
+    _press_on_the_card(page, "update")
+    page.wait_for_function(
+        "() => !document.getElementById('act-source').classList.contains('hidden')",
+        timeout=8_000)
+    assert _read(page, "#act-source .source-identity-domain") == "muqawil.org"
+    page.wait_for_function("() => document.getElementById('act-announce').textContent")
+    assert page.text_content("#act-announce") == "Listing crawl · muqawil.org: failed"
+
+
+def test_a_failed_read_hides_the_card_and_a_change_of_zone_leaves_it_hidden(open_panel):
+    page = _open_with_a_live_job(open_panel)
+    _end_the_job(page, _its_end("failed", error_summary=_A_503))
+    page.evaluate("""() => {
+        delete ROUTES["/api/jobs"];
+        document.dispatchEvent(new Event("visibilitychange"));
+    }""")
+    page.wait_for_function("() => document.getElementById('activity').classList.contains('hidden')",
+                           timeout=8_000)
+    page.evaluate("() => window.ScrapeXTime.set('America/New_York')")
+    page.wait_for_timeout(100)
+    assert _hidden(page, "#activity"), "a change of zone brought the card back"

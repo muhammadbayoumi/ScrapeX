@@ -14,9 +14,10 @@ import { PROTOCOL_VERSION } from "./transport.js";
 import { ENGINE_CANDIDATES, latestEngineRelease } from "./releases.js";
 import {
   jobsCountLine, jobsNoun, domainOf, filterOptions, isSettled, jobLabel, jobLead, jobMatches,
+  NO_LOG_LINE, statusChangeLine,
   jobWaitingLine, liveJob, menuControls, noResultsLine, observeRate, othersLine,
   primaryControl, progressFraction, progressLine, recentRate, refusalLine, sourceOf,
-  sourceMatches, sourceTitle, statusLook, statusWords, summaryClass, timeLine,
+  sourceMatches, sourceTitle, statusLook, summaryClass, timeLine,
 } from "./jobsview.js";
 import { getToken, accountFor, authorize, forgetToken, revokeToken } from "./identity.js";
 import {
@@ -1584,7 +1585,8 @@ function sourceIdentity(source, compact = false, metricValue = null, metricLabel
     ? `<span class="source-identity-name" dir="auto">${esc(source.source_name_ar)}</span>` : "";
   return `<span class="source-identity${compact ? " source-identity-compact" : ""}">
     <strong class="source-identity-domain" dir="${domain ? "ltr" : "auto"}">${
-      // WRAP (Jobs only, his choice D): a break after each dot, never inside a label.
+      // WRAP (his choice D: Jobs, Schedules and Activity): a break after each dot,
+      // never inside a label.
       wrap ? (domain || name).split(".").map(esc).join(".<wbr>") : esc(domain || name)}</strong>
     ${domain || arabic ? `<span class="source-identity-names"><span class="source-identity-name-en" dir="ltr">${esc(name)}</span>${
       arabic ? '<span class="source-identity-separator" aria-hidden="true">·</span>' : ""
@@ -5650,10 +5652,31 @@ function fmtAsOf(iso) {
 //                    estimate) its date
 //   unknown total -> an indeterminate bar and "total not known yet", because a
 //                    first-ever crawl genuinely cannot say
+//   ended job, no request total -> the Jobs row's rule: a still bar at the job's
+//                    own count where it has a total (an interpretation's page pairs),
+//                    and no bar at all where it has none
 function renderProgress(job) {
   const f = job.fetch || {};
   const bar = $("act-bar");
   const label = $("act-progress-label");
+  const block = bar.closest(".act-progress");
+  if (isSettled(job) && !f.expected) {
+    // AN ENDED JOB HAS NO "SO FAR" (#1074). The unknown-total arm below is about a job
+    // that is still asking, and it animated for as long as the card stayed: a crawl
+    // that failed on its first 503 read "3 requests so far · total not known yet" under
+    // a moving bar, measured 2026-10-25, and an 8 s interpretation read "starting…".
+    // The known-total arm is left to an ended job too: its bar is already still, and
+    // its basis and date ("estimate from the last crawl (18 Oct)") are said nowhere
+    // else on Run. Studio moves only a running run's glyph
+    // (PreviousRunsTab.tsx@86c813ec:222-246).
+    const fraction = progressFraction(job);
+    block.classList.toggle("hidden", fraction === null);
+    bar.classList.remove("indeterminate");
+    bar.style.width = fraction === null ? "0%" : `${Math.round(fraction * 100)}%`;
+    label.textContent = fraction === null ? "" : progressLine(job);
+    return;
+  }
+  block.classList.remove("hidden");
   if (f.expected) {
     const pct = Math.min(100, Math.round((f.requests / f.expected) * 100));
     bar.classList.remove("indeterminate");
@@ -5704,20 +5727,67 @@ function finishEstimate(job) {
   return `~${about}${fmtDuration(remaining)} left`;
 }
 
+/** The ended job Activity is drawing, or null. Its card is drawn once, at the end, and no
+ *  later poll touches it, so a change of zone rewrites its times from this (#1074). */
+let activityEnded = null;
+
+function drawActivityWhen(job) {
+  $("act-when").textContent = timeLine(job, (v, m) => window.ScrapeXTime.format(v, m));
+}
+
 function renderActivity(job) {
   const box = $("activity");
   if (!job) { box.classList.add("hidden"); return; }
   box.classList.remove("hidden");
-  // BEFORE THE ESTIMATE READS IT. `finishEstimate` divides by the window this fills,
-  // so a draw that skipped it would offer no estimate at all.
-  observeRate(job);
-  const elapsed = fmtElapsed(job.started_at);
-  const left = finishEstimate(job);
-  $("act-elapsed").textContent = [elapsed && `elapsed ${elapsed}`, left]
-    .filter(Boolean).join(" · ");
-  $("act-state").innerHTML =
-    `<span>${esc(job.status.replace(/_/g, " "))}${job.stage ? " · " + esc(job.stage) : ""}</span>` +
-    `<span class="content">${esc(job.current_source_key || "—")}</span>`;
+  const ended = isSettled(job);
+  activityEnded = ended ? job : null;
+  const source = $("act-source");
+  const when = $("act-when");
+  source.classList.toggle("hidden", !ended);
+  when.classList.toggle("hidden", !ended);
+  if (ended) {
+    // AN ENDED JOB IS DRAWN AS IT ENDED, the way the Jobs row draws it (#1074): its
+    // status with a still glyph and its kind, the sources it ran over, then when it
+    // started and ended. "elapsed" counted from now, a finish estimate and the "—" of a
+    // current source belong to a job still running: an interpretation that took 8 s
+    // read "elapsed 429h 37m".
+    $("act-elapsed").textContent = "";
+    const line = document.createElement("div");
+    line.className = "job-line text-xs";
+    line.append(...jobStatusNodes(job));
+    $("act-state").replaceChildren(line);
+    // WHICH JOB ENDED: the panel's one source identity, as the Jobs row names it, on its
+    // own line -- beside the status, a long domain ran into "Completed with errors" at
+    // every width. WRAPPED, his choice D as on Jobs and Schedules (his word, 2026-10-25,
+    // on #1074): under the shared rule `etendering.tenderboard.gov.om` lost ".om" at 320 px.
+    fillJobIdentity(source, job, state.sources);
+    drawActivityWhen(job);
+    // SAID ONCE, IN THE JOBS PAGE'S WORDS. Its own announcer sits in a view that is hidden
+    // while Run is shown, so the end of a job was drawn here and spoken nowhere (WCAG 2.2
+    // SC 4.1.3). Once because this draws once: `pollJobOnce` clears the ref right after.
+    announceIn($("act-announce"), statusChangeLine(job, state.sources));
+  } else {
+    // A NEW LIVE JOB DOES NOT CARRY THE LAST ONE'S END: the announcer is visually hidden,
+    // not `display: none`, so a screen reader would still read "…: failed" in this card.
+    const spoken = $("act-announce");
+    if (spoken.textContent) spoken.textContent = "";
+    // BEFORE THE ESTIMATE READS IT. `finishEstimate` divides by the window this fills,
+    // so a draw that skipped it would offer no estimate at all.
+    observeRate(job);
+    const elapsed = fmtElapsed(job.started_at);
+    const left = finishEstimate(job);
+    $("act-elapsed").textContent = [elapsed && `elapsed ${elapsed}`, left]
+      .filter(Boolean).join(" · ");
+    $("act-state").innerHTML =
+      `<span>${esc(job.status.replace(/_/g, " "))}${job.stage ? " · " + esc(job.stage) : ""}</span>` +
+      `<span class="content">${esc(job.current_source_key || "—")}</span>`;
+  }
+  // WHY IT ENDED, which only the Jobs row said: Activity read `failed` over counters
+  // of 0 and no reason. The Jobs row's rule, so a skip's reason stays muted (#1596).
+  const reason = $("act-error");
+  reason.textContent = job.error_summary || "";
+  reason.className =
+    `${summaryClass(job.status)} job-clamp text-xs${job.error_summary ? "" : " hidden"}`;
   renderProgress(job);
   renderQueue(job);
   $("act-counters").innerHTML = activityCounters(job).map(([k, v, title]) =>
@@ -5802,15 +5872,31 @@ function logSignatureOf(entries) {
   return entries.map((e) => `${e.level}\u0000${e.message}`).join("\u0001");
 }
 
-function renderLogs(entries, meta) {
+function renderLogs(entries, meta, live = true) {
   const box = $("logbox");
+  // Say what is shown out of what exists — the caption that used to read
+  // "Last 200 log entries" is now the truth, whatever the count. Written BEFORE the
+  // unchanged-log return below: a job set_control settles (a cancel it was not holding)
+  // ends with no new line, and returning first left it captioned "Live log" (#1074).
+  const total = meta && meta.total != null ? meta.total : entries.length;
+  const name = live ? "Live log" : "Log";
+  const caption = $("log-caption");
+  const said = total
+    ? `${name} · ${fmtCount(total)} entr${total === 1 ? "y" : "ies"}, all shown`
+    : name;
+  // Written only when it changed, as `jobsText` does: this runs every 1.5 s tick.
+  if (caption.textContent !== said) caption.textContent = said;
   // Rewriting innerHTML destroys the selection inside it, and this runs on a
   // 1.5s poll — so an owner trying to copy an error message out of the log had
   // the highlight taken away from them every 1.5 seconds, whether or not a
   // single line had changed. A crawl is mostly quiet: the entries are usually
   // identical to the ones already on screen, and the cheapest correct fix is to
   // notice that and leave the DOM alone.
-  const signature = logSignatureOf(entries);
+  // AN EMPTY LOG SAYS WHETHER LINES CAN STILL COME: "yet" only while the job is live.
+  // A job cancelled before it started ends with no log at all, and kept "No log entries
+  // yet." (#1074). Only the EMPTY box carries liveness: a non-empty one looks the same
+  // live or ended, and redrawing it at the end would take away a line he had selected.
+  const signature = entries.length ? logSignatureOf(entries) : (live ? "live" : "ended");
   // childElementCount guards the other direction: a view switch can empty this
   // box, and a signature that still matched would then leave it empty forever.
   if (signature === state.logSignature && box.childElementCount) return;
@@ -5824,14 +5910,10 @@ function renderLogs(entries, meta) {
   box.innerHTML = entries.map((e) =>
     `<div class="logline"><span class="lvl muted">${esc(e.level)}</span>` +
     `<span class="content">${esc(e.message)}</span></div>`).join("") ||
-    `<span class="muted">No log entries yet.</span>`;
+    // "YET" ONLY WHILE IT CAN STILL COME: a job cancelled before it started ends with no
+    // log at all (set_control settles it without one), and will never write a line.
+    `<span class="muted">${live ? "No log entries yet." : NO_LOG_LINE}</span>`;
   if (wasAtBottom) box.scrollTop = box.scrollHeight;
-  // Say what is shown out of what exists — the caption that used to read
-  // "Last 200 log entries" is now the truth, whatever the count.
-  const total = meta && meta.total != null ? meta.total : entries.length;
-  $("log-caption").textContent = total
-    ? `Live log · ${fmtCount(total)} entr${total === 1 ? "y" : "ies"}, all shown`
-    : "Live log";
 }
 
 // The mini-player's own progress figure, drawn from the SAME fetch progress the
@@ -6015,10 +6097,13 @@ async function pollJobOnce() {
     // stay in it. This is the one path where drawing the outgoing job is durable, which
     // is why the handoff above refreshes the cards and draws nothing.
     try {
+      // THE NAME FIRST, as the live branch above reads it: this card is drawn once and
+      // never again, so a slow /api/sources left it naming the job by its key for good.
+      await sourcesForJobNames();
       const done = await api(`/api/jobs/${state.jobRef}`);
       renderActivity(done);
       const log = await api(`/api/jobs/${state.jobRef}/logs`);
-      renderLogs(log.entries, log);
+      renderLogs(log.entries, log, !isSettled(done));
     } catch (_) {}
     state.jobRef = null;
     await redrawWhatTheJobChanged();
@@ -7811,7 +7896,14 @@ let jobsReadOrder = 0;     // one counter for both reads: later-issued wins, per
 let jobsReadSeq = 0;       // the latest history read issued; only it may draw
 
 function jobsAnnounce(text) {
-  const node = $("jobs-announce");
+  announceIn($("jobs-announce"), text);
+}
+
+/** Speak `text` through a polite status node. Jobs and Activity each own one, in their
+ *  own view, and a hidden view speaks nowhere: on Data, Sources, Schedules, Settings or
+ *  Engine a job's end is not announced at all (one announcer outside the views is
+ *  #1074's question). */
+function announceIn(node, text) {
   node.textContent = "";
   // A fresh text node each time, so the same sentence twice is still spoken twice.
   setTimeout(() => { node.textContent = text; }, 30);
@@ -7845,7 +7937,7 @@ function jobsTake(jobs, seq, { history = false } = {}) {
     }
   }
   for (const job of changed) {
-    jobsAnnounce(`${jobLabel(job, state.sources)}: ${statusWords(job.status)}`);
+    jobsAnnounce(statusChangeLine(job, state.sources));
   }
 }
 
@@ -8125,6 +8217,47 @@ function jobsSetNarrowing({ term = jobsPage.term, statuses = jobsPage.statuses }
 
 // ---- one row ---------------------------------------------------------------------
 
+/** Which sources a job ran over, as the panel names a job: the panel's one source
+ *  identity (sourceIdentity, components.css:814-931) for the source it leads with, its own
+ *  keys in the footer, and "and N others" above it. The Jobs row and Activity's ended job
+ *  both draw it (#1074), wrapped by his choice D, which Jobs, Schedules and Activity take. */
+function fillJobIdentity(box, job, sources) {
+  const lead = jobLead(job);
+  const source = sourceOf(lead, sources);
+  // A key Sources does not list stands as its own name.
+  box.innerHTML = sourceIdentity(source || { source_key: lead }, false, null, "Row",
+    { wrap: true });
+  // THE JOB'S OWN KEYS, for every job (#1624): the footer would name the matched Sources
+  // entry, a dataset key where `sourceOf` matched a `site_key`.
+  box.querySelector(".source-identity-key").textContent = (job.source_keys || []).join(", ");
+  const more = othersLine(job);
+  if (more) {
+    const others = document.createElement("span");
+    others.className = "job-more text-xs muted";
+    others.textContent = more;
+    box.querySelector(".source-identity-footer").before(others);
+  }
+}
+
+/** A job's status as the Jobs row draws it: the engine's word with its glyph and tone,
+ *  then its kind. Activity draws an ended job from the same nodes (#1074), so one job
+ *  never reads two ways on two screens. */
+function jobStatusNodes(job) {
+  const look = statusLook(job.status);
+  const status = document.createElement("span");
+  status.className = `job-status job-tone-${look.tone}`;
+  status.append(jobsSvg(look.glyph), document.createTextNode(look.word));
+  const sep = document.createElement("span");
+  sep.className = "muted";
+  sep.textContent = " ·";
+  const lead = document.createElement("span");
+  lead.append(status, sep);
+  const kind = document.createElement("span");
+  kind.className = "muted";
+  kind.textContent = jobLabel({ job_kind: job.job_kind });
+  return [lead, kind];
+}
+
 function jobsSvg(id) {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.setAttribute("class", "sx-icon sm");
@@ -8208,50 +8341,25 @@ function jobsText(node, text) {
 function fillJobRow(row, job, { down = false } = {}) {
   const ref = job.job_ref;
   const sources = state.sources;
-  // IDENTITY: the panel's one source identity (sourceIdentity, components.css:779-860).
+  // IDENTITY: the panel's one source identity (sourceIdentity, components.css:814-931).
   // Several sources name the one it leads with and count the rest.
   const identity = jobsPart(row, "identity");
   const lead = jobLead(job);
   const source = sourceOf(lead, sources);
-  const more = othersLine(job);
   const drawnAs = JSON.stringify([lead, job.source_keys || [], source?.base_url,
     source?.source_name, source?.source_name_ar]);
   if (identity.dataset.drawn !== drawnAs) {
     identity.dataset.drawn = drawnAs;
-    // THE PANEL'S ONE SOURCE IDENTITY, the same builder every page uses; a key Sources
-    // does not list stands as its own name. Several sources: the lead, and the count.
-    identity.innerHTML = sourceIdentity(source || { source_key: lead }, false, null, "Row",
-      { wrap: true });
-    // THE JOB'S OWN KEYS, as his choice D drew them, for every job (#1624): the footer
-    // would name the matched Sources entry, a dataset key where `sourceOf` matched a
-    // `site_key`. Several sources also count the others above the footer.
-    identity.querySelector(".source-identity-key").textContent =
-      (job.source_keys || []).join(", ");
-    if (more) {
-      const others = document.createElement("span");
-      others.className = "job-more text-xs muted";
-      others.textContent = more;
-      identity.querySelector(".source-identity-footer").before(others);
-    }
+    // WRAPPED (his choice D, as Schedules is): the domain and the keys tell one row from
+    // another.
+    fillJobIdentity(identity, job, sources);
   }
 
   // STATUS: the engine's word, its glyph and tone; then the kind.
-  const look = statusLook(job.status);
   const line = jobsPart(row, "statusline");
   if (line.dataset.drawn !== `${job.status} ${job.job_kind}`) {
     line.dataset.drawn = `${job.status} ${job.job_kind}`;
-    const status = document.createElement("span");
-    status.className = `job-status job-tone-${look.tone}`;
-    status.append(jobsSvg(look.glyph), document.createTextNode(look.word));
-    const sep = document.createElement("span");
-    sep.className = "muted";
-    sep.textContent = " ·";
-    const lead2 = document.createElement("span");
-    lead2.append(status, sep);
-    const kind = document.createElement("span");
-    kind.className = "muted";
-    kind.textContent = jobLabel({ job_kind: job.job_kind });
-    line.replaceChildren(lead2, kind);
+    line.replaceChildren(...jobStatusNodes(job));
   }
 
   // THE ONE ACTION, AND ITS STATE IN FLIGHT: aria-disabled, so focus stays on it.
@@ -8485,7 +8593,7 @@ async function openJobLog(ref) {
       ? entries.map((entry) => [window.ScrapeXTime.format(entry.logged_at, "short"),
         entry.level || "", entry.source_key || "", entry.message || ""]
         .filter(Boolean).join("  ")).join("\n")
-      : "This job wrote no log.");
+      : NO_LOG_LINE);
   } catch (error) {
     if (!jobsPage.openLogs.has(ref)) return;
     jobsPage.logs.set(ref, `The log could not be read: ${error.message}`);
@@ -11727,6 +11835,9 @@ function wireDeferredControls() {
   window.ScrapeXTime.subscribe(() => {
     if (timeZoneControlReady) timeZoneEffect();
     if (state.financeStatus) renderGoogleFinanceStatus(state.financeStatus);
+    // An ended job's start and end, in the new zone. Only those: a redraw of the whole card
+    // would take away whatever he had selected on it, for one line's sake.
+    if (activityEnded) drawActivityWhen(activityEnded);
   });
 
   refreshMode();
