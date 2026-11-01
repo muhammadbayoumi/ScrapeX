@@ -222,6 +222,11 @@ Then the source moves in the registry, not in prose: a manifest row at
 collector yet" (`scrapex/vocab.py:444`, `scrapex/sourceboard.py:56`), and validation
 refuses to make it active before it is probed (`scrapex/config.py:552`).
 
+**Once the issue is filed, open that domain's build task straight away, one task per domain,**
+so finished studies do not pile up: «جلسة دراسة المصادر عندما تنتهى من دراسة مصدر تفتح مباشرة
+task لبنائه حتى لاا تتتراكم علينا». A task is a card until he starts it. Its prompt stands alone:
+the issue, his answers so far, and the questions still open, which that session asks him first.
+
 ## Done means
 
 - [ ] Every request is logged, and the total is at or under the ceiling you named.
@@ -236,3 +241,4 @@ refuses to make it active before it is probed (`scrapex/config.py:552`).
 - [ ] Nothing was authenticated, bought, or bypassed.
 - [ ] No connector, no `sources.yaml` edit, no crawl, no `active: true` in this change.
 - [ ] The issue exists and the questions for him are at the end of it, with options.
+- [ ] The domain's build task is open.
