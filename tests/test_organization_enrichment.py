@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import shutil
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
@@ -1079,6 +1080,269 @@ def test_update_retries_provider_failures_from_the_latest_attempt(conn, monkeypa
     assert retry["organizations"] == retry["source_organizations"] == 4
     assert retry["unchanged_skipped"] == 0
     assert retry["baseline_job_ref"] == failed["job_ref"]
+
+
+class _SiteProvider:
+    """The website provider's shape: it declares a TTL, and says who it was asked about."""
+
+    name = "website"
+    ttl_seconds = 7 * 24 * 60 * 60
+
+    def __init__(self, *, failing: bool = False):
+        self.failing = failing
+        self.asked: list[str] = []
+
+    def run(self, identity):
+        self.asked.append(identity.external_id)
+        if self.failing:
+            return ProviderResult(self.name, error="website candidate does not resolve")
+        url = f"https://{identity.external_id}.example"
+        return ProviderResult(self.name, (FieldFact(
+            "website_url", url, self.name, source_url=url, confidence=0.96,
+            verification_status="verified",
+        ),))
+
+
+def _age_observations(conn, *, days: float, status: str | None = None) -> None:
+    """Put the website observations `days` in the past, as `observed_at` records them."""
+    stamp = datetime.fromtimestamp(
+        datetime.now(UTC).timestamp() - days * 86400, UTC
+    ).strftime("%Y-%m-%dT%H:%M:%SZ")
+    conn.execute(
+        "UPDATE organization_provider_observation SET observed_at=? "
+        "WHERE provider='website' AND observation_status=coalesce(?, observation_status)",
+        (stamp, status),
+    )
+    conn.commit()
+
+
+def _change_source_row(conn, definition_id: int, **fields) -> str:
+    """Change one source row as a crawl does, its fields and its hash; return its id."""
+    row = conn.execute(
+        "SELECT generic_record_id, data_json FROM generic_record "
+        "WHERE dataset_definition_id=(SELECT source_dataset_id FROM "
+        "organization_enrichment_definition WHERE enrichment_definition_id=?) "
+        "ORDER BY generic_record_id LIMIT 1",
+        (definition_id,),
+    ).fetchone()
+    data = {**json.loads(row["data_json"]), **fields}
+    conn.execute(
+        "UPDATE generic_record SET data_json=?, content_hash=? WHERE generic_record_id=?",
+        (json.dumps(data), f"changed-{sorted(fields.items())}", row["generic_record_id"]),
+    )
+    conn.commit()
+    return str(data["contractor_id"])
+
+
+def _website_status(conn, job: dict, external_id: str) -> str:
+    return conn.execute(
+        "SELECT observation.observation_status "
+        "FROM organization_provider_observation AS observation "
+        "JOIN organization_source_record AS link "
+        "ON link.organization_id=observation.organization_id "
+        "WHERE observation.job_id=? AND observation.provider='website' "
+        "AND link.source_external_id=?",
+        (job["job_id"], external_id),
+    ).fetchone()[0]
+
+
+def test_an_update_does_not_ask_again_when_only_a_field_no_provider_reads_changed(
+    conn, monkeypatch
+):
+    """Any field moved `source_content_hash`, so a changed customer rating re-fetched a
+    company's website: 872 such rows on his warehouse, 256 of them with anything a provider
+    reads changed. Aged past the TTL, because inside it the old code held back too."""
+    definition_id = enrichment.create_definition(
+        conn, _request(conn))["enrichment_definition_id"]
+    _run(conn, definition_id, monkeypatch, _SiteProvider())
+    _age_observations(conn, days=30)
+    changed = _change_source_row(conn, definition_id, membership_level="Changed")
+
+    provider = _SiteProvider()
+    job = _run(conn, definition_id, monkeypatch, provider,
+               run_mode=EnrichmentRunMode.UPDATE)
+
+    assert job["progress_total"] == 1, "the changed row must still reach the output"
+    assert provider.asked == []
+    assert _website_status(conn, job, changed) == "cached"
+
+
+def test_an_update_asks_again_when_a_field_a_provider_reads_changed(conn, monkeypatch):
+    """The other side of the test above, so it cannot pass by never asking."""
+    definition_id = enrichment.create_definition(
+        conn, _request(conn))["enrichment_definition_id"]
+    _run(conn, definition_id, monkeypatch, _SiteProvider())
+    changed = _change_source_row(conn, definition_id, company_name="A new name")
+
+    provider = _SiteProvider()
+    _run(conn, definition_id, monkeypatch, provider, run_mode=EnrichmentRunMode.UPDATE)
+
+    assert provider.asked == [changed]
+
+
+@pytest.mark.parametrize(("days", "waiting"), [(89, True), (91, False)])
+def test_a_failed_site_waits_out_its_time_and_is_asked_after_it(
+    conn, monkeypatch, days, waiting
+):
+    """Re-asked within days, 33 of 2,708 recovered and 0 of 745 that did not resolve did,
+    while a site whose robots.txt said no was asked again on every run."""
+    definition_id = enrichment.create_definition(
+        conn, _request(conn))["enrichment_definition_id"]
+    _run(conn, definition_id, monkeypatch, _SiteProvider(failing=True))
+    _age_observations(conn, days=days)
+
+    monkeypatch.setattr(enrichment, "build_providers", lambda names: [_SiteProvider()])
+    queued = enrichment.create_enrichment_job(
+        conn, definition_id, run_mode=EnrichmentRunMode.UPDATE)
+
+    assert queued["organizations"] == (0 if waiting else 4)
+    assert queued["unchanged_skipped"] == (4 if waiting else 0)
+
+
+def test_a_waiting_site_whose_row_changed_gets_no_request_and_its_clock_does_not_restart(
+    conn, monkeypatch
+):
+    """A changed row brings it back into the run, and the wait still holds it. Recording
+    that must not restart the wait, or a row that keeps changing is never asked again."""
+    definition_id = enrichment.create_definition(
+        conn, _request(conn))["enrichment_definition_id"]
+    _run(conn, definition_id, monkeypatch, _SiteProvider(failing=True))
+    _age_observations(conn, days=10)
+    changed = _change_source_row(conn, definition_id, membership_level="Changed")
+
+    provider = _SiteProvider()
+    job = _run(conn, definition_id, monkeypatch, provider,
+               run_mode=EnrichmentRunMode.UPDATE)
+
+    assert provider.asked == []
+    assert job["status"] == "completed", "a site waiting its turn is not a run's error"
+    assert job["counters"]["provider_waits"] == 1
+    assert _website_status(conn, job, changed) == "skipped"
+    output = conn.execute(
+        "SELECT json_extract(data_json, '$.freshness_status') FROM generic_record "
+        "WHERE json_extract(data_json, '$.source_external_id')=?",
+        (changed,),
+    ).fetchone()[0]
+    assert output == "provider_error", "the row says current over a site that failed"
+
+    still = _SiteProvider()
+    _run(conn, definition_id, monkeypatch, still, run_mode=EnrichmentRunMode.UPDATE)
+    assert still.asked == [], "the next run asked a site that is still waiting"
+
+    _age_observations(conn, days=91, status="failed")
+    due = _SiteProvider()
+    _run(conn, definition_id, monkeypatch, due, run_mode=EnrichmentRunMode.UPDATE)
+    assert changed in due.asked, "recording the wait restarted its clock"
+
+
+def test_the_wait_and_cache_counts_are_companies_even_when_a_record_is_retried(
+    conn, monkeypatch
+):
+    """`counters` survives the rollback of a failed attempt, so a count written during the
+    attempt counted the same company twice. `provider_errors` is held local for this."""
+    definition_id = enrichment.create_definition(
+        conn, _request(conn))["enrichment_definition_id"]
+    _run(conn, definition_id, monkeypatch, _SiteProvider(failing=True))
+    _age_observations(conn, days=10)
+    _change_source_row(conn, definition_id, membership_level="Changed")
+    real = enrichment._write_output
+    failures = {"left": 1}
+
+    def fails_once(*args, **kwargs):
+        if failures["left"]:
+            failures["left"] -= 1
+            raise RuntimeError("disk full")
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(enrichment, "_write_output", fails_once)
+
+    waiting = _run(conn, definition_id, monkeypatch, _SiteProvider(),
+                   run_mode=EnrichmentRunMode.UPDATE)
+
+    assert waiting["counters"]["record_attempt_errors"] == 1
+    assert waiting["counters"]["provider_waits"] == 1
+
+    # And the answers on file, through the same two lines of the loop.
+    monkeypatch.setattr(enrichment, "_write_output", real)
+    _run(conn, definition_id, monkeypatch, _SiteProvider())
+    _age_observations(conn, days=30)
+    _change_source_row(conn, definition_id, membership_level="Changed again")
+    failures["left"] = 1
+    monkeypatch.setattr(enrichment, "_write_output", fails_once)
+
+    cached = _run(conn, definition_id, monkeypatch, _SiteProvider(),
+                  run_mode=EnrichmentRunMode.UPDATE)
+
+    assert cached["counters"]["record_attempt_errors"] == 1
+    assert cached["counters"]["provider_cache_hits"] == 1
+
+
+def test_a_failed_site_is_asked_at_once_when_what_it_is_asked_changed(conn, monkeypatch):
+    """A corrected email or website is a different question, so no wait applies to it."""
+    definition_id = enrichment.create_definition(
+        conn, _request(conn))["enrichment_definition_id"]
+    _run(conn, definition_id, monkeypatch, _SiteProvider(failing=True))
+    _age_observations(conn, days=10)
+    changed = _change_source_row(conn, definition_id, company_name="A new name")
+
+    provider = _SiteProvider()
+    _run(conn, definition_id, monkeypatch, provider, run_mode=EnrichmentRunMode.UPDATE)
+
+    assert provider.asked == [changed]
+
+
+def test_a_site_that_failed_after_answering_waits_and_keeps_what_it_gave(
+    conn, monkeypatch
+):
+    """Its last attempt is what counts, not an older answer. Facts are preserved."""
+    definition_id = enrichment.create_definition(
+        conn, _request(conn))["enrichment_definition_id"]
+    _run(conn, definition_id, monkeypatch, _SiteProvider())
+    _age_observations(conn, days=30)
+    _run(conn, definition_id, monkeypatch, _SiteProvider(failing=True))
+    changed = _change_source_row(conn, definition_id, membership_level="Changed")
+
+    provider = _SiteProvider()
+    job = _run(conn, definition_id, monkeypatch, provider,
+               run_mode=EnrichmentRunMode.UPDATE)
+
+    assert provider.asked == []
+    assert _website_status(conn, job, changed) == "skipped"
+    assert conn.execute(
+        "SELECT count(*) FROM organization_fact AS fact "
+        "JOIN organization_source_record AS link "
+        "ON link.organization_id=fact.organization_id "
+        "WHERE link.source_external_id=? AND fact.field_key='website_url' "
+        "AND fact.provider='website' AND fact.valid_to IS NULL",
+        (changed,),
+    ).fetchone()[0] == 1
+
+
+def test_a_complete_pass_still_asks_a_site_that_is_waiting(conn, monkeypatch):
+    """The button that says "Recheck every active organization" is how he overrides it."""
+    definition_id = enrichment.create_definition(
+        conn, _request(conn))["enrichment_definition_id"]
+    _run(conn, definition_id, monkeypatch, _SiteProvider(failing=True))
+    _age_observations(conn, days=10)
+
+    provider = _SiteProvider()
+    _run(conn, definition_id, monkeypatch, provider)
+
+    assert len(provider.asked) == 4
+
+
+def test_an_open_circuit_or_a_system_error_is_not_a_site_failure(conn, monkeypatch):
+    """Both say the provider failed, not the site. Three system errors open the circuit
+    and the fourth company is recorded `failed` with no question asked, so holding either
+    for 90 days would punish every company for one bad quarter hour."""
+    definition_id = enrichment.create_definition(
+        conn, _request(conn))["enrichment_definition_id"]
+    _run(conn, definition_id, monkeypatch, _SystemFailureProvider())
+
+    provider = _SiteProvider()
+    _run(conn, definition_id, monkeypatch, provider, run_mode=EnrichmentRunMode.UPDATE)
+
+    assert len(provider.asked) == 4
 
 
 def test_duplicate_detail_join_keys_are_refused_instead_of_last_row_winning(conn):

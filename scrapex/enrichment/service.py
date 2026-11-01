@@ -62,6 +62,13 @@ _RECORD_RETRY_LIMIT = 3
 # every later edit, status change and start of that definition.
 _SETTLED = tuple(sorted(status.value for status in TERMINAL_JOB_STATUSES))
 _SETTLED_MARKS = ",".join("?" for _ in _SETTLED)
+# HOW LONG A SITE THAT COULD NOT BE READ WAITS BEFORE AN UPDATE ASKS IT AGAIN (#1890). His
+# warehouse, 2026-10-31: re-asked one to five days later, 33 of 2,708 recovered, and 0 of 745
+# that did not resolve. A Complete pass does not wait, so he can always overrule it.
+_FAILED_SITE_WAIT_SECONDS = 90 * 24 * 60 * 60
+# Recorded `failed` for a company the provider was never asked about: the provider failed,
+# not the site, so it does not wait.
+_CIRCUIT_OPEN = "provider circuit is open"
 
 
 _ROLE_CANDIDATES = {
@@ -85,6 +92,13 @@ _ROLE_CANDIDATES = {
 
 def _canonical(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _stamp_ago(seconds: int) -> str:
+    """That long ago, in the form `observed_at` stores and compares."""
+    return datetime.fromtimestamp(
+        datetime.now(UTC).timestamp() - seconds, UTC
+    ).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _digest(value: Any) -> str:
@@ -932,7 +946,10 @@ def _keep_incremental_run_items(
     definition_json: str,
     provider_versions_json: str,
 ) -> int:
-    """Drop inputs unchanged since their latest compatible finished attempt."""
+    """Drop inputs unchanged since their latest compatible finished attempt.
+
+    A site that failed stays out until it has waited, so a run does not ask it again.
+    """
     conn.execute(
         "CREATE TEMP TABLE IF NOT EXISTS enrichment_incremental_latest ("
         "source_external_id TEXT PRIMARY KEY, job_id INTEGER NOT NULL) WITHOUT ROWID"
@@ -973,9 +990,12 @@ def _keep_incremental_run_items(
             "WHERE link.enrichment_definition_id=? "
             "AND link.generic_record_id=previous.generic_record_id "
             "AND observation.observation_status IN "
-            "('failed','system_error','skipped')"
+            "('failed','system_error','skipped') "
+            "AND (observation.observation_status<>'failed' "
+            "OR observation.error=? OR observation.observed_at<?)"
             "))",
-            (job_id, definition_id),
+            (job_id, definition_id, _CIRCUIT_OPEN,
+             _stamp_ago(_FAILED_SITE_WAIT_SECONDS)),
         )
     finally:
         conn.execute("DROP TABLE IF EXISTS enrichment_incremental_latest")
@@ -1430,27 +1450,53 @@ def _provider_input_hash(identity: OrganizationIdentity, provider: str) -> str:
     })
 
 
-def _fresh_provider_observation(
+def _answer_on_file(
     conn: sqlite3.Connection,
     organization_id: str,
     provider: str,
     provider_version: str,
     input_hash: str,
     ttl_seconds: int,
-) -> bool:
+    *,
+    update: bool,
+) -> str | None:
+    """The status to record instead of asking this provider, or None to ask it.
+
+    A COMPLETE PASS RECHECKS, so only an answer younger than the provider's TTL stands.
+
+    AN UPDATE ASKS ONLY WHAT CHANGED (his option A, #1891), so the same input is never asked
+    again at any age, and a site whose last attempt failed waits. `skipped` is left out of
+    the query on purpose: recording the wait must not restart it.
+    """
     if ttl_seconds <= 0:
-        return False
-    cutoff = datetime.fromtimestamp(
-        datetime.now(UTC).timestamp() - ttl_seconds, UTC
-    ).strftime("%Y-%m-%dT%H:%M:%SZ")
-    return conn.execute(
-        "SELECT 1 FROM organization_provider_observation "
+        return None
+    key = (organization_id, provider, provider_version, input_hash)
+    if not update:
+        return "cached" if conn.execute(
+            "SELECT 1 FROM organization_provider_observation "
+            "WHERE organization_id = ? AND provider = ? AND provider_version = ? "
+            "AND input_hash = ? "
+            "AND observation_status IN ('completed','not_found','cached') "
+            "AND observed_at >= ? ORDER BY observation_id DESC LIMIT 1",
+            (*key, _stamp_ago(ttl_seconds)),
+        ).fetchone() is not None else None
+    latest = conn.execute(
+        "SELECT observation_status, observed_at, error "
+        "FROM organization_provider_observation "
         "WHERE organization_id = ? AND provider = ? AND provider_version = ? "
         "AND input_hash = ? "
-        "AND observation_status IN ('completed','not_found','cached') "
-        "AND observed_at >= ? ORDER BY observation_id DESC LIMIT 1",
-        (organization_id, provider, provider_version, input_hash, cutoff),
-    ).fetchone() is not None
+        "AND observation_status IN ('completed','not_found','cached','failed') "
+        "ORDER BY observation_id DESC LIMIT 1",
+        key,
+    ).fetchone()
+    if latest is None:
+        return None
+    if latest["observation_status"] != "failed":
+        return "cached"
+    if latest["error"] == _CIRCUIT_OPEN \
+            or latest["observed_at"] < _stamp_ago(_FAILED_SITE_WAIT_SECONDS):
+        return None
+    return "skipped"
 
 
 def _record_provider_observation(
@@ -1657,7 +1703,8 @@ def _materialized_data(
         if row["observation_status"] in ("completed", "not_found", "cached")
     } or {str(row["provider"]) for row in rows
           if row["provider"] in ("website", "google_places", "linkedin")})
-    if any(row["observation_status"] in ("failed", "system_error")
+    # `skipped` is a site still waiting after a failure, so it is no fresher than one.
+    if any(row["observation_status"] in ("failed", "system_error", "skipped")
            for row in observations):
         data["freshness_status"] = "provider_error"
     else:
@@ -2011,6 +2058,8 @@ def run_enrichment_job_once(conn: sqlite3.Connection, job_ref: str,
                             conn, identity.organization_id, source_provider, fields_seen
                         )
 
+                    provider_cache_hits = 0
+                    provider_waits = 0
                     provider_errors = 0
                     for provider in providers:
                         provider_name = str(provider.name)
@@ -2024,23 +2073,26 @@ def run_enrichment_job_once(conn: sqlite3.Connection, job_ref: str,
                                 organization_id=identity.organization_id,
                                 provider=provider_name, provider_version=provider_version,
                                 input_hash=input_hash, status="failed",
-                                error="provider circuit is open",
+                                error=_CIRCUIT_OPEN,
                             )
                             continue
                         ttl = int(getattr(provider, "ttl_seconds", 0) or 0)
-                        if _fresh_provider_observation(
+                        on_file = _answer_on_file(
                             conn, identity.organization_id, provider_name,
-                            provider_version, input_hash, ttl
-                        ):
+                            provider_version, input_hash, ttl,
+                            update=job["run_mode"] == RunMode.UPDATE.value,
+                        )
+                        if on_file is not None:
                             _record_provider_observation(
                                 conn, job_id=int(job["job_id"]),
                                 organization_id=identity.organization_id,
                                 provider=provider_name, provider_version=provider_version,
-                                input_hash=input_hash, status="cached",
+                                input_hash=input_hash, status=on_file,
                             )
-                            counters["provider_cache_hits"] = int(
-                                counters.get("provider_cache_hits", 0)
-                            ) + 1
+                            if on_file == "cached":
+                                provider_cache_hits += 1
+                            else:
+                                provider_waits += 1
                             continue
                         # Do not hold SQLite's writer lock while an external
                         # provider is in flight. The source facts and any prior
@@ -2127,6 +2179,12 @@ def run_enrichment_job_once(conn: sqlite3.Connection, job_ref: str,
                     counters["rows_changed"] = int(
                         counters.get("rows_changed", 0)
                     ) + int(row_changed)
+                    counters["provider_cache_hits"] = int(
+                        counters.get("provider_cache_hits", 0)
+                    ) + provider_cache_hits
+                    counters["provider_waits"] = int(
+                        counters.get("provider_waits", 0)
+                    ) + provider_waits
                     counters["provider_errors"] = int(
                         counters.get("provider_errors", 0)
                     ) + provider_errors
