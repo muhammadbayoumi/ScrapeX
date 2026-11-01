@@ -272,6 +272,12 @@ def _fetch_with_client(
                     return FetchedPage(current, html, response.status_code)
                 finally:
                     response.close()
+            except httpx.HTTPStatusError as exc:
+                # A 4xx is the site's answer, and its other addresses are the same server.
+                # A 5xx can be one edge's, so that one still tries the next address.
+                if exc.response.status_code < 500:
+                    raise
+                last_error = exc
             except (httpx.HTTPError, OSError) as exc:
                 last_error = exc
         if redirected:
@@ -293,7 +299,10 @@ class WebsiteProvider:
         self._cache: dict[str, FetchedPage] = {}
         self._robots: dict[str, RobotFileParser | None] = {}
         self.requests_made = 0
-        self._company_requests = 0
+        # Held for the job, as `_cache` is. A record that fails runs again up to three times
+        # with this provider, and a count kept per call sent one site 30 requests.
+        self._requests_by_company: dict[str, int] = {}
+        self._company = ""
         self._robots_fetch: Callable[[str], FetchedPage] | None = None
         if fetch is not None:
             def raw_fetch(url: str) -> FetchedPage:
@@ -320,12 +329,13 @@ class WebsiteProvider:
 
     def _count_request(self) -> None:
         """Called as a request leaves, so a name that never resolved is not one."""
-        if self._company_requests >= REQUESTS_PER_COMPANY:
+        spent = self._requests_by_company.get(self._company, 0)
+        if spent >= REQUESTS_PER_COMPANY:
             noun = "request" if REQUESTS_PER_COMPANY == 1 else "requests"
             raise RequestLimitReached(
                 f"stopped at the limit of {REQUESTS_PER_COMPANY} {noun} for one company"
             )
-        self._company_requests += 1
+        self._requests_by_company[self._company] = spent + 1
         self.requests_made += 1
 
     def _robots_allows(self, url: str) -> bool:
@@ -361,7 +371,7 @@ class WebsiteProvider:
             self._client = None
 
     def run(self, identity: OrganizationIdentity) -> ProviderResult:
-        self._company_requests = 0
+        self._company = identity.organization_id
         mapped_host = host_of(identity.website)
         mail_host = email_domain(identity.email)
         candidate_host = mapped_host or mail_host
@@ -444,19 +454,19 @@ class WebsiteProvider:
 
         pages = [root]
         links = _useful_links(soup, root.url)
-        note = ""
+        stopped_early = ""
         for link in links[:4]:
             try:
                 if not self._robots_allows(link):
                     continue
                 pages.append(self._fetch(link))
             except RequestLimitReached as exc:
-                note = str(exc)
+                stopped_early = str(exc)
                 break
             except Exception:
                 continue
         facts.extend(_facts_from_pages(pages, identity, status, score))
-        return ProviderResult(self.name, tuple(facts), note=note)
+        return ProviderResult(self.name, tuple(facts), stopped_early=stopped_early)
 
 
 def _meta(soup: BeautifulSoup, name: str) -> str:

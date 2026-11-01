@@ -89,8 +89,9 @@ guess.
   `linkedin.com/company/` link published by that site can populate the LinkedIn company
   URL, but its provider remains `website`: the official site attests the link and is not
   counted again as independent LinkedIn evidence. A run sends one company's site at most 10
-  requests, counting `robots.txt` and each redirect; a company stopped there keeps what it
-  read, and the run counts and logs it.
+  requests over the whole job, retries included, counting `robots.txt` and each redirect. A
+  company stopped there keeps what it read, expires no fact it did not reach, and the run
+  counts and logs it.
 - **Google Places** is optional and enabled by
   `SCRAPEX_GOOGLE_PLACES_API_KEY`. It transiently combines name, coordinate, phone and
   domain evidence; invalid coordinates are omitted, and coordinates are a bias rather

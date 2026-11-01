@@ -140,8 +140,9 @@ class ProviderResult:
     checked: bool = True
     error: str = ""
     system_error: bool = False
-    # What a run says about a result it keeps, as `error` would discard the facts.
-    note: str = ""
+    # Why this result read only part of the site. The run keeps its facts, which `error`
+    # would discard, and expires nothing: what it did not read has not gone away.
+    stopped_early: str = ""
 
 
 class ReviewAction(StrEnum):
