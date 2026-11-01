@@ -10436,7 +10436,7 @@ const RESTART_UNDER_WAY = "Restarting the engine…";
 const RESTART_OLD_ENGINE_ANSWERS = "The current engine is still answering.";
 const RESTART_NO_ENGINE_ANSWERS = "Waiting for the new engine to start.";
 const RESTART_AN_ENGINE_ANSWERS = "An engine is answering, but it is not confirmed as the new one.";
-const RESTART_SEE_THE_ENGINE_PAGE = "See the Engine page for its progress.";
+const RESTART_SEE_THE_ENGINE_PAGE = "See the Engine page for the restart's progress.";
 
 // HOW RECENT AN ANSWER MUST BE FOR THE RESTART'S TWO-MINUTE ENDING TO SAY AN
 // ENGINE "IS STILL ANSWERING" (#1517). One probe running out of its deadline is a
@@ -10876,6 +10876,9 @@ function wireRuntimeRepair() {
     // screen reader hears a change and not a tick.
     let found = "";
     let said = "";
+    // WHETHER AN ENGINE IS STILL ANSWERING, decided once for the note and the ending.
+    const stillAnswering = () => lastAnswer !== null
+      && Date.now() - lastAnswer.at <= RESTART_ANSWER_STILL_FRESH_MS;
     const timer = setInterval(async () => {
       attempts += 1;
       let successor = false;
@@ -10907,7 +10910,12 @@ function wireRuntimeRepair() {
           wentDark = true;
           lastAnswer = null;
           found = RESTART_NO_ENGINE_ANSWERS;
-        } else if (!isTimeoutError(error)) {
+        } else if (isTimeoutError(error)) {
+          // TOO LONG WITHOUT AN ANSWER: the sentence that says one is arriving goes, and
+          // the note says only that the restart is under way. After the dark there is no
+          // answer to age, and "Waiting for the new engine" stands.
+          if (lastAnswer !== null && !stillAnswering()) found = "";
+        } else {
           // NOT SWALLOWED: a body that is not JSON, or a request cancelled under
           // the poll, is neither the dark nor a slow engine. The trace keeps it,
           // as it keeps `restart-identity-unknown`.
@@ -10918,7 +10926,7 @@ function wireRuntimeRepair() {
       if (settled) return;
       if (found !== said) {
         said = found;
-        say(`${before} ${found}`);
+        say(found ? `${before} ${found}` : before);
       }
       if (successor) {
         settled = true;
@@ -10954,9 +10962,7 @@ function wireRuntimeRepair() {
         // `sealed_at` proves it. Without that -- either side reports none, and no
         // refused probe was seen -- the answer may be a successor whose start the
         // poll missed, so only what is known is said.
-        const stillAnswering = lastAnswer !== null
-          && Date.now() - lastAnswer.at <= RESTART_ANSWER_STILL_FRESH_MS;
-        if (stillAnswering && lastAnswer.same) {
+        if (stillAnswering() && lastAnswer.same) {
           const elsewhere = "Unable to restart the engine: the same engine is still "
             + "answering after two minutes. Press Restart engine on the Engine page to "
             + "try again.";
@@ -10967,7 +10973,7 @@ function wireRuntimeRepair() {
           release();
           return;
         }
-        if (stillAnswering) {
+        if (stillAnswering()) {
           const elsewhere = "Unable to confirm the restart: no new engine was detected "
             + "in two minutes. Press Restart engine on the Engine page to try again.";
           say(elsewhere,
