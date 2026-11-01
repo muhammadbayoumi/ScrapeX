@@ -3498,7 +3498,7 @@ def create_app(
             "JOIN source_variant sv ON sv.source_variant_id = so.source_variant_id "
             "JOIN source_product sp ON sp.source_product_id = sv.source_product_id "
             "JOIN source_site ss ON ss.source_id = sp.source_id "
-            "WHERE ss.source_key = ? GROUP BY so.offer_id "
+            "WHERE ss.source_key = ? AND so.status = 'active' GROUP BY so.offer_id "
             "HAVING COUNT(pp.price_period_id) > 1 "
             "ORDER BY periods DESC, sp.product_name_ar LIMIT 50", (source_key,))]
 
