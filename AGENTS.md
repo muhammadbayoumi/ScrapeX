@@ -60,12 +60,12 @@ categories; price is one of them, not the whole tool.**
   `extension/transport.js` sends `START_ENGINE` and `scrapex/native.py` obeys; the engine
   launches nothing. Every app is started that same way, through the one native host, so no
   app depends on another and dropping one costs nothing.
-- **An app brings its own way of working, and holds only the permissions it needs.**
-  Adding a project like Scrapy is worth it for its own network path and concurrency, not
-  to be wrapped in ours; ours grows where the external ones do not serve and neither
-  pauses the other. Choose per run by measured performance, not by authorship. More
-  permission than an app needs is a defect to fix, not a status to keep. Extending is an
-  entry in a registry, not a new module: `scrapex/connectors/factory.py`,
+- **An app brings its own way of working, and holds only the permissions it needs.** An
+  external engine takes only the source's information and where to store, and shares no
+  rule with us: requests, pace, concurrency, robots, agent and retries are its own design.
+  Ours grows where it does not serve and neither pauses the other. Choose per run by
+  measured performance, not by authorship. More permission than an app needs is a defect
+  to fix. Extending is a registry entry, not a new module: `scrapex/connectors/factory.py`,
   `scrapex/directories.py`, `scrapex/enrichment/providers/__init__.py`.
 - **The warehouse write permission is exclusive, and the panel cannot hold it.** One
   writer at a time, whichever app it is; the engine holds the write lock, and a second
@@ -123,11 +123,13 @@ categories; price is one of them, not the whole tool.**
   *skipped* until `pip install -e .[dev,browser]` and `python -m playwright install
   chromium`.
 - **Integration tests run the real `db/engine/schema.sql`**, never a fixture schema.
-- **Respect the politeness budget.** A crawl that hammers a site is a defect, and
-  `crawl_obey_disallow` ships at `0` (`scrapex/settings.py:99`): never set a source
-  `active: true`, or leave `robots` at its default, without his word.
+- **ScrapeX's engine respects the politeness budget.** A crawl that hammers a site is a
+  defect, and `crawl_obey_disallow` ships at `0` (`scrapex/settings.py:99`): never set a
+  source `active: true`, or leave `robots` at its default, without his word.
 - **A source is studied before anything is built from it, to one standard**: the
-  **`study-a-source` skill**, and the study lands in an issue.
+  **`study-a-source` skill**, and the study lands in an issue. One domain is one source,
+  always; its datasets divide inside it. Every source he names shows on Run from then on,
+  inactive, until it is studied and built.
 - **Never start a run you cannot watch to the end.** A crawl outlasts a session and holds
   the write lock while it runs.
 
@@ -163,13 +165,11 @@ is pip-installed editable against a checkout that may not be this worktree —
 the worktree root, and in a scratch script assert on a **symbol you just added**;
 `__file__` catches a misdirected import, never a misdirected edit.
 
-**One machine, two accounts: `gh auth switch` is global.** It repoints every session, and
-the others fail mid-run with `Repository not found` — GitHub answers 404, not 403, on a
-private repository the active token cannot see, so a wrong account reads as a deleted one.
-Ask `gh auth status` before believing it. Scope the account to your own process instead —
-`export GH_TOKEN=$(gh auth token --user <the repo's owner>)` — which `gh` obeys over the
-active account and `git` takes through its github.com-scoped helper. Every command is a
-new process, so put it in front of each, and never park it in a file to make it last.
+**One machine, two accounts: `gh auth switch` is global.** It repoints every session, so
+ask `gh auth status` before believing a failure. Scope the account to your own process
+instead — `export GH_TOKEN=$(gh auth token --user <the repo's owner>)` — which `gh` obeys
+over the active account and `git` takes through its github.com-scoped helper. Every command
+is a new process, so put it in front of each, and never park it in a file to make it last.
 
 **Never hash a repo file's raw bytes.** `.gitattributes` sets `* text=auto`, so the repo
 stores LF and Windows checks out CRLF. Normalise `b"\r\n"` → `b"\n"` first.
@@ -183,6 +183,6 @@ stores LF and Windows checks out CRLF. Normalise `b"\r\n"` → `b"\n"` first.
 - **Write it as an instruction, not a story.** One clear line. No dates, no quotes, no
   incident reports — the reason lives in the PR that added the rule.
 - **Delete one that stopped being true** before adding, and merge into an existing rule
-  rather than repeating it — but **never delete a control to make room**. Past 150 lines
+  rather than repeating it — but **never delete a control to make room**. Past 200 lines
   the next change here starts by pruning what no longer changes an action; if nothing can
   go, move detail to a comment beside the code or to a `.claude/` skill.

@@ -32,9 +32,10 @@ below are its shape, generalised.
   - in the request log, each request made against a `Disallow` line.
 
   Whether a collector obeys `robots.txt` is his choice for each source, in the panel
-  (`scrapex/robots.py:34`), and the study is what lets him make it knowingly. The terms
-  are a contract, not a technical request: a clause that forbids automated collection
-  goes to him as a finding of its own, because the risk of ignoring it is his.
+  (`scrapex/robots.py:34`), and the study is what lets him make it knowingly. A clause on
+  automated collection, redistribution or commercial use is a finding the study states
+  plainly, and it blocks nothing: approvals are handled by the team concerned, and the tool
+  is not used commercially (his word, 2026-11-01, #1655).
 - **Never authenticate, never pay, never bypass a block.** A field behind a login is
   recorded as existing and gated — that is a finding, and getting at it is his decision.
 - Every claim about the site cites the response that carries it. Every claim about ScrapeX
@@ -52,7 +53,7 @@ Record the user-agent you used and whether it mattered.
 ## Pass 1 · Identity
 
 `scrapex/probe.py:70` answers one question — which of the ten families in
-`scrapex/connectors/factory.py:34` this is, or `TBD-probe` (`scrapex/vocab.py:420`) when it
+`scrapex/connectors/factory.py:34` this is, or `TBD-probe` (`scrapex/vocab.py:449`) when it
 is none of them. **Run it, then distrust it**: it reads a homepage for markers and stops.
 Say in the report what it would answer and where it would be wrong.
 
@@ -123,8 +124,11 @@ been found before, and a `no` is a finding as much as a `yes`.
     it carries are fields. A default it falls back to when a field is missing is the site's
     guess, not a value the site stated. Never store it as one.
 
-A field that names a person is reported with exactly what it holds (a first name? contact
-details?) and recommended out. Taking it is his decision.
+**Contacts are first-class: every phone, fax, email, website, address, map link and social
+account, with where it lives, its filled count and its shape, and a field the site lacks is
+named as absent.** Recommend keeping them (his ruling on #1913, #1916 and #1655, 2026-11-01).
+A named individual's value stays out of the issue, as a shape and a count. What a source's terms say about them is
+recorded with the other clauses, and it blocks nothing.
 
 For each field found, one row:
 
@@ -132,7 +136,10 @@ For each field found, one row:
 |---|---|---|---|---|---|
 | `exWorkMaxPrice` | `/api/products` → `[].exWorkMaxPrice` | `1725.00` | no | `price_observation` | the ceiling of a tiered price |
 
-**A field the site publishes and we do not take is a decision, not an oversight.** Say why.
+**A field the site publishes and we do not take is a decision, not an oversight.** Anything
+that can enrich the data is recommended in, and sibling datasets on the domain with it. The
+reason against one is measured: it is empty, it is constant, or reading it moves something
+on the site.
 
 ## Pass 5 · Price and its dimensions (products)
 
@@ -205,13 +212,23 @@ the host and what the study settled, and containing, in this order:
    (Passes 3, 4, 6).
 5. Price dimensions (Pass 5).
 6. Reuse / build / blocked (Pass 7).
-7. The questions only he can answer, each with options and the measured cost of each.
-8. The request log: every URL, in order, with its status.
+7. **What to take: everything found, each dataset and field on one line with a proposal, for
+   him to decide.** The study reports and proposes; what is taken and what is left is his.
+8. The questions only he can answer, each with options and the measured cost of each.
+9. The request log: every URL, in order, with its status.
 
 Then the source moves in the registry, not in prose: a manifest row at
 `family: TBD-probe`, `active: false` is the only way a registry says "on the list, no
-collector yet" (`scrapex/vocab.py:420`, `scrapex/sourceboard.py:56`), and validation
-refuses to make it active before it is probed (`scrapex/config.py:159`).
+collector yet" (`scrapex/vocab.py:449`, `scrapex/sourceboard.py:56`), and validation
+refuses to make it active before it is probed (`scrapex/config.py:160`).
+
+**Once the issue is filed, open that domain's build task straight away, one task per domain,**
+so finished studies do not pile up: «جلسة دراسة المصادر عندما تنتهى من دراسة مصدر تفتح مباشرة
+task لبنائه حتى لاا تتتراكم علينا». It is a card, and nothing runs until he starts it
+(`spawn_task`, or `start_session` with `own_initiative`). His click spends a whole session even
+if it stops at its first check, so the card's text says what the build waits for. The prompt
+stands alone: the issue, his answers so far, and the questions still open, which that session
+asks him first.
 
 ## Done means
 
@@ -223,6 +240,8 @@ refuses to make it active before it is probed (`scrapex/config.py:159`).
 - [ ] Every fact the site states twice has its agreement counted over the census.
 - [ ] Every field has a sample value taken from a real response, not an example.
 - [ ] Every field has a destination, or is named as having none and costed.
+- [ ] Everything found is listed with a proposal, and nothing is decided for him.
 - [ ] Nothing was authenticated, bought, or bypassed.
 - [ ] No connector, no `sources.yaml` edit, no crawl, no `active: true` in this change.
 - [ ] The issue exists and the questions for him are at the end of it, with options.
+- [ ] The domain's build task is open.

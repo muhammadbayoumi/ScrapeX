@@ -6648,9 +6648,6 @@ const SOURCE_ACTIONS = [
   {action: "table", label: "Open the data table",
    why: "This source's rows, in a page that ships with the extension.",
    route: "GET /api/table/{key}", proof: RESOLVES_A_DATASET},
-  {action: "enrich", label: "Enrich organizations",
-   why: "Create or update a linked organization enrichment dataset.",
-   route: "GET /api/enrichment/sources/{key}", proof: RESOLVES_A_DATASET},
   // THE WORKSPACE'S CHANGES PAGE FOR THIS SOURCE. It opened `/source/{key}#changes`,
   // and no element on that page has the id (#380). The page renders for any key, and
   // for a dataset key it lists nothing: `change_event` is the price path. Excluded on
@@ -6688,7 +6685,7 @@ const EDIT_SCHEDULE = {action: "schedule", label: "Edit schedule",
  * that decides what a dataset is.
  *
  * A dataset keeps the actions whose route was MEASURED to resolve a dataset key.
- * Those are the data table and organization enrichment today. The previous rule
+ * Those are the data table and, offered below, organization enrichment. The previous rule
  * — no menu at all — was right about the manifest-only actions and wrong about
  * these routes, and it stayed wrong because
  * nothing tested it: `tools/panel_harness.py` carried no dataset-kind source, so
@@ -6845,8 +6842,17 @@ function sourceActions(source) {
   // opens it there instead of switching the source off from here.
   const scheduled = scheduleSwitchOn()
     ? base.map((item) => (item.action === "pause" ? EDIT_SCHEDULE : item)) : base;
-  return [...scheduled, ...crawlable, ...continuable, ...interpretable, ...profiles,
-          ...covered];
+  // ORGANIZATION ENRICHMENT, ON A DATASET CARD ONLY. Its route reads the dataset catalogue
+  // and nothing else (`enrichment/service.py` `_dataset`), so it answers 404 for a price
+  // key and the row opened a page that could only say so. His ruling, 2026-10-31: a price
+  // source does not offer it. A directory holds no dataset yet, so the same 404 applies.
+  const enrichable = source.kind === "dataset" ? [
+    {action: "enrich", label: "Enrich organizations",
+     why: "Create or update a linked organization enrichment dataset.",
+     route: "GET /api/enrichment/sources/{key}", proof: RESOLVES_A_DATASET},
+  ] : [];
+  return [...scheduled, ...enrichable, ...crawlable, ...continuable, ...interpretable,
+          ...profiles, ...covered];
 }
 
 function sourceMenu(source) {

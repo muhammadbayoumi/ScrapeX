@@ -407,6 +407,35 @@ def test_the_next_crawl_gives_the_rebar_its_tonne_on_the_same_offer(warehouse):
         assert exported[sku][header.index("price_basis")] == ""
 
 
+def test_the_shop_editing_the_sentence_away_keeps_one_offer_per_sku(warehouse):
+    """A sentence is prose, and one edit moves every member of its product at once. Each
+    offer stays the same offer through the edit and back, with one row on his table, and
+    the rebar reads as it did before it had a unit: its own weight and fractions (#1874)."""
+    conn = warehouse
+    _ingest(conn, _tables(), day=1)
+    held = dict(conn.execute(
+        "SELECT sv.external_sku, so.offer_id FROM source_offer so "
+        "JOIN source_variant sv ON sv.source_variant_id = so.source_variant_id"))
+
+    def table():
+        return {r["sku"]: (r["unit"], r["price_basis"])
+                for r in reports.table_payload(conn, "MADAR")["rows"]}
+
+    assert table()["101281212"] == ("tonne", "")
+
+    _ingest(conn, _tables(_Fetcher(items=_no_sentence())), day=2)
+    assert conn.execute("SELECT COUNT(*) FROM source_offer").fetchone()[0] == len(held), (
+        "the edit minted a second offer beside the tonne")
+    assert table()["101281212"] == ("", "1,000 kg")
+
+    _ingest(conn, _tables(), day=3)
+    assert dict(conn.execute(
+        "SELECT sv.external_sku, so.offer_id FROM source_offer so "
+        "JOIN source_variant sv ON sv.source_variant_id = so.source_variant_id "
+        "WHERE so.status = 'active'")) == held
+    assert table()["101281212"] == ("tonne", "")
+
+
 # ---- a charter that cannot say what it reads is refused at validation --------
 
 _CONFIRM = {"field": "weight", "unit_field": "weight_unit", "quantity": 1000, "unit": "kg"}
