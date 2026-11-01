@@ -1128,7 +1128,7 @@ def _change_source_row(conn, definition_id: int, **fields) -> str:
     data = {**json.loads(row["data_json"]), **fields}
     conn.execute(
         "UPDATE generic_record SET data_json=?, content_hash=? WHERE generic_record_id=?",
-        (json.dumps(data), f"changed-{sorted(fields)}", row["generic_record_id"]),
+        (json.dumps(data), f"changed-{sorted(fields.items())}", row["generic_record_id"]),
     )
     conn.commit()
     return str(data["contractor_id"])
@@ -1233,6 +1233,48 @@ def test_a_waiting_site_whose_row_changed_gets_no_request_and_its_clock_does_not
     due = _SiteProvider()
     _run(conn, definition_id, monkeypatch, due, run_mode=EnrichmentRunMode.UPDATE)
     assert changed in due.asked, "recording the wait restarted its clock"
+
+
+def test_the_wait_and_cache_counts_are_companies_even_when_a_record_is_retried(
+    conn, monkeypatch
+):
+    """`counters` survives the rollback of a failed attempt, so a count written during the
+    attempt counted the same company twice. `provider_errors` is held local for this."""
+    definition_id = enrichment.create_definition(
+        conn, _request(conn))["enrichment_definition_id"]
+    _run(conn, definition_id, monkeypatch, _SiteProvider(failing=True))
+    _age_observations(conn, days=10)
+    _change_source_row(conn, definition_id, membership_level="Changed")
+    real = enrichment._write_output
+    failures = {"left": 1}
+
+    def fails_once(*args, **kwargs):
+        if failures["left"]:
+            failures["left"] -= 1
+            raise RuntimeError("disk full")
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(enrichment, "_write_output", fails_once)
+
+    waiting = _run(conn, definition_id, monkeypatch, _SiteProvider(),
+                   run_mode=EnrichmentRunMode.UPDATE)
+
+    assert waiting["counters"]["record_attempt_errors"] == 1
+    assert waiting["counters"]["provider_waits"] == 1
+
+    # And the answers on file, through the same two lines of the loop.
+    monkeypatch.setattr(enrichment, "_write_output", real)
+    _run(conn, definition_id, monkeypatch, _SiteProvider())
+    _age_observations(conn, days=30)
+    _change_source_row(conn, definition_id, membership_level="Changed again")
+    failures["left"] = 1
+    monkeypatch.setattr(enrichment, "_write_output", fails_once)
+
+    cached = _run(conn, definition_id, monkeypatch, _SiteProvider(),
+                  run_mode=EnrichmentRunMode.UPDATE)
+
+    assert cached["counters"]["record_attempt_errors"] == 1
+    assert cached["counters"]["provider_cache_hits"] == 1
 
 
 def test_a_failed_site_is_asked_at_once_when_what_it_is_asked_changed(conn, monkeypatch):

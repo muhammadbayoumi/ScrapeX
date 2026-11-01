@@ -2058,6 +2058,8 @@ def run_enrichment_job_once(conn: sqlite3.Connection, job_ref: str,
                             conn, identity.organization_id, source_provider, fields_seen
                         )
 
+                    provider_cache_hits = 0
+                    provider_waits = 0
                     provider_errors = 0
                     for provider in providers:
                         provider_name = str(provider.name)
@@ -2087,9 +2089,10 @@ def run_enrichment_job_once(conn: sqlite3.Connection, job_ref: str,
                                 provider=provider_name, provider_version=provider_version,
                                 input_hash=input_hash, status=on_file,
                             )
-                            counter = "provider_cache_hits" if on_file == "cached" \
-                                else "provider_waits"
-                            counters[counter] = int(counters.get(counter, 0)) + 1
+                            if on_file == "cached":
+                                provider_cache_hits += 1
+                            else:
+                                provider_waits += 1
                             continue
                         # Do not hold SQLite's writer lock while an external
                         # provider is in flight. The source facts and any prior
@@ -2176,6 +2179,12 @@ def run_enrichment_job_once(conn: sqlite3.Connection, job_ref: str,
                     counters["rows_changed"] = int(
                         counters.get("rows_changed", 0)
                     ) + int(row_changed)
+                    counters["provider_cache_hits"] = int(
+                        counters.get("provider_cache_hits", 0)
+                    ) + provider_cache_hits
+                    counters["provider_waits"] = int(
+                        counters.get("provider_waits", 0)
+                    ) + provider_waits
                     counters["provider_errors"] = int(
                         counters.get("provider_errors", 0)
                     ) + provider_errors
