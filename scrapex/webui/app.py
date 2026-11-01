@@ -124,6 +124,7 @@ from ..outputs import (
     excel_status,
     rotate_funnel_token,
 )
+from ..paths import name_inside
 from ..payload import utc_now_iso
 from ..probe import probe as probe_url
 from ..publish import UnexportableCell, workbook_tables
@@ -4287,7 +4288,7 @@ def create_app(
         finally:
             conn.close()
         folder.mkdir(parents=True, exist_ok=True)
-        archive = folder / f"{RECEIVED_PREFIX}{sha256[:16]}.zip"
+        archive = name_inside(folder, f"{RECEIVED_PREFIX}{sha256[:16]}.zip")
         partial = archive.with_name(archive.name + bundle.PARTIAL_SUFFIX)
 
         if not _receive_lock.acquire(blocking=False):

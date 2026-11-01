@@ -11,6 +11,7 @@ the owner crawled and has not ingested yet.
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from pathlib import Path
 
@@ -160,6 +161,26 @@ def test_a_page_cleared_mid_scan_costs_one_page_not_the_whole_answer(
     monkeypatch.setattr(localinbox, "_source_dir", lambda base, key: _RacingDir())
 
     assert localinbox.journal_state(tmp_path, "GPP_ENERGY")["pages"] == 1
+
+
+@pytest.mark.parametrize("ask", [
+    localinbox.journal_state, localinbox.list_tokens, localinbox.read_payloads,
+    localinbox.clear, localinbox.clear_untokenized,
+], ids=lambda ask: ask.__name__)
+def test_a_key_that_leaves_the_journal_is_refused_and_nothing_outside_is_touched(tmp_path, ask):
+    """Two of these delete. Every caller holds a key validated long before this, so the
+    refusal is the last line and not the first, and it holds for anything that gets here."""
+    base = tmp_path / "journal"
+    base.mkdir()
+    outside = tmp_path / "not-the-journal"
+    outside.mkdir()
+    bystander = outside / "not-a-page.json"
+    bystander.write_text("{}", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="would land outside"):
+        ask(base, os.path.join(os.pardir, outside.name))
+
+    assert bystander.exists(), f"{ask.__name__} deleted a file outside the journal"
 
 
 def test_a_source_that_kept_nothing_says_so_rather_than_failing(tmp_path):

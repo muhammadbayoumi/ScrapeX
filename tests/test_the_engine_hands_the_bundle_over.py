@@ -1207,6 +1207,29 @@ def test_a_digest_with_a_newline_cannot_delete_a_verified_archive(client):
     assert archive.is_file(), "a crafted digest deleted a verified archive"
 
 
+def test_the_digests_file_name_asks_the_one_check(client, monkeypatch):
+    """A digest the pattern accepts cannot leave the folder, so no request can show this
+    check refusing. It is pinned by asking, because it is what code scanning reads."""
+    import scrapex.webui.app as module
+
+    connected, backups = client
+    body, sha = _an_archive(connected)
+    asked = []
+    real = module.name_inside
+
+    def spying(folder, name):
+        asked.append((folder, name))
+        return real(folder, name)
+
+    monkeypatch.setattr(module, "name_inside", spying)
+
+    landed = _send(connected, body, sha, offset=0)
+
+    assert landed.status_code == 200, landed.text
+    assert asked == [(backups, f"from-drive-{sha[:16]}.zip")]
+    assert (backups / landed.json()["name"]).is_file()
+
+
 def test_fetched_archives_are_bounded_and_abandoned_ones_are_reaped(client):
     """The rename that keeps a fetched archive out of `_newest` kept it out of
     every pruner too: one archive per distinct backup, for ever, plus a `.part`
