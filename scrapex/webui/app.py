@@ -172,6 +172,7 @@ from ..storage import (
     free_space,
     list_backups,
     list_bundles,
+    listed_backup,
     migrate_location,
     open_folder,
     reconcile_active,
@@ -2800,7 +2801,10 @@ def create_app(
         exactly: a button must not quietly mean something different from the
         command that does the same job.
         """
-        if source_key not in {s.source_key for s in app.state.manifest.sources}:
+        # THE MANIFEST'S OWN KEY GOES ON, never the request's: it names a backup file.
+        source = next((s for s in app.state.manifest.sources
+                       if s.source_key == source_key), None)
+        if source is None:
             raise HTTPException(status_code=404, detail=f"unknown source {source_key!r}")
         if not bool((body or {}).get("confirm")):
             raise HTTPException(
@@ -2814,7 +2818,7 @@ def create_app(
         with dbmod.write_lock(app.state.db_path):
             conn = _write_conn()
             try:
-                result = wipe_source(conn, app.state.db_path, source_key)
+                result = wipe_source(conn, app.state.db_path, source.source_key)
                 conn.commit()
             finally:
                 conn.close()
@@ -3689,12 +3693,10 @@ def create_app(
             finally:
                 conn.close()
             try:
-                offered = {Path(entry["path"]).resolve()
-                           for entry in list_backups(app.state.db_path, where)}
-                chosen = Path(asked).resolve()
+                chosen = listed_backup(asked, list_backups(app.state.db_path, where))
             except OSError:
-                offered, chosen = set(), None
-            if chosen is None or chosen not in offered:
+                chosen = None
+            if chosen is None:
                 raise HTTPException(
                     status_code=400,
                     detail=("ScrapeX checks only a backup it listed for this "
