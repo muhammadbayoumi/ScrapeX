@@ -217,9 +217,9 @@ def test_a_unit_stated_again_after_the_offer_went_blank_and_retired_is_shown(con
 def test_the_live_blank_offer_learns_the_unit_before_a_retired_one(conn):
     """Two unit-less offers can stand on one variant when their bases differ, and the sweep
     retires the one the run did not restate. The series that continues is the live one."""
-    crawl(conn, [row(basis_quantity="2")], day=1)
+    crawl(conn, [row()], day=1)
     retired = offers(conn)[0][0]
-    crawl(conn, [row()], day=2)
+    crawl(conn, [row(basis_quantity="2")], day=2)
     live = next(o[0] for o in offers(conn) if o[4] == "active")
     assert live != retired
 
