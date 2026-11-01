@@ -38,8 +38,8 @@ from scrapex.vocab import JobStatus
 KENYA = "Kenya"
 #: What a run says about what it refused, and what every later run then does (his choice of
 #: 2026-11-01): tested by running them, below.
-LATER = ("and a later run reads a refused notice again only if the Ban"
-         "k changes it or its area is still unread.")
+LATER = ("and a later run reads a refused notice again only if a pass over changes reaches it or "
+         "its area is still unread.")
 NOW = "2026-10-13T08:00:00Z"
 #: One day before NOW: where the first pass over changes starts (his ruling, #1701).
 SINCE = "2026-10-12T08:00:00Z"
@@ -84,7 +84,12 @@ def run(conn, mode="initial_crawl"):
 
 
 def logged(conn, job_ref) -> list[tuple[str, str]]:
-    return [(row["level"], row["message"]) for row in jobs.job_logs(conn, job_ref)]
+    """Through a connection of its own, as the panel reads it: a line never committed is not there."""
+    reader = dbmod.connect(conn.execute("PRAGMA database_list").fetchone()[2])
+    try:
+        return [(row["level"], row["message"]) for row in jobs.job_logs(reader, job_ref)]
+    finally:
+        reader.close()
 
 
 # ---- a first crawl ----------------------------------------------------------------------
@@ -1152,12 +1157,12 @@ def stop_after_the_first_page(bank, conn, ref, control):
 
 
 @pytest.mark.parametrize("control, status", [("pause", "paused"), ("cancel", "cancelled")])
-def test_another_app_writing_as_a_stop_settles_does_not_replace_the_stop(
+def test_another_app_past_the_wait_as_a_stop_settles_does_not_replace_the_stop(
         conn, bank, monkeypatch, holder, control, status):
     """At the re-review a 7 s holder turned his Pause and his Cancel into `failed`: the site's
     line met the lock, replaced the stop on its way out, and the pause got no wait of its own."""
     bank["bank"].robots_warnings = ["robots.txt asked for a delay"]
-    conn.execute("PRAGMA busy_timeout = 10")
+    monkeypatch.setattr(tenderjob, "WRITE_WAIT_MS", 10)
     hold_at_the_sites_lines(monkeypatch, holder())
     ref = a_job(conn)
     stop_after_the_first_page(bank, conn, ref, control)
@@ -1167,13 +1172,13 @@ def test_another_app_writing_as_a_stop_settles_does_not_replace_the_stop(
     assert not conn.in_transaction
 
 
-def test_another_app_writing_as_a_failure_settles_keeps_the_consequence_and_the_error(
+def test_a_failure_another_app_holds_up_keeps_the_consequence_and_the_error(
         conn, bank, monkeypatch, holder):
+    """A holder inside the wait: the ending goes through as it would have."""
     bank["bank"].robots_warnings = ["robots.txt asked for a delay"]
     hold_at_the_sites_lines(monkeypatch, holder())
     monkeypatch.setattr(tenderstore, "store_response",
                         lambda c, **kw: (_ for _ in ()).throw(ValueError("boom")))
-    conn.execute("PRAGMA busy_timeout = 10")
     with pytest.raises(ValueError):
         run(conn)
     ref = conn.execute("SELECT job_ref FROM crawl_job").fetchone()[0]
@@ -1182,20 +1187,104 @@ def test_another_app_writing_as_a_failure_settles_keeps_the_consequence_and_the_
     assert logged(conn, ref)[-1] == ("error", summary)
 
 
-@pytest.mark.parametrize("raised, status, named", [
+def test_a_failure_past_the_wait_pauses_and_names_the_error_it_cut_off(conn, bank, monkeypatch,
+                                                                       holder):
+    """A Resume meets the error again, but he may Cancel instead. At the third pass the error
+    appeared nowhere in the log, and an 80 s holder was all it took."""
+    bank["bank"].robots_warnings = ["robots.txt asked for a delay"]
+    monkeypatch.setattr(tenderjob, "WRITE_WAIT_MS", 10)
+    hold_at_the_sites_lines(monkeypatch, holder())
+    monkeypatch.setattr(tenderstore, "store_response",
+                        lambda c, **kw: (_ for _ in ()).throw(ValueError("boom")))
+    job, ref = run(conn)
+    assert job["status"] == "paused"
+    assert ("another app holds the warehouse (database is locked), as this run stopped on "
+            "ValueError: boom.") in logged(conn, ref)[-1][1]
+
+
+SITES_STOPS = [
     (RobotsUnreachable("robots.txt timed out"), "paused", "robots.txt timed out"),
     (HostRefused("the host is refused"), "failed", "the host is refused"),
-])
-def test_another_app_writing_as_the_site_stops_a_job_keeps_the_sites_reason(
+]
+
+
+@pytest.mark.parametrize("raised, status, named", SITES_STOPS)
+def test_another_app_holding_up_a_sites_stop_keeps_the_sites_reason(
         conn, bank, monkeypatch, holder, raised, status, named):
     bank["bank"].robots_warnings = ["robots.txt asked for a delay"]
     bank["bank"].raise_at = {(EGYPT, 0): raised}
     hold_at_the_sites_lines(monkeypatch, holder())
-    conn.execute("PRAGMA busy_timeout = 10")
     ref = a_job(conn)
     job = tenderjob.run_tender_crawl_job_once(conn, ref)
     assert job["status"] == status
     assert any(named in message for _, message in logged(conn, ref))
+
+
+@pytest.mark.parametrize("raised, status, named", SITES_STOPS)
+def test_a_sites_stop_past_the_wait_pauses_and_names_the_reason_it_cut_off(
+        conn, bank, monkeypatch, holder, raised, status, named):
+    bank["bank"].robots_warnings = ["robots.txt asked for a delay"]
+    bank["bank"].raise_at = {(EGYPT, 0): raised}
+    monkeypatch.setattr(tenderjob, "WRITE_WAIT_MS", 10)
+    hold_at_the_sites_lines(monkeypatch, holder())
+    ref = a_job(conn)
+    job = tenderjob.run_tender_crawl_job_once(conn, ref)
+    assert job["status"] == "paused"
+    assert f"as this run stopped on {type(raised).__name__}: {named}." in logged(conn, ref)[-1][1]
+
+
+@pytest.fixture()
+def press_at_the_re_read(conn, monkeypatch):
+    """The panel's press, on its own connection, at the re-read each ending makes. It cannot land
+    there, for the ending's first write already holds SQLite's lock; with that write after the
+    re-read, as a `finally` had it, the ending settled over it."""
+    panel = dbmod.connect(conn.execute("PRAGMA database_list").fetchone()[2])
+    panel.execute("PRAGMA busy_timeout = 0")
+    lines, wanted = tenderjob.directoryjob.log_politeness, jobs.still_wanted
+
+    def arm(ref):
+        pressed = []
+
+        def said(*args, **kwargs):
+            lines(*args, **kwargs)
+            pressed.append("said")
+
+        def re_read(connection, job_ref):
+            if pressed == ["said"]:
+                with pytest.raises(sqlite3.OperationalError, match="locked"):
+                    jobs.set_control(panel, ref, "cancel")
+                pressed.append("refused")
+            return wanted(connection, job_ref)
+
+        monkeypatch.setattr(tenderjob.directoryjob, "log_politeness", said)
+        monkeypatch.setattr(jobs, "still_wanted", re_read)
+        return pressed
+
+    yield arm
+    panel.close()
+
+
+@pytest.mark.parametrize("ending, status", [("pause", "paused"), ("cancel", "cancelled"),
+                                            ("failure", "failed"), ("site", "paused"),
+                                            ("end", "completed")])
+def test_the_panels_press_cannot_land_on_an_endings_re_read(conn, bank, monkeypatch,
+                                                            press_at_the_re_read, ending, status):
+    bank["bank"]._min_interval_s = 2.5
+    ref = a_job(conn)
+    if ending in {"pause", "cancel"}:
+        stop_after_the_first_page(bank, conn, ref, ending)
+    elif ending == "failure":
+        monkeypatch.setattr(tenderstore, "store_response",
+                            lambda c, **kw: (_ for _ in ()).throw(ValueError("boom")))
+    elif ending == "site":
+        bank["bank"].raise_at = {(EGYPT, 0): RobotsUnreachable("robots.txt timed out")}
+    pressed = press_at_the_re_read(ref)
+    try:
+        tenderjob.run_tender_crawl_job_once(conn, ref)
+    except ValueError:
+        assert ending == "failure"
+    assert pressed == ["said", "refused"]
+    assert jobs.get_job(conn, ref)["status"] == status
 
 
 def test_a_resume_into_another_apps_write_pauses_and_can_be_resumed_again(
@@ -1672,3 +1761,144 @@ def test_a_refusal_in_an_area_still_unread_is_read_again_by_the_update(conn, ban
     done, _ = run(conn, "update")
     assert done["status"] == "completed"
     assert count(conn, "tender_releases") == 1_210
+
+
+# ---- the third pass of #1802: what each ending says of refused notices, and of what comes next ----
+
+def test_a_cancel_after_a_refusal_says_what_a_later_run_does(conn, bank):
+    """The warning offers Cancel, and "an update reads the rest" is not true of a notice refused in
+    an area held whole. No line in either job said so at the third pass."""
+    bank["bank"] = Bank({EGYPT: refused_page(0, 300), KENYA: notices(2, start=5_000)})
+    ref = a_job(conn)
+    real = bank["bank"].get
+
+    def get(url, params=None, **kw):
+        response = real(url, params=params, **kw)
+        if params.get(wc.AREA_FACET) == KENYA:
+            jobs.set_control(conn, ref, "cancel")
+        return response
+
+    bank["bank"].get = get
+    job = tenderjob.run_tender_crawl_job_once(conn, ref)
+    words = f"300 refusals, {LATER} Each is named in the log by its id."
+    assert job["status"] == "cancelled" and job["error_summary"] == words
+    assert ("info", "cancelled between pages. What was kept stays kept, and an update reads the "
+                    f"rest. {words}") in logged(conn, ref)
+
+
+def test_a_cancel_with_nothing_refused_has_no_summary(conn, bank):
+    ref = a_job(conn)
+    stop_after_the_first_page(bank, conn, ref, "cancel")
+    job = tenderjob.run_tender_crawl_job_once(conn, ref)
+    assert job["status"] == "cancelled" and job["error_summary"] is None
+
+
+def test_a_failure_after_a_refusal_says_what_a_later_run_does(conn, bank):
+    bank["bank"] = Bank({EGYPT: refused_page(0, 3), KENYA: notices(2, start=5_000)},
+                        raise_at={(KENYA, 0): ValueError("boom")})
+    ref = a_job(conn)
+    with pytest.raises(ValueError):
+        tenderjob.run_tender_crawl_job_once(conn, ref)
+    summary = (f"1 of 2 areas read; an update reads the rest. ValueError: boom. 3 refusals, {LATER} "
+               "Each is named in the log by its id.")
+    assert jobs.get_job(conn, ref)["error_summary"] == summary
+    assert logged(conn, ref)[-1] == ("error", summary)
+
+
+def stop_the_count(bank, raised):
+    real = bank.get
+
+    def get(url, params=None, **kw):
+        if "fct" in params:
+            raise raised
+        return real(url, params=params, **kw)
+
+    bank.get = get
+    return real
+
+
+def test_a_site_stopping_an_updates_count_promises_no_page(conn, bank):
+    """The count is an update's first request, so an unreadable robots.txt stops it exactly here,
+    and on a source held whole the next leg reads the pass over changes, with no page to go on from."""
+    run(conn)
+    bank["bank"].changed = changes(3)
+    real = stop_the_count(bank["bank"], RobotsUnreachable("robots.txt timed out"))
+    job, ref = run(conn, "update")
+    assert job["status"] == "paused"
+    assert logged(conn, ref)[-1][1].endswith("Resuming counts again, then reads what is left")
+    assert jobs.set_control(conn, ref, "resume")
+    bank["bank"].get = real
+    assert tenderjob.run_tender_crawl_job_once(conn, ref)["status"] == "completed"
+    lines = [message for _, message in logged(conn, ref)]
+    assert any(line.startswith("counting again, then reading what is left: this is not this job's "
+                               "first pass") for line in lines)
+    assert "changes: 3 notices in 1 request" in lines
+
+
+def test_a_first_start_stopped_at_the_count_counts_again_and_reads_the_areas(conn, bank):
+    real = stop_the_count(bank["bank"], RobotsUnreachable("robots.txt timed out"))
+    job, ref = run(conn)
+    assert job["status"] == "paused" and job["checkpoint"].get("phase") is None
+    assert logged(conn, ref)[-1][1].endswith("Resuming counts again, then reads what is left")
+    assert jobs.set_control(conn, ref, "resume")
+    bank["bank"].get = real
+    assert tenderjob.run_tender_crawl_job_once(conn, ref)["status"] == "completed"
+    assert count(conn, "tender_releases") == 1_500
+
+
+def test_a_refusal_in_a_pass_cut_short_is_read_again_by_the_next_pass(conn, bank):
+    """The Bank changed nothing, and the next pass still reaches it: why the words say a pass."""
+    run(conn)
+    changed = changes(2_500)
+    refused_id = changed[0]["id"]
+    changed[0]["notice_type"] = "Prequalification Notice"
+    bank["bank"].changed = changed
+    bank["bank"].fail = {(CHANGES, 1000): 503}
+    job, _ = run(conn, "update")
+    assert LATER in job["error_summary"]
+    bank["bank"].fail = {}
+    _, ref = run(conn, "update")
+    assert any(repr(refused_id) in message for _, message in logged(conn, ref))
+
+
+@pytest.mark.parametrize("stamps, refused_at, read_again", [
+    (["2026-10-12T20:00:00Z", "2026-10-12T19:00:00Z", "2026-10-12T18:00:00Z"], 0, True),
+    (["2026-10-14T20:00:00Z", "2026-10-12T19:00:00Z"], 1, False),
+])
+def test_a_refusal_in_a_whole_pass_is_read_again_only_if_the_next_pass_reaches_it(
+        conn, bank, stamps, refused_at, read_again):
+    """Inside the day's margin the next pass refuses it again, and the Bank changed nothing."""
+    run(conn)
+    page = stamped(notices(len(stamps), start=7_000), stamps)
+    page[refused_at]["notice_type"] = "Prequalification Notice"
+    bank["bank"].changed = page
+    run(conn, "update")
+    _, ref = run(conn, "update")
+    named = any(repr(page[refused_at]["id"]) in message for _, message in logged(conn, ref))
+    assert named is read_again
+
+
+def test_a_write_of_this_job_waits_longer_than_a_connection_does(conn, bank):
+    """`db.connect`'s 5 s is the code before the fix, and #1399's job 184 measured a hold past it."""
+    default = conn.execute("PRAGMA busy_timeout").fetchone()[0]
+    real = bank["bank"].get
+    seen = []
+
+    def get(url, params=None, **kw):
+        seen.append(conn.execute("PRAGMA busy_timeout").fetchone()[0])
+        return real(url, params=params, **kw)
+
+    bank["bank"].get = get
+    run(conn)
+    assert set(seen) == {tenderjob.WRITE_WAIT_MS}
+    assert tenderjob.WRITE_WAIT_MS >= 60_000 > default
+
+
+def test_an_area_gone_from_the_count_does_not_stop_the_pass_over_changes(conn, bank):
+    """Whole means every area the count names is held, not that the two lists are equal: the Bank
+    can drop an area, and no pass over changes would ever run again for that source."""
+    run(conn)
+    bank["bank"] = Bank({EGYPT: notices(1_200)}, changed=changes(3))
+    job, ref = run(conn, "update")
+    assert job["checkpoint"]["phase"] == "changes"
+    assert "changes: 3 notices in 1 request" in [message for _, message in logged(conn, ref)]
