@@ -2298,7 +2298,7 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
     # keeps having to work around.
     #
     # THE SITE'S FACETS ARE NO LONGER IN THIS LIST (#1835). They were columns because a
-    # shop publishes a facet list, which gave MADAR 21 columns no other table has, on as
+    # shop publishes a facet list, which gave MADAR 23 columns no other table has, on as
     # few as one row in 4,740. They stay in the card's Specifications and in the export,
     # and Choose Columns promotes any of them back.
     pivoted = _filter_values(conn, source_key, site_filters=False)
