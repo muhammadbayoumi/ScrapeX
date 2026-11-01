@@ -10896,9 +10896,7 @@ function wireRuntimeRepair() {
           const answered = sealedAtOf(await probe.json());
           successor = leaving && answered ? answered !== leaving : wentDark;
           lastAnswer = {same: leaving !== null && answered === leaving, at: Date.now()};
-          if (!successor) {
-            found = lastAnswer.same ? RESTART_OLD_ENGINE_ANSWERS : RESTART_AN_ENGINE_ANSWERS;
-          }
+          found = lastAnswer.same ? RESTART_OLD_ENGINE_ANSWERS : RESTART_AN_ENGINE_ANSWERS;
         } else {
           lastAnswer = null;
         }
