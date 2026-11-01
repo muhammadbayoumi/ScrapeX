@@ -53,7 +53,7 @@ class GraphqlRefused(RuntimeError):
     `SitemapUnreadable`.
 
     Raised too where the store will not state its weight unit and a charter
-    confirms on that answer (#1833): see `fetch`.
+    confirms on that answer (#1833): see `_weight_unit`.
     """
 
 # configurable_options carries the site's own NAME for each variant axis
@@ -183,8 +183,8 @@ _AGGREGATIONS_QUERY = """query{products(filter:{price:{from:"0"}},pageSize:1,cur
 # "lbs" renders lbs with nothing here changing, and a crawl that cannot reach
 # this answer publishes no basis at all rather than a number with a unit we
 # assumed — the same rule selling_unit_from already applies when a name and a
-# weight disagree. Where a charter confirms on this answer, it runs no crawl at
-# all: see `fetch`.
+# weight disagree. Where a charter confirms on this answer, the crawl stops here,
+# before any other request: see `fetch`.
 #
 # One request per crawl, and unlike aggregations it runs on EVERY crawl: this
 # one qualifies a price, so a prices-only run needs it as much as an enriched
@@ -546,6 +546,20 @@ class MagentoGraphqlConnector:
         }
         notes: list[str] = []
         ctx["notes"] = notes
+        # The unit the shop states its weights in, read once and stamped on
+        # every row that carries a weight — the qualifier travels with the
+        # number it qualifies, same rule as `currency`.
+        #
+        # ASKED FIRST, BECAUSE A CHARTER THAT CONFIRMS ON THIS ANSWER CANNOT RUN WITHOUT
+        # IT. Every row it confirms would be refused at once, not because the shop said
+        # anything new but because one side request failed: 143 of madar's offers would
+        # lose the tonne and reopen a price period, and his warehouse holds a run where
+        # exactly this answer came back blank (crawl_run 109). So the run stops before
+        # any other request, with no offer moved and the reason on the job.
+        ctx["weight_unit"] = self._weight_unit(
+            endpoint, notes,
+            required=any(confirm and confirm["unit_field"] == "weight_unit"
+                         for confirm in (charter.confirms if charter else ())))
         ctx["paths"] = self._category_map(endpoint, source, notes)
         # The SAME tree, read in English: leaf uids are store-independent, so
         # one extra categoryList query relabels every path the walk already
@@ -585,23 +599,6 @@ class MagentoGraphqlConnector:
                 "when the store answers restores it")
         ctx["axis_labels_en"] = english["axis_labels"]
         ctx["axis_values_en"] = english["axis_values"]
-        # The unit the shop states its weights in, read once and stamped on
-        # every row that carries a weight — the qualifier travels with the
-        # number it qualifies, same rule as `currency`.
-        ctx["weight_unit"] = self._weight_unit(endpoint, notes)
-        # A CHARTER THAT CONFIRMS ON THIS ANSWER CANNOT RUN WITHOUT IT. Every row
-        # it confirms would be refused at once, not because the shop said anything
-        # new but because one side request failed: 143 of madar's offers would lose
-        # the tonne and reopen a price period, and his warehouse holds a run where
-        # exactly this answer came back blank (crawl_run 109). So the run stops
-        # here, before page 1, with no offer moved and the reason on the job.
-        if not ctx["weight_unit"] and charter and any(
-                confirm and confirm["unit_field"] == "weight_unit"
-                for confirm in charter.confirms):
-            raise GraphqlRefused(
-                "the store did not state the unit of its weights, and this source's "
-                "unit charter confirms on it. Without it every unit it confirms "
-                f"would be lost for this run, so nothing was crawled ({endpoint})")
         query = _QUERY_ENRICHED if wants_enrichment else _QUERY
         fetched: list[dict] = []      # kept so enrichment needs no second fetch
         page = 1
@@ -806,7 +803,7 @@ class MagentoGraphqlConnector:
             found[code] = str(aggregation.get("label") or "") or code
         return found
 
-    def _weight_unit(self, endpoint: str, notes: list) -> str:
+    def _weight_unit(self, endpoint: str, notes: list, required: bool = False) -> str:
         """The unit this store states its `weight` values in — or "" if it won't say.
 
         One request per crawl, on every crawl. The answer qualifies a NUMBER
@@ -816,23 +813,29 @@ class MagentoGraphqlConnector:
         as it does today. That is the same refusal selling_unit_from makes when
         a name and a weight disagree — publishing 1000 with a unit nobody
         stated is the one outcome this whole change exists to avoid. A source
-        whose charter confirms on this answer goes further, and `fetch` refuses
-        the run.
+        whose charter confirms on this answer goes further: `required` stops the
+        run here, naming what the store answered, because this may be the first
+        request a dead site fails.
         """
+        stated, why = "", ""
         try:
             answer = (self._fetcher.post(endpoint, json={"query": _STORE_CONFIG_QUERY})
                       .json() or {})
+            stated = str((((answer.get("data") or {}).get("storeConfig")) or {})
+                         .get("weight_unit") or "")
+            if not stated:
+                why = "storeConfig published no weight_unit"
         except CrawlBlocked:
             raise
         except Exception as exc:
-            notes.append(f"the store did not state the unit of its weights ({exc}) "
-                         "— prices quoted against a weight show no basis this run")
-            return ""
-        stated = str((((answer.get("data") or {}).get("storeConfig")) or {})
-                     .get("weight_unit") or "")
-        if not stated:
-            notes.append("storeConfig published no weight_unit — prices quoted "
-                         "against a weight show no basis this run")
+            why = f"the store did not state the unit of its weights ({exc})"
+        if why and required:
+            raise GraphqlRefused(
+                f"Stopped before reading the catalogue: {why}. This source's unit charter "
+                f"confirms on that answer, and every unit it confirms would be lost for "
+                f"this run ({endpoint})")
+        if why:
+            notes.append(f"{why} — prices quoted against a weight show no basis this run")
         return stated
 
     def _english_names(self, endpoint: str, notes: list,
@@ -1159,9 +1162,10 @@ class MagentoGraphqlConnector:
                 #
                 # NOT interpreted here. This row does not decide whether 1000 is
                 # a basis or a mass; it records that the shop said 1000 kgs, next
-                # to the shop saying the quantity is decimal. The display layer
-                # reads the two together, and a charter may read the weight only
-                # as agreement with a sentence the shop wrote (_apply_charter).
+                # to its minimum, its step and whether the quantity is decimal. The
+                # display layer reads them together, and a charter may read the
+                # weight only as agreement with a sentence the shop wrote
+                # (_apply_charter).
                 # The unit is dropped when there is no weight to qualify — a
                 # store-wide constant on a row that carries no number is noise.
                 weight="" if weight in (None, "") else str(weight),

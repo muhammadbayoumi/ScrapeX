@@ -100,8 +100,8 @@ sources:
       # The connector could read it all along; nothing asked for it.
       - kind: enrichment
         scope: census
-    # WHAT ONE OF THESE IS. Three shapes beside the plain quantity sikaegshop uses,
-    # because madar states it three more ways.
+    # WHAT ONE OF THESE IS. Two shapes beside the plain quantity sikaegshop uses,
+    # because madar states it two more ways.
     #
     # Measured 2026-08-03 over all 3,537 offers: 3,480 resolve from the
     # platform's declared weight+weight_unit, 52 from an option value that
@@ -133,8 +133,8 @@ sources:
         # Steel Square Tube runs 2.81 to 374.72, Corrugated Sheet 0.47 to 7.64.
         # A price of 38,923 "per kg" is not a price per kg. So `weight` is the
         # quoting basis for some products and a piece mass for others, exactly
-        # as magento.py says in writing — "this connector does not decide
-        # whether 1000 is a basis or a mass" — and exactly as the owner ruled on
+        # as magento.py says in writing — "this row does not decide whether
+        # 1000 is a basis or a mass" — and exactly as the owner ruled on
         # 2026-07-29: «الحقائق الخام فقط», the unit column stays empty where the
         # shop states no unit for THAT product.
         #

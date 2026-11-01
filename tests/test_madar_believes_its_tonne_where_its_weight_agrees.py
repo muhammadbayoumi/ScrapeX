@@ -186,10 +186,15 @@ def test_the_charter_reads_the_text_not_the_markup(madar):
     assert row[at("unit")] == ""
 
 
-def test_a_product_without_a_description_is_left_as_it_was(madar):
+@pytest.mark.parametrize("product", [
+    {}, None, {"description": None}, {"description": {}}, {"description": {"html": None}},
+    {"description": {"html": ""}},
+], ids=["no key", "no product", "null", "empty", "null html", "blank html"])
+def test_a_product_without_a_description_is_left_as_it_was(madar, product):
+    """168 of his 1,205 active MADAR products store no description, and a store asked for
+    description{html} can answer null at either level. None of these may stop the crawl."""
     row = _row(weight="1000", weight_unit="kgs")
-    _apply_charter(row, madar, {})
-    _apply_charter(row, madar, None)
+    _apply_charter(row, madar, product)
     assert row[PRODUCT_PRICES.columns.index("unit")] == ""
 
 
@@ -250,9 +255,11 @@ class _Fetcher:
         self.weight_unit = weight_unit
         self.items = items if items is not None else [_REBAR, _MESH]
         self.asked_for_a_page = False
+        self.asked: list[str] = []
 
     def post(self, url, json=None, **kwargs):
         query = (json or {}).get("query", "")
+        self.asked.append(query)
         page = (json or {}).get("variables", {}).get("currentPage", 1)
         empty = {"data": {"products": {"items": [],
                                        "page_info": {"current_page": 1, "total_pages": 1}}}}
@@ -293,6 +300,17 @@ def _crawl() -> dict[str, dict]:
     return {r["external_sku"]: r for t in tables for r in map(view.as_dict, t.rows)}
 
 
+def test_the_detail_stores_the_text_the_charter_read():
+    """One reader of the description, for the detail and for the charter: the stored row is
+    the shop's words with the markup gone, on 1,037 of his products."""
+    tables = [t for t in MagentoGraphqlConnector(_Fetcher()).fetch(_madar())
+              if t.kind == ExtractKind.ENRICHMENT]
+    rows = [dict(zip(t.header, row)) for t in tables for row in t.rows]
+
+    assert {r["raw_value"] for r in rows if r["attribute_code"] == "description_ar"} == {
+        _REBAR_SENTENCE, _PRICED_SENTENCE}
+
+
 def test_the_crawl_states_the_rebar_in_tonnes_and_leaves_the_mesh_unitless():
     rows = _crawl()
 
@@ -308,19 +326,23 @@ def test_the_crawl_states_the_rebar_in_tonnes_and_leaves_the_mesh_unitless():
 
 # ---- a store that will not state its weight unit -------------------------------
 
-@pytest.mark.parametrize("answer", ["", ConnectionError("store unreachable")],
-                         ids=["blank", "raising"])
-def test_a_store_that_will_not_state_its_weight_unit_runs_no_crawl(answer):
+@pytest.mark.parametrize("answer, says", [
+    ("", "no weight_unit"),
+    (ConnectionError("HTTP 503: site down"), "HTTP 503: site down"),
+], ids=["blank", "raising"])
+def test_a_store_that_will_not_state_its_weight_unit_runs_no_crawl(answer, says):
     """One side request failing must not read as the shop withdrawing the tonne from
     143 offers at once. It has happened: crawl_run 109, 2026-08-05, status success,
-    first warning 'storeConfig published no weight_unit'. The run stops before page 1,
-    with the reason on the job, and nothing moves."""
+    first warning 'storeConfig published no weight_unit'. The run stops before any other
+    request, with what the store answered on the job, because a dead site reads here first
+    and must not read as a store setting."""
     fetcher = _Fetcher(weight_unit=answer)
 
-    with pytest.raises(GraphqlRefused, match="unit of its weights"):
+    with pytest.raises(GraphqlRefused, match=says):
         _tables(fetcher)
 
-    assert not fetcher.asked_for_a_page, "the refusal came after the catalogue was read"
+    assert len(fetcher.asked) == 1 and "storeConfig" in fetcher.asked[0], (
+        f"the refusal came after {len(fetcher.asked) - 1} other requests")
 
 
 def test_a_charter_that_confirms_on_nothing_keeps_crawling_without_it():

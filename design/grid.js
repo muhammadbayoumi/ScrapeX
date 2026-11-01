@@ -1306,9 +1306,9 @@
         // ...and where the source states no unit but prices by a WEIGHT it
         // publishes and sells fractions of, the weight stands in its place. A
         // bar at 4,830 and a thicker one at 4,045 are impossible per bar, and per
-        // the 1,000 kg the shop states for both they are two grades of steel four
-        // riyals a kilo apart. This cell names no unit for a shop that names
-        // none. What is shown is the shop's own weight and its own word for it.
+        // the 1,000 kg the shop states for both they are two grades of steel at about
+        // four riyals a kilo. This cell names no unit for a shop that names none.
+        // What is shown is the shop's own weight and its own word for it.
         const basis = row.unit || row.price_basis;
         if (basis) {
           const per = document.createElement("span");

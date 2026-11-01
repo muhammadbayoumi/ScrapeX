@@ -2226,7 +2226,7 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
                # The price cell renders this when the Unit column is empty. It
                # is NOT a unit and must never fill that column: it is the
                # weight the shop publishes for the thing it is pricing, shown
-               # because the shop also says the quantity is divisible.
+               # because the shop also sells fractions of it.
                "price_basis": price_basis(r[13], r[39], r[40], r[38], r[-3], r[-2]),
                "official_source": r[16] or "",
                "official_source_link": r[17] or "",
