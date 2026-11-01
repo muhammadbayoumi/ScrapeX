@@ -5,6 +5,7 @@ touched the real pointer would move the machine's actual warehouse.
 """
 from __future__ import annotations
 
+import os
 import sqlite3
 from pathlib import Path
 
@@ -315,6 +316,75 @@ def test_a_refused_restore_says_nothing_about_whether_the_path_exists(db_path, t
 
     assert len(answers) == 1, f"the refusals differ and can be told apart: {answers}"
     assert "only a backup it listed" in answers.pop()
+
+
+def test_a_restore_goes_on_with_the_listings_path_never_the_callers(conn, db_path,
+                                                                    monkeypatch):
+    """A listed copy spelled another way passes the guard, and what reaches the rest of
+    `restore` is the path the listing holds, so what was sent steers nothing after it."""
+    backup = Path(storage.backup_now(conn, db_path).location)
+    conn.close()
+    spelled = str(backup.parent / "elsewhere" / os.pardir / backup.name)
+    seen = []
+
+    def refusing_health(path, **_):
+        seen.append(str(path))
+        return {"ok": False, "status": "seen", "detail": "stopped here by the test."}
+
+    monkeypatch.setattr(storage, "health", refusing_health)
+
+    with pytest.raises(storage.StorageRefused, match="health check"):
+        storage.restore(db_path, spelled)
+
+    assert seen == [str(backup.resolve())], "the caller's spelling reached the health check"
+
+
+def test_a_refused_restore_never_asks_the_disk_about_that_path(db_path, tmp_path, monkeypatch):
+    """Resolving a path touches whatever it names, so a guard that resolves the caller's
+    path first has already acted on it by the time it refuses."""
+    unlisted = str(tmp_path / "somewhere" / "not-ours.db")
+    asked_of_the_disk = []
+    real = os.path.realpath
+
+    def spying(path, *args, **kwargs):
+        asked_of_the_disk.append(os.fspath(path))
+        return real(path, *args, **kwargs)
+
+    monkeypatch.setattr(os.path, "realpath", spying)
+
+    with pytest.raises(storage.StorageRefused, match="only a backup it listed"):
+        storage.restore(db_path, unlisted)
+
+    assert unlisted not in asked_of_the_disk
+
+
+@pytest.mark.parametrize("asked", [12345, ["a", "list"], "", ".", "a\0b"],
+                         ids=["a number", "a list", "empty", "a dot", "a NUL byte"])
+def test_a_path_that_is_not_one_gets_the_same_refusal(db_path, asked):
+    """JSON can carry anything in `backup_path`. A shape nobody offered is one more thing
+    that was not listed, and it answers in the same sentence rather than as a crash."""
+    with pytest.raises(storage.StorageRefused, match="only a backup it listed"):
+        storage.restore(db_path, asked)
+
+
+def test_listed_backup_answers_with_the_entry_it_found(tmp_path):
+    first = str((tmp_path / "a.backup.db").resolve())
+    second = str((tmp_path / "b.backup.db").resolve())
+    listing = [{"path": first}, {"path": second}]
+
+    assert str(storage.listed_backup(second, listing)) == second
+    assert str(storage.listed_backup(Path(second), listing)) == second
+    assert storage.listed_backup(second + ".part", listing) is None, "a longer name matched"
+    assert storage.listed_backup(second[:-1], listing) is None, "a shorter name matched"
+    assert storage.listed_backup(second, []) is None, "an empty listing offered something"
+
+
+def test_listed_backup_ignores_case_only_where_the_filesystem_does(tmp_path):
+    listed = str((tmp_path / "a.backup.db").resolve())
+
+    found = storage.listed_backup(listed.upper(), [{"path": listed}])
+
+    assert found == (Path(listed) if os.name == "nt" else None)
 
 
 def test_restore_validates_the_copy_before_moving_the_live_database(conn, db_path,
