@@ -118,15 +118,50 @@ def visible_columns(conn: sqlite3.Connection, source_key: str,
             if not f["is_hidden"]]
 
 
+# WHERE EACH COLUMN HE SENT TO THE CARD SITS THERE (#1835, his rulings of 2026-10-26).
+# One list for every price table: a source fills more of it or less, never different
+# columns. Choose Columns can still put any of them back, and the export keeps them all.
+COLUMNS_ON_THE_CARD: dict[str, str] = {
+    "minimum_quantity": "Store",
+    "quantity_increment": "Store",
+    "stock_quantity": "Store",
+    "price_trade": "Store",
+    "price_min": "History",
+    "price_max": "History",
+    "observations": "History",
+}
+
+# Beside the promoted details and axes, so no second table is needed. A column key can
+# equal an attribute code (`stock_quantity` is both on SIKAEGSHOP), hence the prefix.
+COLUMN_PREFIX = "column:"
+
+
+def columns_on_the_card(conn: sqlite3.Connection, source_key: str) -> set[str]:
+    """The agreed card columns he has not put back in the table."""
+    chosen = promoted_attributes(conn, source_key)
+    return {key for key in COLUMNS_ON_THE_CARD if COLUMN_PREFIX + key not in chosen}
+
+
+def with_card_columns(conn: sqlite3.Connection, source_key: str,
+                      rows: list[dict]) -> list[dict]:
+    """The chooser's list, each card column in the Details zone until he moves it.
+
+    Not in list_fields, because that also answers the current-view export, which keeps
+    these columns: only what the screen shows changes."""
+    on_card = columns_on_the_card(conn, source_key)
+    return [{**row, "is_hidden": row["is_hidden"] or row["field_key"] in on_card}
+            for row in rows]
+
+
 def hidden_columns(conn: sqlite3.Connection, source_key: str) -> set[str]:
-    """Only the keys the owner EXPLICITLY hid.
+    """The keys the owner EXPLICITLY hid, and the card columns he has not put back.
 
     The complement of visible_columns for a different question: a column that
     was never registered was never hidden, and must default to SHOWN. Deriving
     "wanted" from the registered-visible list silently suppressed every column
     added after a source's view was first seeded — brand, category and the
     discount arrived in the payload rows and never in the column list."""
-    return {r["field_key"] for r in conn.execute(
+    return columns_on_the_card(conn, source_key) | {r["field_key"] for r in conn.execute(
         "SELECT field_key FROM dataset_field WHERE source_key = ? AND is_hidden = 1",
         (source_key,))}
 
@@ -205,6 +240,8 @@ def set_visibility(conn: sqlite3.Connection, source_key: str, field_key: str,
                    hidden: bool) -> bool:
     """Hide/show a column. This is a VIEW operation — the column keeps receiving
     updates while hidden, which is exactly why it is not a delete."""
+    if field_key in COLUMNS_ON_THE_CARD:
+        set_promotion(conn, source_key, COLUMN_PREFIX + field_key, not hidden)
     cur = conn.execute(
         "UPDATE dataset_field SET is_hidden = ? WHERE source_key = ? AND field_key = ?",
         (1 if hidden else 0, source_key, field_key))
@@ -242,6 +279,9 @@ def reset_view(conn: sqlite3.Connection, source_key: str) -> None:
         "UPDATE dataset_field SET display_name = NULL, is_hidden = 0, "
         "display_order = dataset_field_id, arranged_at = NULL "
         "WHERE source_key = ?", (source_key,))
+    conn.execute(
+        "DELETE FROM source_attribute_promotion WHERE source_key = ? AND attribute_code LIKE ?",
+        (source_key, COLUMN_PREFIX + "%"))
 
 
 # ---- saved views -------------------------------------------------------------
@@ -393,7 +433,7 @@ def promotable_attributes(conn: sqlite3.Connection, source_key: str) -> list[dic
                 # Two different reasons a detail is a column, and the owner
                 # should tell them apart: the site said so, or he did.
                 "by_the_site": bool(r[5]), "promoted": r[0] in chosen,
-                "is_column": bool(r[5]) or r[0] in chosen, "kind": "detail"}
+                "is_column": r[0] in chosen, "kind": "detail"}
                for r in rows
                # A code that covers exactly ONE product is that product's own
                # row, not a KIND of fact — sika publishes 535 image_N and 202

@@ -91,6 +91,7 @@ from ..fields import (
     set_promotion,
     set_visibility,
     visible_columns,
+    with_card_columns,
 )
 from ..ingest import get_source_id
 from ..jobs import (
@@ -135,6 +136,7 @@ from ..reports import (
     browse_google_finance_rates,
     browse_observations,
     column_presence,
+    chooser_fields,
     column_seed,
     crawl_history,
     data_model_report,
@@ -3021,9 +3023,8 @@ def create_app(
             # committed these rows without the write lock; the POST that first
             # changes a column registers the same `column_seed`, in the same
             # agreed order, so the list he saw is the list that is written.
-            seed = column_seed(column_presence(conn, source_key))
             return {"source_key": source_key,
-                    "fields": fields_as_seeded(conn, source_key, seed),
+                    "fields": chooser_fields(conn, source_key),
                     "views": list_views(conn, source_key),
                     # Whose order this is. The panel says it out loud, because an
                     # owner who arranged his columns should never have to wonder
@@ -3113,7 +3114,7 @@ def create_app(
                     raise KeyError(body.get("field_key"))
             if "order" in body:
                 reorder(conn, source_key, list(body["order"]))
-            return list_fields(conn, source_key)
+            return with_card_columns(conn, source_key, list_fields(conn, source_key))
         try:
             return {"source_key": source_key, "fields": _write(apply)}
         except KeyError as exc:

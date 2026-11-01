@@ -843,6 +843,20 @@ def browse_columns() -> list[tuple[str, str]]:
 COLUMN_RANK: dict[str, int] = {key: rank for rank, (key, _) in enumerate(browse_columns())}
 
 
+def chooser_fields(conn: sqlite3.Connection, source_key: str) -> list[dict]:
+    """What Choose Columns lists for a price source: the columns this table can draw.
+
+    A key stays registered after it stops being a column, so MADAR's list held 112 names
+    under "In the table" where the table draws 58, and 29 with the agreed columns on the
+    card. A list that says a column is in the table when it is not is worse than a short one.
+    """
+    seed = column_seed(column_presence(conn, source_key))
+    columns = {*seed, *_filter_groups(conn, source_key, site_filters=False)}
+    listed = fields.with_card_columns(conn, source_key,
+                                      fields.fields_as_seeded(conn, source_key, seed))
+    return [field for field in listed if field["field_key"] in columns]
+
+
 def column_seed(present, touching: str | None = None) -> list[str]:
     """The columns a PRICE source's column list starts from, in registration order.
 
@@ -932,7 +946,9 @@ def column_presence(conn: sqlite3.Connection, source_key: str) -> set[str]:
         # Appended LAST, as every count before it: the Arabic brand is
         # empty on MASDAR and full on SAMEHGABRIEL, so the two halves are
         # gated apart or one source shows a column of nothing.
-        "       COUNT(NULLIF(TRIM(COALESCE(sp.brand_ar,'')),'')) "
+        "       COUNT(NULLIF(TRIM(COALESCE(sp.brand_ar,'')),'')), "
+        # Appended LAST again: 11 of 12 price tables drew an empty Display method.
+        "       COUNT(NULLIF(TRIM(COALESCE(sp.display_method,'')),'')) "
         f"{_LATEST_PER_OFFER}", (source_key,)).fetchone()
     present = {key for key, _ in BROWSE_COLUMNS}
     for column, count in (("variant_ar", row[0]), ("sku", row[1]),
@@ -941,7 +957,8 @@ def column_presence(conn: sqlite3.Connection, source_key: str) -> set[str]:
                           ("brand", row[6]), ("discount", row[7]),
                           ("discount_pct", row[7]),
                           ("product_name", row[9]), ("variant", row[10]),
-                          ("product_name_ar", row[11]), ("brand_ar", row[12])):
+                          ("product_name_ar", row[11]), ("brand_ar", row[12]),
+                          ("display_method", row[13])):
         if not count:
             present.discard(column)
     # USD est. exists to make many currencies RANKABLE in one column. A source
@@ -991,6 +1008,9 @@ def column_presence(conn: sqlite3.Connection, source_key: str) -> set[str]:
     depth = _depth_of("category_path")
     if not depth:
         present.discard("category")
+        present.discard("category_leaf")
+    if not depth_ar:
+        present.discard("category_leaf_ar")
     for level in range(1, CATEGORY_LEVELS + 1):
         if depth < level or (level == 1 and depth < 2):
             # L1 alone would duplicate Category exactly; the split only earns
@@ -1313,7 +1333,8 @@ def export_source_table(conn: sqlite3.Connection, source_key: str,
                               fields.promoted_attributes(conn, source_key))
 
 
-def _filter_values(conn: sqlite3.Connection, source_key: str) -> dict[int, dict[str, str]]:
+def _filter_values(conn: sqlite3.Connection, source_key: str,
+                   site_filters: bool = True) -> dict[int, dict[str, str]]:
     """source_product_id -> {the site's filter label: this product's value}.
 
     The owner: the site offers filters on its listing pages and he wants columns
@@ -1332,13 +1353,14 @@ def _filter_values(conn: sqlite3.Connection, source_key: str) -> dict[int, dict[
     attributes gets no such columns, and a product missing one of them gets
     an empty cell rather than a guess.
     """
+    by_the_site = "spa.is_site_filter = 1 OR " if site_filters else ""
     rows = conn.execute(
         "SELECT spa.source_product_id, "
         "       COALESCE(NULLIF(spa.attribute_label,''), spa.attribute_code), spa.raw_value "
         "FROM source_product_attribute spa "
         "JOIN source_product sp ON sp.source_product_id = spa.source_product_id "
         "JOIN source_site ss ON ss.source_id = sp.source_id "
-        "WHERE ss.source_key = ? AND (spa.is_site_filter = 1 OR spa.attribute_code IN "
+        f"WHERE ss.source_key = ? AND ({by_the_site}spa.attribute_code IN "
         "     (SELECT attribute_code FROM source_attribute_promotion "
         "       WHERE source_key = ?)) "
         "ORDER BY spa.source_product_id",
@@ -1350,8 +1372,10 @@ def _filter_values(conn: sqlite3.Connection, source_key: str) -> dict[int, dict[
     return found
 
 
-def _filter_groups(conn: sqlite3.Connection, source_key: str) -> dict[str, str]:
+def _filter_groups(conn: sqlite3.Connection, source_key: str,
+                   site_filters: bool = True) -> dict[str, str]:
     """Map each site-named table column to its stored detail group."""
+    by_the_site = "spa.is_site_filter = 1 OR " if site_filters else ""
     rows = conn.execute(
         "SELECT DISTINCT "
         "       COALESCE(NULLIF(spa.attribute_label,''), spa.attribute_code), "
@@ -1359,7 +1383,7 @@ def _filter_groups(conn: sqlite3.Connection, source_key: str) -> dict[str, str]:
         "FROM source_product_attribute spa "
         "JOIN source_product sp ON sp.source_product_id = spa.source_product_id "
         "JOIN source_site ss ON ss.source_id = sp.source_id "
-        "WHERE ss.source_key = ? AND (spa.is_site_filter = 1 OR spa.attribute_code IN "
+        f"WHERE ss.source_key = ? AND ({by_the_site}spa.attribute_code IN "
         "     (SELECT attribute_code FROM source_attribute_promotion "
         "       WHERE source_key = ?))",
         (source_key, source_key)).fetchall()
@@ -2272,13 +2296,18 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
     # The owner asked for the main table to hold everything, and a column
     # that exists in the file and not on the screen is the same split he
     # keeps having to work around.
-    pivoted = _filter_values(conn, source_key)
+    #
+    # THE SITE'S FACETS ARE NO LONGER IN THIS LIST (#1835). They were columns because a
+    # shop publishes a facet list, which gave MADAR 21 columns no other table has, on as
+    # few as one row in 4,740. They stay in the card's Specifications and in the export,
+    # and Choose Columns promotes any of them back.
+    pivoted = _filter_values(conn, source_key, site_filters=False)
     extra: list[str] = []
     for row in shaped:
         for label in pivoted.get(row.get("source_product_id") or -1, {}):
             if label not in extra and label not in labels:
                 extra.append(label)
-    extra = _group_sorted(extra, _filter_groups(conn, source_key))
+    extra = _group_sorted(extra, _filter_groups(conn, source_key, site_filters=False))
     for row in shaped:
         values = pivoted.get(row.pop("source_product_id", None) or -1, {})
         for label in extra:
@@ -2347,7 +2376,8 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
         # are not lost: the record panel lists them under Details, so hiding a
         # column is "move it to the details" and showing it is "move it back"
         # — the owner's ask, using the mechanism that already exists.
-        "moved_to_details": [{"key": key, "label": label}
+        "moved_to_details": [{"key": key, "label": label,
+                              "section": fields.COLUMNS_ON_THE_CARD.get(key, "")}
                              for key, label in BROWSE_COLUMNS
                              # The link is an icon, not a fact that can live
                              # in the details panel, so "move it to details" was

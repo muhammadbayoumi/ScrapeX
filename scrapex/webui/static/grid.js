@@ -917,7 +917,7 @@
 
     function renderPromotable(attributes) {
       promoteBody.replaceChildren();
-      const offer = (attributes || []).filter((a) => !a.by_the_site);
+      const offer = attributes || [];
       promoteZone.hidden = offer.length === 0;
       for (const attribute of offer) {
         const row = document.createElement("label");
@@ -978,7 +978,8 @@
     document.body.append(backdrop);
 
     function fieldLabel(field) {
-      const tableColumn = payload.columns.find((column) => column.key === field.field_key);
+      const tableColumn = [...payload.columns, ...(payload.moved_to_details || [])]
+        .find((column) => column.key === field.field_key);
       const raw = text(field.display_name || (tableColumn && tableColumn.label) ||
                        field.label || field.original_name || field.field_key);
       // Hidden columns are absent from payload.columns, and many connectors use
@@ -2545,6 +2546,7 @@
     // Specifications; kept here so an un-recrawled source still lands somewhere
     // rather than growing a card of its own.) Media is absent on purpose: the
     // product card already owns the gallery.
+    const PRICE_FACTS = new Set(["price_min", "price_max", "price_trade"]);
     const DETAIL_SECTIONS = [
       {key: "description", label: "Description", icon: "material-description",
        groups: ["Description"]},
@@ -2797,17 +2799,27 @@
       });
     }
 
-    // Fields the owner moved OUT of the table (Choose Columns -> hide) are
-    // shown here instead, so nothing is ever lost by tidying the grid: hide
-    // moves a field into the details, show moves it back.
-    const moved = payload.moved_to_details || [];
-    if (moved.length && openOfferRow) {
-      const box = card("Moved out of the table");
-      cardBody(box).appendChild(specList(moved.map((column) => ({
-        label: column.label || column.key, value: text(openOfferRow[column.key]),
+    // Fields that left the table are shown here instead, so nothing is ever lost by
+    // tidying the grid: hide moves a field into the details, show moves it back. The
+    // ones he sent to the card have a section of their own (#1835), and a field with no
+    // value is left out, so a card never lists a blank.
+    const moved = (payload.moved_to_details || []).filter((column) =>
+      openOfferRow && text(openOfferRow[column.key]) !== "");
+    const movedCard = (title, columns, sections, key) => {
+      if (!columns.length) return;
+      const box = card(title);
+      cardBody(box).appendChild(specList(columns.map((column) => ({
+        label: column.label || column.key,
+        value: PRICE_FACTS.has(column.key)
+          ? formatMoney(openOfferRow[column.key]) + " " + (openOfferRow.currency || "")
+          : text(openOfferRow[column.key]),
       }))));
-      detailSections.get("specifications").push(box);
-    }
+      sections.get(key).push(box);
+    };
+    const movedTo = (section) => moved.filter((column) => column.section === section);
+    movedCard("This offer", movedTo("Store"), detailSections, "store");
+    movedCard("Price range", movedTo("History"), historySections, "price");
+    movedCard("Moved out of the table", movedTo(""), detailSections, "specifications");
 
     // The change-only timeline: the first price and each REAL move.
     const periods = data.periods || [];
