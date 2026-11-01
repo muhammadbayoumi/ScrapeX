@@ -528,3 +528,22 @@ def test_a_process_read_again_is_seen_again(conn):
         "SELECT first_seen_at, last_seen_at FROM tender_processes").fetchone()
     assert first_seen == "2000-01-01T00:00:00Z"
     assert last_seen >= before
+
+
+def test_a_release_nested_past_the_bound_is_refused_by_its_own_id():
+    """`jsonb()` refuses a value past SQLite's own depth as `malformed JSON`, an `OperationalError`,
+    which reads as the warehouse's fault. The bound is far above any real release, and below it."""
+    assert tenderstore.MAX_PAYLOAD_DEPTH < 900
+
+    def release(depth, wrap):
+        title = "x"
+        for _ in range(depth - 1):
+            title = wrap(title)
+        return tenderstore.Release(process_key="p", ocid="o", payload={
+            "ocid": "o", "id": "r", "date": "2026-10-13T00:00:00Z", "tag": ["tender"],
+            "tender": {"title": title}})
+
+    for wrap in (lambda inner: [inner], lambda inner: {"k": inner}):
+        tenderstore._assert_release_shape(release(tenderstore.MAX_PAYLOAD_DEPTH - 1, wrap))
+        with pytest.raises(ValueError, match="'r' nests deeper than"):
+            tenderstore._assert_release_shape(release(tenderstore.MAX_PAYLOAD_DEPTH, wrap))

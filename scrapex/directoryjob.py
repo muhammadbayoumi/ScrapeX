@@ -294,18 +294,32 @@ def pause_for_the_site(conn: sqlite3.Connection, job: dict, job_ref: str,
     its Resume skips: each knows its own unit. A `HostRefused` is the one CrawlBlocked
     that is NOT the site's: ScrapeX refused the host itself, so it settles FAILED.
 
+    ONE CALLER PER COLLECTOR: the listing crawl below and `profilejob`'s sweep.
+    """
+    pause_because(conn, job, job_ref, source_key, connectors_base.stopped_because(blocked),
+                  resume, fails=isinstance(blocked, connectors_base.HostRefused))
+
+
+#: Said by an ending that finds the row settled by something else: it says what it found, and
+#: the row stands.
+ALREADY_SETTLED = " — this job is already settled, so it is left as it is"
+
+
+def pause_because(conn: sqlite3.Connection, job: dict, job_ref: str, source_key: str,
+                  said: str, resume: str, *, fails: bool = False) -> None:
+    """Settle a job something outside it stopped as PAUSED, at WARNING, saying why.
+
     THE ROW OUTRANKS THE EXCEPTION, as it does at every other stop here: a job something
     else already settled is not re-settled, and a Cancel already pending is honoured as
-    a cancel rather than turned into a pause he would have to cancel again.
-
-    ONE CALLER PER COLLECTOR: the listing crawl below and `profilejob`'s sweep.
+    a cancel rather than turned into a pause he would have to cancel again. The site's
+    stops come through `pause_for_the_site`; another app holding the warehouse through
+    `tenderjob`, which a Resume also survives.
     """
     from . import jobs
 
-    said = connectors_base.stopped_because(blocked)
     if not jobs.still_wanted(conn, job_ref):
         jobs.append_log(conn, job["job_id"],
-                        f"{said} — this job is already settled, so it is left as it is",
+                        f"{said}{ALREADY_SETTLED}",
                         level=LogLevel.WARNING, source_key=source_key)
     elif jobs._control_of(conn, job["job_id"]) == JobControl.CANCEL.value:
         jobs.append_log(conn, job["job_id"],
@@ -313,7 +327,7 @@ def pause_for_the_site(conn: sqlite3.Connection, job: dict, job_ref: str,
                         "cancelled rather than paused",
                         level=LogLevel.WARNING, source_key=source_key)
         jobs._finish(conn, job["job_id"], JobStatus.CANCELLED, None)
-    elif isinstance(blocked, connectors_base.HostRefused):
+    elif fails:
         # NOT A PAUSE: the refusal is ours and a Resume would meet it again.
         jobs.append_log(conn, job["job_id"], f"failed: {said}",
                         level=LogLevel.ERROR, source_key=source_key)
