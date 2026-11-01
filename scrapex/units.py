@@ -132,9 +132,14 @@ class Charter:
         self.corroborators = tuple(c["field"] for c in block.get("corroborators", ()))
         # A witness may declare HOW its field speaks. "quantity" is the default
         # and the only shape sikaegshop needs: one field holding "20 kg". The
-        # other two exist because madar states the same fact differently.
+        # others exist because madar states the same fact differently.
         self.shapes = tuple(w.get("shape", "quantity") for w in block.get("witnesses", ()))
         self.unit_fields = tuple(w.get("unit_field", "") for w in block.get("witnesses", ()))
+        # A "sold_by" witness's own words, the units they may name, and the
+        # statement another field must make before the sentence counts.
+        self.phrases = tuple(tuple(w.get("phrases") or ()) for w in block.get("witnesses", ()))
+        self.sold_units = tuple(tuple(w.get("units") or ()) for w in block.get("witnesses", ()))
+        self.confirms = tuple(w.get("confirm") for w in block.get("witnesses", ()))
         # Which words name a CONTAINER on this site, and what each canonicalises
         # to. The canonicalising IS the point: a site that writes «صندوق» on the
         # Arabic axis and "box" on the English one would otherwise carry two
@@ -206,6 +211,19 @@ class Charter:
                     raw=literal, raw_lang=lang,
                     content_quantity=count, content_unit=content_unit)
 
+            if shape == "sold_by":
+                found = self._read_sold_by(text, self.phrases[index], self.sold_units[index])
+                if found is None:
+                    continue
+                unit, literal = found
+                confirmed = self._confirmed(self.confirms[index], fields)
+                if confirmed is None:
+                    continue
+                return Resolution(
+                    unit=unit, quantity=1.0, provenance=provenance,
+                    witness=f"{field}@{lang}/v{self.version}: {literal}{confirmed}",
+                    raw=literal, raw_lang=lang)
+
             if not text:
                 continue
             corroborators = [fields.get(name) for name in self.corroborators]
@@ -264,6 +282,50 @@ class Charter:
             return (container, float(match.group(1).replace(",", ".")),
                     content_unit, value.strip())
         return None
+
+    def _read_sold_by(self, text, phrases: tuple[str, ...],
+                      allowed: tuple[str, ...]) -> tuple[str, str] | None:
+        """The unit a «يباع بال<unit>» sentence names, when it names one only.
+
+        Every sentence opened by one of the declared phrases is read, not the
+        first: a text that says it is sold by the tonne AND by the piece is the
+        shop disagreeing with itself, and the answer to that is silence, never
+        whichever sentence happened to come first. Only then does the allow-list
+        apply, so a unit this site's charter does not admit is refused rather
+        than skipped past.
+        """
+        if not text or not phrases:
+            return None
+        cleaned = unicodedata.normalize("NFKC", str(text))
+        named: list[tuple[int, str, str]] = []
+        for phrase in phrases:
+            for match in re.finditer(re.escape(phrase) + r"([^\W\d_]+)", cleaned):
+                unit = _WORD_TO_UNIT.get(match.group(1).lower())
+                if unit is not None:
+                    named.append((match.start(), unit, match.group(0)))
+        if not named or len({unit for _, unit, _ in named}) != 1:
+            return None
+        named.sort()
+        _, unit, literal = named[0]
+        if unit not in allowed or unit not in self.pack:
+            return None
+        return unit, literal
+
+    @staticmethod
+    def _confirmed(confirm: dict, fields: dict) -> str | None:
+        """The confirming statement when the row makes it, and None when the row
+        says something else or nothing."""
+        value = fields.get(confirm["field"])
+        word = fields.get(confirm["unit_field"])
+        try:
+            number = float(str(value).replace(",", "."))
+        except (TypeError, ValueError):
+            return None
+        if number != float(confirm["quantity"]):
+            return None
+        if _WORD_TO_UNIT.get(str(word or "").strip().lower()) != confirm["unit"]:
+            return None
+        return f" (with {confirm['field']} {value} {word})"
 
     def _read(self, text: str, corroborators=()) -> tuple[float, str, str] | None:
         """The first pack-scale quantity, unless a corroborator disambiguates.

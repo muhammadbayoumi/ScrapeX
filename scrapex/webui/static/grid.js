@@ -1304,12 +1304,11 @@
         // A price may lose its column but never its unit.
         //
         // ...and where the source states no unit but prices by a WEIGHT it
-        // publishes, the weight stands in its place. madar's Ø8mm rebar reads
-        // 4,830 and its Ø32mm reads 4,045: per bar that is impossible, per the
-        // 1,000 kg the shop states for both it is two grades of steel four
-        // riyals a kilo apart. The Unit column stays empty either way — the
-        // shop names no unit, and this cell does not name one for it. What is
-        // shown is the shop's own weight and the shop's own word for its unit.
+        // publishes and sells fractions of, the weight stands in its place. A
+        // bar at 4,830 and a thicker one at 4,045 are impossible per bar, and per
+        // the 1,000 kg the shop states for both they are two grades of steel at about
+        // four riyals a kilo. This cell names no unit for a shop that names none.
+        // What is shown is the shop's own weight and its own word for it.
         const basis = row.unit || row.price_basis;
         if (basis) {
           const per = document.createElement("span");
@@ -1322,9 +1321,9 @@
             // "the shop said per 1,000 kg" from "ScrapeX decided per 1,000 kg",
             // and the whole point is that it is the former.
             per.title = "The source states no selling unit. It publishes a " +
-              "weight of " + basis + " for this item and states that its " +
-              "quantity is divisible, so the price is shown against that " +
-              "weight. The weight and its unit are both the source's.";
+              "weight of " + basis + " for this item and sells fractions of " +
+              "it, so the price is shown against that weight. The weight and " +
+              "its unit are both the source's.";
           }
           box.append(per);
         }

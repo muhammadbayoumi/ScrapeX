@@ -220,7 +220,7 @@ the host and what the study settled, and containing, in this order:
 Then the source moves in the registry, not in prose: a manifest row at
 `family: TBD-probe`, `active: false` is the only way a registry says "on the list, no
 collector yet" (`scrapex/vocab.py:449`, `scrapex/sourceboard.py:56`), and validation
-refuses to make it active before it is probed (`scrapex/config.py:552`).
+refuses to make it active before it is probed (`scrapex/config.py:160`).
 
 **Once the issue is filed, open that domain's build task straight away, one task per domain,**
 so finished studies do not pile up: «جلسة دراسة المصادر عندما تنتهى من دراسة مصدر تفتح مباشرة

@@ -45,6 +45,7 @@ except ImportError:                          # PyYAML built without libyaml
     from yaml import SafeLoader as _ManifestLoader
 
 from .robots import RobotsChoice, RobotsCustom
+from .units import UNIT_WORDS
 from .vocab import (
     Authority,
     Cadence,
@@ -447,6 +448,22 @@ class IdentityRules(BaseModel):
     on_ambiguous: str = "review"   # review | keep_separate
 
 
+class UnitConfirm(BaseModel):
+    """What another field of the same row must state for a witness to count.
+
+    `quantity` of `unit` exactly, read from `field` with its unit word in
+    `unit_field`. Not a tolerance and not a conversion: the shop states 1000
+    kgs on every rebar member, and that is the statement being checked.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    field: str
+    unit_field: str
+    quantity: float
+    unit: str
+
+
 class UnitWitness(BaseModel):
     """One field that may state a unit, and what kind of statement it is."""
 
@@ -468,10 +485,36 @@ class UnitWitness(BaseModel):
     # sikaegshop needs. "pair" is a number here and its unit word in
     # `unit_field` — madar's platform publishes weight and weight_unit that way.
     # "container" is «N unit / container», where what you buy is the container
-    # and N of the unit is what is in it.
-    shape: Literal["quantity", "pair", "container"] = "quantity"
+    # and N of the unit is what is in it. "sold_by" is a sentence naming the
+    # unit with no number — «يباع بالطن» — which states that one of the unit is
+    # what the price buys.
+    shape: Literal["quantity", "pair", "container", "sold_by"] = "quantity"
     # Only for shape "pair": where the unit WORD lives.
     unit_field: str = ""
+    # Only for shape "sold_by": the words that open the sentence, each ending
+    # where the unit word begins («يباع بال» + «طن»), and the units such a
+    # sentence may name here. Both are the site's, read off its own pages.
+    phrases: list[str] = []
+    units: list[str] = []
+    # Only for shape "sold_by", and required there: a second statement the row
+    # must make before the sentence is believed. madar's steel mesh carries
+    # «يسعر بالطن» too, in a line about contractors, and its price is per sheet;
+    # its weight field says which reading is true.
+    confirm: UnitConfirm | None = None
+
+    @model_validator(mode="after")
+    def _sold_by_names_what_it_reads(self) -> UnitWitness:
+        if self.shape == "sold_by" and not (self.phrases and self.units):
+            raise ValueError(
+                "a sold_by witness must name its phrases and the units they may "
+                "state; without them it would read any word after any verb")
+        if self.shape == "sold_by" and not self.confirm:
+            raise ValueError(
+                "a sold_by witness must name what confirms it: a sentence in a "
+                "description is not about one offer until the offer agrees")
+        if self.shape != "sold_by" and (self.phrases or self.units or self.confirm):
+            raise ValueError("phrases, units and confirm belong to a sold_by witness")
+        return self
 
 
 class UnitCorroborator(BaseModel):
@@ -524,6 +567,23 @@ class UnitCharter(BaseModel):
     # It is NOT what rejects a size like 1-1/2" — the reader requires letters
     # on both sides of the slash, so a fraction never reaches this list.
     containers: dict[str, list[str]] = {}
+
+    @model_validator(mode="after")
+    def _a_sold_by_witness_can_fire(self) -> UnitCharter:
+        """A unit no word maps to, or one the pack refuses, would pass every row
+        in silence, and his ruling would simply not happen."""
+        for witness in self.witnesses:
+            if witness.shape != "sold_by":
+                continue
+            for unit in [*witness.units, witness.confirm.unit]:
+                if unit not in UNIT_WORDS:
+                    raise ValueError(f"a sold_by witness names {unit!r}, which is no "
+                                     f"unit: {sorted(UNIT_WORDS)}")
+            for unit in witness.units:
+                if unit not in self.scales.pack:
+                    raise ValueError(f"a sold_by witness may state {unit!r}, which "
+                                     f"this charter's scales.pack does not admit")
+        return self
 
 
 class SourceEntry(BaseModel):
