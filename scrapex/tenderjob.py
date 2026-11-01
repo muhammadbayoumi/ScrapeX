@@ -25,12 +25,13 @@ newest change held when the last COMPLETE pass ended -- each less one day (`MARG
 ONE WRITER AT A TIME (`CLAUDE.md`; his ruling of 2026-10-31, #1775): a page is written inside
 the warehouse's write lock, and read outside it. Another app holding it pauses the job
 instead of failing it, because the record already holds its place; a Resume reads the undone
-page again.
+page again. Whichever of the job's writes meets it, and whatever it was doing then.
 """
 from __future__ import annotations
 
 import json
 import sqlite3
+import sys
 from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass, fields
 from datetime import timedelta
@@ -57,6 +58,11 @@ COUNTERS = tuple(field.name for field in fields(wc.Tally))
 #: The modes a tender crawl runs. A full rebuild is not one (#1701 Q3): the history keeps
 #: every notice it read, and an update reads what changed. History backfill is a price mode.
 RUNS = (RunMode.INITIAL_CRAWL.value, RunMode.UPDATE.value)
+
+#: How long one write of this job waits for another app, against `db.connect`'s 5 s. Waiting costs
+#: only a slower answer on a warehouse nothing else can write to either, where a refusal costs a
+#: pause he must resume by hand; #1399's job 184 measured a hold past 5 s on his machine.
+WRITE_WAIT_MS = 60_000
 
 
 @dataclass(frozen=True)
@@ -140,6 +146,16 @@ def _reasons(missed: dict) -> str:
     return " ".join(f"{reason}." for reason in missed.values())
 
 
+def _resuming(record: dict) -> str:
+    """What a Resume does from this record: an area goes on from its place, a pass over changes
+    has no place to go on from, and `since` stands until one ends."""
+    if record.get("phase") == "changes":
+        return ("Resuming reads the pass over changes again from its start, and what it "
+                "kept is not kept twice")
+    return ("Resuming goes on from the next unread page, and the areas read whole are not "
+            "read again")
+
+
 def run_tender_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
                               admission=None) -> dict:
     """Run one tender crawl to completion, or to a control boundary.
@@ -170,6 +186,43 @@ def run_tender_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
                          "the history keeps every notice it read, and an update reads "
                          "what changed (#1701 Q3)")
 
+    conn.execute(f"PRAGMA busy_timeout = {WRITE_WAIT_MS}")
+    fetcher = source_fetcher(source_settings.effective(conn, source_key, source),
+                             capture.crawl_settings(conn))
+    try:
+        return _crawl(conn, job, job_ref, source, fetcher, admission)
+    except Exception as exc:
+        # ANOTHER APP HOLDS THE WAREHOUSE (`CLAUDE.md`: wait for it, never route around it). The
+        # page was undone and the record holds its place, so a Resume loses nothing, whichever
+        # write met it: an entry write, a page's, or the one settling how the run ended.
+        if not dbmod.another_app_holds_it(exc):
+            raise
+        said = f"another app holds the warehouse ({exc})"
+    # THIS WAITS AS LONG AS IT TAKES: nothing else can say what became of the job, and given up,
+    # the row would stay `running` with no worker.
+    while True:
+        # A FAILED WRITE LEAVES ITS `BEGIN` OPEN, and a write inside it is an upgrade SQLite
+        # refuses at once, with no wait, and for good once another app has written.
+        conn.rollback()
+        # What a Resume does is the committed record's, for that is the one it reads.
+        record = _record(job_ref, (jobs.get_job(conn, job_ref) or job).get("checkpoint_json"))
+        try:
+            directoryjob.log_politeness(conn, job["job_id"], source_key, fetcher)
+            directoryjob.pause_because(conn, job, job_ref, source_key, said, _resuming(record))
+            return jobs.get_job(conn, job_ref) or job
+        except sqlite3.OperationalError as exc:
+            if not dbmod.another_app_holds_it(exc):
+                raise
+            print(f"{job_ref}: waiting to settle this job: {said}", file=sys.stderr)
+
+
+def _crawl(conn: sqlite3.Connection, job: dict, job_ref: str, source: tenders.TenderSource,
+           fetcher, admission) -> dict:
+    """The run, each of its endings settling the row. A write that meets another app leaves from
+    wherever it was, for `run_tender_crawl_job_once` to pause."""
+    from . import jobs
+
+    source_key = source.key
     job_id = job["job_id"]
     record = _record(job_ref, job.get("checkpoint_json"))
     record.setdefault("areas_read", [])
@@ -218,14 +271,12 @@ def run_tender_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
             capture._refuse_if_superseded(conn)
             yield
 
-    def resuming() -> str:
-        """What a Resume does from here: an area goes on from its record, a pass over changes
-        has no place to go on from, and `since` stands until one ends."""
-        if record.get("phase") == "changes":
-            return ("Resuming reads the pass over changes again from its start, and what it "
-                    "kept is not kept twice")
-        return ("Resuming goes on from the next unread page, and the areas read whole are not "
-                "read again")
+    def what_comes_next() -> str:
+        """The part of the job a stop leaves next, so what it says is what a Resume does: the
+        areas, until an update holds every area its count named."""
+        whole = {name for name, _ in record["count"]["areas"]} <= (
+            state.areas_read | set(record["areas_read"]))
+        return "changes" if whole and job["run_mode"] == RunMode.UPDATE.value else "areas"
 
     if record.get("phase") == "changes":
         jobs.note_a_re_entry(conn, job, unit="page(s)", source_key=source_key,
@@ -240,26 +291,17 @@ def run_tender_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
                  **({} if job["started_at"] else {"started_at": utc_now_iso()}))
     conn.commit()
 
-    fetcher = source_fetcher(source_settings.effective(conn, source_key, source),
-                             capture.crawl_settings(conn))
     host = jobs.host_of_url(source.base_url, source_key)
     admit = admission.lane(host) if admission is not None else nullcontext()
 
-    @contextmanager
-    def then_how_it_treated_the_site():
-        """Said on every ending and before it is settled, so the summary is the last line
-        (#1701, row 21)."""
-        try:
-            yield
-        finally:
-            directoryjob.log_politeness(conn, job_id, source_key, fetcher)
-            conn.commit()
-
+    # HOW THE RUN TREATED THE SITE is said by every ending below, in the write that settles it, so
+    # the summary is the last line (#1701, row 21) and a lock cannot replace the ending in flight.
     try:
-        with admit, then_how_it_treated_the_site():
+        with admit:
             if not jobs.still_wanted(conn, job_ref):
-                say(LogLevel.INFO, "stopped while waiting for the site's turn, so nothing "
+                say(LogLevel.INFO, "stopped while waiting for the site's turn, so nothing more "
                                    "was read")
+                conn.commit()
                 return jobs.get_job(conn, job_ref) or job
             plan = wc.count_areas(fetcher)
             tally.requests += 1
@@ -269,7 +311,7 @@ def run_tender_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
             record["count"] = {"counted_at": utc_now_iso(), "total": plan.total,
                                "requests": plan.requests, "unlisted": plan.unlisted,
                                "areas": [[area.name, area.count] for area in plan.areas]}
-            record["phase"] = "areas"
+            record["phase"] = what_comes_next()
             held = state.areas_read | set(record["areas_read"])
             resume = record.get("area") or {}
             # THE AREA A STOP CAME INSIDE IS READ FIRST. An area left unread earlier comes
@@ -287,7 +329,7 @@ def run_tender_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
                 # THE COUNT INCLUDED, as `count_line`'s figure is (`Plan.requests`): the
                 # line and the cost question part 3b-2b asks give one number (#1701, 13a).
                 say(LogLevel.INFO, f"{wc._counted(len(to_read), 'area')} not read yet: "
-                                   f"{left:,} requests")
+                                   f"{wc._counted(left, 'request')}")
             elif job["run_mode"] == RunMode.INITIAL_CRAWL.value:
                 say(LogLevel.INFO, "every area is already read, so an initial crawl has "
                                    "nothing to read")
@@ -302,9 +344,10 @@ def run_tender_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
                 # ONLY THE RECORD CAN SEE THIS MOVE: `read_area`'s guard compares with the
                 # count just taken. A notice gone from a page read before the stop slides one
                 # in from the next page read, and that one would be in neither.
-                say(LogLevel.INFO, f"{resumed.name}: the Bank now counts {resumed.count:,} "
-                                   f"notices, not the {resume['count']:,} it counted before "
-                                   "this job stopped; reading it again from its first page")
+                say(LogLevel.INFO, f"{resumed.name}: the Bank now counts "
+                                   f"{wc._counted(resumed.count, 'notice')}, not the "
+                                   f"{resume['count']:,} it counted before this job stopped; "
+                                   "reading it again from its first page")
             # THE JOB'S FIGURES, NOT THIS PASS'S; the count is in both `tally` and `left`.
             jobs.record_source_fetch(conn, job_id, source_key,
                                      expected=tally.requests - 1 + left,
@@ -338,21 +381,19 @@ def run_tender_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
                     record["unread"].pop(area.name, None)
                 else:
                     record["unread"][area.name] = read.reason
+                record["phase"] = what_comes_next()
                 keep(progress_done=len(record["areas_read"]))
                 # A FAILED PAGE IS A BOUNDARY TOO: `page_kept` never ran for it, and on a Bank
                 # failing every page nothing else would ever answer his Pause or Cancel.
                 stop_if_asked()
 
-            whole = {area.name for area in plan.areas} <= (
-                state.areas_read | set(record["areas_read"]))
-            if whole and job["run_mode"] == RunMode.UPDATE.value:
+            if record["phase"] == "changes":
                 since = SourceState(
                     count=record["count"], areas_read=frozenset(),
                     first_counted_at=state.first_counted_at or record["first_counted_at"],
                     held_whole_at=state.held_whole_at).since()
                 say(LogLevel.INFO, f"every area read; reading the notices changed since "
                                    f"{since}")
-                record["phase"] = "changes"
 
                 def changes_page_kept(page: int, notices: int) -> None:
                     say(LogLevel.INFO, f"changes, page {page + 1}: "
@@ -376,16 +417,18 @@ def run_tender_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
                                       if outcome.complete else None)}
                 keep()
     except CrawlInterrupted as stop:
-        if stop.control == JobControl.PAUSE.value:
+        directoryjob.log_politeness(conn, job_id, source_key, fetcher)
+        if not jobs.still_wanted(conn, job_ref):
+            # THE ROW OUTRANKS THE INSTRUCTION, as at every other stop: a job something else
+            # already settled is not settled again, and the panel's Cancel settles a `pausing`
+            # job at once, while this one still holds its page.
+            say(LogLevel.INFO, "stopped between pages: this job is already settled, so "
+                               "nothing more is read")
+        elif stop.control == JobControl.PAUSE.value:
             jobs._update(conn, job_id, status=JobStatus.PAUSED.value,
                          control=JobControl.NONE.value, stage=None,
                          last_heartbeat_at=utc_now_iso())
-            say(LogLevel.INFO, f"paused between pages. {resuming()}")
-        elif not jobs.still_wanted(conn, job_ref):
-            # THE ROW OUTRANKS THE INSTRUCTION, as at every other stop: a job something
-            # else already settled is not settled again.
-            say(LogLevel.INFO, "stopped between pages: this job is already settled, so "
-                               "nothing more is read")
+            say(LogLevel.INFO, f"paused between pages. {_resuming(record)}")
         else:
             say(LogLevel.INFO, "cancelled between pages. What was kept stays kept, and an "
                                "update reads the rest")
@@ -393,22 +436,21 @@ def run_tender_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
         conn.commit()
         return jobs.get_job(conn, job_ref) or job
     except CrawlBlocked as blocked:
-        directoryjob.pause_for_the_site(conn, job, job_ref, source_key, blocked, resuming())
+        directoryjob.log_politeness(conn, job_id, source_key, fetcher)
+        directoryjob.pause_for_the_site(conn, job, job_ref, source_key, blocked,
+                                        _resuming(record))
         return jobs.get_job(conn, job_ref) or job
     except Exception as exc:
-        # ANOTHER APP HOLDS THE WAREHOUSE (`CLAUDE.md`: wait for it, never route around it).
-        # The page was undone and the record holds its place, so a Resume loses nothing. Any
-        # other `OperationalError` is a fault of the warehouse, and fails below. A lock that
-        # outlasts this write too escapes to the worker, which records it and settles the job.
-        if isinstance(exc, dbmod.DbLockedError) or (
-                isinstance(exc, sqlite3.OperationalError) and "locked" in str(exc).lower()):
-            directoryjob.pause_because(conn, job, job_ref, source_key,
-                                       f"another app holds the warehouse ({exc})", resuming())
-            return jobs.get_job(conn, job_ref) or job
+        # Any other `OperationalError` is a fault of the warehouse, and fails below.
+        if dbmod.another_app_holds_it(exc):
+            raise
+        directoryjob.log_politeness(conn, job_id, source_key, fetcher)
         # THE CONSEQUENCE LEADS, so the two-line clamp on Jobs keeps it (#1701, row 24), and
         # the error is named by its type too, for an `httpx` error's message can be empty.
         if plan is None:
-            lead = "The count failed, so this run read nothing."
+            # A RESUMED JOB HOLDS WHAT ITS EARLIER LEGS KEPT, and only it has made a request.
+            lead = ("The count failed; an update reads the rest." if tally.requests
+                    else "The count failed, so this run read nothing.")
         elif record.get("phase") == "changes":
             lead = "The pass over changes failed, and the next update reads it again."
         else:
@@ -418,14 +460,22 @@ def run_tender_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
         first_line = next(iter(str(exc).splitlines()), "")
         named = f"{type(exc).__name__}: {first_line}" if first_line else type(exc).__name__
         summary = f"{lead} {named}"
-        jobs._finish(conn, job_id, JobStatus.FAILED, summary)
-        say(LogLevel.ERROR, summary)
+        if jobs.still_wanted(conn, job_ref):
+            jobs._finish(conn, job_id, JobStatus.FAILED, summary)
+            say(LogLevel.ERROR, summary)
+        else:
+            say(LogLevel.ERROR, f"{summary}{directoryjob.ALREADY_SETTLED}")
         conn.commit()
         raise
 
+    directoryjob.log_politeness(conn, job_id, source_key, fetcher)
     # WHAT IS LEFT, THE CONSEQUENCE FIRST, so the two-line clamp on Jobs keeps it (#1701,
-    # row 23): areas an update reads first, then a pass cut short, then the notices this
-    # run refused, each already named in the log by its id (#1779: never a stop).
+    # row 23): areas an update reads first, then a pass cut short, then what this run refused,
+    # each already named in the log by its id (#1779: never a stop). REFUSALS AND NOT NOTICES:
+    # a Resume reads a page again and refuses its notice again, and counting distinct ones would
+    # mean keeping every id in the record. AND WHAT A LATER RUN DOES ABOUT THEM, said plainly: an
+    # area with a refusal is held whole like any other, and his choice of 2026-11-01 leaves a
+    # way to read them again to a control decided on the first crawl's measured rate.
     said = []
     if record["unread"]:
         missed = record["unread"]
@@ -436,10 +486,14 @@ def run_tender_crawl_job_once(conn: sqlite3.Connection, job_ref: str,
                     f"update reads again from {record['changes']['since']}.")
     refused = tally.errors
     if refused:
-        said.append(f"{wc._counted(refused, 'notice')} not kept; "
-                    f"{'it is' if refused == 1 else 'each is'} named in the log by its id.")
-    if said:
-        summary = " ".join(said)
+        said.append(f"{wc._counted(refused, 'refusal')}, and a later run reads a refused notice "
+                    "again only if the Bank changes it or its area is still unread. "
+                    f"{'It is' if refused == 1 else 'Each is'} named in the log by its id.")
+    summary = " ".join(said)
+    if not jobs.still_wanted(conn, job_ref):
+        say(LogLevel.WARNING if said else LogLevel.INFO,
+            f"{summary or 'every page it read is kept'}{directoryjob.ALREADY_SETTLED}")
+    elif said:
         jobs._finish(conn, job_id, JobStatus.COMPLETED_WITH_ERRORS, summary)
         say(LogLevel.WARNING, summary)
     else:

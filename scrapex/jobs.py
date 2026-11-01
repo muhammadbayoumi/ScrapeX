@@ -1826,6 +1826,10 @@ class JobRunner:
         """Park a job whose execution blew up, on a fresh transaction so the
         failure record cannot be rolled away with the thing that failed."""
         try:
+            # THE RECORDER BEFORE THIS LEAVES ITS FAILED `BEGIN` OPEN, and a write inside it
+            # is an upgrade SQLite refuses at once, with no wait: on a warehouse another app
+            # held, that left the row `running` with no worker (#1802).
+            conn.rollback()
             job = get_job(conn, job_ref)
             if job is None or job["status"] in {s.value for s in TERMINAL_JOB_STATUSES}:
                 return

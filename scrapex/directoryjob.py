@@ -300,6 +300,11 @@ def pause_for_the_site(conn: sqlite3.Connection, job: dict, job_ref: str,
                   resume, fails=isinstance(blocked, connectors_base.HostRefused))
 
 
+#: Said by an ending that finds the row settled by something else: it says what it found, and
+#: the row stands.
+ALREADY_SETTLED = " — this job is already settled, so it is left as it is"
+
+
 def pause_because(conn: sqlite3.Connection, job: dict, job_ref: str, source_key: str,
                   said: str, resume: str, *, fails: bool = False) -> None:
     """Settle a job something outside it stopped as PAUSED, at WARNING, saying why.
@@ -314,7 +319,7 @@ def pause_because(conn: sqlite3.Connection, job: dict, job_ref: str, source_key:
 
     if not jobs.still_wanted(conn, job_ref):
         jobs.append_log(conn, job["job_id"],
-                        f"{said} — this job is already settled, so it is left as it is",
+                        f"{said}{ALREADY_SETTLED}",
                         level=LogLevel.WARNING, source_key=source_key)
     elif jobs._control_of(conn, job["job_id"]) == JobControl.CANCEL.value:
         jobs.append_log(conn, job["job_id"],

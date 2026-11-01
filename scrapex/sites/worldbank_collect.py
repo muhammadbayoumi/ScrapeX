@@ -227,7 +227,8 @@ def _not_its_share(where: str, rows: list[dict], due: int) -> str | None:
     missing or came twice, and a page kept anyway would mark its read whole."""
     if len(rows) == due:
         return None
-    return f"{where}: the Bank answered {len(rows):,} notices where {due:,} were due"
+    return (f"{where}: the Bank answered {_counted(len(rows), 'notice')} where {due:,} "
+            f"{'was' if due == 1 else 'were'} due")
 
 
 def _get(fetcher, params: dict[str, str], where: str) -> tuple[httpx.Response | None, str]:
@@ -348,8 +349,8 @@ def read_area(conn: sqlite3.Connection, fetcher, *, source_site_id: int, area: A
             # Africa, Afghan, Pakistan"). A total that is not the count read a moment ago
             # means this is not the area counted, or the index moved under the run; either
             # way nothing of it is kept, and an update reads it again.
-            reason = (f"the Bank answered {int(body['total']):,} notices for {area.name}, "
-                      f"and counted {area.count:,}")
+            reason = (f"the Bank answered {_counted(int(body['total']), 'notice')} for "
+                      f"{area.name}, and counted {area.count:,}")
             log("warning", reason)
             return AreaRead(complete=False, pages_read=read, reason=reason)
         rows = body["procnotices"]

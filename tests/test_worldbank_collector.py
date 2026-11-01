@@ -845,3 +845,16 @@ def test_a_change_stamp_that_does_not_read_is_kept_and_refused_by_name(conn, sta
     assert tally.notices == 3 and tally.errors == 1
     assert count(conn, "tender_releases") == 2
     assert log.says(f"{changed[1]['id']!r} not kept")
+
+
+def test_a_short_page_reads_at_one(conn):
+    """Areas of 1 to 8 notices are measured live (#1779), so these words are reached at one."""
+    bank = Bank({EGYPT: notices(1_003)}, answers={(EGYPT, 1000): 1})
+    result, _, _, _ = read(conn, bank, EGYPT)
+    assert result.reason == f"{EGYPT}, page 2: the Bank answered 1 notice where 3 were due"
+    assert wc._not_its_share("x", [{}, {}], 1) == "x: the Bank answered 2 notices where 1 was due"
+
+
+def test_a_moved_total_reads_at_one(conn):
+    result, _, _, _ = read(conn, Bank({EGYPT: notices(5)}, totals={EGYPT: 1}), EGYPT)
+    assert result.reason == f"the Bank answered 1 notice for {EGYPT}, and counted 5"

@@ -30,12 +30,16 @@ from scrapex import (
 )
 from scrapex import db as dbmod
 from scrapex.catalog_models import SiteCreate
-from scrapex.connectors.base import RobotsUnreachable
+from scrapex.connectors.base import HostRefused, RobotsUnreachable
 from scrapex.databases.domain import EngineDatabase
 from scrapex.sites import worldbank_collect as wc
 from scrapex.vocab import JobStatus
 
 KENYA = "Kenya"
+#: What a run says about what it refused, and what every later run then does (his choice of
+#: 2026-11-01): tested by running them, below.
+LATER = ("and a later run reads a refused notice again only if the Ban"
+         "k changes it or its area is still unread.")
 NOW = "2026-10-13T08:00:00Z"
 #: One day before NOW: where the first pass over changes starts (his ruling, #1701).
 SINCE = "2026-10-12T08:00:00Z"
@@ -57,6 +61,21 @@ def bank(monkeypatch):
     holder = {"bank": Bank({EGYPT: notices(1_200), KENYA: notices(300, start=5_000)})}
     monkeypatch.setattr(tenderjob, "source_fetcher", lambda rules, settings: holder["bank"])
     return holder
+
+
+@pytest.fixture(autouse=True)
+def a_wait_that_cannot_end_fails(monkeypatch):
+    """The runner waits as long as another app holds the warehouse, so a wait broken to never end
+    would hang CI for its 30 minutes and name no test. An honest wait here costs at least the 10 ms
+    these tests set, and no holder outlasts 0.5 s, so this count is out of its reach."""
+    waits = []
+
+    def said(*args, **kwargs):
+        waits.append(args)
+        assert len(waits) < 5_000, f"this wait cannot end: {args[0]}"
+        print(*args, **kwargs)
+
+    monkeypatch.setattr(tenderjob, "print", said, raising=False)
 
 
 def run(conn, mode="initial_crawl"):
@@ -136,7 +155,7 @@ def test_refused_notices_never_stop_the_crawl_and_end_it_with_errors(conn, bank)
     bank["bank"] = Bank({EGYPT: notices(1_200), KENYA: kenya})
     job, ref = run(conn)
     assert job["status"] == "completed_with_errors"
-    assert job["error_summary"] == "300 notices not kept; each is named in the log by its id."
+    assert job["error_summary"] == f"300 refusals, {LATER} Each is named in the log by its id."
     assert job["checkpoint"]["areas_read"] == [EGYPT, KENYA]
     assert any(level == "warning" and message.startswith(f"every notice on {KENYA}, page 1")
                for level, message in logged(conn, ref))
@@ -150,7 +169,7 @@ def test_unread_areas_lead_the_summary_and_refused_notices_follow(conn, bank):
     job, _ = run(conn)
     assert job["status"] == "completed_with_errors"
     assert job["error_summary"] == (f"1 area not read; an update reads it first. {KENYA}, "
-                                    "page 1: HTTP 503 after its tries. 1 notice not kept; it "
+                                    f"page 1: HTTP 503 after its tries. 1 refusal, {LATER} It "
                                     "is named in the log by its id.")
 
 
@@ -456,21 +475,37 @@ def test_a_warehouse_sealed_under_the_crawl_keeps_nothing_after_the_seal(conn, b
     assert count(conn, "fetched_responses") == 0
 
 
-@pytest.mark.parametrize("locked", [
-    dbmod.DbLockedError("the write lock is held by pid 7"),
-    sqlite3.OperationalError("database is locked"),
-])
+def real_busy(conn) -> sqlite3.OperationalError:
+    """The error SQLite itself raises when another connection holds the write lock."""
+    path = conn.execute("PRAGMA database_list").fetchone()[2]
+    holder = sqlite3.connect(path, isolation_level=None)
+    other = sqlite3.connect(path, timeout=0)
+    holder.execute("BEGIN IMMEDIATE")
+    try:
+        other.execute("UPDATE crawl_job SET stage = stage")
+    except sqlite3.OperationalError as exc:
+        return exc
+    finally:
+        holder.execute("ROLLBACK")
+        other.close()
+        holder.close()
+    raise AssertionError("the second writer was not refused")
+
+
+@pytest.mark.parametrize("locked", ["the write lock", "sqlite"])
 def test_a_locked_warehouse_pauses_the_job_and_a_resume_reads_the_page_again(conn, bank,
                                                                              monkeypatch, locked):
     """`CLAUDE.md`: another app holding it is waited for, never routed around. The page is
     undone and the record holds its place, so this is a pause, not a failure."""
     real_store = tenderstore.store_response
     calls = []
+    refusal = (dbmod.DbLockedError("the write lock is held by pid 7")
+               if locked == "the write lock" else real_busy(conn))
 
     def store(c, **kw):
         calls.append(1)
         if len(calls) == 2:
-            raise locked
+            raise refusal
         return real_store(c, **kw)
 
     monkeypatch.setattr(tenderstore, "store_response", store)
@@ -507,9 +542,9 @@ def test_a_cancel_pending_when_the_warehouse_is_locked_is_a_cancel(conn, bank, m
 def test_a_second_connection_holding_the_warehouse_pauses_the_job(conn, bank, monkeypatch):
     """The real SQLite refusal, not an exception a stand-in raises: at #1802's gate a second
     connection left the row `running`, because the failure's own log line met the same lock.
-    It is released when the page has failed, as a holder that outlasts `busy_timeout` once."""
+    It is released when the page has failed, as a holder that outlasts the wait once."""
     path = conn.execute("PRAGMA database_list").fetchone()[2]
-    conn.execute("PRAGMA busy_timeout = 10")
+    monkeypatch.setattr(tenderjob, "WRITE_WAIT_MS", 10)
     other = sqlite3.connect(path, isolation_level=None)
     real_store = tenderstore.store_response
 
@@ -530,30 +565,6 @@ def test_a_second_connection_holding_the_warehouse_pauses_the_job(conn, bank, mo
     assert count(conn, "fetched_responses") == 0
     assert logged(conn, ref)[-1][0] == "warning"
     assert "another app holds the warehouse (database is locked)" in logged(conn, ref)[-1][1]
-
-
-def test_a_lock_that_outlasts_the_pause_too_reaches_the_worker(conn, bank, monkeypatch):
-    """The row cannot be written, so nothing here can settle it: `JobRunner` records the error
-    and settles the job (`_fail_orphan`), which is why it must escape."""
-    path = conn.execute("PRAGMA database_list").fetchone()[2]
-    conn.execute("PRAGMA busy_timeout = 10")
-    other = sqlite3.connect(path, isolation_level=None)
-
-    def store(c, **kw):
-        other.execute("BEGIN IMMEDIATE")
-        raise sqlite3.OperationalError("database is locked")
-
-    monkeypatch.setattr(tenderstore, "store_response", store)
-    ref = a_job(conn)
-    try:
-        with pytest.raises(sqlite3.OperationalError, match="locked"):
-            tenderjob.run_tender_crawl_job_once(conn, ref)
-    finally:
-        other.execute("ROLLBACK")
-        other.close()
-    # The failed write's own open transaction is the worker's recorder's to roll back.
-    conn.rollback()
-    assert jobs.get_job(conn, ref)["status"] == "running"
 
 
 def test_a_real_fault_of_the_warehouse_still_fails_the_job(conn, bank, monkeypatch):
@@ -651,7 +662,7 @@ def test_refused_notices_before_a_pause_still_end_the_run_with_errors(conn, bank
     bank["bank"] = Bank({EGYPT: egypt, KENYA: notices(300, start=5_000)})
     done = tenderjob.run_tender_crawl_job_once(conn, ref)
     assert done["status"] == "completed_with_errors"
-    assert done["error_summary"] == "3 notices not kept; each is named in the log by its id."
+    assert done["error_summary"] == f"3 refusals, {LATER} Each is named in the log by its id."
     assert done["counters"]["notices"] == 1_500, "a resume must carry the job's counts on"
 
 
@@ -960,7 +971,7 @@ def test_a_cut_short_pass_and_refused_notices_read_as_two_sentences(conn, bank):
     job, _ = run(conn, "update")
     assert job["error_summary"] == (f"the pass over changes stopped: changes, page 2: HTTP 503 "
                                     f"after its tries. The next update reads again from {SINCE}. "
-                                    "1 notice not kept; it is named in the log by its id.")
+                                    f"1 refusal, {LATER} It is named in the log by its id.")
 
 
 def test_a_page_of_changes_reads_at_one(conn, bank):
@@ -1075,3 +1086,589 @@ def test_a_crawled_tender_source_is_declared(conn, bank):
     refreshed, and /api/health says so about the World Bank."""
     run(conn)
     assert "worldbank_org" not in storage.undeclared_sources(conn)
+
+
+# ---- the re-review of #1802: a write meets another app (his ruling of 2026-10-31, #1775) ---------
+
+class Holder:
+    """A real second connection holding SQLite's write lock: `take` it, and it commits a write of
+    its own after `seconds`, on its own thread, as another app's transaction ends."""
+
+    def __init__(self, conn, seconds):
+        path = conn.execute("PRAGMA database_list").fetchone()[2]
+        self.other = sqlite3.connect(path, isolation_level=None, check_same_thread=False)
+        self.seconds, self.taken, self.timer = seconds, False, None
+
+    def take(self):
+        if self.taken:
+            return
+        self.taken = True
+        self.other.execute("BEGIN IMMEDIATE")
+        self.other.execute("INSERT INTO scrapex_meta (key, value) VALUES ('held', 'by another app') "
+                           "ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+        self.timer = threading.Timer(self.seconds, lambda: self.other.execute("COMMIT"))
+        self.timer.start()
+
+    def close(self):
+        if self.timer:
+            self.timer.join()
+        self.other.close()
+
+
+@pytest.fixture()
+def holder(conn):
+    holders = []
+
+    def make(seconds=0.3):
+        holders.append(Holder(conn, seconds))
+        return holders[-1]
+
+    yield make
+    for each in holders:
+        each.close()
+
+
+def hold_at_the_sites_lines(monkeypatch, held):
+    """Taken as the run's lines about the site are written, the first write of every ending."""
+    real = tenderjob.directoryjob.log_politeness
+
+    def politeness(*args, **kwargs):
+        held.take()
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(tenderjob.directoryjob, "log_politeness", politeness)
+
+
+def stop_after_the_first_page(bank, conn, ref, control):
+    real = bank["bank"].get
+
+    def get(url, params=None, **kw):
+        response = real(url, params=params, **kw)
+        if wc.AREA_FACET in params:
+            jobs.set_control(conn, ref, control)
+        return response
+
+    bank["bank"].get = get
+
+
+@pytest.mark.parametrize("control, status", [("pause", "paused"), ("cancel", "cancelled")])
+def test_another_app_writing_as_a_stop_settles_does_not_replace_the_stop(
+        conn, bank, monkeypatch, holder, control, status):
+    """At the re-review a 7 s holder turned his Pause and his Cancel into `failed`: the site's
+    line met the lock, replaced the stop on its way out, and the pause got no wait of its own."""
+    bank["bank"].robots_warnings = ["robots.txt asked for a delay"]
+    conn.execute("PRAGMA busy_timeout = 10")
+    hold_at_the_sites_lines(monkeypatch, holder())
+    ref = a_job(conn)
+    stop_after_the_first_page(bank, conn, ref, control)
+    job = tenderjob.run_tender_crawl_job_once(conn, ref)
+    assert job["status"] == status and job["error_summary"] is None
+    assert ("info", "robots.txt asked for a delay") in logged(conn, ref)
+    assert not conn.in_transaction
+
+
+def test_another_app_writing_as_a_failure_settles_keeps_the_consequence_and_the_error(
+        conn, bank, monkeypatch, holder):
+    bank["bank"].robots_warnings = ["robots.txt asked for a delay"]
+    hold_at_the_sites_lines(monkeypatch, holder())
+    monkeypatch.setattr(tenderstore, "store_response",
+                        lambda c, **kw: (_ for _ in ()).throw(ValueError("boom")))
+    conn.execute("PRAGMA busy_timeout = 10")
+    with pytest.raises(ValueError):
+        run(conn)
+    ref = conn.execute("SELECT job_ref FROM crawl_job").fetchone()[0]
+    summary = "0 of 2 areas read; an update reads the rest. ValueError: boom"
+    assert jobs.get_job(conn, ref)["error_summary"] == summary
+    assert logged(conn, ref)[-1] == ("error", summary)
+
+
+@pytest.mark.parametrize("raised, status, named", [
+    (RobotsUnreachable("robots.txt timed out"), "paused", "robots.txt timed out"),
+    (HostRefused("the host is refused"), "failed", "the host is refused"),
+])
+def test_another_app_writing_as_the_site_stops_a_job_keeps_the_sites_reason(
+        conn, bank, monkeypatch, holder, raised, status, named):
+    bank["bank"].robots_warnings = ["robots.txt asked for a delay"]
+    bank["bank"].raise_at = {(EGYPT, 0): raised}
+    hold_at_the_sites_lines(monkeypatch, holder())
+    conn.execute("PRAGMA busy_timeout = 10")
+    ref = a_job(conn)
+    job = tenderjob.run_tender_crawl_job_once(conn, ref)
+    assert job["status"] == status
+    assert any(named in message for _, message in logged(conn, ref))
+
+
+def test_a_resume_into_another_apps_write_pauses_and_can_be_resumed_again(
+        conn, bank, monkeypatch, holder):
+    """He was just told another app is writing, so this is the likely moment for a Resume. At the
+    re-review it failed the job, and a failed job refuses the next Resume."""
+    ref = a_job(conn)
+    stop_after_the_first_page(bank, conn, ref, "pause")
+    tenderjob.run_tender_crawl_job_once(conn, ref)
+    assert jobs.set_control(conn, ref, "resume")
+    monkeypatch.setattr(tenderjob, "WRITE_WAIT_MS", 10)
+    held = holder()
+    held.take()
+    bank["bank"] = Bank({EGYPT: notices(1_200), KENYA: notices(300, start=5_000)})
+    job = tenderjob.run_tender_crawl_job_once(conn, ref)
+    held.timer.join()
+    assert job["status"] == "paused"
+    assert bank["bank"].requests_count == 0
+    assert "another app holds the warehouse (database is locked)" in logged(conn, ref)[-1][1]
+    assert jobs.set_control(conn, ref, "resume")
+    assert tenderjob.run_tender_crawl_job_once(conn, ref)["status"] == "completed"
+    assert count(conn, "tender_releases") == 1_500
+
+
+def test_a_first_start_into_another_apps_write_pauses_with_nothing_read(conn, bank, monkeypatch,
+                                                                        holder):
+    monkeypatch.setattr(tenderjob, "WRITE_WAIT_MS", 10)
+    ref = a_job(conn)
+    held = holder()
+    held.take()
+    job = tenderjob.run_tender_crawl_job_once(conn, ref)
+    held.timer.join()
+    assert job["status"] == "paused" and bank["bank"].requests_count == 0
+    assert jobs.set_control(conn, ref, "resume")
+    assert tenderjob.run_tender_crawl_job_once(conn, ref)["status"] == "completed"
+
+
+@pytest.mark.parametrize("wait_ms, status", [(60_000, "completed"), (10, "paused")])
+def test_the_end_of_a_run_waits_for_another_app_and_loses_nothing(conn, bank, monkeypatch, holder,
+                                                                  wait_ms, status):
+    """Every page kept, and the last write meets a holder. A wait it can outlast completes; one it
+    cannot pauses, for a Resume costs one count and settles it. Never `failed`, with all kept."""
+    monkeypatch.setattr(tenderjob, "WRITE_WAIT_MS", wait_ms)
+    hold_at_the_sites_lines(monkeypatch, holder())
+    ref = a_job(conn)
+    job = tenderjob.run_tender_crawl_job_once(conn, ref)
+    assert job["status"] == status and count(conn, "tender_releases") == 1_500
+    if status == "paused":
+        assert jobs.set_control(conn, ref, "resume")
+        bank["bank"] = Bank({EGYPT: notices(1_200), KENYA: notices(300, start=5_000)})
+        assert tenderjob.run_tender_crawl_job_once(conn, ref)["status"] == "completed"
+        assert bank["bank"].requests_count == 1, "the count, and nothing else"
+
+
+def test_a_holder_past_the_wait_is_waited_for_and_the_job_is_never_left_running(conn, bank,
+                                                                                monkeypatch,
+                                                                                holder, capfd):
+    """`CLAUDE.md`: wait for it, never route around it. At the re-review a 25 s holder left the row
+    `running` with no worker, and nothing said so."""
+    monkeypatch.setattr(tenderjob, "WRITE_WAIT_MS", 10)
+    held = holder(0.5)
+    real_store = tenderstore.store_response
+
+    def store(c, **kw):
+        held.take()
+        return real_store(c, **kw)
+
+    monkeypatch.setattr(tenderstore, "store_response", store)
+    ref = a_job(conn)
+    job = tenderjob.run_tender_crawl_job_once(conn, ref)
+    assert job["status"] == "paused" and not conn.in_transaction
+    assert count(conn, "fetched_responses") == 0
+    assert "another app holds the warehouse (database is locked)" in logged(conn, ref)[-1][1]
+    assert f"{ref}: waiting to settle this job" in capfd.readouterr().err, "the row cannot say so"
+
+
+def test_a_fault_of_the_warehouse_while_settling_the_pause_is_not_waited_on(conn, bank, monkeypatch):
+    """Only another app ends. A disk that has failed never would, and the worker must hear of it."""
+    monkeypatch.setattr(tenderstore, "store_response",
+                        lambda c, **kw: (_ for _ in ()).throw(dbmod.DbLockedError("held")))
+
+    def pause(*args, **kwargs):
+        raise sqlite3.OperationalError("disk I/O error")
+
+    monkeypatch.setattr(tenderjob.directoryjob, "pause_because", pause)
+    with pytest.raises(sqlite3.OperationalError, match="disk"):
+        run(conn)
+
+
+def test_a_cancel_pending_when_a_holder_outlasts_the_wait_is_a_cancel(conn, bank, monkeypatch,
+                                                                      holder):
+    monkeypatch.setattr(tenderjob, "WRITE_WAIT_MS", 10)
+    held = holder(0.5)
+    real_store = tenderstore.store_response
+
+    def store(c, **kw):
+        held.take()
+        return real_store(c, **kw)
+
+    monkeypatch.setattr(tenderstore, "store_response", store)
+    ref = a_job(conn)
+    real = bank["bank"].get
+
+    def get(url, params=None, **kw):
+        if wc.AREA_FACET in params:
+            jobs.set_control(conn, ref, "cancel")
+        return real(url, params=params, **kw)
+
+    bank["bank"].get = get
+    assert tenderjob.run_tender_crawl_job_once(conn, ref)["status"] == "cancelled"
+
+
+def test_the_words_of_a_pause_for_the_warehouse_come_from_the_record_a_resume_reads(
+        conn, bank, monkeypatch):
+    """The page was undone: what is said about a Resume is what the committed record will do."""
+    run(conn)
+    bank["bank"].changed = changes(3)
+    ref = a_job(conn, "update")
+
+    def store(c, **kw):
+        raise dbmod.DbLockedError("held")
+
+    monkeypatch.setattr(tenderstore, "store_response", store)
+    job = tenderjob.run_tender_crawl_job_once(conn, ref)
+    assert job["status"] == "paused"
+    assert logged(conn, ref)[-1][1].endswith("Resuming reads the pass over changes again from its "
+                                             "start, and what it kept is not kept twice")
+
+
+def test_the_pause_for_the_warehouse_says_how_the_run_treated_the_site_first(conn, bank,
+                                                                             monkeypatch):
+    bank["bank"].robots_warnings = ["robots.txt asked for a delay"]
+
+    def store(c, **kw):
+        raise dbmod.DbLockedError("held")
+
+    monkeypatch.setattr(tenderstore, "store_response", store)
+    ref = a_job(conn)
+    tenderjob.run_tender_crawl_job_once(conn, ref)
+    lines = logged(conn, ref)
+    assert lines.count(("info", "robots.txt asked for a delay")) == 1
+    assert "another app holds the warehouse" in lines[-1][1]
+
+
+def test_an_error_that_only_reads_like_a_lock_fails_the_job(conn, bank, monkeypatch):
+    """At the re-review `no such table: source_blocked` paused the job for another app."""
+    def store(c, **kw):
+        c.execute("SELECT 1 FROM source_blocked")
+
+    monkeypatch.setattr(tenderstore, "store_response", store)
+    with pytest.raises(sqlite3.OperationalError, match="source_blocked"):
+        run(conn)
+    status, summary = conn.execute("SELECT status, error_summary FROM crawl_job").fetchone()
+    assert status == "failed" and "no such table: source_blocked" in summary
+
+
+def test_the_workers_last_resort_settles_on_a_fresh_transaction(conn):
+    """`_fail_orphan`'s docstring promises it, and the recorder before it leaves a failed `BEGIN`
+    open: its write was then an upgrade SQLite does not wait on, and the row stayed `running` with
+    no worker at the re-review."""
+    ref = a_job(conn)
+    path = conn.execute("PRAGMA database_list").fetchone()[2]
+    other = sqlite3.connect(path, isolation_level=None, check_same_thread=False)
+    other.execute("BEGIN IMMEDIATE")
+    conn.execute("PRAGMA busy_timeout = 10")
+    with pytest.raises(sqlite3.OperationalError):
+        conn.execute("UPDATE crawl_job SET stage = 'x'")
+    assert conn.in_transaction
+    conn.execute("PRAGMA busy_timeout = 5000")
+    timer = threading.Timer(0.3, lambda: other.execute("ROLLBACK"))
+    timer.start()
+    try:
+        jobs.JobRunner._fail_orphan(conn, ref, ValueError("boom"))
+    finally:
+        timer.join()
+        other.close()
+    assert jobs.get_job(conn, ref)["status"] == "failed"
+
+
+# ---- the re-review of #1802: the row outranks every ending ----------------------------------------
+
+def settled_at_the_ending(monkeypatch, conn, ref):
+    """Settled by something else as the run's first ending write is made: the window is a whole
+    fetch with its tries at the two endings that wait on one."""
+    real = tenderjob.directoryjob.log_politeness
+
+    def politeness(*args, **kwargs):
+        job = jobs.get_job(conn, ref)
+        jobs._finish(conn, job["job_id"], JobStatus.CANCELLED, None)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(tenderjob.directoryjob, "log_politeness", politeness)
+
+
+def test_a_cancel_on_a_pausing_job_is_not_turned_back_into_a_pause(conn, bank, monkeypatch):
+    """The panel draws Cancel on `pausing`, and `set_control` settles that at once. His Cancel was
+    then lost, the row `paused` with `finished_at` set."""
+    ref = a_job(conn)
+    stop_after_the_first_page(bank, conn, ref, "pause")
+    real = tenderjob.directoryjob.log_politeness
+
+    def politeness(*args, **kwargs):
+        assert jobs.set_control(conn, ref, "cancel")
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(tenderjob.directoryjob, "log_politeness", politeness)
+    job = tenderjob.run_tender_crawl_job_once(conn, ref)
+    assert job["status"] == "cancelled"
+    assert logged(conn, ref)[-1][1] == ("stopped between pages: this job is already settled, so "
+                                        "nothing more is read")
+
+
+def test_a_failure_does_not_overwrite_a_settled_job_and_is_still_named(conn, bank, monkeypatch):
+    ref = a_job(conn)
+    settled_at_the_ending(monkeypatch, conn, ref)
+    monkeypatch.setattr(tenderstore, "store_response",
+                        lambda c, **kw: (_ for _ in ()).throw(ValueError("boom")))
+    with pytest.raises(ValueError):
+        tenderjob.run_tender_crawl_job_once(conn, ref)
+    job = jobs.get_job(conn, ref)
+    assert (job["status"], job["error_summary"]) == ("cancelled", None)
+    assert logged(conn, ref)[-1] == (
+        "error", "0 of 2 areas read; an update reads the rest. ValueError: boom — this job is "
+                 "already settled, so it is left as it is")
+
+
+def test_refused_notices_at_the_end_do_not_overwrite_a_settled_job(conn, bank, monkeypatch):
+    kenya = notices(300, start=5_000)
+    for notice in kenya:
+        notice["notice_type"] = "Prequalification Notice"
+    bank["bank"] = Bank({EGYPT: notices(1_200), KENYA: kenya})
+    ref = a_job(conn)
+    settled_at_the_ending(monkeypatch, conn, ref)
+    job = tenderjob.run_tender_crawl_job_once(conn, ref)
+    assert (job["status"], job["error_summary"]) == ("cancelled", None)
+    assert logged(conn, ref)[-1][0] == "warning"
+    assert logged(conn, ref)[-1][1].endswith(" — this job is already settled, so it is left as it is")
+    assert "300 refusals" in logged(conn, ref)[-1][1]
+
+
+def test_a_clean_end_does_not_overwrite_a_settled_job(conn, bank, monkeypatch):
+    ref = a_job(conn)
+    settled_at_the_ending(monkeypatch, conn, ref)
+    job = tenderjob.run_tender_crawl_job_once(conn, ref)
+    assert (job["status"], job["error_summary"]) == ("cancelled", None)
+    assert logged(conn, ref)[-1] == (
+        "info", "every page it read is kept — this job is already settled, so it is left as it is")
+
+
+# ---- the re-review of #1802: what a run says is what the next run does -----------------------------
+
+def test_a_count_that_fails_on_a_resume_does_not_say_nothing_was_read(conn, bank):
+    """A site stop, then a Resume whose count answers 503: the natural path, and 1,000 releases
+    were held under the words "this run read nothing"."""
+    ref = a_job(conn)
+    pause_after(bank["bank"], conn, ref, area=EGYPT)
+    tenderjob.run_tender_crawl_job_once(conn, ref)
+    assert jobs.set_control(conn, ref, "resume")
+    bank["bank"].get = lambda url, params=None, **kw: (_ for _ in ()).throw(
+        httpx.ConnectError("no route"))
+    with pytest.raises(httpx.ConnectError):
+        tenderjob.run_tender_crawl_job_once(conn, ref)
+    assert jobs.get_job(conn, ref)["error_summary"] == (
+        "The count failed; an update reads the rest. ConnectError: no route")
+
+
+def test_a_job_settled_in_the_lane_on_a_resume_says_nothing_more_was_read(conn, bank):
+    ref = a_job(conn)
+    pause_after(bank["bank"], conn, ref, area=EGYPT)
+    tenderjob.run_tender_crawl_job_once(conn, ref)
+    assert jobs.set_control(conn, ref, "resume")
+    job_id = jobs.get_job(conn, ref)["job_id"]
+    lane = Lane(on_enter=lambda: jobs._finish(conn, job_id, JobStatus.CANCELLED, None))
+    tenderjob.run_tender_crawl_job_once(conn, ref, admission=lane)
+    assert logged(conn, ref)[-1][1] == ("stopped while waiting for the site's turn, so nothing more "
+                                        "was read")
+    assert not conn.in_transaction
+
+
+RESUMING_CHANGES = ("Resuming reads the pass over changes again from its start, and what it kept "
+                    "is not kept twice")
+RESUMING_AREAS = ("Resuming goes on from the next unread page, and the areas read whole are not "
+                  "read again")
+
+
+def test_a_job_stopped_in_the_changes_says_so_when_stopped_again_during_the_count(conn, bank):
+    run(conn)
+    bank["bank"].changed = changes(2_500)
+    ref = a_job(conn, "update")
+    real = bank["bank"].get
+
+    def stop_in_the_changes(url, params=None, **kw):
+        response = real(url, params=params, **kw)
+        if "fct" not in params:
+            jobs.set_control(conn, ref, "pause")
+        return response
+
+    bank["bank"].get = stop_in_the_changes
+    tenderjob.run_tender_crawl_job_once(conn, ref)
+    assert logged(conn, ref)[-1][1] == f"paused between pages. {RESUMING_CHANGES}"
+    assert jobs.set_control(conn, ref, "resume")
+
+    def stop_during_the_count(url, params=None, **kw):
+        response = real(url, params=params, **kw)
+        jobs.set_control(conn, ref, "pause")
+        return response
+
+    bank["bank"].get = stop_during_the_count
+    job = tenderjob.run_tender_crawl_job_once(conn, ref)
+    assert job["checkpoint"]["phase"] == "changes"
+    assert logged(conn, ref)[-1][1] == f"paused between pages. {RESUMING_CHANGES}"
+    assert jobs.set_control(conn, ref, "resume")
+    bank["bank"].get = real
+    tenderjob.run_tender_crawl_job_once(conn, ref)
+    assert any("reading the changes again from their start" in message
+               for _, message in logged(conn, ref))
+
+
+def pause_as_the_area_ends(monkeypatch, conn, ref, name):
+    """Pressed after the area's last page was answered and checked: the boundary after the area."""
+    real = tenderjob.wc.read_area
+
+    def read_area(*args, **kwargs):
+        read = real(*args, **kwargs)
+        if kwargs["area"].name == name:
+            jobs.set_control(conn, ref, "pause")
+        return read
+
+    monkeypatch.setattr(tenderjob.wc, "read_area", read_area)
+
+
+def test_a_pause_after_an_updates_last_area_says_the_changes_come_next(conn, bank, monkeypatch):
+    """Its last area read whole, an update has only the pass over changes left, and the words
+    "the next unread page" named nothing it would read."""
+    bank["bank"] = Bank({EGYPT: notices(1_200), KENYA: notices(300, start=5_000)},
+                        fail={(KENYA, 0): 503})
+    run(conn)
+    bank["bank"] = Bank({EGYPT: notices(1_200), KENYA: notices(300, start=5_000)})
+    bank["bank"].changed = changes(3)
+    ref = a_job(conn, "update")
+    pause_as_the_area_ends(monkeypatch, conn, ref, KENYA)
+    job = tenderjob.run_tender_crawl_job_once(conn, ref)
+    assert job["checkpoint"]["phase"] == "changes"
+    assert logged(conn, ref)[-1][1] == f"paused between pages. {RESUMING_CHANGES}"
+    assert jobs.set_control(conn, ref, "resume")
+    assert tenderjob.run_tender_crawl_job_once(conn, ref)["status"] == "completed"
+    assert "changes: 3 notices in 1 request" in [message for _, message in logged(conn, ref)]
+
+
+def test_an_initial_crawl_never_reaches_the_changes_phase(conn, bank, monkeypatch):
+    ref = a_job(conn)
+    pause_as_the_area_ends(monkeypatch, conn, ref, KENYA)
+    job = tenderjob.run_tender_crawl_job_once(conn, ref)
+    assert job["checkpoint"]["phase"] == "areas"
+    assert logged(conn, ref)[-1][1] == f"paused between pages. {RESUMING_AREAS}"
+
+
+def test_a_pause_with_an_area_still_unread_keeps_the_areas_phase_on_an_update(conn, bank,
+                                                                              monkeypatch):
+    bank["bank"] = Bank({EGYPT: notices(1_200), KENYA: notices(300, start=5_000)},
+                        fail={(EGYPT, 0): 503, (KENYA, 0): 503})
+    run(conn)
+    bank["bank"] = Bank({EGYPT: notices(1_200), KENYA: notices(300, start=5_000)})
+    ref = a_job(conn, "update")
+    pause_as_the_area_ends(monkeypatch, conn, ref, EGYPT)
+    job = tenderjob.run_tender_crawl_job_once(conn, ref)
+    assert job["checkpoint"]["phase"] == "areas"
+    assert logged(conn, ref)[-1][1] == f"paused between pages. {RESUMING_AREAS}"
+
+
+def test_what_is_left_reads_at_one_on_a_small_area(conn, bank):
+    """Areas of 1 to 8 notices are measured live (#1779), and a plain Pause reaches these words."""
+    bank["bank"] = Bank({EGYPT: notices(3), KENYA: notices(2, start=5_000)})
+    ref = a_job(conn)
+    pause_after(bank["bank"], conn, ref, area=KENYA)
+    tenderjob.run_tender_crawl_job_once(conn, ref)
+    assert jobs.set_control(conn, ref, "resume")
+    bank["bank"] = Bank({EGYPT: notices(3), KENYA: notices(2, start=5_000)})
+    tenderjob.run_tender_crawl_job_once(conn, ref)
+    assert "1 area not read yet: 1 request" in [message for _, message in logged(conn, ref)]
+
+
+def test_a_count_that_moved_reads_at_one(conn, bank):
+    bank["bank"] = Bank({EGYPT: notices(3), KENYA: notices(2, start=5_000)})
+    ref = a_job(conn)
+    pause_after(bank["bank"], conn, ref, area=KENYA)
+    tenderjob.run_tender_crawl_job_once(conn, ref)
+    assert jobs.set_control(conn, ref, "resume")
+    bank["bank"] = Bank({EGYPT: notices(3), KENYA: notices(1, start=5_000)})
+    tenderjob.run_tender_crawl_job_once(conn, ref)
+    assert ("Kenya: the Bank now counts 1 notice, not the 2 it counted before this job stopped; "
+            "reading it again from its first page") in [m for _, m in logged(conn, ref)]
+
+
+def test_refusals_are_counted_as_refusals_for_a_resume_reads_a_page_again(conn, bank):
+    """A pass over changes restarted by a Resume refuses the same notice twice. The figure is what
+    was refused, each named in the log, not a count of distinct notices lost."""
+    run(conn)
+    changed = changes(2_500)
+    changed[0]["notice_type"] = "Prequalification Notice"
+    bank["bank"].changed = changed
+    ref = a_job(conn, "update")
+    real = bank["bank"].get
+
+    def stop_on_the_first_page(url, params=None, **kw):
+        response = real(url, params=params, **kw)
+        if "fct" not in params:
+            jobs.set_control(conn, ref, "pause")
+        return response
+
+    bank["bank"].get = stop_on_the_first_page
+    tenderjob.run_tender_crawl_job_once(conn, ref)
+    assert jobs.set_control(conn, ref, "resume")
+    bank["bank"].get = real
+    done = tenderjob.run_tender_crawl_job_once(conn, ref)
+    assert done["status"] == "completed_with_errors"
+    assert done["error_summary"] == f"2 refusals, {LATER} Each is named in the log by its id."
+    assert sum(1 for level, _ in logged(conn, ref) if level == "error") == 2
+
+
+def test_a_notice_nested_past_what_the_warehouse_parses_is_refused_by_its_id(conn, bank):
+    """`jsonb()` answers it with an `OperationalError`, which `_keep` rightly reads as the warehouse's
+    fault: the job failed, and every later update failed on the same notice."""
+    nested = "x"
+    for _ in range(1_100):
+        nested = [nested]
+    egypt = notices(8)
+    egypt[3]["noticetitle"] = nested
+    bank["bank"] = Bank({EGYPT: egypt, KENYA: notices(2, start=5_000)})
+    job, ref = run(conn)
+    assert job["status"] == "completed_with_errors"
+    assert count(conn, "tender_releases") == 9
+    assert any(level == "error" and repr(egypt[3]["id"]) in message and "nests deeper" in message
+               for level, message in logged(conn, ref))
+
+
+# ---- the re-review of #1802: what the summary says later runs do, by running them -----------------
+
+def refused_page(start, size):
+    page = notices(size, start=start)
+    for notice in page:
+        notice["notice_type"] = "Prequalification Notice"
+    return page
+
+
+def test_an_area_with_a_refusal_is_held_whole_and_only_a_change_reads_the_notice_again(conn, bank):
+    """His choice of 2026-11-01: said plainly, and read again by a control decided later. When that
+    control is built this test changes, on purpose."""
+    bank["bank"] = Bank({EGYPT: notices(1_200), KENYA: refused_page(5_000, 300)})
+    job, _ = run(conn)
+    assert LATER in job["error_summary"] and KENYA in job["checkpoint"]["areas_read"]
+
+    readable = notices(300, start=5_000)
+    bank["bank"] = Bank({EGYPT: notices(1_200), KENYA: readable})
+    done, ref = run(conn, "update")
+    assert done["status"] == "completed"
+    assert all(call.get(wc.AREA_FACET) != KENYA for call in bank["bank"].calls), "held whole"
+    assert count(conn, "tender_releases") == 1_200
+
+    bank["bank"] = Bank({EGYPT: notices(1_200), KENYA: readable})
+    bank["bank"].changed = stamped(readable[:2], ["2026-10-12T09:00:00Z"] * 2)
+    run(conn, "update")
+    assert count(conn, "tender_releases") == 1_202, "the Bank changed two, so two are read"
+
+
+def test_a_refusal_in_an_area_still_unread_is_read_again_by_the_update(conn, bank):
+    page = refused_page(5_000, 1_000) + notices(200, start=7_000)
+    bank["bank"] = Bank({EGYPT: notices(10), KENYA: page}, fail={(KENYA, 1000): 503})
+    job, _ = run(conn)
+    assert LATER in job["error_summary"] and KENYA in job["checkpoint"]["unread"]
+
+    readable = notices(1_000, start=5_000) + notices(200, start=7_000)
+    bank["bank"] = Bank({EGYPT: notices(10), KENYA: readable})
+    done, _ = run(conn, "update")
+    assert done["status"] == "completed"
+    assert count(conn, "tender_releases") == 1_210
