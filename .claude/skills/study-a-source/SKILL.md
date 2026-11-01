@@ -224,8 +224,11 @@ refuses to make it active before it is probed (`scrapex/config.py:552`).
 
 **Once the issue is filed, open that domain's build task straight away, one task per domain,**
 so finished studies do not pile up: «جلسة دراسة المصادر عندما تنتهى من دراسة مصدر تفتح مباشرة
-task لبنائه حتى لاا تتتراكم علينا». A task is a card until he starts it. Its prompt stands alone:
-the issue, his answers so far, and the questions still open, which that session asks him first.
+task لبنائه حتى لاا تتتراكم علينا». Open it with `spawn_task`, which shows a card and waits for
+his click. `start_session` is not a card: it runs at once and spends a whole session. Without
+`spawn_task`, send the merge session the domain and the issue, and it opens the card. The
+prompt stands alone: the issue, his answers so far, and the questions still open, which that
+session asks him first.
 
 ## Done means
 
