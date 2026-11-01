@@ -458,3 +458,86 @@ def brand_pair(published: str | None) -> dict[str, str]:
     """
     arabic, latin = split_brand(published)
     return {"brand": latin, "brand_ar": arabic}
+
+
+# A workbook's words for "no value here". The Pink Sheet uses three spellings of one
+# thing: its change log says "..", its cells say "…" and "..." (#1912 §5).
+_ABSENT_CELLS = frozenset({"", "…", "...", ".."})
+# Excel's own error values: a formula failed, so the cell states nothing about a price.
+# Named before parse_money sees them, because its digit filter reads '#DIV/0!' as 0.
+EXCEL_ERRORS = frozenset({"#VALUE!", "#N/A", "#DIV/0!", "#REF!", "#NAME?", "#NUM!", "#NULL!"})
+
+
+def parse_sheet_amount(cell: object) -> Decimal | None:
+    """One workbook cell -> a Decimal, or None when the cell states no value.
+
+    Raises ValueError on text that is neither a number nor a known way of saying
+    "nothing": a word in a price column is the sheet changing, and it must not read
+    as a missing month.
+    """
+    if cell is None:
+        return None
+    if isinstance(cell, bool):
+        raise ValueError(f"{cell!r} in a price column is not an amount")
+    if isinstance(cell, int | float):
+        # str() first: Decimal(float) would store the binary expansion of 102.3.
+        return Decimal(str(cell))
+    if not isinstance(cell, str):
+        raise ValueError(f"{cell!r} in a price column is not an amount")
+    text = cell.strip()
+    if text in _ABSENT_CELLS or text in EXCEL_ERRORS:
+        return None
+    return parse_money(text)
+
+
+_MONTH_STAMP = re.compile(r"(?P<Y>\d{4})M(?P<M>0[1-9]|1[0-2])")
+
+
+def parse_month_stamp(raw: str) -> str:
+    """'2026M09' -> '2026-09-01', the month's first day, as the Pink Sheet dates a row.
+
+    The day is a place to file the month and nothing more: the value is that month's
+    average, which is his answer on #1912 Q3. Raises ValueError on any other shape.
+    """
+    found = _MONTH_STAMP.fullmatch(raw.strip()) if isinstance(raw, str) else None
+    if not found:
+        raise ValueError(f"{raw!r} is not a month written as YYYYMmm")
+    return f"{found.group('Y')}-{found.group('M')}-01"
+
+
+# How a price's unit is written in a commodity table: '($/mt)'. Each side is an explicit
+# list (P5), so a new spelling fails at the parse instead of inventing a unit.
+_QUOTED_MONEY = {
+    "$": ("USD", Decimal(1)),
+    "cents": ("USD", Decimal("0.01")),
+    "¢": ("USD", Decimal("0.01")),
+}
+_QUOTED_UNITS = {
+    "mt": "tonne",
+    "kg": "kg",
+    "bbl": "bbl",
+    "mmbtu": "mmbtu",
+    "cubic meter": "m3",
+    "troy oz": "troy oz",
+    "dmtu": "dmtu",
+    "dmt": "dmt",
+    "sheet": "sheet",
+}
+
+
+def parse_quoted_unit(raw: str) -> tuple[str, Decimal, str]:
+    """'($/mt)' -> ('USD', Decimal('1'), 'tonne'): currency, what one quoted unit of
+    money is in that currency, and the physical unit.
+
+    '(cents/sheet)' answers Decimal('0.01'), so the caller can state the price in
+    dollars. An index such as '(2010=100)' has no money and no unit, and raises.
+    """
+    text = raw.strip() if isinstance(raw, str) else ""
+    if text.startswith("(") and text.endswith(")"):
+        text = text[1:-1].strip()
+    money, slash, unit = text.partition("/")
+    quoted = _QUOTED_MONEY.get(money.strip())
+    physical = _QUOTED_UNITS.get(unit.strip().lower())
+    if not slash or quoted is None or physical is None:
+        raise ValueError(f"{raw!r} is not a price unit this parser knows")
+    return quoted[0], quoted[1], physical

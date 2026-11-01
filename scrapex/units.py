@@ -81,6 +81,14 @@ UNIT_NAMES: dict[str, tuple[str, str]] = {
     "mm":    ("millimetre", "مليمتر"),
     "cm":    ("centimetre", "سنتيمتر"),
     "kWh":   ("kilowatt hour", "كيلوواط ساعة"),
+    # The Pink Sheet's units (#1912 §7). Written here because each is born on its first
+    # row, and a unit with no words shows a code.
+    "bbl":   ("barrel", "برميل"),
+    "mmbtu": ("million British thermal units", "مليون وحدة حرارية بريطانية"),
+    "m3":    ("cubic metre", "متر مكعب"),
+    "troy oz": ("troy ounce", "أونصة"),
+    "dmt":   ("dry metric ton", "طن متري جاف"),
+    "sheet": ("sheet", "لوح"),
 }
 
 # Which vocabulary entry a word belongs to, built once.

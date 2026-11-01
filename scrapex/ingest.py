@@ -729,6 +729,9 @@ def _get_offer_id(conn, variant_id: int, r: dict) -> int:
     unit_id = _get_unit_id(conn, canonical_unit(r.get("unit", ""), r.get("currency", "")))
     basis = _basis_quantity(r.get("basis_quantity", ""))
     quantity = _quantity_facts(r)
+    # Only a commodity row states one, through its adapter; every other row is retail,
+    # the column's own default, so nothing that exists changes offer.
+    segment = r.get("customer_segment") or "retail"
     # The unit is part of what an offer IS: 15 per litre and 15 per gallon are
     # different offers, not one offer that changed price. The lookup used to pin
     # selling_unit_id IS NULL, which made every offer unit-less by construction
@@ -736,9 +739,9 @@ def _get_offer_id(conn, variant_id: int, r: dict) -> int:
     found = _find_id(
         conn,
         "SELECT offer_id FROM source_offer WHERE source_variant_id = ? AND branch_id IS NULL "
-        "AND country_code_alpha2 = ? AND customer_segment = 'retail' "
+        "AND country_code_alpha2 = ? AND customer_segment = ? "
         "AND COALESCE(selling_unit_id,0) = ? AND basis_quantity = ?",
-        (variant_id, r["country_code_alpha2"], unit_id or 0, basis),
+        (variant_id, r["country_code_alpha2"], segment, unit_id or 0, basis),
     )
     if found is not None:
         if unit_id:
@@ -759,8 +762,8 @@ def _get_offer_id(conn, variant_id: int, r: dict) -> int:
         unstated = _find_id(
             conn,
             "SELECT offer_id FROM source_offer WHERE source_variant_id = ? AND branch_id IS NULL "
-            "AND country_code_alpha2 = ? AND customer_segment = 'retail' AND selling_unit_id IS NULL",
-            (variant_id, r["country_code_alpha2"]),
+            "AND country_code_alpha2 = ? AND customer_segment = ? AND selling_unit_id IS NULL",
+            (variant_id, r["country_code_alpha2"], segment),
         )
         if unstated is not None:
             unit_facts = _unit_facts(r)
@@ -779,6 +782,7 @@ def _get_offer_id(conn, variant_id: int, r: dict) -> int:
     minted = _insert(conn, "source_offer", {
         "source_variant_id": variant_id,
         "country_code_alpha2": r["country_code_alpha2"],
+        "customer_segment": segment,
         "currency": r["currency"],
         "tax_included": vat,
         "selling_unit_id": unit_id,
@@ -1275,6 +1279,8 @@ def _commodity_to_product_row(c: dict) -> dict:
         # that names no source stays empty rather than being invented.
         "official_source_name": c.get("official_source_name", ""),
         "official_source_link": c.get("official_source_link", ""),
+        # Not a product column: _get_offer_id reads it, and it reaches no other table.
+        "customer_segment": c.get("consumer_segment", ""),
     })
     return row
 

@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "scrapex"
 # A MIRROR of scrapex/version.py:VERSION — setuptools cannot import the package
 # to ask. tests/test_version.py reads this line back and fails when they drift.
-version = "0.4.76"
+version = "0.4.77"
 description = "ScrapeX ecosystem: contract-driven web data collection into a SQLite warehouse. Categories: products, contractors"
 requires-python = ">=3.14"
 dependencies = [
@@ -49,8 +49,9 @@ ui = ["fastapi>=0.110", "uvicorn>=0.29", "jinja2>=3.1"]
 # over plain HTTPS with the token Chrome holds, so nothing needs installing.
 # Fully-local export to an .xlsx workbook (no Google needed).
 local = ["openpyxl>=3.1"]
-# Commodity connectors (globalpetrolprices) — country-name -> ISO alpha-2 region.
-commodity = ["pycountry>=23.12"]
+# Commodity connectors: globalpetrolprices' country-name -> ISO alpha-2 region, and
+# the Pink Sheet's workbook.
+commodity = ["pycountry>=23.12", "openpyxl>=3.1"]
 # uvicorn is here and not only in [ui] because a test drives `scrapex ui` to prove
 # the engine REFUSES to serve a database it cannot read. Without it the CLI exits
 # earlier, on "needs the ui extra", and the guard silently stops being tested.

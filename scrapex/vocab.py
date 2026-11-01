@@ -447,6 +447,10 @@ class ConnectorFamily(StrEnum):
     ARAMCO_FUEL_PAGE = "aramco-fuel-page"
     DATASHEET_ENRICHMENT = "datasheet-enrichment"
     TBD_PROBE = "TBD-probe"  # placeholder until `scrapex probe` classifies the site
+    # One workbook on a document host, found through a landing page, months in rows.
+    # A part of the one source worldbank.org (#1912); its layout is its own, so #1900's
+    # workbook, with months in columns, is not this family.
+    WORLDBANK_PINK_SHEET = "worldbank-pink-sheet"
 
 
 class RunStatus(StrEnum):

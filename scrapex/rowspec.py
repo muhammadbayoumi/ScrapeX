@@ -292,7 +292,9 @@ COMMODITY_PRICE = RowSpec(
         "original_currency",
         "price_basis",           # 'original' | 'converted' — what THIS row is
         "geo_region",            # the site groups countries: 'Africa', 'Europe'
-        "consumer_segment",      # 'household' | 'business' — power prices differ
+        # Who this price is for, in source_offer.customer_segment's own words: blank
+        # means retail. The Pink Sheet says 'wholesale' (his answer on #1912 Q2).
+        "consumer_segment",
         "tax_evidence",          # 'stated' | 'general' | 'unknown' — never assumed
         "tax_statement",     # where that evidence can be read
         # --- added 2026-07-20 -----------------------------------------------

@@ -13,6 +13,8 @@ google/
 *.db-shm
 *.sqlite
 *.xlsx
+# A source's real workbook, kept as a test fixture (#1912).
+!tests/fixtures/*.xlsx
 harvest.db*
 /out/
 
