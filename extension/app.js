@@ -10879,8 +10879,8 @@ function wireRuntimeRepair() {
     // and age does (`RESTART_ANSWER_STILL_FRESH_MS`).
     let wentDark = false;
     let lastAnswer = null;
-    // WHAT THE NOTE ADDS FOR WHAT THE POLL LAST FOUND. A slow probe or a refusing answer
-    // finds nothing new, and the sentence stands until the answer it names is too old.
+    // WHAT THE NOTE ADDS FOR WHAT THE POLL LAST FOUND. A refusing answer finds nothing new
+    // and leaves the sentence; a slow probe takes it away once nothing is still answering.
     // Written only when it changes, so a screen reader hears a change and not a tick.
     let found = "";
     let said = "";
@@ -10917,9 +10917,9 @@ function wireRuntimeRepair() {
           lastAnswer = null;
           found = RESTART_NO_ENGINE_ANSWERS;
         } else if (isTimeoutError(error)) {
-          // TOO LONG WITHOUT AN ANSWER: the sentence that says one is arriving goes, and
-          // the note says only that the restart is under way. "Waiting for the new
-          // engine" names no answer, so it stands.
+          // NOTHING IS STILL ANSWERING: the sentence that says one is goes, and the note
+          // says only that the restart is under way. "Waiting for the new engine" names
+          // no answer, so it stands.
           if (found !== RESTART_NO_ENGINE_ANSWERS && !stillAnswering()) found = "";
         } else {
           // NOT SWALLOWED: a body that is not JSON, or a request cancelled under
