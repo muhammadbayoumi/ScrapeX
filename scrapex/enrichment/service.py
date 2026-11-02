@@ -2012,6 +2012,7 @@ def run_enrichment_job_once(conn: sqlite3.Connection, job_ref: str,
                         )
 
                     provider_errors = 0
+                    provider_limited = 0
                     for provider in providers:
                         provider_name = str(provider.name)
                         provider_version = str(getattr(
@@ -2088,6 +2089,14 @@ def run_enrichment_job_once(conn: sqlite3.Connection, job_ref: str,
                                 f"{identity.external_id}: {provider_name}: {result.error}",
                                 level=LogLevel.WARNING,
                             )
+                        if result.stopped_early:
+                            provider_limited += 1
+                            jobs.append_log(
+                                conn, job["job_id"],
+                                f"{identity.external_id}: {provider_name}: "
+                                f"{result.stopped_early}",
+                                level=LogLevel.WARNING,
+                            )
                         if observation_status in ("completed", "not_found"):
                             changed += sum(
                                 _upsert_fact(
@@ -2095,9 +2104,10 @@ def run_enrichment_job_once(conn: sqlite3.Connection, job_ref: str,
                                 )
                                 for fact in result.facts
                             )
-                            changed += _expire_missing_provider_facts(
-                                conn, identity.organization_id, provider_name, fields_seen
-                            )
+                            if not result.stopped_early:
+                                changed += _expire_missing_provider_facts(
+                                    conn, identity.organization_id, provider_name, fields_seen
+                                )
                         if consecutive_system_errors.get(provider_name, 0) \
                                 >= _PROVIDER_CIRCUIT_LIMIT:
                             disabled_providers.add(provider_name)
@@ -2130,6 +2140,9 @@ def run_enrichment_job_once(conn: sqlite3.Connection, job_ref: str,
                     counters["provider_errors"] = int(
                         counters.get("provider_errors", 0)
                     ) + provider_errors
+                    counters["provider_limited"] = int(
+                        counters.get("provider_limited", 0)
+                    ) + provider_limited
                     status = data["verification_status"]
                     counters[status] = int(counters.get(status, 0)) + 1
                     conn.execute(
