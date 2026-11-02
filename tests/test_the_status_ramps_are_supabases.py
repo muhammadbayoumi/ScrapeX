@@ -3,7 +3,7 @@
 His ruling of 2026-08-29 said no to the numeric ramps and yes to the four status borders;
 the roadmap he approved on 2026-09-24 (#1040, the comment on #633) rescoped it to both: the
 steps their components read (Button.tsx@86c813ec:28-96, badge.tsx, alert.tsx, Admonition,
-StatusIcon) and the four --border-{brand,destructive,info,warning}. Each step takes the
+StatusIcon, IconBackground, sonner) and the four --border-{brand,destructive,info,warning}. Each step takes the
 literal tests/fixtures/supabase-design-tokens.json read at the pin; --info and the borders
 are OKLCH expressions there, so they are checked at their evaluated values, as --amber and
 --red already are. A role token that equals a step names it, so each value is written once.
@@ -25,6 +25,16 @@ ROOT = Path(__file__).resolve().parents[1]
 LITERALS = json.loads((ROOT / "tests/fixtures/supabase-design-tokens.json").read_text(encoding="utf-8"))["literals"]
 STEPS = [(family, step) for family in ("brand", "destructive", "warning") for step in (200, 300, 400, 500, 600)]
 DECLARED = re.compile(r"^[ \t]*(--[a-z0-9-]+)[ \t]*:[ \t]*([^;]+);", re.M)
+#: The step each role token names, per scheme, written out because a wrong step is one word
+#: away and still a colour. Their ramps do not line up across schemes: --accent-weak is step
+#: 200 in light and 300 in dark, so the light line pasted into the dark block is the likely slip.
+ROLES = {
+    "light": {"--accent-ink": "--brand-600", "--accent-weak": "--brand-200", "--amber-weak": "--warning-300",
+              "--warning-button-hover": "--warning-400", "--red-weak": "--destructive-300"},
+    "dark": {"--accent-hover": "--brand-600", "--accent-weak": "--brand-300", "--amber-weak": "--warning-300",
+             "--warning-button": "--warning-400", "--red-weak": "--destructive-300"},
+}
+NAMES_A_STEP = re.compile(r"var\(--(?:brand|destructive|warning)-[2-6]00\)")
 
 
 def _declared(block: str) -> dict[str, str]:
@@ -44,6 +54,15 @@ def test_the_info_base_is_their_oklch():
     expected = {"light": "#6c5eba", "dark": "#9b8ff0"}
     for theme, block in _blocks():
         assert _declared(block).get("--info", "").lower() == expected[theme], theme
+
+
+@pytest.mark.parametrize("index", range(3), ids=["light", "dark", "device-dark"])
+def test_each_role_token_names_the_step_it_equals(index):
+    """Each marker these replaced held its token to a value; this holds it to the same one.
+    Compared whole, so a new token naming a step has to say here which one it means."""
+    theme, block = _blocks()[index]
+    named = {name: value for name, value in _declared(block).items() if NAMES_A_STEP.fullmatch(value)}
+    assert named == {role: f"var({step})" for role, step in ROLES[theme].items()}, theme
 
 
 @pytest.mark.parametrize("index", range(3), ids=["light", "dark", "device-dark"])

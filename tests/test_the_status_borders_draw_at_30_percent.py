@@ -1,7 +1,7 @@
 """Supabase's four status borders draw as their status colour at 30%, in both schemes (#633).
 
-semantic.css@86c813ec:167 and :250 define --border-{destructive,warning,info} as the status
-colour at 30% and --border-brand as their --primary, oklch(0.76 0.15 159), at 30%, the same
+semantic.css@86c813ec:247-249 define --border-{destructive,warning,info} as the status colour
+at 30%, and :250 --border-brand as their --primary (:167), oklch(0.76 0.15 159), at 30%, the same
 in both schemes. The expected values below are those, evaluated; they are not read back from
 the tokens they check. The warning Button is the one rule that draws a status border today
 (Button.tsx@86c813ec:85-100), so it is measured where it is drawn.

@@ -182,11 +182,11 @@
      test_every_status_colour_on_the_page_is_readable holds the Jobs rows to that. */
   --warning-600: #dc7b18;     /* warning-600 light     PUBLISHED */
   /* SUPABASE'S STATUS STEPS (#633), the ones their components read: Button.tsx,
-     badge.tsx, alert.tsx, Admonition and StatusIcon at 86c813ec. Each is their literal at
+     badge.tsx, alert.tsx, Admonition, StatusIcon, IconBackground and sonner at 86c813ec. Each is their literal at
      the pin (tests/fixtures/supabase-design-tokens.json); a role token that equals a
      step names it, so the value is written once (tests/test_the_status_ramps_are_supabases.py).
      --warning-600 is above, with its mandate. --info is their OKLCH --info evaluated, and
-     the four borders are their 30% status borders (semantic.css@86c813ec:167, :250). */
+     the four borders are their 30% status borders (semantic.css@86c813ec:247-250). */
   --brand-200: #d3f8e4;       /* brand-200 light PUBLISHED */
   --brand-300: #a9f1ca;       /* brand-300 light PUBLISHED */
   --brand-400: #72e3ad;       /* brand-400 light PUBLISHED */
