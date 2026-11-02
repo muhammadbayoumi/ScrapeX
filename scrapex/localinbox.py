@@ -26,6 +26,7 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from .databases.registry import DATABASE_ROOT
+from .paths import name_inside
 from .payload import (
     PAYLOAD_COMPAT_VERSION,
     FunnelPayload,
@@ -42,7 +43,7 @@ _TOKEN_SEP = "__"
 
 
 def _source_dir(base: Path | str, source_key: str) -> Path:
-    return Path(base) / source_key
+    return name_inside(base, source_key)
 
 
 def write_payload(base: Path | str, payload: FunnelPayload, token: str = "") -> Path:

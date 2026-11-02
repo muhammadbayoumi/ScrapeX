@@ -15,10 +15,10 @@ gap (no user could run any crawl) and closed it by hardcoding the one site we ha
 HE IS RIGHT THAT PRODUCTS ARE THE SHAPE TO COPY. A products source is a contract
 entry naming a `family`, and `build_connector(entry)` returns its collector, so a
 second Shopify shop needs no new module. This is the same split for the
-`contractors` category:
+`organizations` category:
 
-    products     entry -> family -> build_connector    (scrapex/connectors/factory.py)
-    contractors  key   -> Directory -> its partition   (this module)
+    products       entry -> family -> build_connector    (scrapex/connectors/factory.py)
+    organizations  key   -> Directory -> its partition   (this module)
 
 WHAT IS **NOT** DUPLICATED HERE, and it is most of the work: the crawl itself. The
 engine is already protocol-shaped — `partitioncrawl.PartitionedListing` is a

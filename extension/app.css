@@ -1280,7 +1280,22 @@
     0% { transform: translateX(-120%); }
     100% { transform: translateX(320%); }
   }
+  /* THE CARD CONTAINS ITS OWN ANNOUNCER. `.visually-hidden` is absolute, and with no
+     positioned ancestor #act-announce sat at its in-flow spot outside the view's scroller,
+     stretched the document past the viewport, and a scroll to Activity slid the whole
+     panel up, rail and header with it, where no wheel could bring them back (#1074). */
+  #activity { position: relative; }
   .act-progress { margin: var(--sp-2) 0; }
+  /* An ended job's reason sits where the bar would, with the bar's own spacing. */
+  #act-error { margin: var(--sp-2) 0; }
+  /* The ended job's identity and time, spaced as the Jobs row spaces them (row-gap sp-1). */
+  #act-source, #act-when { margin: var(--sp-1) 0 0; }
+  /* With no bar and no reason, nothing else separates the time from the counters. */
+  #act-when { margin-bottom: var(--sp-2); }
+  /* His choice D, as on Jobs and Schedules (#1074, 2026-10-25): the domain and the keys
+     wrap at the <wbr> sourceIdentity puts after each dot. */
+  #act-source .source-identity-domain,
+  #act-source .source-identity-key { white-space: normal; overflow-wrap: break-word; }
   #act-queue.note { margin: var(--sp-2) 0; padding: var(--sp-2) var(--sp-3);
                     border-inline-start: 3px solid var(--accent); background: var(--chip);
                     border-radius: var(--radius); line-height: 1.5; }
@@ -4183,9 +4198,9 @@
   grid-column: 1 / -1;
   padding-inline-end: calc(var(--sp-1) * 7 + var(--sp-2));
 }
-/* THE DOMAIN AND THE KEYS WRAP, IN JOBS ONLY (his choice D): they tell one row from
-   another, and the shared identity ellipsizes them at 320 px. `<wbr>` after each dot
-   puts the break there. */
+/* THE DOMAIN AND THE KEYS WRAP, ON JOBS, SCHEDULES AND ACTIVITY (his choice D): they tell
+   one job from another, and the shared identity ellipsizes them at 320 px. `<wbr>`
+   after each dot puts the break there. */
 .job-identity .source-identity-domain,
 .job-identity .source-identity-key { white-space: normal; overflow-wrap: break-word; }
 .job-more { display: block; }

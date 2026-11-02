@@ -220,6 +220,10 @@
         <div class="row"><h2 class="flush">Activity</h2>
           <span id="act-elapsed" class="muted tech"></span></div>
         <div id="act-state" class="kv"></div>
+        <!-- An ended job's sources, then its start and end: the Jobs row's identity
+             and time line (#1074). -->
+        <div id="act-source" class="hidden"></div>
+        <p id="act-when" class="job-line text-xs muted hidden"></p>
 
         <!-- The bar is a fraction of REQUESTS against a stated denominator, not
              of sources. act-progress-label says what it is a fraction OF; an
@@ -230,6 +234,12 @@
           </div>
           <div id="act-progress-label" class="muted text-xs" role="status" aria-live="polite"></div>
         </div>
+        <!-- Why an ended job ended: the Jobs row's two lines (his choice B on #1542),
+             with the whole of it in the log below. -->
+        <div id="act-error" class="err job-clamp text-xs hidden"></div>
+        <!-- The end of a job, spoken once in the Jobs page's words (WCAG 2.2 SC 4.1.3):
+             #jobs-announce is in a view that is hidden while Run is shown. -->
+        <p class="visually-hidden" id="act-announce" role="status" aria-live="polite"></p>
 
         <!-- Why a second run is not moving: which job holds the worker and this
              one's place in line. Empty for the running job. -->
