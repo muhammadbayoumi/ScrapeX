@@ -10780,11 +10780,19 @@ function wireRuntimeRepair() {
       await raw("/api/health", {cache: "no-store"});
     } catch (probeError) {
       // THE SCREEN SAYS SO TOO. Nothing has read the engine since it went, so the ending
-      // would draw a green "Running" from `state` over this note, and Run would have no
-      // Start for it to point at (#1861). It is drawn from what answers now, as the failed
-      // ending draws it, and a redraw that fails must not keep back the buttons.
+      // would draw a green "Running" from `state` over this note. A refused engine is
+      // gone: the screen is drawn as the failed ending draws it, which draws the Start
+      // this note points at (#1861). A DEADLINE IS NOT THE DARK: a slow engine is still
+      // serving, so only the status is read again. `render()` would take it for gone, and
+      // offer a Start beside its job runner and stop polling its jobs. A redraw that fails
+      // must not keep back the buttons.
       try {
-        await render();
+        if (isTimeoutError(probeError)) {
+          await updateEngineState();
+        } else {
+          await render();
+          await renderEngines();
+        }
       } catch (error) {
         markStartup("restart-redraw-failed",
                     {message: (error && error.message) || "unknown"});

@@ -9404,34 +9404,83 @@ THE_ENGINE_WENT_UNNOTICED = """(gone) => {
 }"""
 
 
-@pytest.mark.parametrize("gone, note, banner, tone", [
-    ("refuses", "No engine is running, so there is nothing to restart. "
-                "Start it on the Run page.", "Not detected", None),
-    ("runs-out", "The engine did not answer, so Restart was not sent. "
-                 "Press Check again to ask it.", "Check timed out", "warn"),
-], ids=["it-refuses", "it-runs-out"])
-def test_a_restart_with_the_engine_gone_unnoticed_draws_what_answers(
-        open_panel, gone, note, banner, tone):
+RUN_DRAWS_ITS_START = "() => !document.getElementById('setup').classList.contains('hidden')"
+
+
+def test_a_restart_with_the_engine_gone_unnoticed_draws_what_answers(open_panel):
     """Nothing polls the engine, so one that died after the page was drawn left `state`
     at its last answer, and the ending drew that: a green "Running", its database line
-    too, over "No engine is running". And "Start it on the Run page" pointed at a Start
-    only `render()` draws (#1861). The ending draws what answers now."""
-    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    too, over "No engine is running". "Start it on the Run page" pointed at a Start only
+    `render()` draws (#1861), and the release row went on offering an update to the
+    engine that left. The ending draws the screen from what answers now."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok",
+                      engine_version="0.9.0", engine_manifest=PUBLISHED_091)
     page.click("#tab-engines")
     open_engine(page)
+    page.wait_for_function(
+        "() => document.getElementById('engine-release-verdict').textContent"
+        " === 'Update available'", timeout=10_000)
     assert text_of(page, "#engine-state-text") == "Running"
-    page.evaluate(THE_ENGINE_WENT_UNNOTICED, gone)
+    page.evaluate(THE_ENGINE_WENT_UNNOTICED, "refuses")
     watch_the_banner(page)
     page.click("#runtime-restart")
     page.wait_for_function(
         "() => !document.getElementById('runtime-restart').disabled", timeout=10_000)
 
-    assert text_of(page, "#engine-restart-note") == note
-    assert page.evaluate("() => window.__bannerSaid") == ["Restarting", banner]
-    assert page.get_attribute("#engine-state-banner", "data-tone") == tone
-    assert page.evaluate(
-        "() => !document.getElementById('setup').classList.contains('hidden')"), (
-        "Run draws no Start for the engine that went")
+    assert text_of(page, "#engine-restart-note") == (
+        "No engine is running, so there is nothing to restart. Start it on the Run page.")
+    assert page.evaluate("() => window.__bannerSaid") == ["Restarting", "Not detected"]
+    assert page.get_attribute("#engine-state-banner", "data-tone") is None
+    assert page.evaluate(RUN_DRAWS_ITS_START), "Run draws no Start for the engine that went"
+    assert text_of(page, "#engine-release-verdict") == "Available to install", (
+        "the release row still judges the engine that left")
+    assert text_of(page, "#engine-download-label") == "Download engine"
+    assert not page.js_errors, page.js_errors
+
+
+def test_a_restart_that_finds_the_engine_slow_does_not_draw_it_as_gone(open_panel):
+    """A DEADLINE IS NOT THE DARK. A busy engine runs out the preflight and goes on
+    serving, so the banner says the check timed out and Run stays as it was. `render()`
+    takes a timeout for a stopped engine: it drew Start beside a running job runner and
+    stopped polling the jobs, and the Check again this note asks for does not undo that."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    assert not page.evaluate(RUN_DRAWS_ITS_START)
+    page.evaluate(THE_ENGINE_WENT_UNNOTICED, "runs-out")
+    watch_the_banner(page)
+    page.click("#runtime-restart")
+    page.wait_for_function(
+        "() => !document.getElementById('runtime-restart').disabled", timeout=10_000)
+
+    assert text_of(page, "#engine-restart-note") == (
+        "The engine did not answer, so Restart was not sent. Press Check again to ask it.")
+    assert page.evaluate("() => window.__bannerSaid") == ["Restarting", "Check timed out"]
+    assert page.get_attribute("#engine-state-banner", "data-tone") == "warn"
+    assert not page.evaluate(RUN_DRAWS_ITS_START), "Run offers Start for an engine still serving"
+    assert "Start the engine" not in text_of(page, "#sites")
+    assert not page.js_errors, page.js_errors
+
+
+@pytest.mark.parametrize("gone", ["refuses", "runs-out"], ids=["it-refuses", "it-runs-out"])
+def test_a_preflight_redraw_that_fails_gives_the_buttons_back(open_panel, gone):
+    """That ending redraws with the flag up, so a redraw that throws -- here the status
+    line it paints first is gone from the page -- must not leave Restart down for good,
+    with the note on "Checking the database before restarting…". It is recorded."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    page.evaluate(THE_ENGINE_WENT_UNNOTICED, gone)
+    page.evaluate("() => document.getElementById('estat-text').remove()")
+    page.click("#runtime-restart")
+    page.wait_for_function(
+        "() => !document.getElementById('runtime-restart').disabled", timeout=10_000)
+
+    assert "Checking the database" not in text_of(page, "#engine-restart-note")
+    traced = page.evaluate("""() => globalThis.ScrapeXPanelTrace.events()
+        .filter((event) => event.name === 'restart-redraw-failed')
+        .map((event) => event.detail)""")
+    assert traced and traced[0]["message"], "the failed redraw left no record"
     assert not page.js_errors, page.js_errors
 
 
