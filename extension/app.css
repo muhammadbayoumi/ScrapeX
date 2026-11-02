@@ -1877,7 +1877,7 @@
     width: 2.5rem;
     height: 2.5rem;
   }
-  /* The greeting. An h1 has no rule anywhere in either sheet, so its UA
+  /* The greeting. The h1-h6 rule sets no margin, so its UA
      `margin: .67em 0` would sit on top of .profile-summary's gap and read as
      mysterious extra space above and below the name.
      `overflow-wrap: anywhere` is for the name inside it: a long single-token
@@ -2332,7 +2332,6 @@
   #manage-account-title {
     margin: 0;
     font-size: var(--fs-lg);
-    font-weight: var(--fw-bold);
     line-height: var(--lh-tight);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -3818,7 +3817,6 @@
   #engine-detail-title {
     margin: 0;
     font-size: var(--fs-lg);
-    font-weight: var(--fw-bold);
     line-height: var(--lh-tight);
     overflow: hidden;
     text-overflow: ellipsis;
