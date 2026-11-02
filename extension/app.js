@@ -4185,6 +4185,11 @@ async function askWhichWarehouse() {
 }
 
 function engineStatusFromState() {
+  // A RESTART UNDER WAY OUTRANKS EVERY BRANCH BELOW (#1517; #1556's R04). They read
+  // what the engine that is leaving said: the wait polls `/api/health` directly and
+  // `setStatus` never sees it go, so this said "Running" over "Waiting for the new
+  // engine to start." No detail, because which database comes back is not known yet.
+  if (restartRunning) return { text: "Restarting", tone: "busy", detail: "" };
   // THE CHECK IS STILL RUNNING is a state, not a verdict. The Engine check now
   // settles independently of the rest of startup, so this card can be read
   // while the answer is still in flight — and showing the previous open's
@@ -4240,6 +4245,7 @@ function engineStatusFromState() {
 // carry the same claim rather than a second, contradictory one.
 const ENGINE_TONE_ICON = {
   ok: "material-check", warn: "material-play-circle", danger: "material-close", neutral: "material-dns",
+  busy: "material-sync",
 };
 
 // ONE summary, TWO screens. The catalogue row keeps the badge-and-dot pair and
@@ -10728,6 +10734,7 @@ function wireRuntimeRepair() {
 
   restart.addEventListener("click", async () => {
     restartRunning = true;
+    updateEngineStatus();
     [restart, upgrade, $("runtime-check-action")].filter(Boolean)
       .forEach((button) => { button.disabled = true; });
     // AND START AND CHECK AGAIN, as an upgrade holds them (`upgradeDatabaseFromPanel`):
@@ -10743,6 +10750,7 @@ function wireRuntimeRepair() {
     // database down while the restart runs cannot outlive it.
     const release = () => {
       restartRunning = false;
+      updateEngineStatus();
       [restart, upgrade, $("runtime-check-action"), ...held].filter(Boolean)
         .forEach((button) => { button.disabled = false; });
       // WHAT FAILED IN THE DARK GOES FIRST, on screen or off: with the flag down, these
@@ -10987,11 +10995,11 @@ function wireRuntimeRepair() {
         // scans the whole file, so it is said, and the buttons stay down, until
         // it answers.
         //
-        // THE SCREEN SAYS SO TOO. Nothing redrew it since the press, so the
-        // banner went on reading "Running" from before it, over a note saying the
-        // engine has not answered -- and the release row went on offering an update
-        // to the engine that left. Both are drawn from what answers now, the way
-        // entering the screen draws them, as the successful ending does above.
+        // THE SCREEN SAYS SO TOO. Nothing redrew it since the press, so the release
+        // row went on offering an update to the engine that left. It is drawn from
+        // what answers now, the way entering the screen draws it, as the successful
+        // ending does above. The banner goes on saying "Restarting" over this, and
+        // `release` draws it from what these reads found.
         // A redraw that fails is recorded, and must not keep back the buttons this
         // ending gives back.
         try {

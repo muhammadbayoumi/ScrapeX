@@ -3875,6 +3875,13 @@
     background: var(--surface);
     color: inherit;
   }
+  /* A restart under way (#1556's R04) claims nothing about the engine, so the banner
+     stays untinted and only the tile shows work in progress. --warning-600 is the
+     glyph's colour on --surface (tokens.css, #1542). */
+  .engine-state-banner[data-tone="busy"] > .icon-tile {
+    border: 1px solid var(--warning-600);
+    color: var(--warning-600);
+  }
   .engine-state-copy {
     display: flex;
     flex-direction: column;

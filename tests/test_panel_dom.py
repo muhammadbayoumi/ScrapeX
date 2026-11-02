@@ -9271,6 +9271,153 @@ def test_a_restart_whose_engine_never_comes_back_redraws_the_screen(open_panel):
     assert not page.js_errors, page.js_errors
 
 
+def watch_the_banner(page) -> None:
+    """Keep what the Engine page's banner says, in order, a repeat left out."""
+    page.evaluate("""() => {
+      window.__bannerSaid = [];
+      const text = document.getElementById('engine-state-text');
+      new MutationObserver(() => {
+        const said = window.__bannerSaid;
+        if (said[said.length - 1] !== text.textContent) said.push(text.textContent);
+      }).observe(text, {childList: true, characterData: true, subtree: true});
+    }""")
+
+
+def assert_the_banner_says_restarting(page) -> None:
+    """#1556's R04: no tint, no claim about the engine, and the catalogue's row alike."""
+    assert text_of(page, "#engine-state-text") == "Restarting"
+    assert text_of(page, "#engine-state-detail") == ""
+    assert page.get_attribute("#engine-state-banner", "data-tone") == "busy"
+    assert page.get_attribute("#engine-state-icon", "href").endswith("material-sync")
+    assert text_of(page, "#engine-status") == "Restarting"
+    assert page.get_attribute("#engine-status-badge", "class") == "badge"
+    assert page.get_attribute("#engine-status-dot", "class") == "dot"
+
+
+def test_the_banner_says_restarting_for_the_whole_wait(open_panel):
+    """HIS CHOICE ON #1556, 2026-11-01. The note said "Waiting for the new engine to
+    start." under a green "Running", the engine as it was before the press: the wait
+    polls `/api/health` directly, so nothing redraws the banner. It holds through every
+    state of the wait, and the green goes with the word."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    assert text_of(page, "#engine-state-text") == "Running"
+    background = "() => getComputedStyle(document.getElementById('engine-state-banner'))" \
+                 ".backgroundColor"
+    green = page.evaluate(background)
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART,
+                                    bow_out_ms=5_000, dark_ms=10**9)
+    page.clock.install()
+    page.click("#runtime-restart")
+    page.wait_for_function(
+        "(said) => document.getElementById('engine-restart-note').textContent === said",
+        arg=RESTART_ASKED, timeout=10_000)
+    assert_the_banner_says_restarting(page)
+    assert page.evaluate(background) != green, "the banner is still green"
+    assert page.evaluate(
+        "() => getComputedStyle(document.querySelector('#engine-state-banner > .icon-tile'))"
+        ".color") == "rgb(220, 123, 24)", "the tile is not --warning-600, the glyph's colour"
+
+    page.clock.run_for(2_000)
+    assert text_of(page, "#engine-restart-note") == OLD_ENGINE_ANSWERS
+    assert_the_banner_says_restarting(page)
+    page.clock.run_for(6_000)
+    assert text_of(page, "#engine-restart-note") == NO_ENGINE_ANSWERS
+    assert_the_banner_says_restarting(page)
+    assert not page.js_errors, page.js_errors
+
+
+@pytest.mark.parametrize("successor_build, bow_out_ms, dark_ms, said, tone", [
+    (ENGINE_AFTER_RESTART, ENGINE_BOW_OUT_MS, ENGINE_DARK_MS,
+     ["Running", "Checking engine…", "Running"], "ok"),
+    (None, 10**9, ENGINE_DARK_MS, ["Running"], "ok"),
+    (ENGINE_AFTER_RESTART, ENGINE_BOW_OUT_MS, 10**9, ["Not detected"], None),
+], ids=["a-new-engine-answers", "the-same-engine-still-answers", "no-engine-comes-back"])
+def test_the_banner_says_restarting_until_the_ending(
+        open_panel, successor_build, bow_out_ms, dark_ms, said, tone):
+    """Then what answers, at every ending, and nothing between: the failed ending redraws
+    from the engine check before its database check, with the restart still running. The
+    good ending asks the new engine after the restart has ended, so its check is said."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    restart_the_way_the_engine_does(page, successor_build=successor_build,
+                                    bow_out_ms=bow_out_ms, dark_ms=dark_ms)
+    watch_the_banner(page)
+    page.clock.install()
+    page.click("#runtime-restart")
+    page.clock.run_for(130_000)
+    page.wait_for_function(
+        "() => !document.getElementById('runtime-restart').disabled", timeout=10_000)
+    page.clock.run_for(3_000)
+
+    assert page.evaluate("() => window.__bannerSaid") == ["Restarting", *said]
+    assert text_of(page, "#engine-status") == said[-1]
+    assert page.get_attribute("#engine-state-banner", "data-tone") == tone
+    assert not page.js_errors, page.js_errors
+
+
+#: The check before the restart refuses it, so nothing is asked to leave. Installed over
+#: the harness's own host.
+THE_CHECK_REFUSES_THE_RESTART = """() => {
+  const send = window.chrome.runtime.sendNativeMessage;
+  window.chrome.runtime.sendNativeMessage = (host, message, callback) => {
+    if (message && message.command === 'CHECK_STARTUP') {
+      setTimeout(() => callback({ok: false, error: 'startup_blocked',
+        detail: 'engine: Needs upgrade. This database is at schema v25 and this build '
+              + 'expects v26.'}), 0);
+      return;
+    }
+    return send(host, message, callback);
+  };
+}"""
+
+
+def test_a_restart_the_check_refuses_gives_the_banner_back(open_panel):
+    """Nothing was asked to leave, so the engine is what it was, its database line too."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    detail = text_of(page, "#engine-state-detail")
+    page.evaluate(THE_CHECK_REFUSES_THE_RESTART)
+    watch_the_banner(page)
+    page.click("#runtime-restart")
+    page.wait_for_function(
+        "() => document.getElementById('engine-restart-note').textContent"
+        ".startsWith('Restart was not attempted')", timeout=10_000)
+
+    assert page.evaluate("() => window.__bannerSaid") == ["Restarting", "Running"]
+    assert page.get_attribute("#engine-state-banner", "data-tone") == "ok"
+    assert text_of(page, "#engine-state-detail") == detail
+    assert not page.js_errors, page.js_errors
+
+
+def test_a_candidate_keeps_its_own_banner_through_the_wait(open_panel):
+    """Every engine shares one detail screen. The restart is ScrapeX's: the catalogue's
+    row says so, a candidate opened in the wait does not, and ScrapeX's reopened does."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART,
+                                    dark_ms=10**9)
+    page.clock.install()
+    page.click("#runtime-restart")
+    page.clock.run_for(2_000)
+    page.click("#engine-detail-back")
+    assert text_of(page, "#engine-status") == "Restarting"
+
+    open_engine(page, "firecrawl")
+    page.clock.run_for(2_000)
+    assert text_of(page, "#engine-state-text") == "Not installed"
+
+    page.click("#engine-detail-back")
+    open_engine(page)
+    page.clock.run_for(2_000)
+    assert_the_banner_says_restarting(page)
+    assert not page.js_errors, page.js_errors
+
+
 def test_a_redraw_that_fails_gives_the_buttons_back(open_panel):
     """The failed ending redraws the screen before its database check. A redraw
     that throws -- here the Latest version value, which the release row paints first,
