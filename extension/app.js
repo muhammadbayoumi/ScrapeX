@@ -10779,6 +10779,16 @@ function wireRuntimeRepair() {
     try {
       await raw("/api/health", {cache: "no-store"});
     } catch (probeError) {
+      // THE SCREEN SAYS SO TOO. Nothing has read the engine since it went, so the ending
+      // would draw a green "Running" from `state` over this note, and Run would have no
+      // Start for it to point at (#1861). It is drawn from what answers now, as the failed
+      // ending draws it, and a redraw that fails must not keep back the buttons.
+      try {
+        await render();
+      } catch (error) {
+        markStartup("restart-redraw-failed",
+                    {message: (error && error.message) || "unknown"});
+      }
       say(isTimeoutError(probeError)
         ? "The engine did not answer, so Restart was not sent. Press Check again to ask it."
         : "No engine is running, so there is nothing to restart. Start it on the Run page.");
