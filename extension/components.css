@@ -497,7 +497,7 @@ button.danger:hover:not(:disabled),
    confirms a switch being turned off with it (CronJobTableCell.tsx@86c813ec:210-253). */
 button.warning,
 .button.warning {
-  border-color: color-mix(in srgb, var(--amber) 30%, transparent);
+  border-color: var(--border-warning);
   background: var(--warning-button);
   color: var(--text);
 }
