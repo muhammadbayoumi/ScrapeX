@@ -55,7 +55,7 @@ from .. import db as dbmod
 from .. import version as engine_version
 from ..capture import capture_source, crawl_settings
 from ..catalog_models import SiteCreate
-from ..changes import change_summary, recent_changes
+from ..changes import CHANGE_TYPE_WORDS, change_summary, recent_changes
 from ..config import (
     RefusedHostError,
     SourceEntry,
@@ -454,7 +454,7 @@ TEMPLATES.env.globals["UNCLEAN_JOB_STATUSES"] = sorted(
 TEMPLATES.env.globals["SKIPPED_JOB_STATUS"] = JobStatus.SKIPPED.value
 STATIC_DIR = Path(__file__).parent / "static"
 PAGE_SIZE = 50
-AVAILABILITY_OPTIONS = ("in_stock", "out_of_stock", "unknown", "no_longer_listed")
+AVAILABILITY_OPTIONS = ("in_stock", "out_of_stock", "unknown")
 # The page sizes offered. The largest is the cap browse_observations already
 # enforces (reports.py) — offering a number the server would silently clamp
 # would be a lie told by a dropdown.
@@ -1846,6 +1846,7 @@ def create_app(
                          changes=recent_changes(conn, source_key, limit=limit),
                          extremes=price_extremes(conn, source_key, limit=2000) if source_key else [],
                          offers=_offers_with_history(conn, source_key) if source_key else [],
+                         change_words=CHANGE_TYPE_WORDS,
                           sources=_display_sources(conn))
         finally:
             conn.close()

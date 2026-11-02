@@ -212,13 +212,13 @@ def browse_google_finance_rates(conn: sqlite3.Connection, *,
     return BrowsePage(rows=rows, total=total, offset=offset, limit=limit)
 
 
-# One row per offer = its LATEST observation (current price), reused by browse+count.
 # What the Availability column says. An observation is what the shop stated on a
 # day, so a product gone from the listing is not a value of po.availability: it is
 # the product's own state, and it speaks for the row where the row is shown (#1841).
 _SHOWN_AVAILABILITY = ("CASE WHEN sp.status = 'vanished' THEN 'no_longer_listed' "
                        "ELSE po.availability END")
 
+# One row per offer = its LATEST observation (current price), reused by browse+count.
 _LATEST_PER_OFFER = (
     "FROM price_observation po "
     "JOIN source_offer so ON so.offer_id = po.offer_id "
@@ -947,7 +947,7 @@ def column_presence(conn: sqlite3.Connection, source_key: str) -> set[str]:
         # 'unknown' is a non-empty string that states nothing. Counting it as
         # present gave GPP a Status column reading "Unknown" on all 721 rows —
         # a column of noise. No information is not information.
-        "       COUNT(NULLIF(NULLIF(TRIM(COALESCE(po.availability,'')),''),'unknown')), "
+        f"       COUNT(NULLIF(NULLIF(TRIM(COALESCE({_SHOWN_AVAILABILITY},'')),''),'unknown')), "
         "       COUNT(NULLIF(TRIM(COALESCE(po.official_source_name,'')),'')), "
         "       COUNT(NULLIF(TRIM(COALESCE(sp.brand,'')),'')), "
         "       SUM(CASE WHEN po.price_before > po.price THEN 1 ELSE 0 END), "
@@ -2502,7 +2502,8 @@ COLUMN_NOTES: dict[str, str] = {
                    "the unit of that weight. Empty wherever the Unit column is "
                    "filled, and wherever the source's minimum and step are whole "
                    "numbers, because then the weight is one piece's own mass.",
-    "availability": "In stock or out, as the source states it.",
+    "availability": "In stock or out, as the source states it, or no longer listed where "
+                    "a complete crawl did not find the product.",
     "tax": "Whether THIS figure includes tax, and at what rate.",
     "tax_included": "The same fact as yes/no, for a spreadsheet.",
     "tax_evidence": "How well the tax position is known: stated, implied, unknown.",

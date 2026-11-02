@@ -666,7 +666,8 @@ class MagentoGraphqlConnector:
                 page_token=token,
                 refused_products=page_refused,
             )
-            total_pages = ((products.get("page_info") or {}).get("total_pages")) or page
+            stated_pages = (products.get("page_info") or {}).get("total_pages")
+            total_pages = stated_pages or page
             # The store has just told us how many listing pages there are, so
             # from here the crawl's size is known rather than guessed. Declared
             # every page (expect_requests only ever raises the number) because
@@ -676,7 +677,9 @@ class MagentoGraphqlConnector:
                              len([p for p in range(page + 1, int(total_pages) + 1)
                                   if f"page-{p}" not in self.skip_tokens]))
             if page >= total_pages:
-                self.census_proven = True
+                # The last page the STORE said it has. One that states no count has
+                # not said this page was its last.
+                self.census_proven = bool(stated_pages)
                 break
             page += 1
         # The details the same responses already carried — descriptions and

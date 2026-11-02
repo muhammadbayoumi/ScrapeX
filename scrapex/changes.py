@@ -256,7 +256,13 @@ _FIELD_LABELS = {
     "availability": "availability",
     "source_product": "record",
     "source_variant": "variant",
+    "status": "listing",
 }
+
+# A product's listing state in the words his table uses. A crawl knows the record left the
+# listing and cannot know why, so the feed must not say more than the table does (#1841).
+_STATUS_WORDS = {"active": "Listed", "vanished": "No longer listed"}
+CHANGE_TYPE_WORDS = {"removed": "no longer listed"}
 
 
 def _describe(item: dict) -> None:
@@ -276,6 +282,8 @@ def _describe(item: dict) -> None:
         item["display_change"] = "first seen"
         return
     previous, new = item.get("previous_value"), item.get("new_value")
+    if item.get("field_key") == "status":
+        previous, new = _STATUS_WORDS.get(previous, previous), _STATUS_WORDS.get(new, new)
     item["display_previous"] = "" if previous is None else str(previous)
     item["display_new"] = "" if new is None else str(new)
     item["display_change"] = ""

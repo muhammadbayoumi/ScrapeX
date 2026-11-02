@@ -340,6 +340,11 @@ def _replace_chartered_unit(row: list[str], product: dict, charter: Charter) -> 
         row[PRODUCT_PRICES.columns.index(column)] = value
 
 
+def _listed_id(product: dict) -> str:
+    """What identifies a product on a listing page: what its row is filed under."""
+    return str(product.get("product_id") or product.get("id") or product.get("sku") or "")
+
+
 class CustomJsonConnector:
     # True once fetch has walked every page and met the total the API stated.
     # Read by capture, which marks what the walk did not find (#1841).
@@ -376,7 +381,10 @@ class CustomJsonConnector:
         for page in range(2, pages + 1):
             products += _items(self._fetcher.get(f"{endpoint}?page={page}").json())
         stated = (first.get("pagination") or {}).get("total") if isinstance(first, dict) else None
-        self.census_proven = pages == _total_pages(first) and stated == len(products)
+        # Distinct, because the catalogue shifting mid-crawl can repeat one across a page
+        # edge, and a repeat would meet the stated total while another product went unmet.
+        self.census_proven = (pages == _total_pages(first)
+                              and stated == len({_listed_id(p) for p in products}))
 
         rows: list[list[str]] = []
         seen: set[str] = set()
@@ -388,8 +396,7 @@ class CustomJsonConnector:
             row = self._row(builder, product, base, currency, vat,
                             source.default_region, charter)
             if row is None:
-                refused.append(str(product.get("product_id") or product.get("id")
-                                   or product.get("sku") or ""))
+                refused.append(_listed_id(product))
                 continue
             key = row[id_at]
             if key in seen:
@@ -497,7 +504,7 @@ class CustomJsonConnector:
     def _row(builder: RowBuilder, product: dict, base: str, currency: str, vat: str,
              region: str, charter: Charter):
         regular, sale, effective = _prices(product)
-        pid = str(product.get("product_id") or product.get("id") or product.get("sku") or "")
+        pid = _listed_id(product)
         if not effective or not pid:
             return None  # unpriced or unidentifiable — skip, don't emit empty required
         # /products/{id} verified live on 2026-07-20; /product/{id} returns 404.

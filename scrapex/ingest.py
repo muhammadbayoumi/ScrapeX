@@ -1105,15 +1105,17 @@ def ingest_payloads(conn: sqlite3.Connection, entry: SourceEntry,
 
 
 def mark_unlisted_products(conn, entry, payloads, refused, result: IngestResult,
-                           job_id=None) -> None:
+                           job_id=None, breach: str | None = None) -> None:
     """A complete crawl marks the active products it did not find (#1841).
 
-    The caller holds the proof, as sightings.mark_departures' does: this cannot
+    The caller holds the proof, as contractors.mark_departures' does: this cannot
     see from inside whether the crawl was complete. Nothing is deleted, and being
     listed again re-activates the product and records `returned`.
 
     `max_drop_pct` is the bound the volume canary already reads. A site redesign
     must not mark a catalogue gone, so past it nothing is marked and the run says.
+    The canary counts rows and this counts products, so the two can disagree: a run
+    the canary is about to fail (`breach`) marks nothing either.
     """
     seen = {RowView(PRODUCT_PRICES, payload.header).as_dict(row)["external_product_id"]
             for payload in payloads if payload.kind == ExtractKind.PRODUCT_PRICES
@@ -1131,6 +1133,11 @@ def mark_unlisted_products(conn, entry, payloads, refused, result: IngestResult,
         result.notices.append(
             f"{len(gone)} of {len(active)} product(s) were missing from this complete crawl, "
             f"over the {entry.max_drop_pct}% this source allows: not marked as no longer listed")
+        return
+    if breach:
+        result.notices.append(
+            f"{len(gone)} of {len(active)} product(s) were missing from a crawl the volume "
+            f"canary failed: not marked as no longer listed")
         return
     for product_id in gone:
         conn.execute("UPDATE source_product SET status = 'vanished' WHERE source_product_id = ?",
