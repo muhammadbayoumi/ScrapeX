@@ -270,6 +270,25 @@ _DETAIL_GROUP_BY_CODE: dict[str, DetailGroup] = {
     # with the sale and not a property of the goods: two shops selling the
     # same item can warrant it differently.
     "pa_الضمان": DetailGroup.STORE,
+    # The 15 madar codes that went unasked because the note naming them was
+    # dropped (#1836). The owner delegated the filing on 2026-10-26 (#1835), so
+    # it follows his boundary above. ejf_percentage has no label and no value on
+    # any product: its meaning is unknown, and it is filed by the same default.
+    "drilling_capacity": DetailGroup.SPECIFICATIONS,
+    "max_flow_lpm": DetailGroup.SPECIFICATIONS,
+    "impact_energy_j": DetailGroup.SPECIFICATIONS,
+    "max_head_m": DetailGroup.SPECIFICATIONS,
+    "max_torque_nm": DetailGroup.SPECIFICATIONS,
+    "fuel_tank_l": DetailGroup.SPECIFICATIONS,
+    "wire_gauge": DetailGroup.SPECIFICATIONS,
+    "grit": DetailGroup.SPECIFICATIONS,
+    "melamine_top": DetailGroup.SPECIFICATIONS,
+    "drill_bit_length": DetailGroup.SPECIFICATIONS,
+    "drill_bit_size": DetailGroup.SPECIFICATIONS,
+    "number_of_teeth": DetailGroup.SPECIFICATIONS,
+    "roll_specification": DetailGroup.SPECIFICATIONS,
+    "ejf_percentage": DetailGroup.SPECIFICATIONS,
+    "product_model": DetailGroup.MORE_INFORMATION,
 }
 
 # Shapes rather than names, for the families a site invents freely. A
@@ -379,16 +398,26 @@ class SourceCategory(StrEnum):
     «ونعمل category للمصادر لدينا الان 2 منتجات ومقاولين».
 
     `R-32`: the tool is collection first, and price tracking was the FIRST category
-    rather than the category. `jobs` and `tenders` are named as coming and are not
-    here yet -- an enum value with nothing behind it is a promise, not a vocabulary.
+    rather than the category. `jobs` is named as coming and is not here yet -- an enum
+    value with nothing behind it is a promise, not a vocabulary.
 
     PRODUCTS, NOT PRICES, AND THE DISTINCTION IS LOAD-BEARING. A price is an
     attribute of a product observed at a time. Naming this category "prices" would
     repeat the exact mistake `R-32` corrects, one level down.
+
+    ORGANIZATIONS, NOT CONTRACTORS: one category for every kind of body. His words,
+    2026-10-31: «فئة تشمل اى نوع شركة او مؤسسة او منظمة او مقاولين او مكاتب». A
+    contractor is one kind of organization, and this word replaces that one rather than
+    standing beside it. `dataset_key: contractors` is a dataset's name and is untouched.
+
+    TENDERS, ITS OWN CATEGORY, because a tender is not a company. His answer, 2026-11-01,
+    asked whether to add a third category for the five tender domains: «نعم، أضفها». Tender
+    sources register in `scrapex/tenders.py`.
     """
 
     PRODUCTS = "products"
-    CONTRACTORS = "contractors"
+    ORGANIZATIONS = "organizations"
+    TENDERS = "tenders"
 
 
 class ConnectorFamily(StrEnum):

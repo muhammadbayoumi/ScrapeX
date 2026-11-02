@@ -499,12 +499,18 @@ def test_upgrading_the_database_is_a_truthful_no_op_when_nothing_is_pending():
     press when it is not. (Mounted on a bare app: the database router only
     exists where a registry does, which a single-file test app has no business
     inventing.)"""
+    from types import SimpleNamespace
+
     from fastapi import FastAPI
 
+    from scrapex import db as dbmod
     from scrapex.webui.database_api import create_database_router
 
     class Registry:
-        """Healthy, so the guarded path (#1635) has nothing to migrate."""
+        """Healthy, so the guarded path (#1635) has nothing to migrate. Its engine is
+        level with the disk, as one started on this code is."""
+
+        engine = SimpleNamespace(latest_schema_version=dbmod.latest_schema_version())
 
         def ensure_ready(self):
             return {"ok": True, "created": [], "databases": {

@@ -265,10 +265,17 @@ def test_source_identity_is_shared_across_every_source_listing(client, path):
 
 @pytest.mark.parametrize("path", ["/changes", "/history", "/review"])
 def test_source_scoped_pages_use_the_stacked_source_filter(client, path):
+    import re
+
     body = client.get(path, params={"source_key": SOURCE}).text
     assert 'class="source-filter-menu"' in body
     assert '<select name="source_key"' not in body
-    assert "elsewedyshop.com" in body
+    # THE TRIGGER'S OWN DOMAIN, COMPARED WHOLE. The popover lists every source, so looking
+    # for the domain anywhere in the page passes when the trigger has lost the chosen one,
+    # and code scanning reads `"<domain>" in body` as a URL check (#1935).
+    trigger = body.split('class="source-filter-current"', 1)[1].split("</summary>", 1)[0]
+    assert re.findall(r'class="source-identity-domain"[^>]*>([^<]*)<', trigger) == [
+        "elsewedyshop.com"]
 
 
 def test_source_filter_stays_above_sticky_table_headers():

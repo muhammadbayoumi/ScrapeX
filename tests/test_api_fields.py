@@ -527,6 +527,44 @@ def test_a_wipe_refuses_without_confirmation_and_says_what_it_would_do(client):
     assert "every row" in detail and "backup" in detail
 
 
+def test_a_wipe_of_a_source_the_manifest_does_not_name_is_refused(client, monkeypatch):
+    """Confirmed and still refused, in words, before a backup is taken or a row read."""
+    import scrapex.webui.app as webapp
+
+    called = []
+    monkeypatch.setattr(webapp, "wipe_source", lambda *args: called.append(args))
+
+    r = client.post("/api/sources/NOT_IN_THE_MANIFEST/wipe", json={"confirm": True})
+
+    assert r.status_code == 404
+    assert "NOT_IN_THE_MANIFEST" in r.json()["detail"]
+    assert not called, "the wipe ran for a source the manifest does not name"
+
+
+def test_a_wipe_hands_on_the_manifests_own_key_never_the_requests(client, monkeypatch):
+    """`wipe_source` names a backup file with this string, so the one that reaches it
+    is the manifest's own object. Equality could not tell them apart: the guard is what
+    made them equal, and it is what `is` checks here."""
+    import types
+
+    import scrapex.webui.app as webapp
+
+    seen = []
+
+    def wipe(conn, db_path, source_key):
+        seen.append(source_key)
+        return types.SimpleNamespace(detail="wiped")
+
+    monkeypatch.setattr(webapp, "wipe_source", wipe)
+
+    r = client.post(f"/api/sources/{SOURCE}/wipe", json={"confirm": True})
+
+    assert r.status_code == 200, r.text
+    assert r.json()["source_key"] == SOURCE
+    entry = next(s for s in client.app.state.manifest.sources if s.source_key == SOURCE)
+    assert seen[0] is entry.source_key, "the request's own string reached wipe_source"
+
+
 def test_the_panel_can_see_what_a_source_holds_before_deleting_it(client):
     """A button that says how much it is about to erase is the difference
     between a choice and a guess."""

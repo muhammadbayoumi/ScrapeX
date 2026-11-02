@@ -24,7 +24,7 @@ a read-only view over both — so the query exists before the schema changes, an
 merge can be judged on its own merits rather than being forced by a missing report.
 
 THE STATE VOCABULARY EXISTS TWICE, WHICH IS THE SAME DEFECT IN WORDS. The products
-side says `active: true/false` plus `family: TBD-probe`; the contractors side says
+side says `active: true/false` plus `family: TBD-probe`; the organizations side says
 `lifecycle IN ('draft','active','paused')`. Neither is wrong and they do not agree, so
 this maps both onto one vocabulary and says, per row, which registry it came from.
 
@@ -74,7 +74,7 @@ class Source:
     registry: str
 
     def __str__(self) -> str:
-        return (f"{self.state:<11} {self.category.value:<12} {self.key:<18} "
+        return (f"{self.state:<11} {self.category.value:<13} {self.key:<18} "
                 f"{self.collector:<26} {self.registry}")
 
 
@@ -138,12 +138,10 @@ def from_warehouse(conn: sqlite3.Connection) -> tuple[Source, ...]:
         datasets = int(row["datasets"] or 0)
         found.append(Source(
             key=str(row["site_key"]),
-            # EVERY source_site ROW IS A CONTRACTOR SOURCE TODAY, and saying so is
-            # honest rather than convenient: the column does not exist yet, muqawil
-            # is the only row, and inventing a guess per row would be worse than
-            # naming the one fact that is true. `REQ-25` puts the category on the
-            # row and this line goes away.
-            category=SourceCategory.CONTRACTORS,
+            # NO COLUMN SAYS WHAT A source_site ROW IS, so this one word covers the whole
+            # side. It is true of the directories and false of a price source's row
+            # (#1906). `REQ-25` puts the category on the row and this line goes away.
+            category=SourceCategory.ORGANIZATIONS,
             name=str(row["display_name"] or row["site_key"]),
             base_url=str(row["base_url"] or ""),
             collector=f"{row['crawl_scope']} · {datasets} dataset(s)",
@@ -182,7 +180,7 @@ def from_code() -> tuple[Source, ...]:
         directory = directories.BUILDERS[key]()
         found.append(Source(
             key=key,
-            category=SourceCategory.CONTRACTORS,
+            category=SourceCategory.ORGANIZATIONS,
             name=directory.display_name,
             base_url=directory.base_url,
             # What collects it, which is the question `collector` answers. The

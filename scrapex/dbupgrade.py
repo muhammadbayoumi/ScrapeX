@@ -78,6 +78,30 @@ def no_upgrade_path(version: int, baseline: int,
         "this one's rows into it.")
 
 
+#: THE REMEDY FOR AN ENGINE OLDER THAN THE DISK (#1634), written once because two
+#: surfaces say it and they contradicted each other: the upgrade route's refusal, and
+#: `/api/health`'s schema lag, which the Run banner prints after "Fix: ". The control
+#: is on the ScrapeX Engine screen, one press below the Engine list
+#: (`extension/app.html`, `#runtime-restart`).
+RESTART_UPGRADES = ("open ScrapeX Engine on the Engine screen and press Restart "
+                    "engine: the new engine backs the database up, then upgrades it")
+
+
+def newer_plan_on_disk(engine) -> int | None:
+    """The newest schema on disk when it is newer than the plan `engine` holds, else None.
+
+    A running engine read its plan once, at its start (`EngineDatabase.__init__`), so
+    a migration that reaches the disk later is invisible to it: its own upgrade answers
+    "already up to date" while the disk says otherwise. Applying the newer plan from
+    inside it is not the remedy -- its code was written for the older schema -- a
+    Restart is. Raises what `db.latest_schema_version` raises on an unreadable plan.
+    """
+    from . import db as dbmod
+
+    on_disk = dbmod.latest_schema_version()
+    return on_disk if on_disk > engine.latest_schema_version else None
+
+
 @dataclass(frozen=True)
 class Outcome:
     """What the guarded upgrade did, in a shape either front door can render.

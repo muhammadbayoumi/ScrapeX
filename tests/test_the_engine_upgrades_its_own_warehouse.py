@@ -34,6 +34,12 @@ class _FakeRegistry:
         self._states = states
         self._after = after
         self.initialized = False
+        # AN ENGINE LEVEL WITH THE DISK, as one started on this code is: the route
+        # refuses to upgrade from an engine whose plan is older than the disk's.
+        from types import SimpleNamespace
+
+        from scrapex import db as dbmod
+        self.engine = SimpleNamespace(latest_schema_version=dbmod.latest_schema_version())
 
     def initialize(self):
         self.initialized = True

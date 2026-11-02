@@ -172,8 +172,10 @@ def _display_unit(item: dict) -> str:
     weight = item.pop("weight", None)
     weight_unit = item.pop("weight_unit", None)
     is_decimal = item.pop("quantity_is_decimal", 0)
+    minimum = item.pop("minimum_quantity", None)
+    step = item.pop("quantity_increment", None)
     return (price_unit(unit_code, basis)
-            or price_basis(unit_code, weight, weight_unit, is_decimal))
+            or price_basis(unit_code, weight, weight_unit, is_decimal, minimum, step))
 
 
 def recent_changes(conn: sqlite3.Connection, source_key: str | None = None,
@@ -191,7 +193,9 @@ def recent_changes(conn: sqlite3.Connection, source_key: str | None = None,
            # 4,910" says nothing without it, and on this source the missing
            # words are the difference between a bar and a tonne (0057).
            "       so.quantity_is_decimal AS quantity_is_decimal, "
-           "       so.weight AS weight, so.weight_unit AS weight_unit "
+           "       so.weight AS weight, so.weight_unit AS weight_unit, "
+           "       so.minimum_quantity AS minimum_quantity, "
+           "       so.quantity_increment AS quantity_increment "
            "FROM change_event c "
            "LEFT JOIN source_product sp ON sp.source_product_id = c.source_product_id "
            "LEFT JOIN source_offer so ON so.offer_id = c.offer_id "
@@ -300,7 +304,9 @@ def changes_for_offer(conn: sqlite3.Connection, offer_id: int,
         "SELECT c.*, sp.product_name_ar, sp.product_name, so2.country_code_alpha2, "
         "       su.unit_code AS unit_code, so2.basis_quantity AS basis_quantity, "
         "       so2.quantity_is_decimal AS quantity_is_decimal, "
-        "       so2.weight AS weight, so2.weight_unit AS weight_unit "
+        "       so2.weight AS weight, so2.weight_unit AS weight_unit, "
+        "       so2.minimum_quantity AS minimum_quantity, "
+        "       so2.quantity_increment AS quantity_increment "
         "FROM change_event c "
         "LEFT JOIN source_product sp ON sp.source_product_id = c.source_product_id "
         "LEFT JOIN source_offer so2 ON so2.offer_id = c.offer_id "

@@ -6,7 +6,7 @@ from collections.abc import Callable
 from fastapi import APIRouter, HTTPException
 
 from ..databases import DatabaseRegistry
-from ..dbupgrade import upgrade_what_is_only_behind
+from ..dbupgrade import RESTART_UPGRADES, newer_plan_on_disk, upgrade_what_is_only_behind
 
 
 def create_database_router(
@@ -56,6 +56,24 @@ def create_database_router(
         reason in words, which the panel shows as it shows any refusal.
         """
         registry = current()
+        # AN ENGINE OLDER THAN THE DISK REFUSES, AND IT DOES NOT APPLY THE NEWER PLAN.
+        # The answer below was "already up to date" under a Database page reading v25
+        # of v26 (#1634). Applied here, the newer plan leaves this process reading a
+        # schema newer than its code, and its own health then says "Needs a newer
+        # ScrapeX". A Restart's new engine upgrades on its way up, behind a backup
+        # (`cli._cmd_ui`), so that is the control it names.
+        try:
+            newer = newer_plan_on_disk(registry.engine)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=(
+                "Database not upgraded: the migration files on disk could not be used: "
+                f"{exc}. Nothing was changed. A corrected ScrapeX update is needed "
+                "before the database can be upgraded.")) from exc
+        if newer is not None:
+            raise HTTPException(status_code=409, detail=(
+                "Database not upgraded: the running engine knows schema up to "
+                f"v{registry.engine.latest_schema_version}, and v{newer} is now "
+                f"installed. {RESTART_UPGRADES[0].upper()}{RESTART_UPGRADES[1:]}."))
         report, outcome = upgrade_what_is_only_behind(registry, registry.ensure_ready())
         if outcome.refused:
             raise HTTPException(status_code=409, detail=outcome.refused)

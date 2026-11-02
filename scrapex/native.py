@@ -253,8 +253,12 @@ def _database_report(*, integrity: bool = True) -> tuple[dict[str, dict] | None,
     return states, None
 
 
-def startup_check() -> dict:
-    """Return a structured, actionable preflight result for engine startup."""
+def startup_check(port: int | None = DEFAULT_ENGINE_PORT) -> dict:
+    """Return a structured, actionable preflight result for engine startup.
+
+    `port` is where a running engine would be looked for; `None` says there is none
+    to replace, which is Start's case (`start_engine`).
+    """
     # Identity only, the question the engine's own start asks: see
     # `cli._cmd_ui` (#1713). Asking more here than the engine asks would pass
     # nothing the engine refuses, and only make Start and Restart wait.
@@ -265,16 +269,6 @@ def startup_check() -> dict:
             f"ScrapeX could not inspect its databases: {failure}",
             action="check_storage",
         )
-    blocked = [
-        (name, state) for name, state in (states or {}).items()
-        if not state["ok"] and state["status"] != "Missing"
-    ]
-    if not blocked:
-        return {"ok": True, "databases": states or {}}
-    details = "; ".join(
-        f"{name}: {state['status']}. {state['action']}"
-        for name, state in blocked
-    )
     # THE CONSTANT, NOT A FOURTH COPY OF THE WORDS. `dbupgrade.BEHIND` documents
     # itself as "spelled once here and imported by both callers" and this was the
     # second spelling the whole time: the button offered here is the one
@@ -282,6 +276,30 @@ def startup_check() -> dict:
     # comparing against strings that nothing held together.
     from .dbupgrade import BEHIND
 
+    blocked = [
+        (name, state) for name, state in (states or {}).items()
+        if not state["ok"] and state["status"] != "Missing"
+    ]
+    if not blocked:
+        return {"ok": True, "databases": states or {}}
+    # ONLY BEHIND, WITH AN ENGINE RUNNING, DOES NOT BLOCK: Restart is then the only way
+    # forward. Upgrade database goes to the running engine first, and one older than
+    # the disk refuses a plan newer than itself, so refusing here was a deadlock. The
+    # replacement backs the file up and upgrades it on its way up (`cli._cmd_ui`).
+    # With no engine running it still blocks: Upgrade database then reaches this host,
+    # which says in words why an upgrade failed, and Start does not race it (#1634).
+    # Start never looks: it has just found no engine on its port, and one that
+    # answered late here would let it spawn a second engine over the first.
+    # AT LEAST AS PATIENT AS THE PANEL, which asked `/api/health` with 2.5 s
+    # (`engineHealth` in the extension's startup.js) a moment before this: a 1.5 s
+    # look missed an engine the panel had just seen, and the deadlock came back.
+    if all(state["status"] == BEHIND for _, state in blocked) \
+            and port is not None and _engine_answering(port, timeout=5.0) is not None:
+        return {"ok": True, "databases": states or {}}
+    details = "; ".join(
+        f"{name}: {state['status']}. {state['action']}"
+        for name, state in blocked
+    )
     action = "upgrade_database" if any(
         state["status"] == BEHIND for _, state in blocked
     ) else "check_storage"
@@ -393,7 +411,7 @@ def start_engine(message: dict) -> dict:
     if answering is not None:
         return {"ok": True, "already_running": True, "confirmed": True, "port": port,
                 "version": answering.get("version")}
-    preflight = startup_check()
+    preflight = startup_check(None)
     if not preflight["ok"]:
         return {**preflight, "port": port}
     _spawn_engine(port)

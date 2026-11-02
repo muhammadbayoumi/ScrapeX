@@ -23,6 +23,7 @@ caller that was missed, not a new idea.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import sqlite3
 from pathlib import Path
@@ -378,6 +379,61 @@ def test_a_path_the_engine_never_listed_is_refused_and_tells_no_tales(served):
         "does")
 
 
+def test_a_copy_check_answers_with_the_listings_path_for_any_spelling(served, monkeypatch):
+    """What goes on to the check is the path the listing holds, however the caller
+    spelled the same copy, so the echo the panel compares is the one it was offered."""
+    from scrapex.webui import app as webapp
+
+    client, path = served
+    copy = _a_copy_of(path)
+    seen = []
+    real = webapp.storage_health
+
+    def spying(asked, **kwargs):
+        seen.append(asked)
+        return real(asked, **kwargs)
+
+    monkeypatch.setattr(webapp, "storage_health", spying)
+
+    answer = client.post("/api/storage/integrity", json={
+        "backup_path": str(copy.parent / "elsewhere" / os.pardir / copy.name)})
+
+    assert answer.status_code == 200, answer.text
+    assert answer.json()["checked"] == str(copy.resolve())
+    assert [str(p) for p in seen] == [str(copy.resolve())]
+
+
+def test_a_refused_copy_check_never_asks_the_disk_about_that_path(served, monkeypatch):
+    """The guard's job is to refuse before anything acts on the path, and resolving it
+    touches whatever it names."""
+    client, path = served
+    unlisted = str(path.parent / "somewhere" / "not-ours.db")
+    asked_of_the_disk = []
+    real = os.path.realpath
+
+    def spying(asked, *args, **kwargs):
+        asked_of_the_disk.append(os.fspath(asked))
+        return real(asked, *args, **kwargs)
+
+    monkeypatch.setattr(os.path, "realpath", spying)
+
+    answer = client.post("/api/storage/integrity", json={"backup_path": unlisted})
+
+    assert answer.status_code == 400, answer.text
+    assert unlisted not in asked_of_the_disk
+
+
+def test_a_restore_of_something_that_is_not_a_path_is_refused_in_words(served):
+    """JSON can carry anything in `backup_path`. Refused as one more thing nobody
+    listed, in a body the panel can read, and never as a crash."""
+    client, _ = served
+
+    answer = client.post("/api/storage/restore", json={"backup_path": 12345})
+
+    assert answer.status_code == 400, answer.text
+    assert "only a backup it listed" in answer.json()["detail"]
+
+
 def test_a_copy_that_is_intact_and_empty_is_told_apart_from_a_full_one(served):
     """THE DISASTER THIS CHECK EXISTS FOR, and the one health cannot see.
 
@@ -659,6 +715,27 @@ def test_a_bundle_that_does_not_verify_is_refused_and_leaves_nothing(served):
         "a bundle that failed verification still produced a restorable copy")
     left = [p.name for p in path.parent.glob("adopt-*")]
     assert left == [], f"a staging tree was left behind on refusal: {left}"
+
+
+def test_a_bundle_with_an_entry_that_leaves_the_folder_is_refused_in_words(served):
+    """The entry names came across a network. The refusal reaches the panel as a body it
+    can read, nothing lands outside the staging tree, and the tree itself goes."""
+    import zipfile
+
+    client, path = served
+    hostile = path.parent / "scrapex-bundle-20260910-333333.zip"
+    outside = path.parent / "landed-outside.txt"
+    with zipfile.ZipFile(hostile, "w") as out:
+        out.writestr("manifest.json", "{}")
+        out.writestr(f"{os.pardir}/{outside.name}", "outside")
+
+    refused = client.post("/api/storage/adopt-bundle", json={"name": hostile.name})
+
+    assert refused.status_code == 400, refused.text
+    assert "escapes the bundle" in refused.json()["detail"], refused.json()
+    assert not outside.exists(), "an entry landed outside the staging tree"
+    assert [p.name for p in path.parent.glob("adopt-*")] == []
+    assert client.get("/api/storage").json()["backups"] == []
 
 
 # ---- what the review of #877 found, and the guards that hold it ------------

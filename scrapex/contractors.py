@@ -748,7 +748,7 @@ def detail_frontier(conn, directory: Directory, scope: CrawlScope,
         # the slice" then meant nothing a reader could compare with the page.
         #
         # AND `belongs_to_slice` RE-PARSES THE PAGE EVERY CALL: it runs `_cards(html)`
-        # from scratch, so asking twice per card is two full BeautifulSoup parses of the
+        # from scratch, so asking twice per card is two full parses of the
         # same page for one answer. On the stored listing that doubling is the difference
         # this frontier already had to route around once.
         by_row: dict[int, list[str]] = {}
