@@ -13,7 +13,8 @@ pytest.importorskip("playwright")
 pytest.importorskip("fastapi")
 from tests.test_panel_dom import browser, open_panel  # noqa: E402,F401  (the fixtures)
 from tests.test_tab_page_dom import open_data  # noqa: E402,F401  (the fixture)
-from tests.test_the_focus_ring_draws_in_the_web_ui import ORIGIN, webui  # noqa: E402,F401
+from tests.test_the_focus_ring_draws_in_the_web_ui import ORIGIN, PAGES, webui  # noqa: E402,F401
+from tools import tabpage_harness  # noqa: E402
 
 # Guards the extension's pages; see tests/test_the_extension_gate_is_complete.py.
 pytestmark = pytest.mark.extension
@@ -30,6 +31,18 @@ READ = """(selector) => {
   probe.remove();
   return read;
 }"""
+#: Every label in the page, closed menus and hidden views too, for a rule no static read parses.
+SWEEP = """() => {
+  const probe = document.body.appendChild(document.createElement('span'));
+  const colour = (v) => { probe.style.color = v; return getComputedStyle(probe).color; };
+  const muted = colour('var(--muted)'), subtle = colour('var(--text-subtle)');
+  probe.remove();
+  return [...document.querySelectorAll('.heading-meta')].map((el) => { const s = getComputedStyle(el);
+    return {text: el.textContent.trim().slice(0, 30), group: el.classList.contains('grid-feature-section'),
+            family: s.fontFamily.split(',')[0].replace(/["']/g, '').trim(), size: s.fontSize, line: s.lineHeight,
+            weight: s.fontWeight, spacing: s.letterSpacing, transform: s.textTransform, opacity: s.opacity,
+            color: s.color, muted, subtle}; });
+}"""
 SCHEME = """(scheme) => window.ScrapeXAppearance && window.ScrapeXAppearance.set({mode: 'manual', scheme, palette: 'supabase'})"""
 
 
@@ -37,6 +50,61 @@ def _is_heading_meta(read):
     return (read is not None and read["family"] == "Source Code Pro" and read["size"] == "12px"
             and read["weight"] == "500" and read["spacing"] == "0.6px" and read["transform"] == "uppercase"
             and read["color"] == read["muted"])
+
+
+def _off(reads):
+    """The labels that do not draw heading-meta: a group heading is at 400 in --text-subtle."""
+    return [r for r in reads if not (
+        r["family"] == "Source Code Pro" and r["size"] == "12px" and r["line"] == "16px" and r["spacing"] == "0.6px"
+        and r["transform"] == "uppercase" and r["opacity"] == "1" and r["weight"] == ("400" if r["group"] else "500")
+        and r["color"] == (r["subtle"] if r["group"] else r["muted"]))]
+
+
+@pytest.mark.parametrize("scheme", ["light", "dark"])
+def test_every_label_on_the_web_ui_draws_heading_meta(webui, scheme):
+    reads, wrong = 0, {}
+    for path in (*PAGES, "/data/google-finance"):
+        webui.goto(ORIGIN + path)
+        webui.wait_for_load_state("networkidle")
+        webui.evaluate(SCHEME, scheme)
+        found = webui.evaluate(SWEEP)
+        reads += len(found)
+        wrong[path] = _off(found)
+    # The inspector's label is built when a table opens.
+    webui.goto(ORIGIN + "/data-model")
+    webui.wait_for_load_state("networkidle")
+    webui.evaluate(SCHEME, scheme)
+    webui.click(".model-table")
+    webui.wait_for_selector(".model-inspector-header .heading-meta")
+    wrong["the inspector"] = _off(webui.evaluate(SWEEP))
+    assert reads >= 40, reads
+    assert not any(wrong.values()), wrong
+
+
+@pytest.mark.parametrize("scheme", ["light", "dark"])
+def test_every_label_on_the_panel_and_the_data_page_draws_heading_meta(open_panel, open_data, scheme):
+    panel, data = open_panel(), open_data()
+    wrong = {}
+    for name, page, floor in (("panel", panel, 3), ("data", data, 3)):
+        page.evaluate(SCHEME, scheme)
+        found = page.evaluate(SWEEP)
+        assert len(found) >= floor, (name, found)
+        wrong[name] = _off(found)
+    assert not any(wrong.values()), wrong
+
+
+@pytest.mark.parametrize("scheme", ["light", "dark"])
+def test_every_label_on_the_enrichment_page_draws_heading_meta(browser, scheme):  # noqa: F811
+    with tabpage_harness.serve_extension() as base:
+        page = browser.new_page(viewport={"width": 1280, "height": 900}, color_scheme=scheme)
+        try:
+            page.goto(f"{base}/enrichment.html")
+            page.wait_for_load_state("networkidle")
+            found = page.evaluate(SWEEP)
+        finally:
+            page.close()
+    assert len(found) == 10, found
+    assert not _off(found), _off(found)
 
 
 @pytest.mark.parametrize("scheme", ["light", "dark"])

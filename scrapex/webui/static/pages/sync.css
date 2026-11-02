@@ -311,7 +311,6 @@
   gap: var(--sp-4);
 }
 
-.sync-step-kicker,
 .sync-step-state {
   color: var(--muted);
   font-size: var(--fs-xs);
@@ -321,8 +320,6 @@
 .sync-step-kicker {
   display: block;
   margin-bottom: var(--sp-1);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
 }
 
 .sync-step-state {

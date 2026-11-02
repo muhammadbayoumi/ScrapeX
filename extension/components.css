@@ -1067,9 +1067,9 @@ h6 { font-size: var(--fs-xs); line-height: var(--lh-xs); }
 
 .page-heading {
   min-width: 0;
-  /* The h1 here takes the heading face from the h1-h6 rule above. This line reaches only
-     the .page-eyebrow and .page-description beside it, which draw Inter on the pages that
-     leave out this wrapper (#1979). */
+  /* The h1 here takes the heading face from the h1-h6 rule above, and .page-eyebrow its face
+     from .heading-meta. This line reaches only the .page-description beside them, which draws
+     Inter on the pages that leave out this wrapper (#1979). */
   font-family: var(--font-heading);
 }
 
