@@ -14712,7 +14712,10 @@ def test_the_ended_card_follows_a_change_of_zone(open_panel):
     """The card is drawn once at the end and no poll touches it again, so "10:54 AM" stayed
     on screen after the zone moved, or after `pullRemote` adopted another device's zone."""
     page = _open_with_a_live_job(open_panel)
-    _end_the_job(page, _its_end("failed", error_summary=_A_503))
+    # A TOTAL, so the progress label holds a node: with none, `firstChild` is null and the
+    # check below passes for the one node a whole-card redraw would rewrite in a live region.
+    _end_the_job(page, _its_end("failed", error_summary=_A_503,
+                                fetch=_a_fetch(33, 91, "declared")))
     assert _read(page, "#act-when") == "Started 25 Oct, 10:54 AM → 10:54 AM"
     # ONLY THE TIME IS REWRITTEN: a redraw of the whole card took away whatever he had
     # selected on it, and re-sent the progress label to its live region.
@@ -14823,6 +14826,11 @@ def test_the_ended_card_keeps_the_jobs_rows_classes_and_a_live_announcer(open_pa
     assert "visually-hidden" in page.get_attribute("#act-announce", "class").split()
     assert "job-clamp" in page.get_attribute("#act-error", "class").split()
     assert "text-xs" in page.get_attribute("#act-state .job-line", "class").split()
+    assert "text-xs" in page.get_attribute("#act-error", "class").split()
+    when = page.get_attribute("#act-when", "class").split()
+    assert "text-xs" in when and "muted" in when
+    # The status is the Jobs row's nodes, glyph and tone, not its words alone.
+    assert page.locator("#act-state .job-status.job-tone-destructive svg").count() == 1
 
 
 _GAPS = """() => {
@@ -14889,3 +14897,14 @@ def test_a_failed_read_hides_the_card_and_a_change_of_zone_leaves_it_hidden(open
     page.evaluate("() => window.ScrapeXTime.set('America/New_York')")
     page.wait_for_timeout(100)
     assert _hidden(page, "#activity"), "a change of zone brought the card back"
+
+
+def test_a_live_status_is_worded_as_everywhere_else(open_panel):
+    """`statusWords` is the one rule for a status's words, and Activity and the mini-player are
+    on one screen with the Jobs row. `requires_review` is the live status with an underscore."""
+    page = open_panel(jobs=[_a_live_job(status="requires_review", stage=None)], view="run",
+                      sources=_ACTIVITY_SOURCES)
+    page.wait_for_function(
+        "() => !document.getElementById('activity').classList.contains('hidden')")
+    assert _read(page, "#act-state").startswith("requires review")
+    assert _read(page, "#mini-title").endswith("— requires review")

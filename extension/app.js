@@ -17,7 +17,7 @@ import {
   NO_LOG_LINE, statusChangeLine,
   jobWaitingLine, liveJob, menuControls, noResultsLine, observeRate, othersLine,
   primaryControl, progressFraction, progressLine, recentRate, refusalLine, sourceOf,
-  sourceMatches, sourceTitle, statusLook, summaryClass, timeLine,
+  sourceMatches, sourceTitle, statusLook, statusWords, summaryClass, timeLine,
 } from "./jobsview.js";
 import { getToken, accountFor, authorize, forgetToken, revokeToken } from "./identity.js";
 import {
@@ -5779,7 +5779,7 @@ function renderActivity(job) {
     $("act-elapsed").textContent = [elapsed && `elapsed ${elapsed}`, left]
       .filter(Boolean).join(" · ");
     $("act-state").innerHTML =
-      `<span>${esc(job.status.replace(/_/g, " "))}${job.stage ? " · " + esc(job.stage) : ""}</span>` +
+      `<span>${esc(statusWords(job.status))}${job.stage ? " · " + esc(job.stage) : ""}</span>` +
       `<span class="content">${esc(job.current_source_key || "—")}</span>`;
   }
   // WHY IT ENDED, which only the Jobs row said: Activity read `failed` over counters
@@ -5961,7 +5961,7 @@ function renderMiniplayer(job, queued) {
   // ONE NAME FOR ONE JOB (#1542): the same `jobLabel` the Jobs row and the cancel
   // question use, from the Sources identity -- "3 sites" named none of them.
   const named = jobLabel(job, state.sources);
-  $("mini-title").textContent = `${named} — ${job.status.replace(/_/g, " ")}`;
+  $("mini-title").textContent = `${named} — ${statusWords(job.status)}`;
   const prog = miniProgress(job);
   $("mini-pct").textContent = prog.text;
   $("mini-bar").style.width = prog.pct + "%";
