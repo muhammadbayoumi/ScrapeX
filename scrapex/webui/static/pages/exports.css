@@ -47,8 +47,7 @@
   border:1px solid color-mix(in srgb,var(--accent) 42%,var(--line));border-radius:50%;
   background:var(--accent-weak);color:var(--accent-ink);font-family:var(--font-mono);--fw-regular:var(--fw-regular-mono);
   font-size:var(--fs-sm);font-weight:var(--fw-bold)}
-.exports-step-kicker{display:block;margin-bottom:var(--sp-1);color:var(--muted);
-  font-size:var(--fs-xs);font-weight:var(--fw-medium);letter-spacing:.06em;text-transform:uppercase}
+.exports-step-kicker{display:block;margin-bottom:var(--sp-1)}
 .exports-step-header h2{margin:0;font-size:clamp(1.25rem,2.4vw,1.55rem)}
 .exports-step-header p{max-width:46rem;margin:var(--sp-2) 0 0;color:var(--muted);
   font-size:var(--fs-sm)}
