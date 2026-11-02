@@ -1192,6 +1192,13 @@ def create_enrichment_job(
                     definition_json=definition_json,
                     provider_versions_json=provider_versions_json,
                 )
+                if item_count < source_count:
+                    jobs.append_log(
+                        conn, job["job_id"],
+                        f"{source_count - item_count:,} of {source_count:,} organizations "
+                        "left out: unchanged since their last attempt, or a site still "
+                        "waiting after a failed one",
+                    )
         estimated_requests = estimate_requests(provider_names, item_count)
         if budget > 0 and estimated_requests > budget:
             raise EnrichmentError(
@@ -1459,19 +1466,26 @@ def _answer_on_file(
     ttl_seconds: int,
     *,
     update: bool,
+    job_id: int,
 ) -> str | None:
     """The status to record instead of asking this provider, or None to ask it.
 
     A COMPLETE PASS RECHECKS, so only an answer younger than the provider's TTL stands.
 
-    AN UPDATE ASKS ONLY WHAT CHANGED (his option A, #1891), so the same input is never asked
-    again at any age, and a site whose last attempt failed waits. `skipped` is left out of
-    the query on purpose: recording the wait must not restart it.
+    AN UPDATE ASKS ONLY WHAT CHANGED (his option A, #1891), and it reads the last real attempt
+    at ANY input. An answer to this input stands at any age. An answer to another means the
+    input changed, even back to one it once had, because the facts on the row are now the
+    other input's. A site whose last attempt failed waits.
+
+    THREE ROWS ARE NOT AN ATTEMPT, so the query leaves them out. `skipped` is this wait being
+    recorded, which must not restart it. `_CIRCUIT_OPEN` is a company the provider never got
+    to. And this job's own `failed`: a record that retries asks again, as it always did, and
+    reading its first attempt as a wait would overwrite the failure with `skipped`.
     """
     if ttl_seconds <= 0:
         return None
-    key = (organization_id, provider, provider_version, input_hash)
     if not update:
+        key = (organization_id, provider, provider_version, input_hash)
         return "cached" if conn.execute(
             "SELECT 1 FROM organization_provider_observation "
             "WHERE organization_id = ? AND provider = ? AND provider_version = ? "
@@ -1481,20 +1495,20 @@ def _answer_on_file(
             (*key, _stamp_ago(ttl_seconds)),
         ).fetchone() is not None else None
     latest = conn.execute(
-        "SELECT observation_status, observed_at, error "
+        "SELECT input_hash, observation_status, observed_at "
         "FROM organization_provider_observation "
         "WHERE organization_id = ? AND provider = ? AND provider_version = ? "
-        "AND input_hash = ? "
         "AND observation_status IN ('completed','not_found','cached','failed') "
+        "AND coalesce(error, '') <> ? "
+        "AND NOT (job_id = ? AND observation_status = 'failed') "
         "ORDER BY observation_id DESC LIMIT 1",
-        key,
+        (organization_id, provider, provider_version, _CIRCUIT_OPEN, job_id),
     ).fetchone()
-    if latest is None:
+    if latest is None or latest["input_hash"] != input_hash:
         return None
     if latest["observation_status"] != "failed":
         return "cached"
-    if latest["error"] == _CIRCUIT_OPEN \
-            or latest["observed_at"] < _stamp_ago(_FAILED_SITE_WAIT_SECONDS):
+    if latest["observed_at"] < _stamp_ago(_FAILED_SITE_WAIT_SECONDS):
         return None
     return "skipped"
 
@@ -1774,7 +1788,11 @@ def _write_output(
         conn.execute(
             "INSERT INTO generic_record_revision "
             "(generic_record_id, schema_version_id, source_snapshot_id, data_json, "
-            "content_hash) VALUES (?,?,?,?,?)",
+            "content_hash) VALUES (?,?,?,?,?) "
+            # A site that answered, failed and answers again returns the row to content it
+            # already held under this snapshot. That revision is kept, and the UNIQUE it
+            # would hit rolled the answer back, so every later Update asked again.
+            "ON CONFLICT(generic_record_id, source_snapshot_id, content_hash) DO NOTHING",
             (
                 record_id,
                 schema["schema_version_id"],
@@ -2082,6 +2100,7 @@ def run_enrichment_job_once(conn: sqlite3.Connection, job_ref: str,
                             conn, identity.organization_id, provider_name,
                             provider_version, input_hash, ttl,
                             update=job["run_mode"] == RunMode.UPDATE.value,
+                            job_id=int(job["job_id"]),
                         )
                         if on_file is not None:
                             _record_provider_observation(
@@ -2295,6 +2314,13 @@ def run_enrichment_job_once(conn: sqlite3.Connection, job_ref: str,
         "detail_data_json=NULL WHERE job_id=? AND item_status='completed'",
         (job["job_id"],),
     )
+    waits = int(counters.get("provider_waits", 0))
+    if waits:
+        jobs.append_log(
+            conn, job["job_id"],
+            f"{waits:,} {'site' if waits == 1 else 'sites'} not asked: the last attempt failed "
+            f"under {_FAILED_SITE_WAIT_SECONDS // 86400} days ago. A Complete pass asks now.",
+        )
     provider_error_count = int(counters.get("provider_errors", 0))
     status = JobStatus.COMPLETED_WITH_ERRORS \
         if errors or provider_error_count else JobStatus.COMPLETED

@@ -136,8 +136,9 @@ Only one unfinished job may exist for a definition. Provider failures are record
 organization and do not discard existing facts. Successful observations expire missing
 facts; failed observations do not. A Complete pass reuses an answer younger than the
 provider's TTL and asks everything else. An Update asks a provider only when what it reads
-has changed: the same input is not asked again at any age, and a site that could not be read
-waits 90 days. Three consecutive shared provider-system failures open that provider's circuit
+has changed: an answer to the same input stands at any age, an input that changes back counts
+as changed, and a site that could not be read waits 90 days. The job's log says how many
+were left out and how many waited. Three consecutive shared provider-system failures open that provider's circuit
 for the remaining organizations. Job membership controls final output availability, so a
 concurrent source crawl cannot create a mixed-generation result. Such a run ends as
 `completed_with_errors`, and reopening the workspace restores its latest job and controls.
