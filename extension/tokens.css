@@ -389,6 +389,12 @@
   --lh-tight: 1.25;
   --lh: 1.5;
   --lh-relaxed: 1.625;
+  /* The line-heights Tailwind pairs with the text sizes the headings draw at (#751), its
+     --text-*--line-height (tailwindcss theme.css@v4.2.4:348, :350, :356, :358). */
+  --lh-xs: calc(1 / 0.75);
+  --lh-sm: calc(1.25 / 0.875);
+  --lh-xl: calc(1.75 / 1.25);
+  --lh-2xl: calc(2 / 1.5);
 
   /* Motion and layering. BOTH CURVES BELOW ARE SUPABASE'S OWN, and this comment
      said the opposite twice before it said this. They are in

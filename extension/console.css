@@ -122,7 +122,6 @@ body {
 .cv-head h1 {
   margin: 0;
   font-size: var(--fs-xl);
-  font-weight: var(--fw-bold);
 }
 
 .cv-head p {
