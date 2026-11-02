@@ -1748,7 +1748,6 @@
 .record-card-title {
   margin: 0;
   font-size: var(--fs-xs, .75rem);
-  font-weight: var(--fw-heavy);
   letter-spacing: .06em;
   text-transform: uppercase;
   color: var(--text);
@@ -1809,12 +1808,10 @@
 .record-prose-title {
   margin: var(--sp-2, .5rem) 0 var(--sp-1, .25rem);
   font-size: var(--fs-sm, .8125rem);
-  font-weight: var(--fw-bold, 600);
 }
 .record-prose-section-title {
   margin: var(--sp-5) 0 var(--sp-2);
   font-size: var(--fs-sm);
-  font-weight: var(--fw-heavy);
   letter-spacing: .025em;
   line-height: var(--lh-tight);
 }
@@ -1842,7 +1839,6 @@
 .record-detail-subsection-title {
   margin: 0 0 var(--sp-3);
   font-size: var(--fs-sm);
-  font-weight: var(--fw-heavy);
   line-height: var(--lh-tight);
 }
 .record-keywords {
