@@ -32,7 +32,7 @@ import test from "node:test";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { isSettled, jobLabel, liveJob, sourceTitle } from "../jobsview.js";
+import { isSettled, jobLabel, liveJob, sourceTitle, statusWords } from "../jobsview.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SOURCE = readFileSync(join(HERE, "..", "app.js"), "utf8");
@@ -207,9 +207,9 @@ function titleFor(job, sources = []) {
     get textContent() { return ""; },
   });
   // eslint-disable-next-line no-new-func
-  const build = new Function("$", "jobLabel", "sourceTitle", "state", "miniProgress", "fmtCount",
-    RENDER_MINIPLAYER + "\nreturn renderMiniplayer;");
-  build($, jobLabel, sourceTitle, { sources },
+  const build = new Function("$", "jobLabel", "sourceTitle", "statusWords", "state",
+    "miniProgress", "fmtCount", RENDER_MINIPLAYER + "\nreturn renderMiniplayer;");
+  build($, jobLabel, sourceTitle, statusWords, { sources },
         () => ({ text: "", pct: 0, indeterminate: false }), String)(job, 0);
   return drawn.filter(([id]) => id === "mini-title").map(([, value]) => value)[0];
 }
