@@ -331,6 +331,28 @@ def test_an_action_offered_on_a_dataset_answers_and_carries_content(client):
                 f"{entry['route']} has no provider contract")
 
 
+def test_the_enrichment_route_refuses_a_price_key_and_that_card_carries_no_kind(client):
+    """WHY A PRICE CARD DOES NOT OFFER "ENRICH ORGANIZATIONS", MEASURED ON BOTH SIDES.
+
+    The route reads the dataset catalogue and nothing else, so it answers a dataset key
+    and 404s for a price key. A price card's row used to open a page that could only say
+    so: his ruling of 2026-10-31 is that a price source does not offer it at all.
+
+    `kind` IS WHAT `sourceActions` READS to tell them apart, so its absence on the price
+    row is half of this proof. A price row that gained a `kind` would change the menu.
+    """
+    assert client.get(f"/api/enrichment/sources/{KEY}").status_code == 200
+
+    refused = client.get(f"/api/enrichment/sources/{PRICE_KEY}")
+    assert refused.status_code == 404, (
+        f"the enrichment route now answers for the price key {PRICE_KEY!r}, so the reason "
+        f"its card withholds the action has changed: {refused.status_code} {refused.text}")
+
+    rows = client.get("/api/sources").json()["sources"]
+    price = next(row for row in rows if row["source_key"] == PRICE_KEY)
+    assert not price.get("kind"), f"a price row now carries a kind: {price['kind']!r}"
+
+
 def test_an_action_withheld_for_its_route_really_is_refused(client):
     """WITHHELD ⇒ PROVEN TOO, so the menu cannot hide an action that works.
 

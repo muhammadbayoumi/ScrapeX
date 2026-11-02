@@ -331,7 +331,7 @@ def test_start_engine_spawns_and_confirms_when_the_port_comes_up(conn, monkeypat
     answers = iter([None, {"app": "scrapex", "version": "9.9.9"}])
     monkeypatch.setattr(native, "_engine_answering",
                         lambda port, timeout=1.5: next(answers))
-    monkeypatch.setattr(native, "startup_check", lambda: {"ok": True, "databases": {}})
+    monkeypatch.setattr(native, "startup_check", lambda port=None: {"ok": True, "databases": {}})
     monkeypatch.setattr(native, "_spawn_engine", lambda port: spawned.append(port))
 
     r = handle(conn, {"command": "START_ENGINE"})
@@ -347,7 +347,7 @@ def test_start_engine_that_cannot_be_confirmed_says_so(conn, monkeypatch):
     from scrapex import native
 
     monkeypatch.setattr(native, "_engine_listening", lambda port: False)
-    monkeypatch.setattr(native, "startup_check", lambda: {"ok": True, "databases": {}})
+    monkeypatch.setattr(native, "startup_check", lambda port=None: {"ok": True, "databases": {}})
     monkeypatch.setattr(native, "_spawn_engine", lambda port: None)
     monkeypatch.setattr(native, "_START_CONFIRM_BUDGET_S", 0.05)
 
@@ -365,7 +365,7 @@ def test_start_engine_surfaces_a_database_blocker_before_spawning(conn, monkeypa
 
     spawned = []
     monkeypatch.setattr(native, "_engine_listening", lambda port: False)
-    monkeypatch.setattr(native, "startup_check", lambda: {
+    monkeypatch.setattr(native, "startup_check", lambda port=None: {
         "ok": False,
         "error": "startup_blocked",
         "detail": "marketlens: Needs upgrade. Apply migration 56.",
@@ -928,6 +928,8 @@ def test_the_control_commands_the_panel_actually_calls_still_answer(tmp_path, co
 def test_startup_check_names_the_database_action(monkeypatch):
     from scrapex import native
 
+    # NO ENGINE ON THE PORT, said rather than assumed: his engine usually is on 8000.
+    monkeypatch.setattr(native, "_engine_answering", lambda *a, **k: None)
     monkeypatch.setattr(native, "_database_report", lambda **_: ({
         "marketlens": {
             "ok": False,
@@ -976,6 +978,9 @@ def test_a_database_that_is_only_behind_still_gets_the_button(monkeypatch):
     from scrapex import native
     from scrapex.dbupgrade import BEHIND, TOO_OLD
 
+    # NO ENGINE ON THE PORT: with one running, BEHIND alone passes (Restart), see
+    # `test_with_an_engine_running_a_database_only_behind_does_not_block_restart`.
+    monkeypatch.setattr(native, "_engine_answering", lambda *a, **k: None)
     monkeypatch.setattr(native, "_database_report", lambda **_: ({
         "engine": {"ok": False, "status": BEHIND, "action": "Use the button."},
     }, None))
@@ -990,6 +995,29 @@ def test_a_database_that_is_only_behind_still_gets_the_button(monkeypatch):
         "other": {"ok": False, "status": TOO_OLD, "action": "No path (R-84)."},
     }, None))
     assert native.startup_check()["action"] == "upgrade_database"
+
+
+def test_with_an_engine_running_a_database_only_behind_does_not_block_restart(
+        monkeypatch):
+    """`#1634`: Upgrade database goes to the running engine, which cannot apply a plan
+    newer than itself, so Restart is the only way forward -- and its replacement
+    upgrades on the way up. A mixed report still blocks, engine or no engine."""
+    from scrapex import native
+    from scrapex.dbupgrade import BEHIND, TOO_OLD
+
+    asked: list[int] = []
+    monkeypatch.setattr(native, "_engine_answering",
+                        lambda port, *a, **k: asked.append(port) or {"app": "scrapex"})
+    alone = {"engine": {"ok": False, "status": BEHIND, "action": "Use the button."}}
+    monkeypatch.setattr(native, "_database_report", lambda **_: (alone, None))
+
+    assert native.startup_check(8131) == {"ok": True, "databases": alone}
+    assert asked == [8131], "the engine was not looked for on the port asked about"
+
+    monkeypatch.setattr(native, "_database_report", lambda **_: ({
+        **alone, "other": {"ok": False, "status": TOO_OLD, "action": "No path (R-84)."},
+    }, None))
+    assert native.startup_check(8131)["error"] == "startup_blocked"
 
 
 def test_the_two_surfaces_describe_the_below_baseline_state_with_one_vocabulary():
@@ -1052,7 +1080,7 @@ def test_a_stranger_on_the_port_is_not_mistaken_for_the_engine(conn, monkeypatch
     port = stranger.getsockname()[1]
 
     spawned = []
-    monkeypatch.setattr(native, "startup_check", lambda: {"ok": True, "databases": {}})
+    monkeypatch.setattr(native, "startup_check", lambda port=None: {"ok": True, "databases": {}})
     monkeypatch.setattr(native, "_spawn_engine", lambda port: spawned.append(port))
     monkeypatch.setattr(native, "_START_CONFIRM_BUDGET_S", 0.05)
     try:

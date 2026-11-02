@@ -124,6 +124,7 @@ from ..outputs import (
     excel_status,
     rotate_funnel_token,
 )
+from ..paths import name_inside
 from ..payload import utc_now_iso
 from ..probe import probe as probe_url
 from ..publish import UnexportableCell, workbook_tables
@@ -172,6 +173,7 @@ from ..storage import (
     free_space,
     list_backups,
     list_bundles,
+    listed_backup,
     migrate_location,
     open_folder,
     reconcile_active,
@@ -2018,6 +2020,14 @@ def create_app(
             finally:
                 conn.close()
             if waiting:
+                # AN ENGINE OLDER THAN THE DISK, which is the only way an engine running
+                # on a registry has a lag: `create_app` refuses one behind its plan.
+                # Its Upgrade database refuses a plan it does not know, so sending him
+                # there was #1634's trap; the remedy is the Restart it names.
+                from ..dbupgrade import RESTART_UPGRADES, newer_plan_on_disk
+
+                stale = (app.state.databases is not None
+                         and newer_plan_on_disk(app.state.databases.engine) is not None)
                 schema_lag = {
                     "pending": [name for _n, name in waiting],
                     # NAMED SO IT CAN BE ACTED ON, AND THAT MEANS A BUTTON.
@@ -2036,11 +2046,15 @@ def create_app(
                     # THE PAGE THAT HOLDS THE BUTTON, and it moved on 2026-09-06.
                     # An instruction naming the wrong screen is worse than none: he
                     # looks, does not find it, and concludes the feature is gone.
-                    "fix": ("press Upgrade database on the Database page"),
+                    "fix": (RESTART_UPGRADES if stale
+                            else "press Upgrade database on the Database page"),
                     "message": (
                         f"{len(waiting)} migration(s) on disk are not applied to "
-                        f"this database — {waiting[0][1]} onward. Pages that read "
-                        "the newer columns will fail until they are applied."),
+                        f"this database — {waiting[0][1]} onward. "
+                        + ("This engine started before they arrived, so it cannot "
+                           "apply them." if stale else
+                           "Pages that read the newer columns will fail until they "
+                           "are applied.")),
                 }
         except (DatabaseUnavailableError, DatabaseMigrationError,
                 DatabaseKindError, sqlite3.DatabaseError):
@@ -2788,7 +2802,10 @@ def create_app(
         exactly: a button must not quietly mean something different from the
         command that does the same job.
         """
-        if source_key not in {s.source_key for s in app.state.manifest.sources}:
+        # THE MANIFEST'S OWN KEY GOES ON, never the request's: it names a backup file.
+        source = next((s for s in app.state.manifest.sources
+                       if s.source_key == source_key), None)
+        if source is None:
             raise HTTPException(status_code=404, detail=f"unknown source {source_key!r}")
         if not bool((body or {}).get("confirm")):
             raise HTTPException(
@@ -2802,7 +2819,7 @@ def create_app(
         with dbmod.write_lock(app.state.db_path):
             conn = _write_conn()
             try:
-                result = wipe_source(conn, app.state.db_path, source_key)
+                result = wipe_source(conn, app.state.db_path, source.source_key)
                 conn.commit()
             finally:
                 conn.close()
@@ -3486,7 +3503,7 @@ def create_app(
             "JOIN source_variant sv ON sv.source_variant_id = so.source_variant_id "
             "JOIN source_product sp ON sp.source_product_id = sv.source_product_id "
             "JOIN source_site ss ON ss.source_id = sp.source_id "
-            "WHERE ss.source_key = ? GROUP BY so.offer_id "
+            "WHERE ss.source_key = ? AND so.status = 'active' GROUP BY so.offer_id "
             "HAVING COUNT(pp.price_period_id) > 1 "
             "ORDER BY periods DESC, sp.product_name_ar LIMIT 50", (source_key,))]
 
@@ -3677,12 +3694,10 @@ def create_app(
             finally:
                 conn.close()
             try:
-                offered = {Path(entry["path"]).resolve()
-                           for entry in list_backups(app.state.db_path, where)}
-                chosen = Path(asked).resolve()
+                chosen = listed_backup(asked, list_backups(app.state.db_path, where))
             except OSError:
-                offered, chosen = set(), None
-            if chosen is None or chosen not in offered:
+                chosen = None
+            if chosen is None:
                 raise HTTPException(
                     status_code=400,
                     detail=("ScrapeX checks only a backup it listed for this "
@@ -4275,7 +4290,7 @@ def create_app(
         finally:
             conn.close()
         folder.mkdir(parents=True, exist_ok=True)
-        archive = folder / f"{RECEIVED_PREFIX}{sha256[:16]}.zip"
+        archive = name_inside(folder, f"{RECEIVED_PREFIX}{sha256[:16]}.zip")
         partial = archive.with_name(archive.name + bundle.PARTIAL_SUFFIX)
 
         if not _receive_lock.acquire(blocking=False):

@@ -147,7 +147,7 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
          remembered_accounts=None, drive=None,
          silent_for=None, revoke_status=200,
          worker_alive=True, engine_build=None, engine_sqlite=None, engine_python=None,
-         bundle=None, bundle_light_route=True, ui=None) -> str:
+         bundle=None, bundle_light_route=True, ui=None, schema_lag=None) -> str:
     """A chrome.* shim plus a fetch() interceptor.
 
     Any state can be rendered deterministically, including ones a live engine
@@ -237,6 +237,10 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
         health["sqlite"] = sqlite
     if engine_python is not False:
         health["python"] = python
+    # The Run banner's source (`renderSchemaLag`): None is a database level with the
+    # engine, which is what a live engine reports almost always.
+    if schema_lag is not None:
+        health["schema_lag"] = schema_lag
     routes = {
         "/api/health": health,
         "/api/sources": {"sources": STRESS_SOURCES if sources is None else sources},

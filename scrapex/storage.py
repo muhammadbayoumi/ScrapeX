@@ -880,10 +880,9 @@ def list_backups(db_path: Path | str, folder: Path | None = None) -> list[dict]:
 
     ONE SPELLING OF EACH PATH LEAVES HERE, resolved. The folder prefix is
     whatever `backup_folder` or the pointer file holds -- a string somebody
-    typed, expanded no further than `expanduser()` -- and every guard that reads
-    this list resolves BOTH sides before comparing. The one comparison that
-    cannot is the panel's: `POST /api/storage/integrity` echoes
-    `str(Path(asked).resolve())` so a caller can tell understanding from
+    typed, expanded no further than `expanduser()` -- and `listed_backup` compares
+    a caller's spelling against this one. The panel compares too: the copy check
+    echoes the path it checked so a caller can tell understanding from
     politeness, and a panel holding a path under a folder spelled `backups`
     against an echo of the same file under `Backups` reported a working engine
     as too old to check a copy. Resolving at the source is what keeps the offer
@@ -912,6 +911,20 @@ def list_backups(db_path: Path | str, folder: Path | None = None) -> list[dict]:
     # the glob happened to return first. With the name descending as the second key, a
     # tie keeps the newest, which is the answer that is right when both keys are.
     return sorted(found, key=lambda b: (b["taken_at"], b["name"]), reverse=True)
+
+
+def listed_backup(asked: Path | str, listing: list[dict]) -> Path | None:
+    """The copy `listing` holds under the spelling `asked`, or None.
+
+    The rule `restore` and `POST /api/storage/integrity` share. THE LISTING'S PATH GOES
+    ON, NEVER THE CALLER'S, and the spellings are compared WITHOUT ASKING THE DISK:
+    resolving `asked` first touched a path nobody had yet said was ours.
+    """
+    wanted = os.path.normcase(os.path.normpath(str(asked)))
+    for entry in listing:
+        if os.path.normcase(entry["path"]) == wanted:
+            return Path(entry["path"])
+    return None
 
 
 # What backup_database writes: <stem>.<tag>-<stamp>.backup<suffix>. Reset writes
@@ -1161,7 +1174,7 @@ def restore(db_path: Path | str, backup_path: Path | str) -> RunResult:
     does the backup take its place. Nothing is destroyed, so a restore chosen by
     mistake is undone by moving one file back.
     """
-    path, source = Path(db_path), Path(backup_path)
+    path = Path(db_path)
 
     # ONLY A BACKUP THIS PRODUCT LISTED, and this is the first thing asked.
     #
@@ -1178,16 +1191,15 @@ def restore(db_path: Path | str, backup_path: Path | str) -> RunResult:
     # lands here too, and gets the same answer, which is the right one for both —
     # refresh the list and pick again.
     try:
-        offered = {Path(entry["path"]).resolve() for entry in list_backups(path)}
-        chosen = source.resolve()
+        source = listed_backup(backup_path, list_backups(path))
     except OSError:
-        offered, chosen = set(), None
-    if chosen is None or chosen not in offered:
+        source = None
+    if source is None:
         raise StorageRefused(
             "ScrapeX restores only a backup it listed for this database. Reopen "
             "the Storage page to refresh the list, then pick the backup again.")
     try:
-        if chosen == path.resolve():
+        if source == path.resolve():
             raise StorageRefused("The selected backup is already the live database.")
     except OSError:
         pass
