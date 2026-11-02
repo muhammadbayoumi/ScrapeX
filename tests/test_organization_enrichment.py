@@ -2025,6 +2025,42 @@ def test_a_run_says_how_many_it_left_out_and_how_many_sites_wait(conn, monkeypat
     assert any(line.startswith("1 site not asked:") and "90 days" in line for line in log), log
 
 
+def test_an_update_that_leaves_nobody_out_does_not_say_it_did(conn, monkeypatch):
+    """A baseline exists and every site has waited out its time, so all of them are in."""
+    definition_id = _define(conn)
+    _run(conn, definition_id, monkeypatch, _SiteProvider(failing=True))
+    _age_observations(conn, days=91)
+
+    job = _run(conn, definition_id, monkeypatch, _SiteProvider(),
+               run_mode=EnrichmentRunMode.UPDATE)
+
+    assert job["progress_total"] == 4
+    assert not [line for line in _log_of(conn, job["job_id"]) if "left out" in line]
+
+
+def test_a_retried_record_keeps_the_answer_its_first_provider_gave(conn, monkeypatch):
+    """The first provider's answer is durable through the commit before the second, so a
+    retry finds it fresh and records it as `cached`, over the `completed`. That row is then
+    the only answer on file, so it has to count as one or the next Update asks again."""
+    monkeypatch.setenv("SCRAPEX_GOOGLE_PLACES_API_KEY", "x")
+    definition_id = _define(conn, ["google_places", "website"])
+    changed = _change_source_row(conn, definition_id, membership_level="First")
+    _, job = _run_both(
+        conn, definition_id, monkeypatch,
+        [_Named("google_places", ttl=30 * 86400), _Named("website", raises_once=True)],
+        EnrichmentRunMode.COMPLETE,
+    )
+    assert job["counters"]["record_attempt_errors"] == 1
+    assert _statuses(conn, job, "google_places")[changed][0] == "cached"
+
+    _change_source_row(conn, definition_id, membership_level="Second")
+    again = _Named("google_places", ttl=30 * 86400)
+    _run_both(conn, definition_id, monkeypatch, [again, _Named("website")],
+              EnrichmentRunMode.UPDATE)
+
+    assert again.asked == []
+
+
 def test_a_run_with_nothing_to_say_about_waiting_says_nothing(conn, monkeypatch):
     """The other side: a Complete pass leaves nobody out, and nothing waited."""
     definition_id = _define(conn)
