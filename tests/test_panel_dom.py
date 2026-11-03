@@ -8987,6 +8987,73 @@ def test_a_refusing_answer_is_not_taken_for_the_same_engine(open_panel):
     assert not page.js_errors, page.js_errors
 
 
+def test_a_refused_probe_is_not_taken_for_the_same_engine(open_panel):
+    """Its twin for the dark: the leaving engine answers until 118 s, then every probe is
+    refused. Its last answer is still recent when the two minutes end, so it is the
+    refusal that must end it: the ending asks the database check."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART,
+                                    bow_out_ms=118_000, dark_ms=10**9)
+
+    press_restart_and_wait_out_the_two_minutes(page)
+    page.wait_for_function(
+        "() => document.getElementById('engine-restart-note').textContent"
+        " === 'The engine has not answered in two minutes. It may still be starting.'",
+        timeout=10_000)
+
+    checks = [c for c in page.evaluate("window.__nativeCalls") if c == "CHECK_STARTUP"]
+    assert checks == ["CHECK_STARTUP", "CHECK_STARTUP"], checks
+    assert not page.js_errors, page.js_errors
+
+
+def test_a_good_ending_stops_asking(open_panel):
+    """The poll ends with the restart: no `/api/health` goes to the new engine once
+    "The engine is back." is said, however long the panel stays open."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART)
+    page.clock.install()
+    page.click("#runtime-restart")
+    page.clock.run_for(60_000)
+    page.wait_for_function(
+        "() => document.getElementById('engine-restart-note').textContent"
+        " === 'The engine is back.'", timeout=10_000)
+    page.clock.run_for(3_000)
+    asked = page.evaluate("() => window.__healthAnsweredBy.length")
+
+    page.clock.run_for(10_000)
+    assert page.evaluate("() => window.__healthAnsweredBy.length") == asked, (
+        "the poll goes on asking after the restart ended")
+    assert not page.js_errors, page.js_errors
+
+
+def test_a_redraw_that_fails_after_a_good_ending_is_recorded(open_panel):
+    """The good ending redraws the screen after "The engine is back.". A redraw that
+    throws there -- the Latest version value gone from the page -- is recorded, as at the
+    failed ending, and the buttons are back."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART)
+    page.evaluate("() => document.getElementById('engine-latest-version').remove()")
+    page.clock.install()
+    page.click("#runtime-restart")
+    page.clock.run_for(60_000)
+    page.wait_for_function(
+        "() => document.getElementById('engine-restart-note').textContent"
+        " === 'The engine is back.'", timeout=10_000)
+    page.clock.run_for(3_000)
+
+    assert not page.locator("#runtime-restart").is_disabled()
+    traced = page.evaluate("""() => globalThis.ScrapeXPanelTrace.events()
+        .filter((event) => event.name === 'restart-redraw-failed')
+        .map((event) => event.detail)""")
+    assert traced and traced[0]["message"], "the failed redraw left no record"
+
+
 RESTART_ASKED = "Restarting the engine…"
 OLD_ENGINE_ANSWERS = "Restarting the engine… The current engine is still answering."
 NO_ENGINE_ANSWERS = "Restarting the engine… Waiting for the new engine to start."
@@ -9140,10 +9207,13 @@ PROBES_FIND_NOTHING = """() => {
 }"""
 
 
-@pytest.mark.parametrize("how", ["refuses", "runs-out"])
-def test_a_probe_that_finds_nothing_leaves_the_sentence(open_panel, how):
-    """A refusing answer and a probe that runs out of time say nothing about which
-    engine is there, so the note goes on saying what the poll last found."""
+@pytest.mark.parametrize("how, said", [
+    ("refuses", RESTART_ASKED), ("runs-out", OLD_ENGINE_ANSWERS),
+], ids=["refuses", "runs-out"])
+def test_what_a_probe_that_finds_nothing_does_to_the_sentence(open_panel, how, said):
+    """Neither names an engine. A probe that runs out of time leaves the sentence while
+    the last answer is recent. A refusing answer takes it away at once, by the rule
+    the ending reads: no engine counts as still answering after it."""
     page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
     page.click("#tab-engines")
     open_engine(page)
@@ -9157,7 +9227,7 @@ def test_a_probe_that_finds_nothing_leaves_the_sentence(open_panel, how):
 
     page.evaluate("(how) => { window.__findNothing = how; }", how)
     page.clock.run_for(3_000)
-    assert the_note_on_every_line(page) == {OLD_ENGINE_ANSWERS}
+    assert the_note_on_every_line(page) == {said}
     assert not page.js_errors, page.js_errors
 
 
@@ -9479,7 +9549,8 @@ def test_a_restart_with_the_engine_gone_unnoticed_draws_what_answers(open_panel)
 
 
 #: Each `/api/health` the panel asks gets the next answer in turn, the last one for
-#: good; every other engine route gets the last. Installed over the harness's stub.
+#: good; every other engine route gets the last. Installed over the harness's stub:
+#: `answers` passes to it, `503` is an engine that answers refusing.
 THE_ENGINE_ANSWERS_IN_TURN = """(answers) => {
   const inner = window.fetch;
   let asked = 0;
@@ -9488,10 +9559,38 @@ THE_ENGINE_ANSWERS_IN_TURN = """(answers) => {
     if (!target.startsWith('http://127.0.0.1:8000/api/')) return inner(url, options);
     const turn = target.includes('/api/health')
       ? answers[Math.min(asked++, answers.length - 1)] : answers[answers.length - 1];
+    if (turn === 'answers') return inner(url, options);
+    if (turn === '503') {
+      return {ok: false, status: 503, statusText: 'Service Unavailable',
+              headers: {get: () => null}, json: async () => ({detail: 'unavailable'})};
+    }
     throw turn === 'refuses' ? new TypeError('Failed to fetch')
+      : turn === 'cancelled' ? new DOMException('The operation was aborted.', 'AbortError')
       : new DOMException('The operation timed out.', 'TimeoutError');
   };
 }"""
+
+
+@pytest.mark.parametrize("answers", [
+    ["runs-out", "answers"], ["runs-out", "503"], ["cancelled", "answers"],
+], ids=["slow-then-answering", "slow-then-refusing", "cancelled-then-answering"])
+def test_a_preflight_that_finds_the_engine_answering_does_not_draw_it_as_gone(
+        open_panel, answers):
+    """GONE IS A REFUSED CONNECTION, here as in the poll. An engine that answers the
+    status read after a slow or cancelled preflight -- even with a 503 -- is not told
+    "No engine is running", and Run offers no Start beside it."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    page.evaluate(THE_ENGINE_ANSWERS_IN_TURN, answers)
+    page.click("#runtime-restart")
+    page.wait_for_function(
+        "() => !document.getElementById('runtime-restart').disabled", timeout=10_000)
+
+    assert text_of(page, "#engine-restart-note") == (
+        "The engine did not answer, so Restart was not sent. Press Check again to ask it.")
+    assert not page.evaluate(RUN_DRAWS_ITS_START), "Run offers Start beside an engine"
+    assert not page.js_errors, page.js_errors
 
 
 def test_a_restart_that_finds_the_engine_slow_then_gone_draws_it_as_gone(open_panel):

@@ -10899,13 +10899,15 @@ function wireRuntimeRepair() {
       // this note points at (#1861). A DEADLINE IS NOT THE DARK: a slow engine is still
       // serving, so only the status is read again. `render()` would take it for gone, and
       // offer a Start beside its job runner and stop polling its jobs -- unless that read
-      // finds it gone, as it can 2.5 s later. A redraw that fails must not keep back the
-      // buttons.
-      let gone = !isTimeoutError(probeError);
+      // finds it gone, as it can 2.5 s later. GONE IS A REFUSED CONNECTION, as it is the
+      // dark for the poll below; an engine that answers at all, even refusing, is
+      // `reachable` (engine.js), and a cancelled read is read again like a slow one. A
+      // redraw that fails must not keep back the buttons.
+      let gone = probeError instanceof TypeError;
       try {
         if (!gone) {
           const engine = await updateEngineState();
-          gone = !engine.cancelled && !engine.timedOut && !engine.running;
+          gone = !engine.cancelled && !engine.timedOut && !engine.reachable;
         }
         if (gone) {
           await render();
@@ -11015,8 +11017,8 @@ function wireRuntimeRepair() {
     // and age does (`RESTART_ANSWER_STILL_FRESH_MS`).
     let wentDark = false;
     let lastAnswer = null;
-    // WHAT THE NOTE ADDS FOR WHAT THE POLL LAST FOUND. A refusing answer finds nothing new
-    // and leaves the sentence; a slow probe takes it away once nothing is still answering.
+    // WHAT THE NOTE ADDS FOR WHAT THE POLL LAST FOUND. A sentence that says an engine is
+    // answering stands only while `stillAnswering()` says so, below every tick.
     // Written only when it changes, so a screen reader hears a change and not a tick.
     let found = "";
     let said = "";
@@ -11052,12 +11054,7 @@ function wireRuntimeRepair() {
           wentDark = true;
           lastAnswer = null;
           found = RESTART_NO_ENGINE_ANSWERS;
-        } else if (isTimeoutError(error)) {
-          // NOTHING IS STILL ANSWERING: the sentence that says one is goes, and the note
-          // says only that the restart is under way. "Waiting for the new engine" names
-          // no answer, so it stands.
-          if (found !== RESTART_NO_ENGINE_ANSWERS && !stillAnswering()) found = "";
-        } else {
+        } else if (!isTimeoutError(error)) {
           // NOT SWALLOWED: a body that is not JSON, or a request cancelled under
           // the poll, is neither the dark nor a slow engine. The trace keeps it,
           // as it keeps `restart-identity-unknown`.
@@ -11065,6 +11062,11 @@ function wireRuntimeRepair() {
                       {message: (error && error.message) || "unknown"});
         }
       }
+      // NOTHING IS STILL ANSWERING -- a refusing answer, a slow probe past four deadlines
+      // -- so the sentence that says one is goes, by the rule the ending reads, and the
+      // note says only that the restart is under way. "Waiting for the new engine" names
+      // no answer, so it stands.
+      if (found !== RESTART_NO_ENGINE_ANSWERS && !stillAnswering()) found = "";
       if (settled) return;
       if (found !== said) {
         said = found;
