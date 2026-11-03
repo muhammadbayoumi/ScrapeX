@@ -238,6 +238,7 @@ Whatever the reason, he grants it only after seeing Supabase's version and the a
 
 | Request | Reason | Source | Scope | Issue |
 | --- | --- | --- | --- | --- |
+| A job's or a schedule's domain and keys wrap after each dot | his preference: the shared identity ellipsizes them, and at 320 px `etendering.tenderboard.gov.om` lost `.om` with nothing to reveal it. He chose from the 320, 400 and 480 px picture on 2026-10-25 | WCAG 2.2 SC 1.4.10 | The source identity on Jobs, the Schedules row and sheet, and Activity's ended job | #1542 (his choice D), #1631, #1074 |
 | Warning words readable at 12 px | gap: `warning-600` on white is ≈3.05:1 | WCAG 2.2 SC 1.4.3 (text, 4.5:1) and SC 1.4.11 (icons, 3:1) | A warning status keeps `warning-600` on its **icon**; its **words** take the foreground colour. Supabase's values only, composed differently | #1542 |
 | Schedules is a page of the rail, below Jobs | his preference: Studio nests Cron Jobs inside an integration; he moved schedules out of Settings | his ruling on #1631 (option C) | The rail button and the page | #1631 |
 | A schedule's facts stacked under its row: Schedule, Next run, Last success; no Command column, no run-status badge | gap: Studio's columns need 1,170 px, the panel is 320–480 px | WCAG 2.2 SC 1.4.10 | The Schedules row | #1631 |

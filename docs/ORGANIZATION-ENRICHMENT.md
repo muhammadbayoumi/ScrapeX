@@ -88,7 +88,10 @@ guess.
   matches the source email, excluding third-party agency mailboxes. A direct
   `linkedin.com/company/` link published by that site can populate the LinkedIn company
   URL, but its provider remains `website`: the official site attests the link and is not
-  counted again as independent LinkedIn evidence.
+  counted again as independent LinkedIn evidence. A run sends one company's site at most 10
+  requests over the whole job, retries included, counting `robots.txt` and each redirect. A
+  company stopped there keeps what it read, expires no fact it did not reach, and the run
+  counts and logs it.
 - **Google Places** is optional and enabled by
   `SCRAPEX_GOOGLE_PLACES_API_KEY`. It transiently combines name, coordinate, phone and
   domain evidence; invalid coordinates are omitted, and coordinates are a bias rather
@@ -131,8 +134,11 @@ diagnosis.
 
 Only one unfinished job may exist for a definition. Provider failures are recorded per
 organization and do not discard existing facts. Successful observations expire missing
-facts; failed observations do not. Input hashes and provider TTLs avoid unnecessary repeat
-requests. Three consecutive shared provider-system failures open that provider's circuit
+facts; failed observations do not. A Complete pass reuses an answer younger than the
+provider's TTL and asks everything else. An Update asks a provider only when what it reads
+has changed: an answer to the same input stands at any age, an input that changes back counts
+as changed, and a site that could not be read waits 90 days. The job's log says how many
+were left out and how many waited. Three consecutive shared provider-system failures open that provider's circuit
 for the remaining organizations. Job membership controls final output availability, so a
 concurrent source crawl cannot create a mixed-generation result. Such a run ends as
 `completed_with_errors`, and reopening the workspace restores its latest job and controls.

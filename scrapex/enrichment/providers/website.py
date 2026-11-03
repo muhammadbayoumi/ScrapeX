@@ -55,6 +55,15 @@ _HOST_ROBOTS_DELAY: dict[str, float] = {}
 _DNS_SLOTS = threading.BoundedSemaphore(16)
 
 
+#: THE MOST REAL REQUESTS ONE COMPANY'S SITE IS SENT IN A RUN, his ruling on #1891: per company,
+#: because a fixed total only fits the table it was sized on. robots.txt and each redirect count.
+REQUESTS_PER_COMPANY = 10
+
+
+class RequestLimitReached(RuntimeError):
+    """This company has had its requests. It says nothing about the site."""
+
+
 def _pace_host(host: str) -> None:
     try:
         configured_ms = float(
@@ -183,6 +192,7 @@ def _fetch_with_client(
     client: httpx.Client, url: str, *, require_html: bool = True,
     max_bytes: int = 2_000_000,
     policy: Callable[[str], bool] | None = None,
+    before_request: Callable[[], None] | None = None,
 ) -> FetchedPage:
     current = url
     original_domain = registrable_domain(url)
@@ -219,6 +229,8 @@ def _fetch_with_client(
                                  parsed.query, ""))
             request = client.build_request("GET", pinned, headers={"Host": host})
             request.extensions["sni_hostname"] = host
+            if before_request is not None:
+                before_request()
             try:
                 _pace_host(host)
                 response = client.send(request, stream=True)
@@ -260,6 +272,12 @@ def _fetch_with_client(
                     return FetchedPage(current, html, response.status_code)
                 finally:
                     response.close()
+            except httpx.HTTPStatusError as exc:
+                # A 4xx is the site's answer, and its other addresses are the same server.
+                # A 5xx can be one edge's, so that one still tries the next address.
+                if exc.response.status_code < 500:
+                    raise
+                last_error = exc
             except (httpx.HTTPError, OSError) as exc:
                 last_error = exc
         if redirected:
@@ -281,26 +299,44 @@ class WebsiteProvider:
         self._cache: dict[str, FetchedPage] = {}
         self._robots: dict[str, RobotFileParser | None] = {}
         self.requests_made = 0
+        # Held for the job, as `_cache` is. A record that fails runs again up to three times
+        # with this provider, and a count kept per call sent one site 30 requests.
+        self._requests_by_company: dict[str, int] = {}
+        self._company = ""
         self._robots_fetch: Callable[[str], FetchedPage] | None = None
         if fetch is not None:
-            raw_fetch = fetch
+            def raw_fetch(url: str) -> FetchedPage:
+                self._count_request()
+                return fetch(url)
         else:
             self._client = _new_client()
             def raw_fetch(url: str) -> FetchedPage:
                 return _fetch_with_client(
-                    self._client, url, policy=self._robots_allows
+                    self._client, url, policy=self._robots_allows,
+                    before_request=self._count_request,
                 )
             self._robots_fetch = lambda url: _fetch_with_client(
-                self._client, url, require_html=False, max_bytes=512_000
+                self._client, url, require_html=False, max_bytes=512_000,
+                before_request=self._count_request,
             )
 
         def cached_fetch(url: str) -> FetchedPage:
             if url not in self._cache:
-                self.requests_made += 1
                 self._cache[url] = raw_fetch(url)
             return self._cache[url]
 
         self._fetch = cached_fetch
+
+    def _count_request(self) -> None:
+        """Called as a request leaves, so a name that never resolved is not one."""
+        spent = self._requests_by_company.get(self._company, 0)
+        if spent >= REQUESTS_PER_COMPANY:
+            noun = "request" if REQUESTS_PER_COMPANY == 1 else "requests"
+            raise RequestLimitReached(
+                f"stopped at the limit of {REQUESTS_PER_COMPANY} {noun} for one company"
+            )
+        self._requests_by_company[self._company] = spent + 1
+        self.requests_made += 1
 
     def _robots_allows(self, url: str) -> bool:
         if self._robots_fetch is None:
@@ -310,8 +346,10 @@ class WebsiteProvider:
         if origin not in self._robots:
             robots_url = f"{origin}/robots.txt"
             try:
-                self.requests_made += 1
                 page = self._robots_fetch(robots_url)
+            except RequestLimitReached:
+                # Not an answer from the site, so it is not remembered as "no rule".
+                raise
             except Exception:
                 # An absent or unreadable file states no enforceable rule. The
                 # fetch still remains visible through request metrics.
@@ -333,6 +371,7 @@ class WebsiteProvider:
             self._client = None
 
     def run(self, identity: OrganizationIdentity) -> ProviderResult:
+        self._company = identity.organization_id
         mapped_host = host_of(identity.website)
         mail_host = email_domain(identity.email)
         candidate_host = mapped_host or mail_host
@@ -354,11 +393,11 @@ class WebsiteProvider:
                               else f"https://{identity.website}")
         candidates.extend((f"https://{candidate_host}", f"https://www.{candidate_host}"))
         for url in dict.fromkeys(candidates):
-            if not self._robots_allows(url):
-                if not first_error:
-                    first_error = "robots.txt disallows organization enrichment"
-                continue
             try:
+                if not self._robots_allows(url):
+                    if not first_error:
+                        first_error = "robots.txt disallows organization enrichment"
+                    continue
                 root = self._fetch(url)
                 break
             except Exception as exc:
@@ -415,15 +454,19 @@ class WebsiteProvider:
 
         pages = [root]
         links = _useful_links(soup, root.url)
+        stopped_early = ""
         for link in links[:4]:
-            if not self._robots_allows(link):
-                continue
             try:
+                if not self._robots_allows(link):
+                    continue
                 pages.append(self._fetch(link))
+            except RequestLimitReached as exc:
+                stopped_early = str(exc)
+                break
             except Exception:
                 continue
         facts.extend(_facts_from_pages(pages, identity, status, score))
-        return ProviderResult(self.name, tuple(facts))
+        return ProviderResult(self.name, tuple(facts), stopped_early=stopped_early)
 
 
 def _meta(soup: BeautifulSoup, name: str) -> str:

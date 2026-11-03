@@ -7,7 +7,7 @@ import { test } from "node:test";
 
 import {
   controlsFor, forgetRate, isSettled, jobLabel, jobWaitingLine, liveJob, observeRate, ownsAWorker,
-  progressFraction, progressLine, recentRate, statusWords, summaryClass,
+  progressFraction, progressLine, recentRate, statusChangeLine, statusWords, summaryClass,
 } from "../jobsview.js";
 
 /** `fetch` AS THE RUNNERS ACTUALLY LEAVE IT, which is empty.
@@ -237,6 +237,22 @@ test("a job is named by its kind and the panel's one source identity (#1542)", (
     "Crawl · Offline list", "no domain: the name leads, as sourceIdentity does");
   assert.equal(jobLabel({job_kind: "crawl", source_keys: ["GONE"]}, SOURCES),
     "Crawl · GONE", "a source Sources does not list keeps its key");
+});
+
+test("a status change is said in one sentence, wherever it is said (#1074)", () => {
+  // THE JOBS PAGE AND ACTIVITY SAY THE SAME WORDS: each speaks only while its own view is
+  // shown, so the sentence for one event has one source.
+  assert.equal(
+    statusChangeLine({job_kind: "directory_crawl", source_keys: ["muqawil_org"],
+                      status: "failed"}, SOURCES),
+    "Listing crawl · muqawil.org: failed");
+  assert.equal(
+    statusChangeLine({job_kind: "crawl", source_keys: ["ELBUROJ", "GONE"],
+                      status: "completed_with_errors"}, SOURCES),
+    "Crawl · elburoj.com and 1 other: completed with errors",
+    "the status is un-underscored as everywhere else, and several sources are counted");
+  assert.equal(statusChangeLine({job_kind: "dataset_interpret", status: "completed"}),
+    "Interpretation: completed", "a job that names no source is still said");
 });
 
 test("a job over several sources names the first and counts the rest", () => {

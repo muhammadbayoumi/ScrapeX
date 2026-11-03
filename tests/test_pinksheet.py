@@ -578,6 +578,104 @@ def test_a_segment_the_warehouse_does_not_know_is_refused_out_loud(conn):
     assert conn.execute("SELECT COUNT(*) FROM source_offer").fetchone()[0] == 0
 
 
+# ---- a segment is its own series, in the two rules #1905 wrote for retail ---------------
+
+def commodity_table(*rows: dict) -> ScrapedTable:
+    builder = RowBuilder(COMMODITY_PRICE)
+    built = [builder.row(**{"material_key": "COPPER", "country_code_alpha2": "*", "currency": "USD",
+                            "tax_included": "0", "price": "1", "provenance": "observed", **row})
+             for row in rows]
+    return ScrapedTable("WORLDBANK_PINK_SHEET", COMMODITY_PRICE.kind, "u", builder.header, built)
+
+
+def land(conn, *rows: dict):
+    return ingest_payloads(conn, make_entry(), [commodity_table(*rows).to_payload()])
+
+
+def offers_of(conn) -> list[tuple]:
+    return [tuple(r) for r in conn.execute(
+        "SELECT so.customer_segment, COALESCE(su.unit_code, ''), so.country_code_alpha2, so.status "
+        "FROM source_offer so LEFT JOIN selling_unit su ON su.selling_unit_id = so.selling_unit_id "
+        "ORDER BY so.offer_id")]
+
+
+def test_a_wholesale_offer_that_loses_its_unit_stays_one_offer(conn):
+    """#1874's rule, for a segment it was not written for: the series is the same."""
+    land(conn, {"unit": "kg", "consumer_segment": "wholesale"})
+    land(conn, {"unit": "", "consumer_segment": "wholesale"})
+    assert offers_of(conn) == [("wholesale", "", "*", "active")]
+
+
+def test_a_wholesale_row_does_not_take_a_retail_offers_unit_away(conn):
+    land(conn, {"unit": "kg"})
+    land(conn, {"unit": "", "consumer_segment": "wholesale"})
+    assert offers_of(conn) == [("retail", "kg", "*", "active"), ("wholesale", "", "*", "active")]
+
+
+def test_a_retail_row_does_not_take_a_wholesale_offers_unit_away(conn):
+    land(conn, {"unit": "kg", "consumer_segment": "wholesale"})
+    land(conn, {"unit": ""})
+    assert offers_of(conn) == [("wholesale", "kg", "*", "active"), ("retail", "", "*", "active")]
+
+
+def test_a_wholesale_offer_learning_its_unit_is_not_a_second_offer(conn):
+    land(conn, {"unit": "", "consumer_segment": "wholesale"})
+    land(conn, {"unit": "kg", "consumer_segment": "wholesale"})
+    assert offers_of(conn) == [("wholesale", "kg", "*", "active")]
+
+
+def test_a_wholesale_series_whose_unit_changes_retires_the_old_offer(conn):
+    land(conn, {"unit": "kg", "consumer_segment": "wholesale"})
+    result = land(conn, {"unit": "tonne", "consumer_segment": "wholesale"})
+    assert offers_of(conn) == [("wholesale", "kg", "*", "superseded"),
+                               ("wholesale", "tonne", "*", "active")]
+    assert any("retired 1 offer" in n for n in result.notices)
+
+
+def test_a_pink_sheet_series_whose_unit_changes_shows_one_current_offer(conn):
+    """The same rule through the real connector: his table must not keep both."""
+    ingest(conn, tables(stub=_Stub(workbook=edited(lambda book: None))))
+
+    def to_kilos(book):
+        sheet = book["Monthly Prices"]
+        sheet.cell(6, column_of(sheet, "Copper"), "($/kg)")
+    ingest(conn, tables(stub=_Stub(workbook=edited(to_kilos))))
+    copper = [tuple(r) for r in conn.execute(
+        "SELECT su.unit_code, so.status FROM source_offer so "
+        "JOIN selling_unit su ON su.selling_unit_id = so.selling_unit_id "
+        "JOIN source_variant sv ON sv.source_variant_id = so.source_variant_id "
+        "JOIN source_product sp ON sp.source_product_id = sv.source_product_id "
+        "WHERE sp.external_product_id = 'COPPER' ORDER BY so.offer_id")]
+    assert copper == [("tonne", "superseded"), ("kg", "active")]
+
+
+def test_restating_wholesale_leaves_a_retail_sibling_alone(conn):
+    land(conn, {"unit": "kg"}, {"unit": "kg", "consumer_segment": "wholesale"})
+    land(conn, {"unit": "kg", "consumer_segment": "wholesale"})
+    assert offers_of(conn) == [("retail", "kg", "*", "active"), ("wholesale", "kg", "*", "active")]
+
+
+def test_restating_retail_leaves_a_wholesale_sibling_alone(conn):
+    land(conn, {"unit": "kg"}, {"unit": "kg", "consumer_segment": "wholesale"})
+    land(conn, {"unit": "kg"})
+    assert offers_of(conn) == [("retail", "kg", "*", "active"), ("wholesale", "kg", "*", "active")]
+
+
+def test_a_wholesale_row_naming_a_country_answers_only_for_its_own_segment(conn):
+    """'*' means the country was not known, and a row naming it answers for it, inside a segment."""
+    land(conn, {"unit": "kg"}, {"unit": "kg", "consumer_segment": "wholesale"})
+    land(conn, {"unit": "kg", "consumer_segment": "wholesale", "country_code_alpha2": "EG"})
+    assert offers_of(conn) == [("retail", "kg", "*", "active"), ("wholesale", "kg", "*", "superseded"),
+                               ("wholesale", "kg", "EG", "active")]
+
+
+def test_two_segments_alone_on_a_variant_are_not_siblings(conn):
+    """Only a sibling in the same segment can make an offer stale, even with nothing restated."""
+    land(conn, {"unit": "kg"}, {"unit": "tonne", "consumer_segment": "wholesale"})
+    land(conn, {"unit": "tonne", "consumer_segment": "wholesale"})
+    assert offers_of(conn) == [("retail", "kg", "*", "active"), ("wholesale", "tonne", "*", "active")]
+
+
 # ---- the manifest and the registry -------------------------------------------------------
 
 def test_the_manifest_entry_ships_off_and_obeying():
