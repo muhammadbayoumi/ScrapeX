@@ -3,7 +3,7 @@
 WHAT THE MARKERS ARE. Each colour declaration in design/tokens.css carries an inline
 comment naming the Supabase token it came from and one of two words:
 
-    --accent-ink: #097c4f;      /* brand-600 light       PUBLISHED */
+    --brand-600:  #097c4f;      /* brand-600 light       PUBLISHED */
     --amber:      #f2af48;      /* --warning dark        derived   */
 
 `PUBLISHED` means Supabase declares that value as a literal -- an HSL triple or a hex --
@@ -184,42 +184,65 @@ def _literal(theme: str, token: str) -> str | None:
 # test still passes because the total is nowhere near its floor, and nothing anywhere
 # says a value lost its statement.
 #
-# 24 of the 42 colour declarations carrying an inline note are marked. The other 18 name
-# a Supabase token their sources COMPUTE -- so each is a `derived` nobody wrote down --
+# Not every colour declaration carrying an inline note is marked. The others name a
+# Supabase token their sources COMPUTE -- so each is a `derived` nobody wrote down --
 # and #1040 ruled that none gains a marker now. #1016, which asked, closed on his ruling
 # of 2026-10-05: answered by #1040, and guarded by UNMARKED_COLOURS below (#1098). The
 # two --line-control-hover markers arrived with the token, a focused field's border (#748).
 MARKED_VALUES = frozenset({
     ("dark", "--accent"),
     ("dark", "--accent-contrast"),
-    ("dark", "--accent-hover"),
     ("dark", "--accent-ink"),
-    ("dark", "--accent-weak"),
     ("dark", "--amber"),
     ("dark", "--amber-ink"),
-    ("dark", "--amber-weak"),
     ("dark", "--danger-contrast"),
     ("dark", "--focus"),
     ("dark", "--line-control-hover"),
     ("dark", "--red"),
-    ("dark", "--red-weak"),
     ("dark", "--warning-600"),
-    ("dark", "--warning-button"),
     ("light", "--accent"),
     ("light", "--accent-active"),
     ("light", "--accent-hover"),
-    ("light", "--accent-ink"),
-    ("light", "--accent-weak"),
-    ("light", "--amber-weak"),
     ("light", "--danger-contrast"),
     ("light", "--focus"),
     ("light", "--line-control-hover"),
     ("light", "--red"),
     ("light", "--warning-600"),
-    ("light", "--red-weak"),
+    # #633: Supabase's status steps, --info and --border-brand; the role tokens that
+    # equal a step name it instead, so they carry no marker of their own.
+    ("light", "--brand-200"),
+    ("light", "--brand-300"),
+    ("light", "--brand-400"),
+    ("light", "--brand-500"),
+    ("light", "--brand-600"),
+    ("light", "--destructive-200"),
+    ("light", "--destructive-300"),
+    ("light", "--destructive-400"),
+    ("light", "--destructive-500"),
+    ("light", "--destructive-600"),
+    ("light", "--warning-200"),
+    ("light", "--warning-300"),
+    ("light", "--warning-400"),
+    ("light", "--warning-500"),
+    ("dark", "--brand-200"),
+    ("dark", "--brand-300"),
+    ("dark", "--brand-400"),
+    ("dark", "--brand-500"),
+    ("dark", "--brand-600"),
+    ("dark", "--destructive-200"),
+    ("dark", "--destructive-300"),
+    ("dark", "--destructive-400"),
+    ("dark", "--destructive-500"),
+    ("dark", "--destructive-600"),
+    ("dark", "--warning-200"),
+    ("dark", "--warning-300"),
+    ("dark", "--warning-400"),
+    ("dark", "--warning-500"),
+    ("light", "--info"),
+    ("light", "--border-brand"),
+    ("dark", "--info"),
     # #1596: Supabase's Switch thumb (`bg-white`) and its `warning` Button's fills.
     ("light", "--switch-thumb-checked"),
-    ("light", "--warning-button-hover"),
 })
 
 ALL = _markers()

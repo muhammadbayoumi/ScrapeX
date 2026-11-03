@@ -436,6 +436,8 @@ def test_every_fallback_says_what_its_token_says() -> None:
                     line = css.count("\n", 0, found.start()) + 1
                     drifted.append(f"{sheet.relative_to(ROOT).as_posix()}:{line} "
                                    f"var({name}, {fallback}) where {name} is {resolved(name)}")
-    assert compared >= 27, (
+    # 27 until #751, which deleted `var(--fw-bold, 600)` from .record-prose-title: the
+    # heading rule draws that weight now, so the declaration and its fallback went together.
+    assert compared >= 26, (
         f"only {compared} numeric fallbacks were compared; the parse has stopped finding them")
     assert not drifted, "fallbacks that disagree with their token:\n" + "\n".join(drifted)

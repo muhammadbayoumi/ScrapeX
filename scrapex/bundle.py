@@ -45,6 +45,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .archive import backup_database
+from .paths import name_inside
 from .payload import utc_now_iso
 from .reports import export_details_table, export_history_table, export_source_table, list_sources
 from .version import VERSION
@@ -430,17 +431,17 @@ def unpack(archive_path: Path | str, out_dir: Path | str) -> BundleReport:
     """
     archive, root = Path(archive_path), Path(out_dir)
     root.mkdir(parents=True, exist_ok=True)
-    destination = root.resolve()
 
     with zipfile.ZipFile(archive) as bundled:
         for entry in bundled.infolist():
             if entry.is_dir():
                 continue
-            target = (destination / entry.filename).resolve()
-            if not target.is_relative_to(destination):
+            try:
+                target = name_inside(root, entry.filename)
+            except ValueError as refused:
                 raise ValueError(
                     f"refusing an archive entry that escapes the bundle: "
-                    f"{entry.filename!r}")
+                    f"{entry.filename!r}") from refused
             target.parent.mkdir(parents=True, exist_ok=True)
             with bundled.open(entry) as source, open(target, "wb") as handle:
                 shutil.copyfileobj(source, handle)

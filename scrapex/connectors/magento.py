@@ -51,6 +51,9 @@ class GraphqlRefused(RuntimeError):
     page a crawl reported clean over a truncated catalogue. Raised instead, the run
     fails with the store's own words; jobs.py isolates the source, as it does
     `SitemapUnreadable`.
+
+    Raised too where the store will not state its weight unit and a charter
+    confirms on that answer (#1833): see `_weight_unit`.
     """
 
 # configurable_options carries the site's own NAME for each variant axis
@@ -180,7 +183,8 @@ _AGGREGATIONS_QUERY = """query{products(filter:{price:{from:"0"}},pageSize:1,cur
 # "lbs" renders lbs with nothing here changing, and a crawl that cannot reach
 # this answer publishes no basis at all rather than a number with a unit we
 # assumed — the same rule selling_unit_from already applies when a name and a
-# weight disagree.
+# weight disagree. Where a charter confirms on this answer, the crawl stops here,
+# before any other request: see `fetch`.
 #
 # One request per crawl, and unlike aggregations it runs on EVERY crawl: this
 # one qualifies a price, so a prices-only run needs it as much as an enriched
@@ -311,6 +315,12 @@ def _clean(html: str) -> str:
     return strip_markup(html)
 
 
+def _description_ar(product: dict | None) -> str:
+    """The product's Arabic description as text: what the description_ar detail
+    stores and what a charter reads, one answer so the two cannot differ."""
+    return _clean(((product or {}).get("description") or {}).get("html") or "")
+
+
 def _classification(product: dict) -> tuple[str, str]:
     """(category_path, category_external_id) — the DEEPEST filing the site states.
 
@@ -410,13 +420,12 @@ def _quantity_facts(child: dict) -> tuple[str, str, str]:
     states them — and "" wherever it states nothing.
 
     NOTHING IS DERIVED HERE. madar's rebar publishes weight 1000 with a 0.25
-    minimum in 0.05 steps and never writes «طن» anywhere a crawl can reach
-    (verified exhaustively 2026-07-29: member and parent attributes,
-    description, short_description, every meta field, both category
-    descriptions, both store views, and the full rendered page). The owner
-    ruled «الحقائق الخام فقط» — raw facts only — so this returns the numbers
-    and lets the display layer say "per 1,000 kg". Turning them into a unit
-    would put a word on the row that the shop has never printed.
+    minimum in 0.05 steps. On 2026-07-29 it wrote «طن» nowhere a crawl could
+    reach; by the crawl of 2026-10-25 its own descriptions said «يباع بالطن»,
+    and the unit now comes from that sentence through the charter (sources.yaml,
+    MADAR's sold_by witness), never from these numbers. The owner ruled
+    «الحقائق الخام فقط» — raw facts only — so this returns the numbers as stated
+    and leaves the unit to whatever the shop says in words.
 
     Magento's default for a product nobody configured is min_sale_qty 1 /
     qty_increments 1, which says nothing; it is stored anyway rather than
@@ -462,9 +471,9 @@ def _apply_charter(row: list[str], charter, product: dict | None = None) -> None
     normalize.selling_unit_from, because that function serves other families
     and its agreement rule is right for them: a name stating a kg quantity that
     matches the weight field. What it cannot do is read a unit the shop states
-    in two fields, or a container it names in an option value — and those are
-    the two ways madar speaks. Measured over its 3,537 offers: the old rule
-    reaches 92, this reaches 3,532.
+    in two fields, a container it names in an option value, or a sentence in its
+    description — and those are the ways madar speaks. Measured over its 3,537
+    offers on 2026-08-03: the old rule reaches 92, this reaches 3,532.
 
     A source with no charter is untouched, so nothing outside madar moves.
     """
@@ -485,6 +494,11 @@ def _apply_charter(row: list[str], charter, product: dict | None = None) -> None
         # printed on every variant is how a family's figure becomes each
         # member's, which is the mistake reports.py already names in writing.
         "spec_size": _spec_size(product),
+        # Not a row column either: the product's Arabic description. Where it
+        # says «يباع بالطن» the shop may be stating what one of the price is; the
+        # charter decides whether to believe it, and madar's asks the weight to
+        # agree first.
+        "description_ar": _description_ar(product),
     })
     if resolution is None:
         return
@@ -532,6 +546,20 @@ class MagentoGraphqlConnector:
         }
         notes: list[str] = []
         ctx["notes"] = notes
+        # The unit the shop states its weights in, read once and stamped on
+        # every row that carries a weight — the qualifier travels with the
+        # number it qualifies, same rule as `currency`.
+        #
+        # ASKED FIRST, BECAUSE A CHARTER THAT CONFIRMS ON THIS ANSWER CANNOT RUN WITHOUT
+        # IT. Every row it confirms would be refused at once, not because the shop said
+        # anything new but because one side request failed: 143 of madar's offers would
+        # lose the tonne and reopen a price period, and his warehouse holds a run where
+        # exactly this answer came back blank (crawl_run 109). So the run stops before
+        # any other request, with no offer moved and the reason on the job.
+        ctx["weight_unit"] = self._weight_unit(
+            endpoint, notes,
+            required=any(confirm and confirm["unit_field"] == "weight_unit"
+                         for confirm in (charter.confirms if charter else ())))
         ctx["paths"] = self._category_map(endpoint, source, notes)
         # The SAME tree, read in English: leaf uids are store-independent, so
         # one extra categoryList query relabels every path the walk already
@@ -571,10 +599,6 @@ class MagentoGraphqlConnector:
                 "when the store answers restores it")
         ctx["axis_labels_en"] = english["axis_labels"]
         ctx["axis_values_en"] = english["axis_values"]
-        # The unit the shop states its weights in, read once and stamped on
-        # every row that carries a weight — the qualifier travels with the
-        # number it qualifies, same rule as `currency`.
-        ctx["weight_unit"] = self._weight_unit(endpoint, notes)
         query = _QUERY_ENRICHED if wants_enrichment else _QUERY
         fetched: list[dict] = []      # kept so enrichment needs no second fetch
         page = 1
@@ -779,7 +803,7 @@ class MagentoGraphqlConnector:
             found[code] = str(aggregation.get("label") or "") or code
         return found
 
-    def _weight_unit(self, endpoint: str, notes: list) -> str:
+    def _weight_unit(self, endpoint: str, notes: list, required: bool = False) -> str:
         """The unit this store states its `weight` values in — or "" if it won't say.
 
         One request per crawl, on every crawl. The answer qualifies a NUMBER
@@ -788,22 +812,30 @@ class MagentoGraphqlConnector:
         display layer shows no basis at all, and the price cell reads exactly
         as it does today. That is the same refusal selling_unit_from makes when
         a name and a weight disagree — publishing 1000 with a unit nobody
-        stated is the one outcome this whole change exists to avoid.
+        stated is the one outcome this whole change exists to avoid. A source
+        whose charter confirms on this answer goes further: `required` stops the
+        run here, naming what the store answered, because this may be the first
+        request a dead site fails.
         """
+        stated, why = "", ""
         try:
             answer = (self._fetcher.post(endpoint, json={"query": _STORE_CONFIG_QUERY})
                       .json() or {})
+            stated = str((((answer.get("data") or {}).get("storeConfig")) or {})
+                         .get("weight_unit") or "")
+            if not stated:
+                why = "storeConfig published no weight_unit"
         except CrawlBlocked:
             raise
         except Exception as exc:
-            notes.append(f"the store did not state the unit of its weights ({exc}) "
-                         "— prices quoted against a weight show no basis this run")
-            return ""
-        stated = str((((answer.get("data") or {}).get("storeConfig")) or {})
-                     .get("weight_unit") or "")
-        if not stated:
-            notes.append("storeConfig published no weight_unit — prices quoted "
-                         "against a weight show no basis this run")
+            why = f"the store did not state the unit of its weights ({exc})"
+        if why and required:
+            raise GraphqlRefused(
+                f"Stopped before reading the catalogue: {why}. This source's unit charter "
+                f"confirms on that answer, and every unit it confirms would be lost for "
+                f"this run ({endpoint})")
+        if why:
+            notes.append(f"{why} — prices quoted against a weight show no basis this run")
         return stated
 
     def _english_names(self, endpoint: str, notes: list,
@@ -1128,12 +1160,14 @@ class MagentoGraphqlConnector:
                 # it away unless the product's NAME corroborates it — so the
                 # rebar's 1000 was fetched and dropped on every crawl.
                 #
-                # NOT interpreted here. This connector does not decide whether
-                # 1000 is a basis or a mass; it records that the shop said
-                # 1000 kgs, next to the shop saying the quantity is decimal,
-                # and the display layer reads the two together. The unit is
-                # dropped when there is no weight to qualify — a store-wide
-                # constant on a row that carries no number is noise.
+                # NOT interpreted here. This row does not decide whether 1000 is
+                # a basis or a mass; it records that the shop said 1000 kgs, next
+                # to its minimum, its step and whether the quantity is decimal. The
+                # display layer reads them together, and a charter may read the
+                # weight only as agreement with a sentence the shop wrote
+                # (_apply_charter).
+                # The unit is dropped when there is no weight to qualify — a
+                # store-wide constant on a row that carries no number is noise.
                 weight="" if weight in (None, "") else str(weight),
                 weight_unit=("" if weight in (None, "")
                              else (ctx.get("weight_unit") or "")),
@@ -1467,9 +1501,7 @@ def _enrichment_rows(builder: RowBuilder, product: dict, filterable: dict,
     # column the migrations read. This crawl reads the DEFAULT (Arabic) store;
     # the English half arrives from the en_SA pass, on pages the names already
     # paid for.
-    add("description_ar", "Description (AR)",
-        _clean(((product.get("description") or {}).get("html")) or ""),
-        lang="ar")
+    add("description_ar", "Description (AR)", _description_ar(product), lang="ar")
     add("description", "Description", mine.get("description", ""), lang="en")
     add("short_description_ar", "Summary (AR)",
         _clean(((product.get("short_description") or {}).get("html")) or ""),

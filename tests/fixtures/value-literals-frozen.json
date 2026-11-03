@@ -31,7 +31,6 @@
    "3vw": 1
   },
   "design/data-workspace.css": {
-   ".55rem": 1,
    ".58rem": 2,
    ".59rem": 3,
    ".64rem": 1,
@@ -43,7 +42,7 @@
    ".76rem": 2,
    ".77rem": 1,
    ".78rem": 1,
-   ".7rem": 2,
+   ".7rem": 1,
    ".85rem": 1,
    ".86rem": 1,
    ".95rem": 1,
@@ -56,7 +55,7 @@
    "3vw": 1
   },
   "design/grid-theme.css": {
-   ".58rem": 3,
+   ".58rem": 1,
    ".62rem": 1,
    ".67rem": 1,
    ".72rem": 1,
@@ -106,7 +105,7 @@
   "scrapex/webui/static/pages/schedules.css": {
    ".68rem": 1,
    ".6rem": 1,
-   ".72rem": 5,
+   ".72rem": 4,
    ".78rem": 4,
    ".7rem": 5,
    ".82rem": 1,
@@ -144,18 +143,6 @@
    "1.05rem": 1,
    "1.2rem": 1,
    "1.35rem": 1
-  }
- },
- "font-weight": {
-  "design/components.css": {
-   "750": 1
-  },
-  "design/data-workspace.css": {
-   "650": 2,
-   "750": 1
-  },
-  "design/grid-theme.css": {
-   "750": 3
   }
  },
  "line-height": {
