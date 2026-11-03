@@ -312,9 +312,14 @@ def capture_source(conn: sqlite3.Connection, entry: SourceEntry,
         journal_skips = read.report()
     else:
         payloads = [t.to_payload() for t in tables]
+    archived_ids: list[int] = []
     with (lock() if lock is not None else nullcontext()):
         _refuse_if_superseded(conn)
         if archive_first:
+            archived_ids = [row[0] for row in conn.execute(
+                "SELECT sp.source_product_id FROM source_product sp "
+                "JOIN source_site ss ON ss.source_id = sp.source_id "
+                "WHERE ss.source_key = ? AND sp.status = 'active'", (entry.source_key,))]
             # A FULL REBUILD archives inside the same lock that writes the new
             # rows — atomically, and only once writing is actually possible.
             # Archiving earlier (as the job loop did) meant a lock conflict
@@ -348,6 +353,23 @@ def capture_source(conn: sqlite3.Connection, entry: SourceEntry,
         # clean success — the loss this path exists to prevent. PARTIAL rather
         # than FAILED, because everything readable did land.
         result.errors.extend(journal_skips)
+        # WHAT A REBUILD DID NOT FIND IS NOT YET "NO LONGER LISTED". His ruling of
+        # 2026-11-03, «ا و ج»: it stays marked only when the run succeeded, its
+        # connector proved the listing complete, and the canary and the bound hold,
+        # which is exactly the gate below. So the archived products the crawl did not
+        # bring back return to active here, and the gate marks the ones it can prove.
+        # A product marked before this rebuild was not archived by it and stays as it is.
+        if archived_ids:
+            restored = 0
+            for start in range(0, len(archived_ids), 500):
+                chunk = archived_ids[start:start + 500]
+                restored += conn.execute(
+                    "UPDATE source_product SET status = 'active' WHERE status = 'vanished' "
+                    f"AND source_product_id IN ({','.join('?' * len(chunk))})", chunk).rowcount
+            if restored:
+                result.notices.append(
+                    f"this rebuild did not find {restored} product(s): only a complete crawl "
+                    "it can prove marks them as no longer listed")
         # ONLY OFF THE BACK OF A PROOF, as contractors.mark_departures. Absence means
         # something only when the connector walked its whole listing (census_proven),
         # for a source contracted to a census, in a run that lost nothing: not one the

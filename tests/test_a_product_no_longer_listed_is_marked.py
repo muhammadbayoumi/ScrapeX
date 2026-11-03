@@ -707,8 +707,56 @@ def test_a_row_error_in_the_run_marks_nothing(seeded):
 
 
 def test_a_proven_crawl_after_a_rebuild_leaves_what_it_did_not_find_marked(seeded):
+    """His ruling of 2026-11-03, «ا و ج»: through the census gate, so it is a recorded change."""
     entry, conn = seeded
     _crawl(conn, entry, _Connector(["1", "2", "3"]), archive_first=True)
+    assert _status(conn) == {"1": "active", "2": "active", "3": "active", "4": "vanished"}
+    assert conn.execute("SELECT COUNT(*) FROM change_event WHERE change_type = 'removed'"
+                        ).fetchone()[0] == 1
+
+
+def test_a_rebuild_with_no_proof_marks_nothing_and_says_so(tmp_path):
+    """Ten products, the crawl finds one and proves nothing. Before his ruling, nine read
+    No longer listed with the run reading success and nothing said."""
+    entry = make_entry(max_drop_pct=50)
+    conn = dbmod.connect(tmp_path / "r.db")
+    dbmod.migrate(conn)
+    try:
+        ingest_payloads(conn, entry, [make_payload([_row(str(n)) for n in range(1, 11)])])
+
+        result = _crawl(conn, entry, _Connector(["1"], proven=False), archive_first=True)
+
+        assert set(_status(conn).values()) == {"active"}
+        assert any("this rebuild did not find 9 product(s)" in n for n in result.ingest.notices), (
+            result.ingest.notices)
+    finally:
+        conn.close()
+
+
+def test_a_rebuild_past_the_bound_marks_nothing(tmp_path):
+    """Proven, and still a redesign: past max_drop_pct a rebuild marks no catalogue gone."""
+    entry = make_entry(max_drop_pct=50)
+    conn = dbmod.connect(tmp_path / "b.db")
+    dbmod.migrate(conn)
+    try:
+        ingest_payloads(conn, entry, [make_payload([_row(str(n)) for n in range(1, 11)])])
+
+        result = _crawl(conn, entry, _Connector(["1", "2", "3"]), archive_first=True)
+
+        assert set(_status(conn).values()) == {"active"}
+        assert any("not marked" in n for n in result.ingest.notices), result.ingest.notices
+    finally:
+        conn.close()
+
+
+def test_a_rebuild_leaves_a_product_marked_before_it_alone(seeded):
+    """It restores only what it archived itself, so an earlier mark is not undone by it."""
+    entry, conn = seeded
+    _crawl(conn, entry, _Connector(["1", "2", "3"]))
+    assert _status(conn)["4"] == "vanished"
+
+    _crawl(conn, entry, _Connector(["1", "2"], proven=False), archive_first=True)
+
     assert _status(conn) == {"1": "active", "2": "active", "3": "active", "4": "vanished"}
 
 
