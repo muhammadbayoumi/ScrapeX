@@ -10784,12 +10784,16 @@ function wireRuntimeRepair() {
       // gone: the screen is drawn as the failed ending draws it, which draws the Start
       // this note points at (#1861). A DEADLINE IS NOT THE DARK: a slow engine is still
       // serving, so only the status is read again. `render()` would take it for gone, and
-      // offer a Start beside its job runner and stop polling its jobs. A redraw that fails
-      // must not keep back the buttons.
+      // offer a Start beside its job runner and stop polling its jobs -- unless that read
+      // finds it gone, as it can 2.5 s later. A redraw that fails must not keep back the
+      // buttons.
+      let gone = !isTimeoutError(probeError);
       try {
-        if (isTimeoutError(probeError)) {
-          await updateEngineState();
-        } else {
+        if (!gone) {
+          const engine = await updateEngineState();
+          gone = !engine.cancelled && !engine.timedOut && !engine.running;
+        }
+        if (gone) {
           await render();
           await renderEngines();
         }
@@ -10797,7 +10801,7 @@ function wireRuntimeRepair() {
         markStartup("restart-redraw-failed",
                     {message: (error && error.message) || "unknown"});
       }
-      say(isTimeoutError(probeError)
+      say(!gone
         ? "The engine did not answer, so Restart was not sent. Press Check again to ask it."
         : "No engine is running, so there is nothing to restart. Start it on the Run page.");
       release();

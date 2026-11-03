@@ -9432,17 +9432,55 @@ def test_a_restart_with_the_engine_gone_unnoticed_draws_what_answers(open_panel)
     assert page.evaluate("() => window.__bannerSaid") == ["Restarting", "Not detected"]
     assert page.get_attribute("#engine-state-banner", "data-tone") is None
     assert page.evaluate(RUN_DRAWS_ITS_START), "Run draws no Start for the engine that went"
-    assert text_of(page, "#engine-release-verdict") == "Available to install", (
+    # What the row says for an engine that does not answer is #1636's; here, only that it
+    # no longer offers the update to the engine that left.
+    assert text_of(page, "#engine-release-verdict") != "Update available", (
         "the release row still judges the engine that left")
-    assert text_of(page, "#engine-download-label") == "Download engine"
+    assert text_of(page, "#engine-download-label") != "Update to 0.9.1"
+    assert not page.js_errors, page.js_errors
+
+
+#: Each `/api/health` the panel asks gets the next answer in turn, the last one for
+#: good; every other engine route gets the last. Installed over the harness's stub.
+THE_ENGINE_ANSWERS_IN_TURN = """(answers) => {
+  const inner = window.fetch;
+  let asked = 0;
+  window.fetch = async (url, options = {}) => {
+    const target = String(url);
+    if (!target.startsWith('http://127.0.0.1:8000/api/')) return inner(url, options);
+    const turn = target.includes('/api/health')
+      ? answers[Math.min(asked++, answers.length - 1)] : answers[answers.length - 1];
+    throw turn === 'refuses' ? new TypeError('Failed to fetch')
+      : new DOMException('The operation timed out.', 'TimeoutError');
+  };
+}"""
+
+
+def test_a_restart_that_finds_the_engine_slow_then_gone_draws_it_as_gone(open_panel):
+    """The preflight runs out, and the status read after it is refused: the engine went
+    in the 2.5 s between. That read decides, so Run draws the Start the note points at."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    page.evaluate(THE_ENGINE_ANSWERS_IN_TURN, ["runs-out", "refuses"])
+    watch_the_banner(page)
+    page.click("#runtime-restart")
+    page.wait_for_function(
+        "() => !document.getElementById('runtime-restart').disabled", timeout=10_000)
+
+    assert text_of(page, "#engine-restart-note") == (
+        "No engine is running, so there is nothing to restart. Start it on the Run page.")
+    assert page.evaluate("() => window.__bannerSaid") == ["Restarting", "Not detected"]
+    assert page.evaluate(RUN_DRAWS_ITS_START), "Run draws no Start for the engine that went"
     assert not page.js_errors, page.js_errors
 
 
 def test_a_restart_that_finds_the_engine_slow_does_not_draw_it_as_gone(open_panel):
     """A DEADLINE IS NOT THE DARK. A busy engine runs out the preflight and goes on
-    serving, so the banner says the check timed out and Run stays as it was. `render()`
-    takes a timeout for a stopped engine: it drew Start beside a running job runner and
-    stopped polling the jobs, and the Check again this note asks for does not undo that."""
+    serving, so the banner says the check timed out and Run offers no Start beside it.
+    `render()` takes a timeout for a stopped engine: it drew Start beside a running job
+    runner and stopped polling the jobs, and the Check again this note asks for does not
+    undo that. What a timed-out check does to Run's other words is #1976's."""
     page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
     page.click("#tab-engines")
     open_engine(page)
