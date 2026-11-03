@@ -46,7 +46,7 @@ of it.
 | Minimum quantity | The smallest amount the shop will sell at this price. Cement is 450 bags: below that the price on the row is not obtainable at all. Blank means the… |
 | Quantity step | The step the shop sells in. Rebar moves in 0.05 of its basis and cement in whole pallets of 450, so a quantity between two steps cannot be ordered.… |
 | Stock count | The shop's own count of what is left, where it publishes one. A published 0 is a fact and is shown as 0; a blank means the shop said nothing, and t… |
-| Availability | In stock or out, as the source states it. |
+| Availability | In stock or out, as the source states it, or no longer listed where a complete crawl did not find the product. |
 | Tax | Whether THIS figure includes tax, and at what rate. |
 
 **The filing** — where the shop files it
