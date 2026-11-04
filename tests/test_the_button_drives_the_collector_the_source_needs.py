@@ -380,6 +380,30 @@ def test_no_between_cells_means_the_crawl_is_not_interruptible(
     assert partition.reported == 3
 
 
+def test_the_crawls_closing_coverage_reads_the_directorys_own_field(conn, monkeypatch):
+    """#1727. The crawl's last line matched on `contractor_id` whatever the directory, so
+    TVTC's said "0 stored of 3,141 sighted" over 3,141 stored rows. muqawil's own field and
+    dataset key are the values a hard-coded line would carry, so the directory here is
+    given others, to prove both are read."""
+    import dataclasses
+
+    monkeypatch.setattr(contractors, "crawl_partition", _CellByCell(cells=1))
+    asked: list[tuple[str, str]] = []
+
+    def spy(c, key, *, id_field):
+        asked.append((key, id_field))
+        return "coverage"
+
+    monkeypatch.setattr(contractors, "coverage", spy)
+    directory = dataclasses.replace(directories.get(), identity_field="establishment_id",
+                                    dataset_key="tvtc_training_establishments")
+
+    contractors.crawl(conn, directory, None, None, "run-1",
+                      contractors.DEFAULT_MAX_ATTEMPTS)
+
+    assert asked == [("tvtc_training_establishments", "establishment_id")]
+
+
 # ---- the job runner, driven end to end over the fake partition ----------------
 
 def _run_the_job(conn, monkeypatch, *, cells: int = 3, control: str | None = None):
