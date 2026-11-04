@@ -1902,3 +1902,33 @@ def test_an_area_gone_from_the_count_does_not_stop_the_pass_over_changes(conn, b
     job, ref = run(conn, "update")
     assert job["checkpoint"]["phase"] == "changes"
     assert "changes: 3 notices in 1 request" in [message for _, message in logged(conn, ref)]
+
+
+# ---- part 3b-2b: what the job's progress counts, as the panel reads it --------------------------
+
+def test_the_progress_unit_is_what_the_figures_count_not_what_comes_next(conn, bank, monkeypatch):
+    """Paused after an update's last area, `phase` already says the changes come next, while the
+    figures are still that leg's areas: read from `phase`, the row would say "1 of 1 pages"."""
+    bank["bank"] = Bank({EGYPT: notices(1_200), KENYA: notices(300, start=5_000)},
+                        fail={(KENYA, 0): 503})
+    run(conn)
+    bank["bank"] = Bank({EGYPT: notices(1_200), KENYA: notices(300, start=5_000)})
+    bank["bank"].changed = changes(2_500)
+    ref = a_job(conn, "update")
+    read_area = tenderjob.wc.read_area
+    pause_as_the_area_ends(monkeypatch, conn, ref, KENYA)
+    job = tenderjob.run_tender_crawl_job_once(conn, ref)
+    assert job["checkpoint"]["phase"] == "changes" and tenderjob.progress_unit(job) == "areas"
+    assert (job["progress_done"], job["progress_total"]) == (1, 1)
+
+    monkeypatch.setattr(tenderjob.wc, "read_area", read_area)
+    assert jobs.set_control(conn, ref, "resume")
+    pause_after(bank["bank"], conn, ref, offset=1000)
+    job = tenderjob.run_tender_crawl_job_once(conn, ref)
+    assert job["status"] == "paused" and tenderjob.progress_unit(job) == "pages"
+    assert (job["progress_done"], job["progress_total"]) == (2, 0)
+
+
+def test_a_job_before_its_first_count_counts_areas(conn, bank):
+    ref = a_job(conn)
+    assert tenderjob.progress_unit(jobs.get_job(conn, ref)) == "areas"

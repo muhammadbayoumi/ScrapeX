@@ -2577,11 +2577,24 @@
   .modal-copy strong {
     color: var(--text);
   }
+  /* A question's figures (`#confirm-facts`): `.kv` rows of a <dl>. The label is muted
+     and the value in the text colour, as Studio draws an estimate
+     (`PipelineCostDialog.tsx@86c813ec:216-217`). */
+  /* The card's own gap (`.modal-card`) spaces it from the sentences above. */
+  .modal-facts { margin: 0; }
+  .modal-facts dt { color: var(--muted); }
+  .modal-facts dd { margin: 0; text-align: right; }
   .modal-actions {
     display: flex;
     flex-wrap: wrap;
     justify-content: flex-end;
     gap: var(--sp-2);
+  }
+  /* A choice scrolled into view keeps its focus ring in view: the ring reaches past the
+     border by its offset and width (tokens.css), and scrolling stops at the border.
+     `askToConfirm` reads this reach back. */
+  .modal-actions button {
+    scroll-margin-block-end: calc(var(--focus-ring-offset) + var(--focus-ring-width));
   }
 
   /* Appearance is a complete Android-style destination. It uses the same
