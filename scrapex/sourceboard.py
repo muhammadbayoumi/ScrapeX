@@ -214,6 +214,32 @@ def board(conn: sqlite3.Connection | None = None,
     return tuple(sorted(found, key=lambda one: (one.category.value, one.key)))
 
 
+def with_domains(rows: list[dict], last_crawls: dict[str, dict]) -> list[dict]:
+    """Each listing row, naming its domain and the part it is. The panel draws one row per
+    domain (`sourceGroups`, extension/jobsview.js); no row is folded here (#1872).
+
+    `listing` is whether a crawl fills this row itself, so a tick can stand for it. A table
+    derived from another's pages (TVTC's licences) shares that crawl and is False.
+    """
+    from . import directories
+    from .enrichment.matching import registrable_domain
+
+    for row in rows:
+        domain = registrable_domain(row.get("base_url") or "")
+        row.update(domain=domain, domain_name=directories.DOMAIN_NAMES.get(domain, ""),
+                   part_name="", listing=True)
+        site = row.get("site_key")
+        if site in directories.BUILDERS:
+            directory = directories.get(site)
+            row["listing"] = row["source_key"] in (directory.key, directory.dataset_key)
+            row["part_name"] = directory.part_name if row["listing"] else next(
+                (one.part_name for one in directory.derived
+                 if one.dataset_key == row["source_key"]), "")
+        if site and row["listing"]:
+            row["last_job"] = last_crawls.get(site)
+    return rows
+
+
 def summary(sources: tuple[Source, ...]) -> dict[str, dict[str, int]]:
     """`{category: {state: count}}` -- his question reduced to a number per cell."""
     out: dict[str, dict[str, int]] = {}
