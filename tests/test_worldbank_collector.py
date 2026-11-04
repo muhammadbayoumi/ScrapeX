@@ -8,7 +8,9 @@ the envelope that response shows (`rows`, `os`, `page`, `total`, `procnotices`).
 His ruling on #1701 Q1, option (a), is what a failure does:
   * a page that fails after its tries leaves its area unread, and the crawl goes on;
   * a notice the converter refuses is counted in Errors with its id;
-  * a page whose every notice is refused stops the crawl as failed: the Bank changed shape.
+  * a page whose every notice is refused never stops the crawl: it goes on with a warning
+    that says it can be stopped (his ruling of 2026-10-25 and his addition of 2026-10-31,
+    #1779, which replaced "stops the crawl as failed").
 """
 from __future__ import annotations
 
@@ -163,6 +165,68 @@ def test_areas_are_read_largest_first_whatever_order_the_bank_lists_them():
     assert [a.name for a in plan.areas] == ["Egypt, Arab Republic of", "Kenya", "Palau"]
 
 
+def test_notices_the_bank_lists_in_no_area_are_named_and_the_count_stands():
+    """His ruling of 2026-10-25 (#1647): on that day the 184 areas counted 424,105 of
+    424,135 notices. Thirty name no country and no region, and even the notice-type facet
+    falls short, so the facets were never a census. An area pass cannot read them; the
+    count stands, and says how many."""
+    short = copy.deepcopy(FACETS)
+    short["facets"][wc.AREA_FACET].pop("5")
+    popped = FACETS["facets"][wc.AREA_FACET]["5"]["count"]
+    plan = wc.count_areas(Bank(facets=short))
+    assert len(plan.areas) == 183 and plan.total == 422_285
+    assert plan.unlisted == popped
+    assert wc.count_areas(Bank(facets=FACETS)).unlisted == 0
+
+
+def test_one_figure_for_the_requests_of_any_areas():
+    """The count itself, then every page: the plan line, the job's declared total and the
+    cost question give this one number (#1701, 13a)."""
+    plan = wc.count_areas(Bank(facets=FACETS))
+    assert wc.requests_for(plan.areas) == plan.requests == 537
+    assert wc.requests_for([wc.Area("a", 1_001), wc.Area("b", 1)]) == 4
+    assert wc.requests_for([]) == 1
+
+
+class Held:
+    """A write lock that says what ran inside it."""
+
+    def __init__(self, seen):
+        self.seen = seen
+
+    def __enter__(self):
+        self.seen.append("lock")
+
+    def __exit__(self, *_):
+        self.seen.append("unlock")
+
+
+@pytest.mark.parametrize("reader", ["area", "changes"])
+def test_the_lock_wraps_the_pages_write_and_not_its_packing_or_its_fetch(conn, monkeypatch,
+                                                                         reader):
+    """#1775: the write lock is held for the write and nothing else. Packing and the network
+    stay outside it, or every UI write waits out a crawl's pace."""
+    seen = []
+    real_pack, real_store = tenderstore.pack, tenderstore.store_response
+    monkeypatch.setattr(tenderstore, "pack", lambda body: (seen.append("pack"),
+                                                           real_pack(body))[1])
+    monkeypatch.setattr(tenderstore, "store_response",
+                        lambda c, **kw: (seen.append("store"), real_store(c, **kw))[1])
+    bank = Bank({EGYPT: notices(3)}, changed=stamped(notices(3, start=100),
+                                                     ["2026-10-12T09:00:00Z"] * 3))
+    real_get = bank.get
+    bank.get = lambda url, params=None, **kw: (seen.append("fetch"),
+                                               real_get(url, params=params, **kw))[1]
+    if reader == "area":
+        wc.read_area(conn, bank, source_site_id=site(conn), area=wc.Area(EGYPT, 3),
+                     tally=wc.Tally(), log=Log(), lock=lambda: Held(seen))
+    else:
+        wc.read_changes(conn, bank, source_site_id=site(conn), since="2026-10-09T16:11:00Z",
+                        tally=wc.Tally(), log=Log(), lock=lambda: Held(seen))
+    assert seen == ["fetch", "pack", "lock", "store", "unlock"]
+    assert not conn.in_transaction
+
+
 def test_the_count_line_is_the_contracts():
     plan = wc.count_areas(Bank(facets=FACETS))
     assert wc.count_line(plan) == "counted 422,285 notices in 184 areas: 537 requests"
@@ -174,8 +238,9 @@ def test_the_count_line_is_the_contracts():
     lambda f: f["facets"][wc.AREA_FACET]["0"].update(count="47395"),
     lambda f: f["facets"][wc.AREA_FACET]["0"].update(name="  "),
     lambda f: f.update(total="422,285"),
-    # The counts no longer add up to the total: an area is missing from the list.
-    lambda f: f["facets"][wc.AREA_FACET].pop("5"),
+    # The counts add up to MORE than the total: an area counted twice, or two that overlap.
+    lambda f: f["facets"][wc.AREA_FACET]["5"].update(count=f["facets"][wc.AREA_FACET]["5"]
+                                                     ["count"] + 1),
 ])
 def test_a_count_not_in_the_measured_shape_is_refused(break_it):
     broken = copy.deepcopy(FACETS)
@@ -377,19 +442,27 @@ def test_the_log_is_never_written_inside_a_page(conn):
     assert log.says(page[1]["id"]) and seen and not any(seen), seen
 
 
-def test_a_page_whose_every_notice_is_refused_stops_the_crawl_as_failed(conn):
-    page = notices(3)
-    for notice in page:
+def test_a_page_whose_every_notice_is_refused_never_stops_the_crawl(conn):
+    """His ruling of 2026-10-25 (#1779), on a measurement of 0 refusals in the 12 smallest
+    areas: such a page never stops the crawl. It says so in a warning that names the page
+    and the first refusal, and the read goes on to the next page."""
+    rows = notices(1_200)
+    for notice in rows[:1_000]:
         notice["notice_type"] = "Prequalification Notice"
-    with pytest.raises(wc.ShapeChanged) as stopped:
-        read(conn, Bank({EGYPT: page}), EGYPT)
-    message = str(stopped.value)
-    assert message.startswith(f"Stopped because the Bank's notices changed shape at {EGYPT}, "
-                              "page 1: none of 3 notices could be read")
-    assert "'Prequalification Notice'" in message
-    assert count(conn, "tender_releases") == 0
+    result, tally, log, pages = read(conn, Bank({EGYPT: rows}), EGYPT)
+    assert result.complete and pages == [(EGYPT, 0), (EGYPT, 1)]
+    assert tally.errors == 1_000 and count(conn, "tender_releases") == 200
+    warnings = [message for level, message in log if level == "warning"]
+    assert len(warnings) == 1
+    assert warnings[0].startswith(f"every notice on {EGYPT}, page 1 was refused (1,000 "
+                                  "notices): the Bank may have changed their shape. The "
+                                  "first: ")
+    assert "'Prequalification Notice'" in warnings[0]
+    # His addition of 2026-10-31: the crawl goes on, and he is told he can stop it.
+    assert warnings[0].endswith("The crawl goes on; Pause or Cancel on Jobs stops it.")
+    assert tally.pages_refused == 1
     # Its evidence is kept: the response is what shows how the shape changed.
-    assert count(conn, "fetched_responses") == 1
+    assert count(conn, "fetched_responses") == 2
     assert not conn.in_transaction
 
 
@@ -570,6 +643,18 @@ def test_changes_are_read_newest_first_until_the_newest_held(conn):
     assert log.says("changes: 3 notices in 1 request")
 
 
+def test_a_changes_page_is_reported_once_it_is_committed(conn):
+    """`on_page(page, notices)` is part 3b-2a's progress in the pass over changes: each
+    page it names is already kept, with the notices it kept, newer than `since` only."""
+    seen = []
+    outcome, _, _ = read_changes(
+        conn, Bank(changed=changes(1_500, older=20)),
+        on_page=lambda page, kept: seen.append(
+            (page, kept, conn.in_transaction, count(conn, "tender_releases"))))
+    assert outcome == wc.ChangesRead(complete=True, pages_read=2)
+    assert seen == [(0, 1_000, False, 1_000), (1, 500, False, 1_500)]
+
+
 def test_a_pass_stops_at_the_first_page_that_reaches_the_newest_held(conn):
     """999 changed since, then 1,501 before: a full page that reaches `since` is the last
     one read, though it holds 1,000 rows and 1,501 more stand behind it."""
@@ -623,13 +708,15 @@ def test_changes_past_the_offset_limit_stop_by_name(conn, monkeypatch):
     assert log.says(reason)
 
 
-def test_a_changes_page_whose_every_notice_is_refused_stops_the_crawl(conn):
+def test_a_changes_page_whose_every_notice_is_refused_never_stops_the_pass(conn):
     changed = changes(3)
     for notice in changed:
         notice["notice_type"] = "Prequalification Notice"
-    with pytest.raises(wc.ShapeChanged, match="at changes, page 1: none of 3 notices"):
-        read_changes(conn, Bank(changed=changed))
-    assert count(conn, "fetched_responses") == 1
+    outcome, tally, log = read_changes(conn, Bank(changed=changed))
+    assert outcome == wc.ChangesRead(complete=True, pages_read=1)
+    assert tally.errors == 3 and count(conn, "fetched_responses") == 1
+    assert any(level == "warning" and message.startswith(
+        "every notice on changes, page 1 was refused (3 notices)") for level, message in log)
 
 
 @pytest.mark.parametrize("stamps, risen, before, at", [
@@ -758,3 +845,16 @@ def test_a_change_stamp_that_does_not_read_is_kept_and_refused_by_name(conn, sta
     assert tally.notices == 3 and tally.errors == 1
     assert count(conn, "tender_releases") == 2
     assert log.says(f"{changed[1]['id']!r} not kept")
+
+
+def test_a_short_page_reads_at_one(conn):
+    """Areas of 1 to 8 notices are measured live (#1779), so these words are reached at one."""
+    bank = Bank({EGYPT: notices(1_003)}, answers={(EGYPT, 1000): 1})
+    result, _, _, _ = read(conn, bank, EGYPT)
+    assert result.reason == f"{EGYPT}, page 2: the Bank answered 1 notice where 3 were due"
+    assert wc._not_its_share("x", [{}, {}], 1) == "x: the Bank answered 2 notices where 1 was due"
+
+
+def test_a_moved_total_reads_at_one(conn):
+    result, _, _, _ = read(conn, Bank({EGYPT: notices(5)}, totals={EGYPT: 1}), EGYPT)
+    assert result.reason == f"the Bank answered 1 notice for {EGYPT}, and counted 5"

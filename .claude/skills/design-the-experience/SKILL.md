@@ -138,7 +138,11 @@ screen that will not exist.
   - a scroll to the element, measured after the view's entry animation: the document
     still equals the viewport. `.visually-hidden` is absolute, so a live region with
     no positioned ancestor stretches the document and the scroll slides the whole
-    panel; during the animation a transformed view contains it, and nothing shows.
+    panel; during the animation a transformed view contains it, and nothing shows;
+  - where the change moves *when* a sentence is said rather than its words, the same
+    instant before and after: render `main` from a temporary worktree at that moment;
+  - where a page's words depend on something that can change while it is open, the page
+    left open across that change, as well as entered after it.
 - **Numbered markers** on the elements, and **one reference sheet**: marker · element ·
   reference · class. Each image shows the three widths side by side.
 - Send the images to him, and post the sheet on the study issue.
