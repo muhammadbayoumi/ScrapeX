@@ -519,7 +519,9 @@ def test_a_price_source_still_carries_no_kind(tmp_path):
     # would draw it a price menu.
     others = [row for row in rows if row["source_key"] not in declared]
     assert others, "the code-registered sources vanished from the list"
-    assert all(row.get("kind") in {"dataset", "directory"} for row in others), (
+    # `tender` since milestone 51 (#1701): the confirmed control reads it, and a tender row
+    # has neither a dataset's menu nor a directory's.
+    assert all(row.get("kind") in {"dataset", "directory", "tender"} for row in others), (
         "a non-price row carries no known kind: "
         f"{[(row['source_key'], row.get('kind')) for row in others]}")
 

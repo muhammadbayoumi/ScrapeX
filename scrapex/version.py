@@ -313,6 +313,23 @@ CAPABILITIES: tuple[Capability, ...] = (
         # lands that way, cite the merge commit instead.
         commit="4cddd19a",
     ),
+    Capability(
+        key="tender_control",
+        # Milestone 51, part 3b-2b, the design he confirmed on 2026-10-19 (#1701): the World
+        # Bank on Run, its size asked before a run reads areas the source does not hold whole,
+        # and the crawl followed in Activity and Jobs. POST /api/jobs answers such a run with
+        # 409 and `question: "cost"`, and a panel older than 0.3.16 shows that as a bare
+        # refusal and then erases it (#1332), so the floor rises to the panel that asks it.
+        since="0.3.16",
+        summary="Collect the World Bank's tenders from Run: a first crawl states its size "
+                "before it starts, and the crawl is followed in Activity and Jobs.",
+        surfaces=(Surface.PANEL, Surface.ENGINE),
+        panel_control="confirm-facts",
+        settings=(),
+        # The commit that built it. A squash merge does not keep it: if this lands that way,
+        # cite the merge commit instead.
+        commit="c03e14b2",
+    ),
 )
 
 
