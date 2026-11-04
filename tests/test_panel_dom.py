@@ -1280,6 +1280,22 @@ def _over(top: str, under: str) -> str:
     return "rgb({:.4f}, {:.4f}, {:.4f})".format(*(channel * 255 for channel in mixed))
 
 
+@pytest.mark.parametrize("colour,alpha", [
+    ("#123456", 1.0),
+    ("rgb(1, 2, 3)", 1.0),
+    ("rgba(1, 2, 3, 0.5)", 0.5),
+    ("rgba(0, 0, 0, 0)", 0.0),  # what a clear background computes to
+    ("rgb(1 2 3 / 0.5)", 0.5),
+    ("color(srgb 1 1 1)", 1.0),
+    ("color(srgb 1 1 1 / 0.88)", 0.88),  # a color-mix()
+    ("oklab(0 0 0 / 0)", 0.0),  # a color-mix() that comes to nothing
+])
+def test_alpha_reads_every_form_the_browser_hands_back(colour, alpha):
+    """A reader that only understood `rgba(...)` would call every mixed colour opaque, and
+    pass on exactly the thing it is checking."""
+    assert _alpha(colour) == alpha
+
+
 @pytest.mark.parametrize("top,seen", [
     ("rgb(233, 233, 233)", 233.0),
     ("rgba(0, 0, 0, 0.08)", 234.6),
@@ -3433,13 +3449,14 @@ def test_a_job_that_ends_within_a_poll_of_the_press_still_shows_how_it_ended(ope
     _press_update_as_a_poll_leaves(page)
     try:
         page.wait_for_function(
-            "() => document.getElementById('act-state').textContent.includes('failed')",
+            "() => document.getElementById('act-state').textContent.includes('Failed')",
             timeout=8_000)
     except PlaywrightTimeout:
         pass
     where = page.evaluate(_WHERE_ACTIVITY_IS)
 
-    assert where["shown"] and "failed" in where["said"], (
+    # THE JOBS PAGE'S WORD: an ended job reads as the Jobs row reads it (#1074).
+    assert where["shown"] and "Failed" in where["said"], (
         f"Activity does not say how a job that ended within a poll of the press ended "
         f"(mini-player shown: {page.is_visible('#miniplayer')}): {where}")
 
@@ -3464,7 +3481,7 @@ def test_a_job_that_ended_before_run_asked_still_shows_how_it_ended(open_panel, 
     assert where["shown"], (
         f"Run shows nothing for a job {action!r} started that already ended: {where}")
     assert where["inView"], f"the ended job was drawn off screen: {where}"
-    assert "failed" in where["said"], (
+    assert "Failed" in where["said"], (
         f"Activity does not say how the job ended: {where['said']!r}")
 
 
@@ -6198,6 +6215,27 @@ def test_a_connector_less_source_keeps_its_sentence_and_a_disabled_switch(open_p
     assert page.is_hidden("#source-edit-schedule")
 
 
+def test_a_price_card_does_not_offer_organization_enrichment(open_panel):
+    """His ruling, 2026-10-31: «لا يجب ان تظهر فى list فى المصادر الخاصة بالاسعار». The route
+    404s for a price key (`test_a_dataset_card_offers_what_works.py`), so the row opened a
+    page that could only fail. The dataset card keeps it, in the place it had."""
+    page = open_panel(view="data")
+    settle_view(page, "data")
+
+    def offered(selector):
+        rows = page.locator(selector).locator("[data-split-action]")
+        return [rows.nth(i).get_attribute("data-split-action") for i in range(rows.count())]
+
+    price = offered('.dataset-card[data-open="SHORT"]')
+    assert "enrich" not in price, f"a price card offers enrichment: {price}"
+    assert "table" in price, f"the price card lost its data table: {price}"
+
+    dataset = offered('.dataset-card[data-open="contractors"]')
+    assert dataset[:2] == ["table", "enrich"], (
+        f"the dataset card's menu lost enrichment or changed its order: {dataset}")
+    assert not page.js_errors
+
+
 def test_the_datasets_menu_edits_the_schedule_instead_of_pausing(open_panel):
     page = open_panel(schedules={**SCHEDULE_SOON, "schedules": [
         {**SCHEDULE_SOON["schedules"][0], "source_key": "SHORT"}]})
@@ -8389,6 +8427,1949 @@ def test_the_engine_actions_are_rows_and_no_overflow_menu_is_left_behind(open_pa
     assert page.locator("#engine-diagnostics-output").is_visible()
 
 
+# ---- Restart, against an engine that restarts the way the real one does -----
+#
+# THE ENGINE ANSWERS FIRST AND LEAVES 1.5 s LATER. `POST /api/engine/restart`
+# starts a `bow_out` thread that sleeps 1.5 s and then ends the process
+# (scrapex/webui/app.py, `restart_engine`), so the reply reaches the panel instead
+# of a dropped connection -- and for that 1.5 s the engine that was asked to leave
+# goes on answering every request. Then the port is dark while
+# scrapex/relaunch.py waits for it to close and starts the successor, which
+# answers once it has bound. The dark stretch here is shorter than a real one -- a
+# Python engine takes seconds to import and bind -- which only makes the successor
+# quicker to find.
+ENGINE_BOW_OUT_MS = 1500
+ENGINE_DARK_MS = 2500
+
+#: The engine he pressed Restart on: running a tree the disk has moved past, so the
+#: Build row says "Restart needed", the badge the button sits beside the remedy of.
+ENGINE_BEFORE_RESTART = {
+    "mode": "source", "sealed_at": "2026-10-07T05:00:00.000001+00:00",
+    "commit": "aaaaaaa1b42b3981de11c4793074a4bcadacf14d",
+    "commit_now": "bbbbbbb2409037f823068c681ef721d82e61f708",
+    "moved": True, "stale": True,
+    "detail": "the code this engine is running is not the code on disk — 1 "
+              "loaded module(s) changed since it started. Restart the engine "
+              "to pick the new code up."}
+
+#: Its successor: started from the moved checkout, sealed later, level with it.
+ENGINE_AFTER_RESTART = {
+    "mode": "source", "sealed_at": "2026-10-07T05:00:09.000002+00:00",
+    "commit": "bbbbbbb2409037f823068c681ef721d82e61f708",
+    "commit_now": "bbbbbbb2409037f823068c681ef721d82e61f708",
+    "moved": False, "stale": False,
+    "detail": "running from source, and level with the code on disk."}
+
+
+def restart_the_way_the_engine_does(page, *, successor_build, successor_version=None,
+                                    bow_out_ms=ENGINE_BOW_OUT_MS,
+                                    dark_ms=ENGINE_DARK_MS,
+                                    predecessor_health_ms=0):
+    """Make the stub's engine restart on the engine's own clock.
+
+    Until `POST /api/engine/restart`, and for `bow_out_ms` after it, the stub answers
+    as itself: the PREDECESSOR. For the next `dark_ms` every request to the engine
+    fails as a refused connection does. After that the SUCCESSOR answers: the stub
+    again, with `successor_build` -- `None` for an engine from before the field --
+    and `successor_version` in its `/api/health` answer.
+
+    `predecessor_health_ms` makes the predecessor's `/api/health` take that long,
+    and one still in flight when the predecessor leaves dies with it, because
+    `os._exit` takes the socket with the process. His engine answered
+    `/api/health` in 486 ms on 2026-08-23 (scrapex/provenance.py).
+
+    Records, for the test to read, who answered each `/api/health`
+    (`window.__healthAnsweredBy`) and who was answering at the moment the panel wrote
+    "The engine is back." (`window.__backSaidWhile`).
+    """
+    page.evaluate("""({bowOutMs, darkMs, successorBuild, successorVersion,
+                       predecessorHealthMs}) => {
+      const BACKEND = 'http://127.0.0.1:8000';
+      const inner = window.fetch;
+      let restartAskedAt = null;
+      const answering = (at) => {
+        if (restartAskedAt === null || at - restartAskedAt < bowOutMs) {
+          return 'predecessor';
+        }
+        return at - restartAskedAt < bowOutMs + darkMs ? 'nobody' : 'successor';
+      };
+      window.__engineAnswering = () => answering(performance.now());
+      window.__healthAnsweredBy = [];
+      window.__backSaidWhile = null;
+      const note = document.getElementById('engine-restart-note');
+      new MutationObserver(() => {
+        if (window.__backSaidWhile === null
+            && note.textContent === 'The engine is back.') {
+          window.__backSaidWhile = window.__engineAnswering();
+        }
+      }).observe(note, {childList: true, characterData: true, subtree: true});
+      const answer = (body) => ({ok: true, status: 200, statusText: 'OK',
+                                 headers: {get: () => null}, json: async () => body});
+      window.fetch = async (url, options = {}) => {
+        const target = String(url);
+        if (!target.startsWith(BACKEND + '/api/')) return inner(url, options);
+        const path = target.slice(BACKEND.length);
+        const health = path.startsWith('/api/health');
+        if (path === '/api/engine/restart' && options.method === 'POST') {
+          restartAskedAt = performance.now();
+          return answer({ok: true, helper_pid: 4242, port: 8000,
+                         message: 'Restarting.'});
+        }
+        let by = window.__engineAnswering();
+        if (by === 'predecessor' && health && predecessorHealthMs) {
+          await new Promise((done) => setTimeout(done, predecessorHealthMs));
+          if (window.__engineAnswering() !== 'predecessor') by = 'cut off';
+        }
+        if (health) window.__healthAnsweredBy.push(by);
+        if (by === 'nobody' || by === 'cut off') throw new TypeError('Failed to fetch');
+        const response = await inner(url, options);
+        if (by !== 'successor' || !health) return response;
+        const body = {...(await response.json())};
+        if (successorBuild === null) delete body.build;
+        else body.build = successorBuild;
+        if (successorVersion) body.version = successorVersion;
+        return answer(body);
+      };
+    }""", {"bowOutMs": bow_out_ms, "darkMs": dark_ms,
+           "successorBuild": successor_build, "successorVersion": successor_version,
+           "predecessorHealthMs": predecessor_health_ms})
+
+
+def press_restart_and_wait_for_the_panel(page) -> None:
+    """Press Restart engine, then wait for "The engine is back." AND for the check
+    the panel runs on hearing so to have been painted."""
+    page.click("#runtime-restart")
+    page.wait_for_function(
+        "() => document.getElementById('engine-restart-note').textContent"
+        " === 'The engine is back.'", timeout=30_000)
+    page.wait_for_function(
+        "() => document.getElementById('engine-status-region')"
+        ".getAttribute('aria-busy') === 'false'", timeout=10_000)
+
+
+@pytest.mark.parametrize("predecessor_health_ms", [0, 450],
+                         ids=["it-answers-at-once", "it-answers-in-450ms"])
+def test_a_restart_waits_for_the_engine_that_comes_back(open_panel,
+                                                        predecessor_health_ms):
+    """HIS REPORT, 2026-10-07: «بعدما اضغط restart يلزم ضغط check حتى تظهر البيانات
+    محدثة» -- after Restart he had to press Check again before the screen showed
+    the engine he had restarted.
+
+    The restart poll took ANY answer from `/api/health` for the successor's, and
+    the first it can get is the PREDECESSOR's: the panel asks one second after the
+    restart request, and the engine goes on answering for 1.5 s after it
+    (ENGINE_BOW_OUT_MS above). So it said "The engine is back." about the engine
+    that was leaving, painted what that engine said -- or, when the engine's
+    answer takes a few hundred milliseconds, the gap after it -- and never asked
+    again:
+
+    - it-answers-at-once: the Build row kept "Restart needed" and the old commit;
+    - it-answers-in-450ms: "The engine is back." over "Not detected", and the Run
+      screen's "Engine not running" card.
+
+    Nothing on a timer asks the engine afterwards, so either stood until a Check
+    again was pressed.
+    """
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART)
+    page.click("#tab-engines")
+    open_engine(page)
+    assert text_of(page, "#engine-build-verdict") == "Restart needed"
+
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART,
+                                    predecessor_health_ms=predecessor_health_ms)
+    press_restart_and_wait_for_the_panel(page)
+
+    said_while = page.evaluate("window.__backSaidWhile")
+    assert said_while == "successor", (
+        f"the panel said 'The engine is back.' while the {said_while} was "
+        f"answering; /api/health was answered by "
+        f"{page.evaluate('window.__healthAnsweredBy')}")
+    assert text_of(page, "#engine-state-text") == "Running"
+    assert page.locator("#engine-build-verdict").is_hidden(), (
+        "the Build row still says Restart needed about the engine that came back")
+    assert "bbbbbbb" in text_of(page, "#engine-build-value"), (
+        "the Build row names the commit of the engine that left")
+    assert page.locator("#setup").is_hidden(), (
+        "the Run screen says the engine is not running")
+    assert not page.js_errors, page.js_errors
+
+
+def test_a_restart_redraws_the_rest_of_the_engine_screen(open_panel):
+    """The rows Check again draws and the restart did not.
+
+    The predecessor here leaves at once, so even a poll that takes any answer
+    reaches the successor, and what is measured is only how much of the screen the
+    restart redraws. Two rows stayed stale:
+
+    - the Database line. The restart drops the held warehouse path on purpose,
+      since a successor may have another file open, and then nothing asked for it
+      again: the banner lost "Database: ..." until the screen was left and
+      re-entered. Check again does not ask for it either;
+    - the release row, which is computed from the engine's version: an engine
+      restarted onto the published version went on reading "Update available".
+    """
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, engine_version="0.9.0",
+                      engine_manifest={
+                          "product": "scrapex-engine", "version": "0.9.1",
+                          "installer": {"name": "scrapex-engine.exe",
+                                        "url": "https://example.test/scrapex-engine.exe",
+                                        "bytes": 24000000, "sha256": "a" * 64}})
+    page.click("#tab-engines")
+    open_engine(page)
+    page.wait_for_function(
+        "() => document.getElementById('engine-state-detail').textContent"
+        ".startsWith('Database: ')"
+        " && document.getElementById('engine-release-verdict').textContent"
+        " === 'Update available'", timeout=10_000)
+
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART,
+                                    successor_version="0.9.1", bow_out_ms=0)
+    press_restart_and_wait_for_the_panel(page)
+    assert text_of(page, "#engine-installed-version") == "0.9.1"
+
+    # READ UNTIL BOTH HOLD OR FIVE SECONDS PASS, and returned either way so a
+    # failure says what the screen showed rather than only that it timed out. The
+    # stub answers at once, so the redraw takes milliseconds when it happens.
+    seen = page.evaluate("""async () => {
+      const read = () => ({
+        detail: document.getElementById('engine-state-detail').textContent,
+        verdict: document.getElementById('engine-release-verdict').textContent,
+      });
+      const until = performance.now() + 5000;
+      while (performance.now() < until) {
+        const now = read();
+        if (now.detail.startsWith('Database: ') && now.verdict === 'Up to date') {
+          return now;
+        }
+        await new Promise((done) => setTimeout(done, 50));
+      }
+      return read();
+    }""")
+    assert seen["detail"].startswith("Database: "), (
+        f"the banner lost the Database line in the restart: {seen}")
+    assert seen["verdict"] == "Up to date", (
+        f"the release row still judges the engine that left: {seen}")
+    assert not page.js_errors, page.js_errors
+
+
+@pytest.mark.parametrize("predecessor_build, successor_build", [
+    (False, None),
+    (ENGINE_BEFORE_RESTART, None),
+], ids=["neither-reports-it", "only-the-one-that-leaves-reports-it"])
+def test_an_engine_that_cannot_say_which_it_is_is_taken_only_after_the_dark(
+        open_panel, predecessor_build, successor_build):
+    """`build.sealed_at` tells one engine from the next, and an engine too old to
+    report it cannot be told apart that way. So with either side silent the panel
+    takes an answer only after a probe has been REFUSED: the port closed, and the
+    engine asked to leave has left. Without that, the first answer -- the leaving
+    engine's own, inside its 1.5 s -- is taken for the successor's again.
+
+    `only-the-one-that-leaves-reports-it` is a restart onto an older engine, or one
+    whose provenance check failed: its answers carry no `sealed_at`, and the wait
+    must still end when it answers rather than run two minutes.
+    """
+    page = open_panel(engine_build=predecessor_build)
+    page.click("#tab-engines")
+    open_engine(page)
+
+    restart_the_way_the_engine_does(page, successor_build=successor_build)
+    press_restart_and_wait_for_the_panel(page)
+
+    said_while = page.evaluate("window.__backSaidWhile")
+    assert said_while == "successor", (
+        f"the panel said 'The engine is back.' while the {said_while} was "
+        f"answering; /api/health was answered by "
+        f"{page.evaluate('window.__healthAnsweredBy')}")
+    assert text_of(page, "#engine-state-text") == "Running"
+    assert page.locator("#setup").is_hidden()
+    assert not page.js_errors, page.js_errors
+
+
+def test_a_successor_that_answers_with_no_dark_between_is_still_found(open_panel):
+    """The reason the engine's own identity is asked, and not only whether it went
+    dark. Here the port is never seen closed: the successor answers the first probe
+    after its predecessor's last. A poll that waited for a refused probe would wait
+    out the whole two minutes and report a restart that had happened as one that had
+    not; `build.sealed_at` finds the successor the moment it answers."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART)
+    page.click("#tab-engines")
+    open_engine(page)
+
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART,
+                                    dark_ms=0)
+    press_restart_and_wait_for_the_panel(page)
+
+    assert "nobody" not in page.evaluate("window.__healthAnsweredBy")
+    assert page.evaluate("window.__backSaidWhile") == "successor"
+    assert "bbbbbbb" in text_of(page, "#engine-build-value")
+    assert not page.js_errors, page.js_errors
+
+
+#: Until the database check before the restart is sent, the engine answering
+#: `/api/health` is one engine; from then on, another -- the engine was replaced
+#: while the check ran, which can take minutes on his warehouse. Installed OVER the
+#: restarting stub, and only the predecessor's answers are rewritten.
+REPLACED_DURING_THE_CHECK = """() => {
+  const inner = window.fetch;
+  const send = window.chrome.runtime.sendNativeMessage;
+  let checked = false;
+  window.chrome.runtime.sendNativeMessage = (host, message, callback) => {
+    if (message && message.command === 'CHECK_STARTUP') checked = true;
+    return send(host, message, callback);
+  };
+  window.fetch = async (url, options = {}) => {
+    const response = await inner(url, options);
+    if (!String(url).includes('/api/health')
+        || window.__engineAnswering() !== 'predecessor') return response;
+    const body = {...(await response.json())};
+    body.build = {...body.build, sealed_at: checked
+      ? '2026-10-07T05:00:05.000003+00:00' : '2026-10-07T04:00:00.000004+00:00'};
+    return {ok: true, status: 200, statusText: 'OK', headers: {get: () => null},
+            json: async () => body};
+  };
+}"""
+
+
+def test_the_engine_is_named_just_before_it_is_asked_to_leave(open_panel):
+    """The panel already asks `/api/health` before the database check, to know there
+    is an engine to restart at all. That answer is the wrong one to compare against:
+    the check scans the whole warehouse, 66.8 s cold on his, and the engine asked to
+    leave is the one running when the request goes, not when the check began. Named
+    from the earlier answer, the engine that took over during the check differed from
+    it at once -- and "The engine is back." was said about it while it was leaving."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART)
+    page.click("#tab-engines")
+    open_engine(page)
+
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART)
+    page.evaluate(REPLACED_DURING_THE_CHECK)
+    press_restart_and_wait_for_the_panel(page)
+
+    said_while = page.evaluate("window.__backSaidWhile")
+    assert said_while == "successor", (
+        f"the panel said 'The engine is back.' while the {said_while} was answering")
+    assert "bbbbbbb" in text_of(page, "#engine-build-value")
+    assert not page.js_errors, page.js_errors
+
+
+#: The first `/api/health` after the restart request runs out of time, as a probe
+#: does on an engine too busy to answer within its deadline (`fetchWithDeadline`,
+#: extension/startup.js, aborts with this name). Installed OVER the restarting stub.
+ONE_PROBE_TIMES_OUT = """() => {
+  const inner = window.fetch;
+  let asked = false;
+  let spent = false;
+  window.fetch = async (url, options = {}) => {
+    const path = String(url);
+    if (path.endsWith('/api/engine/restart')) asked = true;
+    else if (asked && !spent && path.includes('/api/health')) {
+      spent = true;
+      throw new DOMException('The request exceeded its deadline.', 'TimeoutError');
+    }
+    return inner(url, options);
+  };
+}"""
+
+#: Every `/api/health` after the first one that follows the restart request runs
+#: out of time: the engine answered once, and from then on nothing answers within
+#: the deadline. Installed OVER the restarting stub.
+EVERY_LATER_PROBE_TIMES_OUT = """() => {
+  const inner = window.fetch;
+  let asked = false;
+  window.__answeredAfterRestart = 0;
+  window.fetch = async (url, options = {}) => {
+    const path = String(url);
+    if (path.endsWith('/api/engine/restart')) asked = true;
+    else if (asked && path.includes('/api/health')) {
+      if (window.__answeredAfterRestart >= 1) {
+        throw new DOMException('The request exceeded its deadline.', 'TimeoutError');
+      }
+      window.__answeredAfterRestart += 1;
+    }
+    return inner(url, options);
+  };
+}"""
+
+#: Proven by `sealed_at`: the engine answering is the one asked to leave.
+SAME_ENGINE = (
+    "Unable to restart the engine: the same engine is still answering after two "
+    "minutes. Press Restart engine to try again.",
+    "Unable to restart the engine: the same engine is still answering after two "
+    "minutes. Press Restart engine on the Engine page to try again.")
+#: An engine answers, and nothing says which.
+NO_NEW_ENGINE = (
+    "Unable to confirm the restart: no new engine was detected in two minutes. "
+    "Press Restart engine to try again.",
+    "Unable to confirm the restart: no new engine was detected in two minutes. "
+    "Press Restart engine on the Engine page to try again.")
+
+
+def press_restart_and_wait_out_the_two_minutes(page) -> None:
+    """Press Restart on the page's own clock and run it past the poll's budget."""
+    # The harness's host keeps every command it is sent here; from now on only.
+    page.evaluate("() => { window.__nativeCalls.length = 0; }")
+    page.clock.install()
+    page.click("#runtime-restart")
+    page.clock.run_for(130_000)
+
+
+@pytest.mark.parametrize(
+    "engine_build, successor_build, bow_out_ms, a_probe_times_out, said", [
+        (ENGINE_BEFORE_RESTART, None, 10**9, False, SAME_ENGINE),
+        (False, None, 10**9, False, NO_NEW_ENGINE),
+        (False, None, 10**9, True, NO_NEW_ENGINE),
+        (ENGINE_BEFORE_RESTART, None, ENGINE_BOW_OUT_MS, False, NO_NEW_ENGINE),
+    ], ids=["it-says-which-it-is", "it-cannot-say", "it-cannot-say-and-one-probe-times-out",
+            "a-successor-that-cannot-say-came-and-no-dark-was-seen"])
+def test_a_restart_nobody_saw_happen_is_reported_as_not_done(
+        open_panel, engine_build, successor_build, bow_out_ms, a_probe_times_out, said):
+    """Two minutes pass and an engine is still answering, and the panel never took
+    any answer for a successor's. It must not say "The engine is back." about it,
+    nor "has not answered", which is false about an engine that answered. It runs
+    no database scan either: that scan explains a successor that stopped during
+    startup, and an engine is serving.
+
+    WHAT IT SAYS IS WHAT IT KNOWS. "The same engine" only where `sealed_at` proves
+    it: the answers carry the leaving engine's own value. Where either side reports
+    none and no probe was refused, the answer may be a successor whose start the
+    poll missed -- `a-successor-that-cannot-say-came-and-no-dark-was-seen` is
+    exactly that, a different engine answering -- so the note says only that no new
+    engine was detected.
+
+    `it-cannot-say-and-one-probe-times-out`: a probe that runs out of time is a slow
+    engine, not a gone one. Read as the dark, it let the very next answer -- the same
+    engine's -- through as the successor's.
+
+    The sentence names Restart where it is read: beside the button on the Engine
+    screen, and with the page it is on from the Database page's note.
+    """
+    here, there = said
+    page = open_panel(engine_build=engine_build)
+    page.click("#tab-engines")
+    open_engine(page)
+    restart_the_way_the_engine_does(page, successor_build=successor_build,
+                                    bow_out_ms=bow_out_ms, dark_ms=0)
+    if a_probe_times_out:
+        page.evaluate(ONE_PROBE_TIMES_OUT)
+
+    press_restart_and_wait_out_the_two_minutes(page)
+    page.wait_for_function(
+        "(said) => document.getElementById('engine-restart-note').textContent === said",
+        arg=here, timeout=10_000)
+
+    assert page.evaluate("window.__backSaidWhile") is None, (
+        "the panel said 'The engine is back.' about an engine it could not tell was new")
+    assert text_of(page, "#runtime-note") == there
+    # RUN'S LINE TOO, in the form that names the Engine page: Restart is not on Run.
+    assert text_of(page, "#engine-note") == there
+    checks = [c for c in page.evaluate("window.__nativeCalls") if c == "CHECK_STARTUP"]
+    assert checks == ["CHECK_STARTUP"], (
+        f"the check before the restart is the only one; the ending ran {checks}")
+    for control in ("#runtime-restart", "#runtime-upgrade"):
+        assert not page.locator(control).is_disabled(), f"{control} stayed down"
+    assert not page.js_errors, page.js_errors
+
+
+def test_an_answer_two_minutes_old_is_not_still_answering(open_panel):
+    """The leaving engine answers the first probe and nothing answers any probe
+    after it in time. "The same engine is still answering" would describe an answer
+    two minutes old, and skip the database check that explains a successor which
+    stopped during startup. The ending is the one for an engine that has not
+    answered.
+
+    WITH A HELPER, as on his machine, so the database check the ending asks is
+    answered; the harness's default has none.
+    """
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    restart_the_way_the_engine_does(page, successor_build=None, bow_out_ms=10**9)
+    page.evaluate(EVERY_LATER_PROBE_TIMES_OUT)
+
+    press_restart_and_wait_out_the_two_minutes(page)
+    page.wait_for_function(
+        "() => document.getElementById('engine-restart-note').textContent"
+        " === 'The engine has not answered in two minutes. It may still be starting.'",
+        timeout=10_000)
+
+    assert page.evaluate("window.__answeredAfterRestart") == 1
+    checks = [c for c in page.evaluate("window.__nativeCalls") if c == "CHECK_STARTUP"]
+    assert checks == ["CHECK_STARTUP", "CHECK_STARTUP"], (
+        f"the ending did not ask the database check why nothing answered: {checks}")
+    assert not page.js_errors, page.js_errors
+
+
+#: The successor answers `/api/health` with the engine's own 503 for a database it
+#: cannot open (`_database_unavailable`, scrapex/webui/app.py). Installed OVER the
+#: restarting stub.
+THE_SUCCESSOR_ANSWERS_503 = """() => {
+  const inner = window.fetch;
+  window.fetch = async (url, options = {}) => {
+    if (String(url).includes('/api/health') && window.__engineAnswering() === 'successor') {
+      return {ok: false, status: 503, statusText: 'Service Unavailable',
+              headers: {get: () => null},
+              json: async () => ({ok: false, error: 'database_unavailable',
+                                  detail: 'the database is not readable'})};
+    }
+    return inner(url, options);
+  };
+}"""
+
+
+#: From 122 s after the restart request, every `/api/health` runs out of time: the
+#: engine asked to leave answered the whole wait until its last few probes. Installed
+#: OVER the restarting stub; `performance.now()` is the page's own clock.
+THE_LAST_PROBES_TIME_OUT = """() => {
+  const inner = window.fetch;
+  let askedAt = null;
+  window.fetch = async (url, options = {}) => {
+    const path = String(url);
+    if (path.endsWith('/api/engine/restart')) askedAt = performance.now();
+    else if (askedAt !== null && path.includes('/api/health')
+             && performance.now() - askedAt > 122_000) {
+      throw new DOMException('The request exceeded its deadline.', 'TimeoutError');
+    }
+    return inner(url, options);
+  };
+}"""
+
+
+def test_a_last_probe_that_runs_out_of_time_does_not_end_the_answers(open_panel):
+    """The engine asked to leave answers two minutes of probes, and the last few run
+    out of their 2.5 s -- his `/api/health` measured 1.92-2.21 s (#1764), so on a
+    busy engine that is luck, not a change. The ending must not turn on it: the
+    same engine is still answering, and "has not answered in two minutes" --
+    with the database scan behind it -- would be false about it."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    restart_the_way_the_engine_does(page, successor_build=None, bow_out_ms=10**9)
+    page.evaluate(THE_LAST_PROBES_TIME_OUT)
+
+    press_restart_and_wait_out_the_two_minutes(page)
+    here, there = SAME_ENGINE
+    page.wait_for_function(
+        "(said) => document.getElementById('engine-restart-note').textContent === said",
+        arg=here, timeout=10_000)
+
+    checks = [c for c in page.evaluate("window.__nativeCalls") if c == "CHECK_STARTUP"]
+    assert checks == ["CHECK_STARTUP"], (
+        f"the ending ran the database check over an engine that was answering: {checks}")
+    assert not page.js_errors, page.js_errors
+
+
+def test_a_refusing_answer_is_not_taken_for_the_same_engine(open_panel):
+    """The leaving engine's last answer was its own, and the next engine answers
+    `/api/health` only with a 503: its database cannot be opened. A 503 names no
+    engine, so the leaving engine's earlier answer must not stand as "the same
+    engine is still answering". The ending asks the database check, which is the
+    one that can explain a database a successor could not open.
+
+    No dark between the two, so that nothing else clears the earlier answer, and
+    the 503s start 120 s in, so the earlier answer is still recent when the two
+    minutes end: it is the refusal that must end it, not its age.
+    """
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART,
+                                    bow_out_ms=120_000, dark_ms=0)
+    page.evaluate(THE_SUCCESSOR_ANSWERS_503)
+
+    press_restart_and_wait_out_the_two_minutes(page)
+    page.wait_for_function(
+        "() => document.getElementById('engine-restart-note').textContent"
+        " === 'The engine has not answered in two minutes. It may still be starting.'",
+        timeout=10_000)
+
+    checks = [c for c in page.evaluate("window.__nativeCalls") if c == "CHECK_STARTUP"]
+    assert checks == ["CHECK_STARTUP", "CHECK_STARTUP"], checks
+    assert not page.js_errors, page.js_errors
+
+
+def test_a_refused_probe_is_not_taken_for_the_same_engine(open_panel):
+    """Its twin for the dark: the leaving engine answers until 118 s, then every probe is
+    refused. Its last answer is still recent when the two minutes end, so it is the
+    refusal that must end it: the ending asks the database check."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART,
+                                    bow_out_ms=118_000, dark_ms=10**9)
+
+    press_restart_and_wait_out_the_two_minutes(page)
+    page.wait_for_function(
+        "() => document.getElementById('engine-restart-note').textContent"
+        " === 'The engine has not answered in two minutes. It may still be starting.'",
+        timeout=10_000)
+
+    checks = [c for c in page.evaluate("window.__nativeCalls") if c == "CHECK_STARTUP"]
+    assert checks == ["CHECK_STARTUP", "CHECK_STARTUP"], checks
+    assert not page.js_errors, page.js_errors
+
+
+def test_a_good_ending_stops_asking(open_panel):
+    """The poll ends with the restart: no `/api/health` goes to the new engine once
+    "The engine is back." is said, however long the panel stays open."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART)
+    page.clock.install()
+    page.click("#runtime-restart")
+    page.clock.run_for(60_000)
+    page.wait_for_function(
+        "() => document.getElementById('engine-restart-note').textContent"
+        " === 'The engine is back.'", timeout=10_000)
+    page.clock.run_for(3_000)
+    asked = page.evaluate("() => window.__healthAnsweredBy.length")
+
+    page.clock.run_for(10_000)
+    assert page.evaluate("() => window.__healthAnsweredBy.length") == asked, (
+        "the poll goes on asking after the restart ended")
+    assert not page.js_errors, page.js_errors
+
+
+def test_a_redraw_that_fails_after_a_good_ending_is_recorded(open_panel):
+    """The good ending redraws the screen after "The engine is back.". A redraw that
+    throws there -- the Latest version value gone from the page -- is recorded, as at the
+    failed ending, and the buttons are back."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART)
+    page.evaluate("() => document.getElementById('engine-latest-version').remove()")
+    page.clock.install()
+    page.click("#runtime-restart")
+    page.clock.run_for(60_000)
+    page.wait_for_function(
+        "() => document.getElementById('engine-restart-note').textContent"
+        " === 'The engine is back.'", timeout=10_000)
+    page.clock.run_for(3_000)
+
+    assert not page.locator("#runtime-restart").is_disabled()
+    traced = page.evaluate("""() => globalThis.ScrapeXPanelTrace.events()
+        .filter((event) => event.name === 'restart-redraw-failed')
+        .map((event) => event.detail)""")
+    assert traced and traced[0]["message"], "the failed redraw left no record"
+
+
+RESTART_ASKED = "Restarting the engine…"
+OLD_ENGINE_ANSWERS = "Restarting the engine… The current engine is still answering."
+NO_ENGINE_ANSWERS = "Restarting the engine… Waiting for the new engine to start."
+AN_ENGINE_ANSWERS = ("Restarting the engine… An engine is answering, but it is not "
+                     "confirmed as the new one.")
+
+
+def test_the_wait_promises_no_duration(open_panel):
+    """A wait lasts until a different engine answers, and on his machine that was
+    about 50 s after a restart onto 0.4.66 (#1793) -- "the engine goes quiet for a few
+    seconds" said otherwise for most of it. Read 30 s into a wait the engine has not
+    ended. With a helper, as on his machine: without one the note says the restart
+    goes through the engine instead."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART,
+                                    dark_ms=10**9)
+    page.clock.install()
+    page.click("#runtime-restart")
+    page.clock.run_for(30_000)
+
+    assert text_of(page, "#engine-restart-note") == NO_ENGINE_ANSWERS
+    assert text_of(page, "#runtime-note") == NO_ENGINE_ANSWERS
+    assert not page.js_errors, page.js_errors
+
+
+def the_note_on_every_line(page) -> set:
+    """The note on each line it is written to: the Engine page's, the Database page's and
+    Run's. Run's is inside `#setup`, so it is out of sight while that card is not drawn."""
+    return {text_of(page, line) for line in
+            ("#engine-restart-note", "#runtime-note", "#engine-note")}
+
+
+def test_each_state_of_the_wait_says_its_own_sentence(open_panel):
+    """HIS WORD ON #1556: a sentence for each state. One sentence for the whole wait
+    was false in one state or another. The note follows what the poll has found, on
+    every line that shows it: asked, the current engine still answering, then none."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART,
+                                    bow_out_ms=5_000, dark_ms=10**9)
+    page.clock.install()
+    page.click("#runtime-restart")
+    page.wait_for_function(
+        "(said) => document.getElementById('engine-restart-note').textContent === said",
+        arg=RESTART_ASKED, timeout=10_000)
+    assert the_note_on_every_line(page) == {RESTART_ASKED}
+
+    page.clock.run_for(2_000)
+    assert the_note_on_every_line(page) == {OLD_ENGINE_ANSWERS}
+    page.clock.run_for(6_000)
+    assert the_note_on_every_line(page) == {NO_ENGINE_ANSWERS}
+    assert not page.js_errors, page.js_errors
+
+
+def test_the_note_is_written_only_when_its_state_changes(open_panel):
+    """It is `role="status"`, so a screen reader hears each write. The whole of a good
+    restart is five sentences, and a steady tick writes nothing."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART,
+                                    bow_out_ms=30_000, dark_ms=30_000)
+    page.evaluate("""() => {
+      window.__written = [];
+      const note = document.getElementById('engine-restart-note');
+      new MutationObserver(() => window.__written.push(note.textContent))
+        .observe(note, {childList: true, characterData: true, subtree: true});
+    }""")
+    page.clock.install()
+    page.click("#runtime-restart")
+    page.clock.run_for(70_000)
+    page.wait_for_function(
+        "() => document.getElementById('engine-restart-note').textContent"
+        " === 'The engine is back.'", timeout=10_000)
+
+    assert page.evaluate("window.__written") == [
+        "Checking the database before restarting…", RESTART_ASKED, OLD_ENGINE_ANSWERS,
+        NO_ENGINE_ANSWERS, "The engine is back."]
+    assert not page.js_errors, page.js_errors
+
+
+def test_the_same_engine_answering_after_the_dark_is_said_as_that(open_panel):
+    """A refused probe, then the leaving engine's own `sealed_at`: it did not leave after
+    all, and "Waiting for the new engine" would be false while it answers."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_BEFORE_RESTART,
+                                    dark_ms=5_000)
+    page.clock.install()
+    page.click("#runtime-restart")
+    page.clock.run_for(4_000)
+    assert the_note_on_every_line(page) == {NO_ENGINE_ANSWERS}
+
+    page.clock.run_for(5_000)
+    assert the_note_on_every_line(page) == {OLD_ENGINE_ANSWERS}
+    assert not page.js_errors, page.js_errors
+
+
+@pytest.mark.parametrize("engine_build, bow_out_ms", [
+    (False, 10**9), (ENGINE_BEFORE_RESTART, ENGINE_BOW_OUT_MS),
+], ids=["the-leaving-engine-cannot-say", "its-successor-cannot-say"])
+def test_an_answer_that_cannot_be_told_apart_is_said_as_that(open_panel, engine_build, bow_out_ms):
+    """Either side reports no `sealed_at` and no probe was refused, so the answer may be
+    the engine that was asked to leave or its successor. The note says only that."""
+    page = open_panel(engine_build=engine_build, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    restart_the_way_the_engine_does(page, successor_build=None, bow_out_ms=bow_out_ms,
+                                    dark_ms=0)
+    page.clock.install()
+    page.click("#runtime-restart")
+    page.clock.run_for(5_000)
+    assert the_note_on_every_line(page) == {AN_ENGINE_ANSWERS}
+    assert not page.js_errors, page.js_errors
+
+
+def test_a_restart_without_the_helper_keeps_saying_so_in_each_state(open_panel):
+    """With no helper the note opens with how the restart is going. Each state's sentence
+    is added to that, so it does not vanish at the poll's first finding."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="absent")
+    page.click("#tab-engines")
+    open_engine(page)
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART,
+                                    dark_ms=10**9)
+    page.clock.install()
+    page.click("#runtime-restart")
+    page.clock.run_for(5_000)
+    assert text_of(page, "#engine-restart-note") == (
+        "Native helper unavailable — restarting through the engine. "
+        "Waiting for the new engine to start.")
+    assert not page.js_errors, page.js_errors
+
+
+#: `/api/health`, once `window.__findNothing` is set, finds nothing new in the given way.
+PROBES_FIND_NOTHING = """() => {
+  const inner = window.fetch;
+  window.fetch = async (url, options = {}) => {
+    if (String(url).includes('/api/health') && window.__findNothing === 'refuses') {
+      return {ok: false, status: 503, statusText: 'Service Unavailable',
+              headers: {get: () => null}, json: async () => ({})};
+    }
+    if (String(url).includes('/api/health') && window.__findNothing === 'runs-out') {
+      throw new DOMException('signal timed out', 'TimeoutError');
+    }
+    return inner(url, options);
+  };
+}"""
+
+
+@pytest.mark.parametrize("how, said", [
+    ("refuses", RESTART_ASKED), ("runs-out", OLD_ENGINE_ANSWERS),
+], ids=["refuses", "runs-out"])
+def test_what_a_probe_that_finds_nothing_does_to_the_sentence(open_panel, how, said):
+    """Neither names an engine. A probe that runs out of time leaves the sentence while
+    the last answer is recent. A refusing answer takes it away at once, by the rule
+    the ending reads: no engine counts as still answering after it."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART,
+                                    bow_out_ms=10**9)
+    page.evaluate(PROBES_FIND_NOTHING)
+    page.clock.install()
+    page.click("#runtime-restart")
+    page.clock.run_for(5_000)
+    assert the_note_on_every_line(page) == {OLD_ENGINE_ANSWERS}
+
+    page.evaluate("(how) => { window.__findNothing = how; }", how)
+    page.clock.run_for(3_000)
+    assert the_note_on_every_line(page) == {said}
+    assert not page.js_errors, page.js_errors
+
+
+@pytest.mark.parametrize("engine_build, sentence, refused_once", [
+    (ENGINE_BEFORE_RESTART, OLD_ENGINE_ANSWERS, False),
+    (False, AN_ENGINE_ANSWERS, False),
+    (ENGINE_BEFORE_RESTART, OLD_ENGINE_ANSWERS, True),
+], ids=["the-current-engine", "an-engine-it-cannot-tell", "after-one-refusing-answer"])
+def test_a_sentence_about_an_answer_goes_when_the_answers_stop(
+        open_panel, engine_build, sentence, refused_once):
+    """The two-minute ending takes four deadlines without an answer for an engine that has
+    stopped answering. The note decides the same way: past that it says only that the
+    restart is under way, and it does not stand until the ending says the opposite. One
+    refusing answer on the way does not take it out of that rule."""
+    page = open_panel(engine_build=engine_build, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    restart_the_way_the_engine_does(page, successor_build=None, bow_out_ms=10**9)
+    page.evaluate(PROBES_FIND_NOTHING)
+    page.clock.install()
+    page.click("#runtime-restart")
+    page.clock.run_for(5_000)
+    assert the_note_on_every_line(page) == {sentence}
+
+    if refused_once:
+        page.evaluate("() => { window.__findNothing = 'refuses'; }")
+        page.clock.run_for(1_000)
+    page.evaluate("() => { window.__findNothing = 'runs-out'; }")
+    page.clock.run_for(12_000)
+    assert the_note_on_every_line(page) == {RESTART_ASKED}
+    assert not page.js_errors, page.js_errors
+
+
+def test_the_opening_stands_alone_when_the_answers_stop_without_the_helper(open_panel):
+    """With no helper the note opens with how the restart is going. Once no answer is
+    arriving, that opening is all it says, and it does not fall back to the usual one."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="absent")
+    page.click("#tab-engines")
+    open_engine(page)
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART,
+                                    bow_out_ms=10**9)
+    page.evaluate(PROBES_FIND_NOTHING)
+    page.clock.install()
+    page.click("#runtime-restart")
+    page.clock.run_for(5_000)
+    page.evaluate("() => { window.__findNothing = 'runs-out'; }")
+    page.clock.run_for(12_000)
+    assert text_of(page, "#engine-restart-note") == (
+        "Native helper unavailable — restarting through the engine.")
+    assert not page.js_errors, page.js_errors
+
+
+def test_a_slow_probe_in_the_dark_leaves_the_wait_for_the_new_engine(open_panel):
+    """A refused probe left no answer to age, so a probe that runs out of time after it
+    says nothing new, and the note goes on waiting for the new engine."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART,
+                                    dark_ms=10**9)
+    page.evaluate(PROBES_FIND_NOTHING)
+    page.clock.install()
+    page.click("#runtime-restart")
+    page.clock.run_for(5_000)
+    assert the_note_on_every_line(page) == {NO_ENGINE_ANSWERS}
+
+    page.evaluate("() => { window.__findNothing = 'runs-out'; }")
+    page.clock.run_for(3_000)
+    assert the_note_on_every_line(page) == {NO_ENGINE_ANSWERS}
+    assert not page.js_errors, page.js_errors
+
+
+#: The poll's first probe comes back after the restart has ended: the check before the
+#: POST and the naming read are the two `/api/health` calls that precede it.
+THE_FIRST_PROBE_COMES_BACK_LATE = """() => {
+  const inner = window.fetch;
+  let calls = 0;
+  window.fetch = async (url, options = {}) => {
+    if (!String(url).includes('/api/health') || ++calls !== 3) return inner(url, options);
+    const answer = await inner(url, options);
+    await new Promise((settle) => setTimeout(settle, 6_000));
+    return answer;
+  };
+}"""
+
+
+def test_a_late_probe_does_not_write_over_the_ending(open_panel):
+    """A probe can outlast the 1 s interval. One the leaving engine answered, read after
+    the successor was found, must not put "still answering" over "The engine is back."."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART,
+                                    dark_ms=1_000)
+    page.evaluate(THE_FIRST_PROBE_COMES_BACK_LATE)
+    page.clock.install()
+    page.click("#runtime-restart")
+    page.clock.run_for(5_000)
+    assert text_of(page, "#engine-restart-note") == "The engine is back."
+
+    page.clock.run_for(4_000)                  # the late probe has come back
+    assert text_of(page, "#engine-restart-note") == "The engine is back."
+    assert not page.js_errors, page.js_errors
+
+
+#: 0.9.1 published: the engine he restarts (0.9.0) reads "Update available".
+PUBLISHED_091 = {"product": "scrapex-engine", "version": "0.9.1",
+                 "installer": {"name": "scrapex-engine.exe",
+                               "url": "https://example.test/scrapex-engine.exe",
+                               "bytes": 24000000, "sha256": "a" * 64}}
+
+
+def test_a_restart_whose_engine_never_comes_back_redraws_the_screen(open_panel):
+    """The engine asked to leave leaves and nothing takes its place: two minutes of
+    refused probes, then the database check. Nothing had redrawn the screen since
+    the press, so the banner went on reading "Running" -- the engine as it was
+    before Restart -- over a note saying the engine has not answered, and the
+    release row went on offering "Update to 0.9.1" to the engine that left. The
+    ending redraws both from what answers now: nothing.
+
+    What the release row then says for an engine that does not answer --
+    "Available to install" -- is what Check again says too, and #1636 records it."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok",
+                      engine_version="0.9.0", engine_manifest=PUBLISHED_091)
+    page.click("#tab-engines")
+    open_engine(page)
+    page.wait_for_function(
+        "() => document.getElementById('engine-release-verdict').textContent"
+        " === 'Update available'", timeout=10_000)
+    assert text_of(page, "#engine-state-text") == "Running"
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART,
+                                    dark_ms=10**9)
+
+    press_restart_and_wait_out_the_two_minutes(page)
+    page.wait_for_function(
+        "() => document.getElementById('engine-restart-note').textContent"
+        " === 'The engine has not answered in two minutes. It may still be starting.'",
+        timeout=10_000)
+
+    assert text_of(page, "#engine-state-text") == "Not detected", (
+        "the banner still describes the engine as it was before Restart")
+    # Run is not the open screen, so its card is read by its own class.
+    assert page.evaluate(
+        "() => !document.getElementById('setup').classList.contains('hidden')"), (
+        "Run does not say the engine is not running")
+    assert text_of(page, "#engine-release-verdict") == "Available to install", (
+        "the release row still judges the engine that left")
+    assert text_of(page, "#engine-download-label") == "Download engine"
+    assert not page.js_errors, page.js_errors
+
+
+def watch_the_banner(page) -> None:
+    """Keep what the Engine page's banner says, in order, a repeat left out."""
+    page.evaluate("""() => {
+      window.__bannerSaid = [];
+      const text = document.getElementById('engine-state-text');
+      new MutationObserver(() => {
+        const said = window.__bannerSaid;
+        if (said[said.length - 1] !== text.textContent) said.push(text.textContent);
+      }).observe(text, {childList: true, characterData: true, subtree: true});
+    }""")
+
+
+def assert_the_banner_says_restarting(page) -> None:
+    """#1556's R04: no tint, no claim about the engine, and the catalogue's row alike."""
+    assert text_of(page, "#engine-state-text") == "Restarting"
+    assert text_of(page, "#engine-state-detail") == ""
+    assert page.get_attribute("#engine-state-banner", "data-tone") == "busy"
+    assert page.get_attribute("#engine-state-icon", "href").endswith("material-sync")
+    assert text_of(page, "#engine-status") == "Restarting"
+    assert page.get_attribute("#engine-status-badge", "class") == "badge"
+    assert page.get_attribute("#engine-status-dot", "class") == "dot"
+
+
+def test_the_banner_says_restarting_for_the_whole_wait(open_panel):
+    """HIS CHOICE ON #1556, 2026-11-01. The note said "Waiting for the new engine to
+    start." under a green "Running", the engine as it was before the press: the wait
+    polls `/api/health` directly, so nothing redraws the banner. It holds through every
+    state of the wait, and the green goes with the word."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    assert text_of(page, "#engine-state-text") == "Running"
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART,
+                                    bow_out_ms=5_000, dark_ms=10**9)
+    page.clock.install()
+    page.click("#runtime-restart")
+    page.wait_for_function(
+        "(said) => document.getElementById('engine-restart-note').textContent === said",
+        arg=RESTART_ASKED, timeout=10_000)
+    assert_the_banner_says_restarting(page)
+    # Light's --surface and --warning-600, the glyph's colour: R04 tints only the tile.
+    assert page.evaluate("""() => {
+      const style = (selector) => getComputedStyle(document.querySelector(selector));
+      const tile = style('#engine-state-banner > .icon-tile');
+      return [style('#engine-state-banner').backgroundColor, tile.color,
+              tile.borderTopColor, tile.borderTopWidth];
+    }""") == ["rgb(255, 255, 255)", "rgb(220, 123, 24)", "rgb(220, 123, 24)", "1px"]
+
+    page.clock.run_for(2_000)
+    assert text_of(page, "#engine-restart-note") == OLD_ENGINE_ANSWERS
+    assert_the_banner_says_restarting(page)
+    page.clock.run_for(6_000)
+    assert text_of(page, "#engine-restart-note") == NO_ENGINE_ANSWERS
+    assert_the_banner_says_restarting(page)
+    assert not page.js_errors, page.js_errors
+
+
+@pytest.mark.parametrize("successor_build, bow_out_ms, dark_ms, said, tone", [
+    (ENGINE_AFTER_RESTART, ENGINE_BOW_OUT_MS, ENGINE_DARK_MS,
+     ["Running", "Checking engine…", "Running"], "ok"),
+    (None, 10**9, ENGINE_DARK_MS, ["Running"], "ok"),
+    (ENGINE_AFTER_RESTART, ENGINE_BOW_OUT_MS, 10**9, ["Not detected"], None),
+], ids=["a-new-engine-answers", "the-same-engine-still-answers", "no-engine-comes-back"])
+def test_the_banner_says_restarting_until_the_ending(
+        open_panel, successor_build, bow_out_ms, dark_ms, said, tone):
+    """Then what answers, at every ending, and nothing between: the failed ending redraws
+    from the engine check before its database check, with the restart still running. The
+    good ending asks the new engine after the restart has ended, so its check is said."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    restart_the_way_the_engine_does(page, successor_build=successor_build,
+                                    bow_out_ms=bow_out_ms, dark_ms=dark_ms)
+    watch_the_banner(page)
+    page.clock.install()
+    page.click("#runtime-restart")
+    page.clock.run_for(130_000)
+    page.wait_for_function(
+        "() => !document.getElementById('runtime-restart').disabled", timeout=10_000)
+    page.clock.run_for(3_000)
+
+    assert page.evaluate("() => window.__bannerSaid") == ["Restarting", *said]
+    assert text_of(page, "#engine-status") == said[-1]
+    assert page.get_attribute("#engine-state-banner", "data-tone") == tone
+    assert not page.js_errors, page.js_errors
+
+
+#: The check before the restart refuses it, so nothing is asked to leave. Installed over
+#: the harness's own host.
+THE_CHECK_REFUSES_THE_RESTART = """() => {
+  const send = window.chrome.runtime.sendNativeMessage;
+  window.chrome.runtime.sendNativeMessage = (host, message, callback) => {
+    if (message && message.command === 'CHECK_STARTUP') {
+      setTimeout(() => callback({ok: false, error: 'startup_blocked',
+        detail: 'engine: Needs upgrade. This database is at schema v25 and this build '
+              + 'expects v26.'}), 0);
+      return;
+    }
+    return send(host, message, callback);
+  };
+}"""
+
+
+def test_a_restart_the_check_refuses_gives_the_banner_back(open_panel):
+    """Nothing was asked to leave, so the engine is what it was, its database line too."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    detail = text_of(page, "#engine-state-detail")
+    page.evaluate(THE_CHECK_REFUSES_THE_RESTART)
+    watch_the_banner(page)
+    page.click("#runtime-restart")
+    page.wait_for_function(
+        "() => document.getElementById('engine-restart-note').textContent"
+        ".startsWith('Restart was not attempted')", timeout=10_000)
+
+    assert page.evaluate("() => window.__bannerSaid") == ["Restarting", "Running"]
+    assert page.get_attribute("#engine-state-banner", "data-tone") == "ok"
+    assert text_of(page, "#engine-state-detail") == detail
+    assert not page.js_errors, page.js_errors
+
+
+#: The engine went after the page was drawn, so `state` still holds its last answer.
+THE_ENGINE_WENT_UNNOTICED = """(gone) => {
+  const inner = window.fetch;
+  window.fetch = async (url, options = {}) => {
+    if (!String(url).startsWith('http://127.0.0.1:8000/api/')) return inner(url, options);
+    throw gone === 'refuses' ? new TypeError('Failed to fetch')
+      : new DOMException('The operation timed out.', 'TimeoutError');
+  };
+}"""
+
+
+RUN_DRAWS_ITS_START = "() => !document.getElementById('setup').classList.contains('hidden')"
+
+
+def test_a_restart_with_the_engine_gone_unnoticed_draws_what_answers(open_panel):
+    """Nothing polls the engine, so one that died after the page was drawn left `state`
+    at its last answer, and the ending drew that: a green "Running", its database line
+    too, over "No engine is running". "Start it on the Run page" pointed at a Start only
+    `render()` draws (#1861), and the release row went on offering an update to the
+    engine that left. The ending draws the screen from what answers now."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok",
+                      engine_version="0.9.0", engine_manifest=PUBLISHED_091)
+    page.click("#tab-engines")
+    open_engine(page)
+    page.wait_for_function(
+        "() => document.getElementById('engine-release-verdict').textContent"
+        " === 'Update available'", timeout=10_000)
+    assert text_of(page, "#engine-state-text") == "Running"
+    page.evaluate(THE_ENGINE_WENT_UNNOTICED, "refuses")
+    watch_the_banner(page)
+    page.click("#runtime-restart")
+    page.wait_for_function(
+        "() => !document.getElementById('runtime-restart').disabled", timeout=10_000)
+
+    assert text_of(page, "#engine-restart-note") == (
+        "No engine is running, so there is nothing to restart. Start it on the Run page.")
+    assert page.evaluate("() => window.__bannerSaid") == ["Restarting", "Not detected"]
+    assert page.get_attribute("#engine-state-banner", "data-tone") is None
+    assert page.evaluate(RUN_DRAWS_ITS_START), "Run draws no Start for the engine that went"
+    # What the row says for an engine that does not answer is #1636's; here, only that it
+    # no longer offers the update to the engine that left.
+    assert text_of(page, "#engine-release-verdict") != "Update available", (
+        "the release row still judges the engine that left")
+    assert text_of(page, "#engine-download-label") != "Update to 0.9.1"
+    assert not page.js_errors, page.js_errors
+
+
+#: Each `/api/health` the panel asks gets the next answer in turn, the last one for
+#: good; every other engine route gets the last. Installed over the harness's stub:
+#: `answers` passes to it, `503` is an engine that answers refusing.
+THE_ENGINE_ANSWERS_IN_TURN = """(answers) => {
+  const inner = window.fetch;
+  let asked = 0;
+  window.fetch = async (url, options = {}) => {
+    const target = String(url);
+    if (!target.startsWith('http://127.0.0.1:8000/api/')) return inner(url, options);
+    const turn = target.includes('/api/health')
+      ? answers[Math.min(asked++, answers.length - 1)] : answers[answers.length - 1];
+    if (turn === 'answers') return inner(url, options);
+    if (turn === '503') {
+      return {ok: false, status: 503, statusText: 'Service Unavailable',
+              headers: {get: () => null}, json: async () => ({detail: 'unavailable'})};
+    }
+    throw turn === 'refuses' ? new TypeError('Failed to fetch')
+      : turn === 'cancelled' ? new DOMException('The operation was aborted.', 'AbortError')
+      : new DOMException('The operation timed out.', 'TimeoutError');
+  };
+}"""
+
+
+@pytest.mark.parametrize("answers", [
+    ["runs-out", "answers"], ["runs-out", "503"], ["cancelled", "answers"],
+], ids=["slow-then-answering", "slow-then-refusing", "cancelled-then-answering"])
+def test_a_preflight_that_finds_the_engine_answering_does_not_draw_it_as_gone(
+        open_panel, answers):
+    """GONE IS A REFUSED CONNECTION, here as in the poll. An engine that answers the
+    status read after a slow or cancelled preflight -- even with a 503 -- is not told
+    "No engine is running", and Run offers no Start beside it."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    page.evaluate(THE_ENGINE_ANSWERS_IN_TURN, answers)
+    page.click("#runtime-restart")
+    page.wait_for_function(
+        "() => !document.getElementById('runtime-restart').disabled", timeout=10_000)
+
+    assert text_of(page, "#engine-restart-note") == (
+        "The engine did not answer, so Restart was not sent. Press Check again to ask it.")
+    assert not page.evaluate(RUN_DRAWS_ITS_START), "Run offers Start beside an engine"
+    assert not page.js_errors, page.js_errors
+
+
+def test_a_restart_that_finds_the_engine_slow_then_gone_draws_it_as_gone(open_panel):
+    """The preflight runs out, and the status read after it is refused: the engine went
+    in the 2.5 s between. That read decides, so Run draws the Start the note points at."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    page.evaluate(THE_ENGINE_ANSWERS_IN_TURN, ["runs-out", "refuses"])
+    watch_the_banner(page)
+    page.click("#runtime-restart")
+    page.wait_for_function(
+        "() => !document.getElementById('runtime-restart').disabled", timeout=10_000)
+
+    assert text_of(page, "#engine-restart-note") == (
+        "No engine is running, so there is nothing to restart. Start it on the Run page.")
+    assert page.evaluate("() => window.__bannerSaid") == ["Restarting", "Not detected"]
+    assert page.evaluate(RUN_DRAWS_ITS_START), "Run draws no Start for the engine that went"
+    assert not page.js_errors, page.js_errors
+
+
+def test_a_restart_that_finds_the_engine_slow_does_not_draw_it_as_gone(open_panel):
+    """A DEADLINE IS NOT THE DARK. A busy engine runs out the preflight and goes on
+    serving, so the banner says the check timed out and Run offers no Start beside it.
+    `render()` takes a timeout for a stopped engine: it drew Start beside a running job
+    runner and stopped polling the jobs, and the Check again this note asks for does not
+    undo that. What a timed-out check does to Run's other words is #1976's."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    assert not page.evaluate(RUN_DRAWS_ITS_START)
+    page.evaluate(THE_ENGINE_WENT_UNNOTICED, "runs-out")
+    watch_the_banner(page)
+    page.click("#runtime-restart")
+    page.wait_for_function(
+        "() => !document.getElementById('runtime-restart').disabled", timeout=10_000)
+
+    assert text_of(page, "#engine-restart-note") == (
+        "The engine did not answer, so Restart was not sent. Press Check again to ask it.")
+    assert page.evaluate("() => window.__bannerSaid") == ["Restarting", "Check timed out"]
+    assert page.get_attribute("#engine-state-banner", "data-tone") == "warn"
+    assert not page.evaluate(RUN_DRAWS_ITS_START), "Run offers Start for an engine still serving"
+    assert "Start the engine" not in text_of(page, "#sites")
+    assert not page.js_errors, page.js_errors
+
+
+@pytest.mark.parametrize("gone", ["refuses", "runs-out"], ids=["it-refuses", "it-runs-out"])
+def test_a_preflight_redraw_that_fails_gives_the_buttons_back(open_panel, gone):
+    """That ending redraws with the flag up, so a redraw that throws -- here the status
+    line it paints first is gone from the page -- must not leave Restart down for good,
+    with the note on "Checking the database before restarting…". It is recorded."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    page.evaluate(THE_ENGINE_WENT_UNNOTICED, gone)
+    page.evaluate("() => document.getElementById('estat-text').remove()")
+    page.click("#runtime-restart")
+    page.wait_for_function(
+        "() => !document.getElementById('runtime-restart').disabled", timeout=10_000)
+
+    assert "Checking the database" not in text_of(page, "#engine-restart-note")
+    traced = page.evaluate("""() => globalThis.ScrapeXPanelTrace.events()
+        .filter((event) => event.name === 'restart-redraw-failed')
+        .map((event) => event.detail)""")
+    assert traced and traced[0]["message"], "the failed redraw left no record"
+    assert not page.js_errors, page.js_errors
+
+
+def test_a_candidate_keeps_its_own_banner_through_the_wait(open_panel):
+    """Every engine shares one detail screen. The restart is ScrapeX's: the catalogue's
+    row says so, a candidate opened in the wait does not, not even at the ending, which
+    draws the banner, and ScrapeX's reopened does."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART,
+                                    dark_ms=10**9)
+    page.clock.install()
+    page.click("#runtime-restart")
+    page.clock.run_for(2_000)
+    page.click("#engine-detail-back")
+    assert text_of(page, "#engine-status") == "Restarting"
+
+    open_engine(page, "firecrawl")
+    page.clock.run_for(2_000)
+    assert text_of(page, "#engine-state-text") == "Not installed"
+
+    page.click("#engine-detail-back")
+    open_engine(page)
+    page.clock.run_for(2_000)
+    assert_the_banner_says_restarting(page)
+
+    page.click("#engine-detail-back")
+    open_engine(page, "firecrawl")
+    page.clock.run_for(130_000)                # past the two minutes; the restart ends
+    page.wait_for_function(
+        "() => !document.getElementById('runtime-restart').disabled", timeout=10_000)
+    page.clock.run_for(3_000)
+    assert text_of(page, "#engine-state-text") == "Not installed", (
+        "ScrapeX's ending is drawn on a candidate's banner")
+    assert text_of(page, "#engine-status") == "Not detected"
+    assert not page.js_errors, page.js_errors
+
+
+def test_a_redraw_that_fails_gives_the_buttons_back(open_panel):
+    """The failed ending redraws the screen before its database check. A redraw
+    that throws -- here the Latest version value, which the release row paints first,
+    is gone from the page -- must
+    not reject the poll's tick with nothing catching it: that left the note on
+    "Checking the database..." and Restart, Upgrade database and the check disabled
+    for good. It is recorded, and the ending finishes."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART,
+                                    dark_ms=10**9)
+    page.evaluate("() => document.getElementById('engine-latest-version').remove()")
+
+    press_restart_and_wait_out_the_two_minutes(page)
+    page.wait_for_function(
+        "() => document.getElementById('engine-restart-note').textContent"
+        " === 'The engine has not answered in two minutes. It may still be starting.'",
+        timeout=10_000)
+
+    for control in ("#runtime-restart", "#runtime-upgrade"):
+        assert not page.locator(control).is_disabled(), f"{control} stayed down"
+    # THE TRACE ITSELF, not its performance-mark copy: under the page's fake clock
+    # that copy is not made (startup-trace.js swallows the failure), the record is.
+    traced = page.evaluate("""() => globalThis.ScrapeXPanelTrace.events()
+        .filter((event) => event.name === 'restart-redraw-failed')
+        .map((event) => event.detail)""")
+    assert traced and traced[0]["message"], "the failed redraw left no record"
+
+
+#: The first `/api/health` after the restart request answers 200 with a body that
+#: is not JSON, as a proxy's error page would. Installed OVER the restarting stub.
+ONE_ANSWER_IS_NOT_JSON = """() => {
+  const inner = window.fetch;
+  let asked = false;
+  let spent = false;
+  window.fetch = async (url, options = {}) => {
+    const path = String(url);
+    if (path.endsWith('/api/engine/restart')) asked = true;
+    else if (asked && !spent && path.includes('/api/health')) {
+      spent = true;
+      return {ok: true, status: 200, statusText: 'OK', headers: {get: () => null},
+              json: async () => { throw new SyntaxError('Unexpected token < in JSON'); }};
+    }
+    return inner(url, options);
+  };
+}"""
+
+
+def test_an_answer_the_poll_cannot_read_is_traced(open_panel):
+    """A probe that gets a body it cannot read is neither the dark nor a slow
+    engine, and it is not swallowed: `restart-probe-unread` in the startup trace,
+    beside `restart-identity-unknown`. The restart then goes on to the successor."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART)
+    page.click("#tab-engines")
+    open_engine(page)
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART)
+    page.evaluate(ONE_ANSWER_IS_NOT_JSON)
+    press_restart_and_wait_for_the_panel(page)
+
+    assert page.evaluate("window.__backSaidWhile") == "successor"
+    traced = page.evaluate("""() => performance.getEntriesByName(
+        'scrapex:restart-probe-unread').map((entry) => entry.detail)""")
+    assert traced and "JSON" in traced[0]["message"], traced
+    assert not page.js_errors, page.js_errors
+
+
+#: The successor reports its schema up to date: its launch applied what the leaving
+#: engine reported pending. Installed OVER the restarting stub.
+THE_SUCCESSOR_IS_UP_TO_DATE = """() => {
+  const inner = window.fetch;
+  window.fetch = async (url, options = {}) => {
+    const response = await inner(url, options);
+    if (!String(url).includes('/api/storage')
+        || window.__engineAnswering() !== 'successor') return response;
+    const body = {...(await response.json())};
+    body.schema = {...(body.schema || {}), version: 18, expected: 18, pending: []};
+    return {ok: true, status: 200, statusText: 'OK', headers: {get: () => null},
+            json: async () => body};
+  };
+}"""
+
+
+def open_database(page) -> None:
+    page.click('nav.side-rail button[data-view="database"]')
+    page.wait_for_selector("#view-database:not(.hidden)")
+
+
+def test_upgrade_stays_down_while_the_restart_runs(open_panel):
+    """The restart's wait now lasts until a different engine answers, about 50 s on
+    his machine (#1793), and the successor's launch upgrades a database that is only
+    behind on its way up. Entering the Database page in that wait re-ran its loader,
+    which turned Upgrade database back on -- one migration pending, nothing running
+    that it knew of -- and pressed in the dark it reaches the native host: a second
+    writer to the same file. It stays down whether the page is entered while the
+    leaving engine still answers or in the dark. When the successor answers, the page
+    is drawn again from it rather than left showing what it replaced."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART,
+                                    bow_out_ms=5_000, dark_ms=20_000)
+    page.evaluate(THE_SUCCESSOR_IS_UP_TO_DATE)
+    page.clock.install()
+    page.click("#runtime-restart")
+    page.clock.run_for(2_000)
+
+    open_database(page)                      # the leaving engine still answers
+    page.clock.run_for(1_000)
+    assert text_of(page, "#db-schema-detail").startswith("1 migration"), (
+        text_of(page, "#db-schema-detail"))
+    assert page.locator("#runtime-upgrade").is_disabled(), (
+        "Upgrade database is offered while the restart runs")
+
+    page.click("#tab-engines")
+    page.clock.run_for(6_000)                 # into the dark
+    open_database(page)
+    page.clock.run_for(1_000)
+    assert page.locator("#runtime-upgrade").is_disabled(), (
+        "Upgrade database is offered in the dark of a restart")
+
+    page.clock.run_for(20_000)                # the successor answers
+    page.wait_for_function(
+        "() => document.getElementById('db-schema-detail').textContent"
+        " === 'Up to date. Nothing to apply.'", timeout=10_000)
+    assert text_of(page, "#runtime-note") == "The engine is back."
+    assert not page.js_errors, page.js_errors
+
+
+def test_upgrade_comes_back_when_the_restart_ends(open_panel):
+    """The flag that keeps Upgrade database down is the restart's own, and it ends
+    with it: after a restart whose engine never comes back, the Database page offers
+    Upgrade database again, as it does with the engine down."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART,
+                                    dark_ms=10**9)
+    press_restart_and_wait_out_the_two_minutes(page)
+    page.wait_for_function(
+        "() => document.getElementById('engine-restart-note').textContent"
+        " === 'The engine has not answered in two minutes. It may still be starting.'",
+        timeout=10_000)
+
+    open_database(page)
+    page.clock.run_for(3_000)
+    assert not page.locator("#runtime-upgrade").is_disabled(), (
+        "Upgrade database stayed down after the restart ended")
+    assert "Upgrade database still works" in text_of(page, "#db-schema-detail")
+    assert not page.js_errors, page.js_errors
+
+
+def test_the_database_page_left_open_promises_upgrade_again_after_the_ending(open_panel):
+    """Drawn in the dark of a restart, the page holds Upgrade database down and does
+    not promise it. Left open across an ending with no engine, the button comes back,
+    and the sentence must come back with it: that is the moment the repair is most
+    needed, and he has no reason to leave the page and enter it again."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART,
+                                    dark_ms=10**9)
+    page.clock.install()
+    page.click("#runtime-restart")
+    page.clock.run_for(30_000)                 # into the dark
+    open_database(page)
+    page.clock.run_for(3_000)
+    assert "Upgrade database still works" not in text_of(page, "#db-schema-detail")
+    assert page.locator("#runtime-upgrade").is_disabled()
+
+    page.clock.run_for(100_000)                # past the two minutes; the restart ends
+    page.wait_for_function(
+        "() => !document.getElementById('runtime-restart').disabled", timeout=10_000)
+    page.clock.run_for(3_000)
+    assert not page.locator("#runtime-upgrade").is_disabled(), (
+        "Upgrade database stayed down after the restart ended")
+    assert "Upgrade database still works" in text_of(page, "#db-schema-detail"), (
+        "the page left open does not say what the same page says when entered")
+    assert not page.js_errors, page.js_errors
+
+
+def test_the_database_page_left_open_is_drawn_again_while_the_ending_checks(open_panel):
+    """The ending's database check can run for two more minutes. Through it, a page
+    last drawn from the engine that left must not go on showing what that engine said
+    under "Checking the database…". The restart has not ended, so Upgrade stays down
+    and is not promised."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="nonresponsive")
+    page.click("#tab-engines")
+    open_engine(page)
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART,
+                                    dark_ms=10**9)
+    page.clock.install()
+    page.click("#runtime-restart")
+    page.clock.run_for(2_000)                  # the host is silent; the engine still answers
+    open_database(page)
+    page.clock.run_for(1_000)
+    assert text_of(page, "#db-schema-detail").startswith("1 migration"), (
+        text_of(page, "#db-schema-detail"))
+
+    page.clock.run_for(121_000)                # the check before the restart runs out
+    page.clock.run_for(127_000)                # the two minutes; the ending's check is out
+    page.wait_for_function(
+        "() => document.getElementById('runtime-note').textContent"
+        " === 'The engine has not answered in two minutes. Checking the database…'",
+        timeout=10_000)
+    assert text_of(page, "#db-schema-detail") == (
+        "The engine did not answer, so the version could not be read."), (
+        "the page still shows what the engine that left said")
+    assert page.locator("#runtime-upgrade").is_disabled(), (
+        "Upgrade database is offered while the ending's check runs")
+    assert not page.js_errors, page.js_errors
+
+
+#: The database has nothing to apply, whichever engine is asked.
+NOTHING_IS_PENDING = """() => {
+  const inner = window.fetch;
+  window.fetch = async (url, options = {}) => {
+    const response = await inner(url, options);
+    if (!String(url).includes('/api/storage')) return response;
+    const body = {...(await response.json())};
+    body.schema = {...(body.schema || {}), version: 18, expected: 18, pending: []};
+    return {ok: true, status: 200, statusText: 'OK', headers: {get: () => null},
+            json: async () => body};
+  };
+}"""
+
+
+def test_a_restart_that_did_not_happen_offers_no_upgrade_with_nothing_to_apply(open_panel):
+    """The ending gives back every button the restart took, Upgrade database included.
+    On a Database page left open with nothing pending, that left a live Upgrade under
+    "Up to date. Nothing to apply." until he entered the page again."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    page.evaluate(NOTHING_IS_PENDING)
+    restart_the_way_the_engine_does(page, successor_build=None, bow_out_ms=10**9)
+    page.clock.install()
+    page.click("#runtime-restart")
+    page.clock.run_for(2_000)
+    open_database(page)
+    page.clock.run_for(1_000)
+    assert text_of(page, "#db-schema-detail") == "Up to date. Nothing to apply."
+
+    page.clock.run_for(130_000)                # past the two minutes; the restart ends
+    page.wait_for_function(
+        "() => !document.getElementById('runtime-restart').disabled", timeout=10_000)
+    page.clock.run_for(3_000)
+    assert "the same engine is still answering" in text_of(page, "#runtime-note")
+    assert text_of(page, "#db-schema-detail") == "Up to date. Nothing to apply."
+    assert page.locator("#runtime-upgrade").is_disabled(), (
+        "Upgrade database is live with nothing to apply")
+    assert not page.js_errors, page.js_errors
+
+
+#: The check before the restart passes; the one the failed ending asks reports the
+#: database behind, as #1810's check does with no engine running. Installed over the
+#: harness's own host.
+THE_ENDING_CHECK_SAYS_BEHIND = """() => {
+  const send = window.chrome.runtime.sendNativeMessage;
+  let checks = 0;
+  window.chrome.runtime.sendNativeMessage = (host, message, callback) => {
+    if (message && message.command === 'CHECK_STARTUP' && ++checks > 1) {
+      setTimeout(() => callback({ok: false, error: 'startup_blocked',
+        action: 'upgrade_database',
+        detail: 'engine: Needs upgrade. This database is at schema v25 and this build '
+              + 'expects v26.',
+        databases: {engine: {kind: 'engine', ok: false, status: 'Needs upgrade',
+          schema_version: 25}}}), 0);
+      return;
+    }
+    return send(host, message, callback);
+  };
+}"""
+
+
+def test_the_repair_a_failed_restart_names_can_be_pressed(open_panel):
+    """A restart whose engine never comes back ends in the database check, and with
+    no engine running a database that is only behind is refused with
+    `upgrade_database`: the card it draws offers Upgrade database. That card is drawn
+    while the restart still runs, so it must not take the restart's own reason to
+    keep Upgrade down -- nothing gives the card's button back afterwards."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    page.evaluate(THE_ENDING_CHECK_SAYS_BEHIND)
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART,
+                                    dark_ms=10**9)
+    press_restart_and_wait_out_the_two_minutes(page)
+    page.wait_for_function(
+        "() => document.getElementById('engine-restart-note').textContent"
+        ".startsWith('The engine stopped during startup.')", timeout=10_000)
+
+    for card in ("#runtime-error", "#engine-error"):
+        button = page.locator(f"{card} [data-runtime-upgrade]")
+        assert button.count() == 1, f"{card} offers no Upgrade database"
+        assert not button.is_disabled(), f"{card}'s Upgrade database stayed down"
+    assert not page.js_errors, page.js_errors
+
+
+#: Every POST the panel sends to the engine, recorded before the restarting stub can
+#: refuse it in the dark. Installed OVER that stub.
+RECORD_POSTS = """() => {
+  const inner = window.fetch;
+  window.__posts = [];
+  window.fetch = async (url, options = {}) => {
+    if ((options.method || 'GET') === 'POST') window.__posts.push(String(url));
+    return inner(url, options);
+  };
+}"""
+
+#: The check the failed ending asks takes a minute to answer, so the restart's
+#: ending -- after its two minutes -- can be pressed through.
+THE_ENDING_CHECK_TAKES_A_MINUTE = """() => {
+  const send = window.chrome.runtime.sendNativeMessage;
+  let checks = 0;
+  window.chrome.runtime.sendNativeMessage = (host, message, callback) => {
+    if (message && message.command === 'CHECK_STARTUP' && ++checks > 1) {
+      window.__nativeCalls.push('CHECK_STARTUP');
+      setTimeout(() => callback({ok: true, installed: true}), 60_000);
+      return;
+    }
+    return send(host, message, callback);
+  };
+}"""
+
+
+RESTARTING = "Restarting the engine…"
+SEE_THE_ENGINE_PAGE = "See the Engine page for the restart's progress."
+
+
+def jobs_banner(page) -> dict:
+    """The Jobs page's banner, read whole: its title, its sentence, its buttons."""
+    return page.evaluate("""() => {
+      const banner = document.querySelector('#view-jobs .banner');
+      if (!banner) return null;
+      return {title: banner.querySelector('strong').textContent,
+              copy: banner.querySelector('p').textContent,
+              buttons: [...banner.querySelectorAll('button')].map((b) => b.textContent)};
+    }""")
+
+
+def test_start_and_upgrade_are_refused_through_the_whole_restart(open_panel):
+    """A PROTECTION FROM #1810'S REVIEW, kept as one by his word on #1556: one flag for
+    the restart's whole wait, the database check after its two minutes included,
+    refusing Start and Upgrade database as the native upgrade's own flag does. Without
+    it a restart that upgrades lets a second upgrader or a second engine start beside
+    its successor --
+    demonstrated with real processes on #1810 (issuecomment-6413387526).
+
+    The restart holds what an upgrade holds: Run's Start and Check again, and the
+    Engine page's Check again, which draws Start in the dark. Jobs offers Open
+    Engine in the restart's own words instead of Start. Upgrade database stays down.
+    A Start control the restart did not take is refused at the one place every
+    Start passes through. All of it holds again while the ending's database check
+    runs. When the restart ends, Run's line carries its ending, not the wait, Start
+    goes through again, and Jobs reads again."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART,
+                                    dark_ms=10**9)
+    page.evaluate(RECORD_POSTS)
+    page.evaluate(THE_ENDING_CHECK_TAKES_A_MINUTE)
+    page.evaluate("() => { window.__nativeCalls.length = 0; }")
+    page.clock.install()
+    page.click("#runtime-restart")
+
+    def refused(moment: str, run_line: str) -> None:
+        for held in ("#engine-start", "#setup-recheck", "#engine-recheck",
+                     "#engine-diagnostics"):
+            assert page.locator(held).is_disabled(), f"{held} is live {moment}"
+        assert text_of(page, "#engine-note") == run_line, (
+            f"Run's line {moment}: {text_of(page, '#engine-note')!r}")
+
+        page.click('nav.side-rail button[data-view="jobs"]')
+        page.wait_for_selector("#view-jobs:not(.hidden)")
+        page.clock.run_for(3_000)
+        banner = jobs_banner(page)
+        assert banner and banner["title"] == RESTARTING, f"Jobs {moment}: {banner}"
+        assert banner["copy"].endswith(SEE_THE_ENGINE_PAGE), banner
+        assert banner["buttons"] == ["Open Engine"], f"Jobs offers {banner['buttons']} {moment}"
+
+        page.click('nav.side-rail button[data-view="schedules"]')
+        page.wait_for_selector("#view-schedules:not(.hidden)")
+        page.clock.run_for(3_000)
+        schedules = page.evaluate("""() => {
+          const banner = document.querySelector('#view-schedules [data-role="banner"]');
+          return banner && {text: banner.textContent,
+                            buttons: [...banner.querySelectorAll('button')].map((b) => b.textContent)};
+        }""")
+        assert schedules and RESTARTING in schedules["text"], f"Schedules {moment}: {schedules}"
+        assert schedules["buttons"] == ["Open Engine"], (
+            f"Schedules offers {schedules['buttons']} {moment}")
+
+        # A Start the restart did not take -- given back by hand -- is refused where
+        # every Start passes through.
+        page.evaluate("""() => { const start = document.getElementById('engine-start');
+            start.disabled = false; start.click(); start.disabled = true; }""")
+        page.clock.run_for(500)
+        assert text_of(page, "#engine-note") == RESTARTING, (
+            f"a Start the restart did not take went through {moment}")
+
+        open_database(page)
+        page.clock.run_for(500)
+        upgrade = page.locator("#runtime-upgrade")
+        assert upgrade.is_disabled(), f"Upgrade database was offered {moment}"
+        assert "still works" not in text_of(page, "#db-schema-detail"), (
+            f"the page promises the Upgrade it holds down {moment}")
+        upgrade.click(force=True)
+        page.clock.run_for(500)
+        page.click("#tab-engines")
+        calls = page.evaluate("window.__nativeCalls")
+        assert "START_ENGINE" not in calls, f"a second engine was started {moment}: {calls}"
+        assert "UPGRADE_DATABASE" not in calls, f"an upgrade was started {moment}: {calls}"
+        posts = page.evaluate("window.__posts")
+        assert not [u for u in posts if "/api/databases/upgrade" in u], (
+            f"an upgrade was asked of the engine {moment}: {posts}")
+
+    page.clock.run_for(30_000)
+    refused("in the dark of the restart", NO_ENGINE_ANSWERS)
+    page.clock.run_for(100_000)               # past the two minutes: the check runs
+    assert text_of(page, "#engine-restart-note") == (
+        "The engine has not answered in two minutes. Checking the database…")
+    refused("while the ending's database check runs",
+            "The engine has not answered in two minutes. Checking the database…")
+
+    page.click('nav.side-rail button[data-view="jobs"]')    # open when it ends
+    page.wait_for_selector("#view-jobs:not(.hidden)")
+    page.clock.run_for(65_000)                # the check answers; the restart ends
+    page.wait_for_function(
+        "() => !document.getElementById('runtime-restart').disabled", timeout=10_000)
+    page.clock.run_for(3_000)
+    assert text_of(page, "#engine-note") == (
+        "The engine has not answered in two minutes. It may still be starting."), (
+        "Run's line kept what the restart said while it waited")
+    banner = jobs_banner(page)
+    assert banner is None or banner["title"] != RESTARTING, (
+        f"Jobs still says the engine is restarting after it ended: {banner}")
+    assert not page.locator("#engine-start").is_disabled()
+    page.evaluate("() => document.getElementById('engine-start').click()")
+    page.clock.run_for(500)
+    assert "START_ENGINE" in page.evaluate("window.__nativeCalls"), (
+        "Start is still refused after the restart ended")
+    assert not page.js_errors, page.js_errors
+
+
+def test_schedules_reads_again_when_the_restart_ends(open_panel):
+    """Schedules offers Open Engine instead of Start while a restart runs. Left open
+    across the restart's end, it must not go on saying the engine is restarting."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART,
+                                    dark_ms=10**9)
+    page.clock.install()
+    page.click("#runtime-restart")
+    page.clock.run_for(30_000)
+    page.click('nav.side-rail button[data-view="schedules"]')
+    page.wait_for_selector("#view-schedules:not(.hidden)")
+    page.clock.run_for(3_000)
+    banner = '#view-schedules [data-role="banner"]'
+    assert RESTARTING in text_of(page, banner)
+    assert SEE_THE_ENGINE_PAGE in text_of(page, banner)
+
+    page.clock.run_for(100_000)                # past the two minutes; the restart ends
+    page.wait_for_function(
+        "() => !document.getElementById('runtime-restart').disabled", timeout=10_000)
+    page.clock.run_for(3_000)
+    assert RESTARTING not in text_of(page, banner), (
+        "Schedules still says the engine is restarting after it ended")
+    assert not page.js_errors, page.js_errors
+
+
+@pytest.mark.parametrize("view", ["jobs", "schedules"])
+def test_a_good_ending_raises_no_false_alert(open_panel, view):
+    """The page offered Open Engine because its read failed in the dark. At the
+    restart's end the flag drops and the page reads again; with that failure still
+    held, it drew "The engine did not answer" -- an alert, at the moment the engine
+    came back -- for as long as the read took."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    page.click("#tab-engines")
+    open_engine(page)
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART,
+                                    dark_ms=10_000)
+    page.clock.install()
+    page.click("#runtime-restart")
+    page.clock.run_for(3_000)
+    page.click(f'nav.side-rail button[data-view="{view}"]')
+    page.wait_for_selector(f"#view-{view}:not(.hidden)")
+    page.clock.run_for(2_000)
+    page.evaluate("""(view) => {
+      window.__alerts = [];
+      const root = document.getElementById(`view-${view}`);
+      const read = () => root.querySelectorAll('[role="alert"]').forEach(
+        (alert) => window.__alerts.push(alert.textContent));
+      new MutationObserver(read).observe(root, {childList: true, subtree: true,
+                                                characterData: true});
+    }""", view)
+
+    page.clock.run_for(12_000)                 # the successor answers
+    page.wait_for_function(
+        "() => document.getElementById('engine-restart-note').textContent"
+        " === 'The engine is back.'", timeout=10_000)
+    page.clock.run_for(2_000)
+
+    alerts = page.evaluate("window.__alerts")
+    assert not [a for a in alerts if "did not answer" in a], (
+        f"a false alert at a good ending: {alerts}")
+    assert not page.js_errors, page.js_errors
+
+
+#: The successor takes this long over a page's own read, so that anything the page draws
+#: before its read answers can be seen. It must follow `restart_the_way_the_engine_does`.
+THE_SUCCESSOR_READS_SLOWLY = """() => {
+  const inner = window.fetch;
+  window.fetch = async (url, options = {}) => {
+    if (/\\/api\\/(jobs|schedules)/.test(String(url))
+        && window.__engineAnswering() === 'successor') {
+      await new Promise((settle) => setTimeout(settle, 1500));
+    }
+    return inner(url, options);
+  };
+}"""
+
+#: Every alert drawn on a page from now on, read as it is drawn.
+RECORD_THE_ALERTS = """(view) => {
+  window.__alerts = [];
+  const root = document.getElementById(`view-${view}`);
+  const read = () => root.querySelectorAll('[role="alert"]').forEach(
+    (alert) => window.__alerts.push(alert.textContent));
+  new MutationObserver(read).observe(root, {childList: true, subtree: true,
+                                            characterData: true});
+}"""
+
+
+def into_the_dark_on(page, view, *, read_first=False) -> None:
+    """Press Restart, then open `view` in the dark, so its read fails behind the banner."""
+    nav = f'nav.side-rail button[data-view="{view}"]'
+    if read_first:
+        page.click(nav)
+        page.wait_for_selector(f"#view-{view}:not(.hidden)")
+        page.wait_for_timeout(1_200)
+    page.click("#tab-engines")
+    open_engine(page)
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART,
+                                    dark_ms=10_000)
+    page.evaluate(THE_SUCCESSOR_READS_SLOWLY)
+    page.clock.install()
+    page.click("#runtime-restart")
+    page.clock.run_for(3_000)
+    page.click(nav)
+    page.wait_for_selector(f"#view-{view}:not(.hidden)")
+    page.clock.run_for(2_000)
+
+
+def successor_answers(page) -> None:
+    page.clock.run_for(12_000)
+    page.wait_for_function(
+        "() => document.getElementById('engine-restart-note').textContent"
+        " === 'The engine is back.'", timeout=10_000)
+
+
+def test_a_good_ending_raises_no_false_alert_over_the_list_schedules_read(open_panel):
+    """With a list to show, Schedules is drawn by the engine check as well as by its own
+    read (`updateEngineState`), so the check at the good ending drew the failure from
+    the dark as an alert while the read was still out."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    into_the_dark_on(page, "schedules", read_first=True)
+    assert RESTARTING in text_of(page, '#view-schedules [data-role="banner"]')
+    page.evaluate(RECORD_THE_ALERTS, "schedules")
+
+    successor_answers(page)
+    page.clock.run_for(2_000)
+
+    alerts = page.evaluate("window.__alerts")
+    assert not [a for a in alerts if "did not answer" in a], (
+        f"a false alert at a good ending: {alerts}")
+    assert not page.js_errors, page.js_errors
+
+
+@pytest.mark.parametrize("view, read_first", [("jobs", False), ("schedules", True)],
+                         ids=["jobs-first-opened-in-the-wait", "schedules-with-its-list"])
+def test_a_page_left_during_the_wait_raises_no_false_alert_on_return(
+        open_panel, view, read_first):
+    """The banner's own Open Engine takes him off the page, and the restart ends there.
+    What failed in the dark must not greet him as "The engine did not answer" when he
+    comes back to an engine that is answering. Jobs draws it on entry. Schedules draws
+    it when an engine check lands while its read is out, as one does here."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok")
+    into_the_dark_on(page, view, read_first=read_first)
+    page.click(f'#view-{view} button:has-text("Open Engine")')
+    page.wait_for_selector("#view-engine-detail:not(.hidden)")
+    page.evaluate(RECORD_THE_ALERTS, view)
+
+    successor_answers(page)
+    page.click(f'nav.side-rail button[data-view="{view}"]')
+    page.wait_for_selector(f"#view-{view}:not(.hidden)")
+    page.evaluate("() => document.getElementById('setup-recheck').click()")
+    page.wait_for_timeout(500)
+    page.clock.run_for(3_000)
+
+    alerts = page.evaluate("window.__alerts")
+    assert not [a for a in alerts if "did not answer" in a], (
+        f"a false alert after the engine came back: {alerts}")
+    assert not page.js_errors, page.js_errors
+
+
+def test_the_restart_note_stays_off_a_candidate_engines_screen(open_panel):
+    """Every engine shares one detail screen, and a candidate's has no Restart to
+    press. The outcome now waits for the successor, so a reader can have opened a
+    candidate by the time it lands: "Press Restart engine to try again" -- or "The
+    engine is back." -- must not appear there. Back on ScrapeX Engine it does."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART)
+    page.click("#tab-engines")
+    open_engine(page)
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART)
+
+    page.click("#runtime-restart")
+    page.click("#engine-detail-back")
+    open_engine(page, "firecrawl")
+    page.wait_for_function(
+        "() => document.getElementById('engine-restart-note').textContent"
+        " === 'The engine is back.'", timeout=30_000)
+    assert page.locator("#engine-restart-note").is_hidden(), (
+        "ScrapeX's restart outcome is on a candidate engine's screen")
+
+    page.click("#engine-detail-back")
+    open_engine(page)
+    assert page.locator("#engine-restart-note").is_visible(), (
+        "back on ScrapeX Engine, the restart's outcome is not shown")
+    assert text_of(page, "#engine-restart-note") == "The engine is back."
+    assert not page.js_errors, page.js_errors
+
+
+#: After the database check before the restart is sent, the next `/api/health` --
+#: the one that names the engine asked to leave -- runs out of time, as it can on
+#: an engine whose health answer takes most of its 2.5 s (#1764). Installed OVER
+#: the restarting stub.
+THE_NAMING_READ_TIMES_OUT = """() => {
+  const inner = window.fetch;
+  const send = window.chrome.runtime.sendNativeMessage;
+  let pending = false;
+  window.chrome.runtime.sendNativeMessage = (host, message, callback) => {
+    if (message && message.command === 'CHECK_STARTUP') pending = true;
+    return send(host, message, callback);
+  };
+  window.fetch = async (url, options = {}) => {
+    if (pending && String(url).includes('/api/health')) {
+      pending = false;
+      throw new DOMException('The request exceeded its deadline.', 'TimeoutError');
+    }
+    return inner(url, options);
+  };
+}"""
+
+
+def test_an_unnamed_leaving_engine_is_traced_and_waited_out(open_panel):
+    """When the read that names the leaving engine gets no answer, the poll falls
+    back to the weaker test -- an answer only after a refused probe -- and that is
+    recorded, not swallowed: `restart-identity-unknown` in the startup trace, the
+    record `askWhichWarehouse` leaves for its own unknown."""
+    page = open_panel(engine_build=ENGINE_BEFORE_RESTART)
+    page.click("#tab-engines")
+    open_engine(page)
+    restart_the_way_the_engine_does(page, successor_build=ENGINE_AFTER_RESTART)
+    page.evaluate(THE_NAMING_READ_TIMES_OUT)
+    press_restart_and_wait_for_the_panel(page)
+
+    assert page.evaluate("window.__backSaidWhile") == "successor"
+    traced = page.evaluate("""() => performance.getEntriesByName(
+        'scrapex:restart-identity-unknown').map((entry) => entry.detail)""")
+    assert traced and "deadline" in traced[0]["message"], traced
+    assert not page.js_errors, page.js_errors
+
+
 def test_the_route_into_one_engine_and_back_lands_focus_where_it_should(open_panel):
     """A screen reached from a row and left by a back button, like
     #view-manage-account and #view-source-edit before it.
@@ -9664,22 +11645,6 @@ def test_the_full_bleed_screens_still_bleed_exactly_at_320px(open_panel):
     assert abs((box["x"] + box["width"]) - (main["x"] + main["width"])) < 1, (
         f"Manage account ends at x {box['x'] + box['width']} but main ends at "
         f"{main['x'] + main['width']}")
-
-
-def _alpha_of(css_colour: str) -> float:
-    """Alpha from any form Chrome serialises a computed colour in.
-
-    `color-mix()` comes back as `color(srgb r g b / a)`, a plain declaration as
-    `rgba(r, g, b, a)`, and a fully transparent result as `oklab(0 0 0 / 0)`.
-    A test that only understood `rgba(...)` would read every mixed colour as
-    opaque and pass on exactly the thing it is checking.
-    """
-    text = css_colour.strip()
-    if "/" in text:
-        return float(text.rsplit("/", 1)[1].strip(" )"))
-    if text.startswith("rgba"):
-        return float(text.rsplit(",", 1)[1].strip(" )"))
-    return 1.0 if text.startswith(("rgb", "#", "color(")) else 0.0
 
 
 def test_engine_neutral_controls_keep_text_color_on_hover(open_panel):
@@ -14417,3 +16382,472 @@ def test_the_schema_lag_banner_says_the_engines_fix_and_nothing_against_it(open_
     older.wait_for_selector("#schema-lag:not(.hidden)")
     assert "Fix: press Upgrade database on the Database page." in older.inner_text(
         "#schema-lag")
+
+
+# ---- Activity draws an ended job as it ended (#1074) -----------------------------------
+#
+# He reported it twice: a finished job stayed drawn as if it were running, under a moving
+# bar that said "so far". Five review rounds then each found something the last fix broke,
+# and every test below is one of those, so each states the failure it guards.
+
+_ACTIVITY_REF = "job_38ae55034628"
+_A_503 = ("Server error '503 Service Unavailable' for url 'https://pt-api.tvtc.gov.sa/api/v1/"
+          "public-inquiries/licensed-establishments/plans?locale=en&limit=1000&page=1'")
+_ACTIVITY_SOURCES = [
+    {"kind": "directory", "source_key": "tvtc_training_plans",
+     "base_url": "https://pt-api.tvtc.gov.sa", "source_name": "TVTC licensed training plans",
+     "family": "generic", "active": False, "implemented": True, "observations": 0,
+     "products": 0},
+    {"kind": "directory", "source_key": "oman_tenderboard",
+     "base_url": "https://etendering.tenderboard.gov.om",
+     "source_name": "Oman Tender Board / ESNAD registered vendors", "family": "generic",
+     "active": True, "implemented": True, "observations": 23240, "products": 23240},
+    {"source_key": "MADAR", "base_url": "https://www.madar.com", "source_name": "Madar",
+     "source_name_ar": "المدار", "family": "magento-graphql",
+     "active": True, "implemented": True, "observations": 3483, "products": 1200},
+    {"source_key": "ELSEWEDYSHOP", "base_url": "https://elsewedyshop.com",
+     "source_name": "Elsewedy Shop", "family": "shopify-json", "active": True,
+     "implemented": True, "observations": 900, "products": 300},
+]
+
+
+def _a_fetch(requests, expected=None, basis=None, as_of=None):
+    return {"requests": requests, "expected": expected, "basis": basis, "as_of": as_of,
+            "unknown_sources": [] if expected else ["tvtc_training_plans"], "sources": {}}
+
+
+def _a_live_job(**over):
+    return _running_job(**{
+        "job_ref": _ACTIVITY_REF, "job_kind": "directory_crawl",
+        "source_keys": ["tvtc_training_plans"], "current_source_key": "tvtc_training_plans",
+        "created_at": "2026-10-25T07:54:09Z", "started_at": "2026-10-25T07:54:10Z",
+        "finished_at": None, "error_summary": None, "fetch": _a_fetch(2), **over})
+
+
+def _its_end(status, **over):
+    return _a_live_job(**{"status": status, "stage": None, "current_source_key": None,
+                          "finished_at": "2026-10-25T07:54:21Z", "fetch": _a_fetch(3), **over})
+
+
+def _open_with_a_live_job(open_panel, logs=(), width=None, height=None):
+    """The job is live first: `pollJobOnce` draws an ended job only for a ref it was following.
+
+    THE ZONE IS PINNED, because his machine is Asia/Riyadh and CI is UTC."""
+    page = open_panel(jobs=[_a_live_job()], logs=list(logs), sources=_ACTIVITY_SOURCES,
+                      view="run", ready="idle")
+    if width:
+        page.set_viewport_size({"width": width, "height": height})
+    page.evaluate("() => window.ScrapeXTime.set('Asia/Riyadh')")
+    page.wait_for_function(
+        "() => !document.getElementById('activity').classList.contains('hidden')")
+    return page
+
+
+def _end_the_job(page, ended):
+    page.evaluate("""(ended) => {
+        ROUTES["/api/jobs"] = {jobs: []};
+        ROUTES["/api/jobs/" + ended.job_ref] = ended;
+        document.dispatchEvent(new Event("visibilitychange"));
+    }""", ended)
+    page.wait_for_function(
+        "() => !document.getElementById('act-when').classList.contains('hidden')",
+        timeout=8_000)
+    # The log is read after the job, in the same task: its caption is the last thing drawn.
+    page.wait_for_function(
+        "() => document.getElementById('log-caption').textContent.startsWith('Log')",
+        timeout=8_000)
+
+
+def _start_a_new_job(page):
+    live = _a_live_job(job_ref="job_second000001", job_kind="crawl", source_keys=["MADAR"],
+                       current_source_key="MADAR", fetch=_a_fetch(10, 50, "declared"))
+    page.evaluate("""(job) => {
+        ROUTES["/api/jobs"] = {jobs: [job]};
+        ROUTES["/api/jobs/" + job.job_ref] = job;
+        document.dispatchEvent(new Event("visibilitychange"));
+    }""", live)
+    page.wait_for_function(
+        "() => document.getElementById('act-state').textContent.includes('running')",
+        timeout=8_000)
+
+
+def _read(page, selector):
+    """The words as he reads them. ICU writes U+202F before AM on some builds and U+00A0
+    is the status line's own separator, so neither decides a test."""
+    return re.sub(r"[\s  ]+", " ", page.inner_text(selector)).strip()
+
+
+def _hidden(page, selector):
+    return page.evaluate("(s) => document.querySelector(s).classList.contains('hidden')",
+                         selector)
+
+
+def _bar_moves(page):
+    return page.evaluate(
+        "() => document.getElementById('act-bar').classList.contains('indeterminate')")
+
+
+@pytest.mark.parametrize("ended,state,when,label", [
+    # The job he reported: a 503 on the first page, no total, so no bar at all.
+    (_its_end("failed", error_summary=_A_503),
+     "Failed · Listing crawl", "Started 25 Oct, 10:54 AM → 10:54 AM", None),
+    # #1074's interpretation: 8 s read "elapsed 429h 37m" over "starting…".
+    (_its_end("completed", job_kind="dataset_interpret", source_keys=["oman_tenderboard"],
+              progress={"done": 472, "total": 472, "unit": "page pair(s)"},
+              fetch={"requests": 0, "expected": None, "basis": None, "as_of": None,
+                     "unknown_sources": [], "sources": {}}, counters={}),
+     "Completed · Interpretation", "Started 25 Oct, 10:54 AM → 10:54 AM",
+     "472 of 472 page pair(s)"),
+    # A KNOWN TOTAL KEEPS ITS WORDS: the first version of this fix dropped the basis and
+    # the date, which Run says nowhere else, from a bar that was already still.
+    (_its_end("failed", error_summary=_A_503,
+              fetch=_a_fetch(33, 91, "estimate", "2026-10-19")),
+     "Failed · Listing crawl", "Started 25 Oct, 10:54 AM → 10:54 AM",
+     "33 of ~91 requests (36%) · estimate from the last crawl (19 Oct)"),
+    # It read "elapsed 10m 30s · ~2s left".
+    (_its_end("cancelled", finished_at="2026-10-25T08:09:40Z",
+              fetch=_a_fetch(40, 91, "declared")),
+     "Cancelled · Listing crawl", "Started 25 Oct, 10:54 AM → cancelled 11:09 AM",
+     "40 of 91 requests (44%) · the site's own page count"),
+    # Never started, so it reads from when it was added.
+    (_its_end("cancelled", started_at=None, finished_at="2026-10-25T07:55:02Z",
+              fetch=_a_fetch(0, 91, "estimate", "2026-10-19")),
+     "Cancelled · Listing crawl", "Added 25 Oct, 10:54 AM → cancelled 10:55 AM",
+     "0 of ~91 requests (0%) · estimate from the last crawl (19 Oct)"),
+    (_its_end("completed", started_at="2026-10-24T20:50:00Z",
+              finished_at="2026-10-25T01:10:00Z", fetch=_a_fetch(91, 91, "declared")),
+     "Completed · Listing crawl", "Started 24 Oct, 11:50 PM → 25 Oct, 4:10 AM",
+     "91 of 91 requests (100%) · the site's own page count"),
+], ids=["failed-no-total", "interpretation", "failed-with-an-estimate", "cancelled",
+        "cancelled-before-it-started", "finished-another-day"])
+def test_an_ended_job_is_drawn_as_it_ended(open_panel, ended, state, when, label):
+    """Nothing on the card may describe a job that is still running."""
+    page = _open_with_a_live_job(open_panel)
+    _end_the_job(page, ended)
+
+    assert _read(page, "#act-state") == state
+    assert _read(page, "#act-when") == when
+    assert _read(page, "#act-elapsed") == "", "elapsed and an estimate count from now"
+    assert not _bar_moves(page), "a bar that moves says work is still happening"
+    if label is None:
+        assert _hidden(page, ".act-progress"), "no total: no bar, as on the Jobs row"
+    else:
+        assert not _hidden(page, ".act-progress")
+        assert _read(page, "#act-progress-label") == label
+
+
+def test_an_ended_job_says_why_it_ended(open_panel):
+    page = _open_with_a_live_job(open_panel)
+    _end_the_job(page, _its_end("failed", error_summary=_A_503))
+    assert not _hidden(page, "#act-error")
+    assert _read(page, "#act-error") == re.sub(r"\s+", " ", _A_503)
+    assert "err" in page.get_attribute("#act-error", "class").split()
+
+
+def test_a_job_that_ended_cleanly_shows_no_reason_line(open_panel):
+    page = _open_with_a_live_job(open_panel)
+    _end_the_job(page, _its_end("completed", fetch=_a_fetch(91, 91, "declared")))
+    assert _hidden(page, "#act-error")
+
+
+def test_the_ended_card_names_its_job_as_the_jobs_row_does(open_panel):
+    """HIS CHOICE D, HIS RULING OF 2026-10-25: under the shared rule Oman's domain lost ".om"
+    at 320 px, with nothing to reveal it. So the break comes after each dot, as on Jobs and
+    Schedules, and the whole domain stays on the card."""
+    page = _open_with_a_live_job(open_panel, width=320, height=800)
+    _end_the_job(page, _its_end("completed", source_keys=["oman_tenderboard"],
+                                fetch=_a_fetch(91, 91, "declared")))
+    domain = page.locator("#act-source .source-identity-domain")
+    assert _read(page, "#act-source .source-identity-domain") == \
+        "etendering.tenderboard.gov.om"
+    assert domain.locator("wbr").count() == 3
+    # THE WRAP RULE ITSELF, because the layout cannot see the cut: `scrollWidth` reads 0 on an
+    # inline element, and a Range stops at the ellipsis, so checks on either passed with the
+    # rule gone. The `<wbr>`s above do nothing under the shared rule's `nowrap`.
+    for part in ("domain", "key"):
+        assert page.evaluate("""(part) => getComputedStyle(document.querySelector(
+            `#act-source .source-identity-${part}`)).whiteSpace""", part) == "normal", (
+            f"the {part} is cut at 320 px under the shared nowrap")
+    assert _read(page, "#act-source .source-identity-key") == "oman_tenderboard"
+
+
+def test_an_ended_job_of_several_sources_names_the_first_and_counts_the_rest(open_panel):
+    page = _open_with_a_live_job(open_panel)
+    _end_the_job(page, _its_end("partially_completed", job_kind="crawl",
+                                source_keys=["MADAR", "ELSEWEDYSHOP"]))
+    said = _read(page, "#act-source")
+    assert _read(page, "#act-source .source-identity-domain") == "madar.com"
+    assert "and 1 other" in said
+    assert "MADAR, ELSEWEDYSHOP" in said, "the job's own keys, as #1624 keeps them"
+    # The Arabic name carries its own direction: beside "and 1 other" under the card's
+    # first attempt, plaintext bidi split the English around it.
+    assert page.get_attribute("#act-source .source-identity-name", "dir") == "auto"
+
+
+def test_the_end_is_said_once_in_the_jobs_pages_words(open_panel):
+    """#jobs-announce is in a view that is hidden while Run is shown, so the end of a job was
+    drawn here and spoken nowhere (WCAG 2.2 SC 4.1.3). And it does not carry over: the node
+    is visually hidden, not `display: none`, so a screen reader still reaches stale words."""
+    page = _open_with_a_live_job(open_panel)
+    page.evaluate("""() => {
+        window.__said = [];
+        new MutationObserver(() => {
+          const text = document.getElementById("act-announce").textContent;
+          if (text) window.__said.push(text);
+        }).observe(document.getElementById("act-announce"), {childList: true});
+    }""")
+    _end_the_job(page, _its_end("failed", error_summary=_A_503))
+    page.wait_for_function("() => window.__said.length > 0")
+    assert page.evaluate("() => window.__said") == [
+        "Listing crawl · pt-api.tvtc.gov.sa: failed"]
+
+    # A change of zone rewrites the time and says nothing.
+    page.evaluate("() => window.ScrapeXTime.set('America/New_York')")
+    page.wait_for_function(
+        "() => document.getElementById('act-when').textContent.includes('3:54')")
+    page.wait_for_timeout(100)
+    assert len(page.evaluate("() => window.__said")) == 1, "the end was announced twice"
+
+    _start_a_new_job(page)
+    assert page.text_content("#act-announce") == "", "the last job's end, on a live card"
+
+
+def test_a_job_with_no_log_says_yet_only_while_lines_can_still_come(open_panel):
+    """`set_control` settles a cancel it is not holding with no log line, so such a job ends
+    with no log at all. "yet" would promise lines it will never write, and the box keeps its
+    DOM when the entries match, so the words have to be redrawn on purpose."""
+    page = _open_with_a_live_job(open_panel, logs=[])
+    page.wait_for_function(
+        "() => document.getElementById('logbox').textContent.includes('No log entries yet.')")
+    assert _read(page, "#log-caption") == "Live log"
+
+    _end_the_job(page, _its_end("cancelled", started_at=None))
+    # THE JOBS LOG'S OWN SENTENCE: one job read two ways on two screens.
+    assert _read(page, "#logbox") == "This job wrote no log."
+    assert _read(page, "#log-caption") == "Log"
+
+
+def test_a_job_ending_with_the_same_log_keeps_the_line_he_selected(open_panel):
+    """Only an empty log carries live-or-ended in its signature. A version that carried it
+    always redrew an identical log at the end, and his selection went with it; `main` kept
+    it. A paused job cancelled is the case: `set_control` adds no line."""
+    entries = [{"level": "info", "message": "crawl starting"},
+               {"level": "info", "message": "SELECT-ME line two of the log"}]
+    page = _open_with_a_live_job(open_panel, logs=entries)
+    page.wait_for_function(
+        "() => document.getElementById('logbox').textContent.includes('SELECT-ME')")
+    page.evaluate("""() => {
+        const line = [...document.querySelectorAll("#logbox .logline .content")]
+          .find((el) => el.textContent.includes("SELECT-ME"));
+        window.__line = line;
+        const range = document.createRange();
+        range.selectNodeContents(line);
+        const selection = getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+    }""")
+    _end_the_job(page, _its_end("cancelled"))
+    assert page.evaluate("() => window.__line.isConnected"), "the log was redrawn"
+    assert page.evaluate("() => getSelection().toString()") == "SELECT-ME line two of the log"
+
+
+def test_the_ended_card_follows_a_change_of_zone(open_panel):
+    """The card is drawn once at the end and no poll touches it again, so "10:54 AM" stayed
+    on screen after the zone moved, or after `pullRemote` adopted another device's zone."""
+    page = _open_with_a_live_job(open_panel)
+    # A TOTAL, so the progress label holds a node: with none, `firstChild` is null and the
+    # check below passes for the one node a whole-card redraw would rewrite in a live region.
+    _end_the_job(page, _its_end("failed", error_summary=_A_503,
+                                fetch=_a_fetch(33, 91, "declared")))
+    assert _read(page, "#act-when") == "Started 25 Oct, 10:54 AM → 10:54 AM"
+    # ONLY THE TIME IS REWRITTEN: a redraw of the whole card took away whatever he had
+    # selected on it, and re-sent the progress label to its live region.
+    page.evaluate("""() => {
+        window.__kept = ["act-error", "act-progress-label", "act-state", "act-source",
+                         "act-counters"].map((id) => document.getElementById(id).firstChild);
+    }""")
+
+    page.evaluate("() => window.ScrapeXTime.set('America/New_York')")
+    page.wait_for_function(
+        "() => document.getElementById('act-when').textContent.includes('3:54')")
+    assert _read(page, "#act-when") == "Started 25 Oct, 3:54 AM → 3:54 AM"
+    assert page.evaluate("() => window.__kept.every((node) => !node || node.isConnected)"), (
+        "more than the time was rewritten")
+
+
+def test_a_new_job_resets_the_whole_ended_card(open_panel):
+    page = _open_with_a_live_job(open_panel, logs=[{"level": "info", "message": "a line"}])
+    _end_the_job(page, _its_end("failed", error_summary=_A_503))
+    _start_a_new_job(page)
+
+    for gone in ("#act-source", "#act-when", "#act-error"):
+        assert _hidden(page, gone), f"{gone} outlived the job it described"
+    assert not _hidden(page, ".act-progress")
+    assert _read(page, "#act-progress-label").startswith("10 of 50 requests")
+    assert _read(page, "#act-elapsed").startswith("elapsed")
+    page.wait_for_function(
+        "() => document.getElementById('log-caption').textContent.startsWith('Live log')")
+
+    # And a zone change now leaves it live: nothing redraws the job that ended.
+    page.evaluate("() => window.ScrapeXTime.set('America/New_York')")
+    page.wait_for_timeout(100)
+    assert "running" in _read(page, "#act-state")
+    assert _hidden(page, "#act-when")
+
+
+def test_a_running_job_is_drawn_as_it_always_was(open_panel):
+    """THE LIVE PATH DOES NOT CHANGE. The other tests here are about a job that ended; this
+    one holds the words of one that has not."""
+    page = _open_with_a_live_job(open_panel, logs=[{"level": "info", "message": "a line"}])
+    page.wait_for_function(
+        "() => document.getElementById('log-caption').textContent.startsWith('Live log')")
+    assert _read(page, "#act-state") == "running · fetching tvtc_training_plans"
+    assert _read(page, "#act-elapsed").startswith("elapsed")
+    assert _bar_moves(page)
+    assert _read(page, "#act-progress-label").startswith("2 requests so far")
+    for gone in ("#act-source", "#act-when", "#act-error"):
+        assert _hidden(page, gone)
+    assert page.text_content("#act-announce") == ""
+
+
+_NO_SLIDE = """(block) => {
+    document.getElementById("activity").scrollIntoView({block});
+    return {document: document.documentElement.scrollHeight,
+            viewport: document.documentElement.clientHeight,
+            scrolled: window.scrollY,
+            rail: Math.round(document.querySelector("nav.side-rail").getBoundingClientRect().top)};
+}"""
+
+
+@pytest.mark.parametrize("width,height", [(320, 320), (400, 600)])
+@pytest.mark.parametrize("ended", [False, True], ids=["live", "ended"])
+def test_a_scroll_to_activity_does_not_slide_the_panel(open_panel, width, height, ended):
+    """THE CARD CONTAINS ITS OWN ANNOUNCER. `.visually-hidden` is absolute, and with no
+    positioned ancestor #act-announce sat at its in-flow spot outside the view's scroller and
+    stretched the document. followStartedJob's and the mini-player's scrolls then slid the
+    whole panel up, rail and header with it, where no wheel could bring them back: rail top
+    -97, document 1112 against a 320 viewport, on a LIVE job as well."""
+    page = _open_with_a_live_job(open_panel, width=width, height=height)
+    if ended:
+        _end_the_job(page, _its_end("failed", error_summary=_A_503))
+    # AFTER THE ENTRY ANIMATION, OR THIS PASSES WITH THE RULE GONE. `showView` animates with
+    # a transform, and a transformed view is a containing block: until it settles it holds
+    # the announcer itself, and the document reads 320 where it reads 1014 a moment later.
+    settle_view(page, "run")
+    for block in ("start", "center"):
+        at = page.evaluate(_NO_SLIDE, block)
+        assert at["document"] == at["viewport"], f"{block}: the document is stretched: {at}"
+        assert at["scrolled"] == 0 and at["rail"] == 0, f"{block}: the panel slid: {at}"
+
+
+@pytest.mark.parametrize("ended,width,label", [
+    # An interpretation cancelled part-way: its own count, not requests.
+    (_its_end("cancelled", job_kind="dataset_interpret", counters={},
+              progress={"done": 300, "total": 909, "unit": "page pair(s)"},
+              fetch={"requests": 0, "expected": None, "basis": None, "as_of": None,
+                     "unknown_sources": [], "sources": {}}),
+     "33%", "300 of 909 page pair(s)"),
+    (_its_end("cancelled", fetch=_a_fetch(40, 91, "declared")),
+     "44%", "40 of 91 requests (44%) · the site's own page count"),
+], ids=["its-own-count", "requests"])
+def test_an_ended_bar_stops_at_how_far_the_job_got(open_panel, ended, width, label):
+    """472 of 472 cannot tell a full bar from a correct one, so these stopped part-way."""
+    page = _open_with_a_live_job(open_panel)
+    _end_the_job(page, ended)
+    assert page.evaluate("() => document.getElementById('act-bar').style.width") == width
+    assert _read(page, "#act-progress-label") == label
+
+
+def test_the_ended_card_keeps_the_jobs_rows_classes_and_a_live_announcer(open_panel):
+    """Each of these is the whole of a decision, and nothing else would notice it going:
+    the status message role (WCAG 2.2 SC 4.1.3), the two lines of his choice B, and the
+    Jobs row's size for its status line."""
+    page = _open_with_a_live_job(open_panel)
+    _end_the_job(page, _its_end("failed", error_summary=_A_503))
+    assert page.get_attribute("#act-announce", "role") == "status"
+    assert page.get_attribute("#act-announce", "aria-live") == "polite"
+    assert "visually-hidden" in page.get_attribute("#act-announce", "class").split()
+    assert "job-clamp" in page.get_attribute("#act-error", "class").split()
+    assert "text-xs" in page.get_attribute("#act-state .job-line", "class").split()
+    assert "text-xs" in page.get_attribute("#act-error", "class").split()
+    when = page.get_attribute("#act-when", "class").split()
+    assert "text-xs" in when and "muted" in when
+    # The status is the Jobs row's nodes, glyph and tone, not its words alone.
+    assert page.locator("#act-state .job-status.job-tone-destructive svg").count() == 1
+
+
+_GAPS = """() => {
+    const bottom = (id) => document.getElementById(id).getBoundingClientRect().bottom;
+    const next = ["act-progress", "act-error", "act-counters"]
+      .map((id) => id === "act-progress" ? document.querySelector(".act-progress")
+                                         : document.getElementById(id))
+      .find((el) => !el.classList.contains("hidden"));
+    const margin = (id) => getComputedStyle(document.getElementById(id)).marginTop;
+    const reason = document.getElementById("act-error");
+    const counters = document.getElementById("act-counters").getBoundingClientRect().top;
+    return {underTime: Math.round(next.getBoundingClientRect().top - bottom("act-when")),
+            underReason: reason.classList.contains("hidden") ? null
+              : Math.round(counters - bottom("act-error")),
+            source: margin("act-source"), when: margin("act-when")};
+}"""
+
+
+@pytest.mark.parametrize("ended", [
+    _its_end("cancelled"),
+    _its_end("completed", fetch=_a_fetch(91, 91, "declared")),
+    _its_end("failed", error_summary=_A_503),
+    _its_end("failed", error_summary=_A_503, fetch=_a_fetch(33, 91, "declared")),
+], ids=["no-total-no-reason", "a-bar", "a-reason", "a-bar-and-a-reason"])
+def test_the_ended_card_is_spaced_in_every_state(open_panel, ended):
+    """With no total and no reason, the common end of a source's first crawl, the time line
+    touched the counters: 0 px, against 8 px with a bar or a reason."""
+    page = _open_with_a_live_job(open_panel)
+    _end_the_job(page, ended)
+    settle_view(page, "run")
+    at = page.evaluate(_GAPS)
+    assert at["underTime"] == 8, f"under the time line: {at}"
+    assert at["underReason"] in (None, 8), f"under the reason: {at}"
+    assert at["source"] == at["when"] == "4px", f"the Jobs row's row-gap: {at}"
+
+
+def test_an_ended_job_is_named_even_when_the_sources_come_late(open_panel):
+    """The card is drawn once and never again. Opened on Data, with /api/sources 800 ms slower
+    than the job, it named the job `muqawil_org` for good and said so aloud, where the Jobs
+    row says `muqawil.org`."""
+    page = open_panel(jobs=[], view="data", route_delays={"/api/sources": 800})
+    page.wait_for_selector('.dataset-card[data-open="contractors"]', timeout=5_000)
+    page.evaluate(_QUEUES_WHAT_IS_POSTED, [None, 0])
+    page.evaluate("(job) => { ROUTES['/api/jobs/job_stub'] = job; }",
+                  _card_job("directory_crawl", status="failed", stage=None))
+    _press_on_the_card(page, "update")
+    page.wait_for_function(
+        "() => !document.getElementById('act-source').classList.contains('hidden')",
+        timeout=8_000)
+    assert _read(page, "#act-source .source-identity-domain") == "muqawil.org"
+    page.wait_for_function("() => document.getElementById('act-announce').textContent")
+    assert page.text_content("#act-announce") == "Listing crawl · muqawil.org: failed"
+
+
+def test_a_failed_read_hides_the_card_and_a_change_of_zone_leaves_it_hidden(open_panel):
+    page = _open_with_a_live_job(open_panel)
+    _end_the_job(page, _its_end("failed", error_summary=_A_503))
+    page.evaluate("""() => {
+        delete ROUTES["/api/jobs"];
+        document.dispatchEvent(new Event("visibilitychange"));
+    }""")
+    page.wait_for_function("() => document.getElementById('activity').classList.contains('hidden')",
+                           timeout=8_000)
+    page.evaluate("() => window.ScrapeXTime.set('America/New_York')")
+    page.wait_for_timeout(100)
+    assert _hidden(page, "#activity"), "a change of zone brought the card back"
+
+
+def test_a_live_status_is_worded_as_everywhere_else(open_panel):
+    """`statusWords` is the one rule for a status's words, and Activity and the mini-player are
+    on one screen with the Jobs row. `requires_review` is the live status with an underscore."""
+    page = open_panel(jobs=[_a_live_job(status="requires_review", stage=None)], view="run",
+                      sources=_ACTIVITY_SOURCES)
+    page.wait_for_function(
+        "() => !document.getElementById('activity').classList.contains('hidden')")
+    assert _read(page, "#act-state").startswith("requires review")
+    assert _read(page, "#mini-title").endswith("— requires review")

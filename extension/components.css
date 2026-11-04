@@ -106,6 +106,22 @@ svg {
   font-size: var(--fs-sm);
 }
 
+/* HEADING-META, Supabase's label for a section or a value (#713):
+   `text-xs font-mono uppercase tracking-wider font-medium`
+   (packages/config/typography.css@86c813ec:22-24), with text-xs's paired line-height
+   (--lh-xs). It sets no colour: Studio composes it with foreground-light in 19 of its 21
+   uses, so a label here carries `heading-meta muted`. A page's own label class keeps only its
+   layout. tests/test_a_meta_label_is_supabases_heading_meta.py holds both. */
+.heading-meta {
+  font-family: var(--font-mono);
+  --fw-regular: var(--fw-regular-mono);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-xs);
+  font-weight: var(--fw-medium);
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+
 .text-block {
   display: block;
 }
@@ -497,7 +513,7 @@ button.danger:hover:not(:disabled),
    confirms a switch being turned off with it (CronJobTableCell.tsx@86c813ec:210-253). */
 button.warning,
 .button.warning {
-  border-color: color-mix(in srgb, var(--amber) 30%, transparent);
+  border-color: var(--border-warning);
   background: var(--warning-button);
   color: var(--text);
 }
@@ -1019,6 +1035,28 @@ samp,
   --fw-regular: var(--fw-regular-mono);
 }
 
+/* HEADINGS (#751), Supabase's: every h1-h6 outside a mono context draws the heading face
+   at 600 (apps/design-system/styles/globals.css@86c813ec:120-133), at typography.css's
+   per-level sizes (packages/config/typography.css@86c813ec:53-74), with Tailwind's paired
+   line-heights (the --lh-* tokens) and h1's tracking-tight (theme.css@v4.2.4:385). Supabase
+   puts the sizes in @layer base, under every utility; here a heading's own size rule wins
+   the same way, by coming later or being more specific. A mono heading inherits its
+   parent's weight (preflight's `inherit`; #752): one carrying .tech or .code by the rule
+   after this one, and the data model's, which carries neither, by setting
+   `font-weight: inherit` in a later sheet (scrapex/webui/static/pages/data-model.css).
+   tests/test_the_headings_draw_in_supabases_face.py measures every heading. */
+h1:not(.tech, .code), h2:not(.tech, .code), h3:not(.tech, .code),
+h4:not(.tech, .code), h5:not(.tech, .code), h6:not(.tech, .code) {
+  font-family: var(--font-heading);
+  font-weight: var(--fw-bold);
+}
+:is(h1, h2, h3, h4, h5, h6):is(.tech, .code) { font-weight: inherit; }
+h1 { font-size: var(--fs-xl); line-height: var(--lh-2xl); letter-spacing: -0.025em; }
+h2 { font-size: var(--fs-lg); line-height: var(--lh-xl); }
+h3 { font-size: var(--fs); line-height: var(--lh); }
+h4, h5 { font-size: var(--fs-sm); line-height: var(--lh-sm); }
+h6 { font-size: var(--fs-xs); line-height: var(--lh-xs); }
+
 .page-header {
   display: flex;
   align-items: flex-end;
@@ -1029,27 +1067,20 @@ samp,
 
 .page-heading {
   min-width: 0;
-  /* The heading face. Defaults to var(--font), so a design system that sets one
-     face changes nothing here and one that PAIRS two -- Supabase pairs Manrope
-     with Inter -- gets the pairing without every heading rule learning a second
-     token name. */
+  /* The h1 here takes the heading face from the h1-h6 rule above, and .page-eyebrow its face
+     from .heading-meta. This line reaches only the .page-description beside them, which draws
+     Inter on the pages that leave out this wrapper (#1979). */
   font-family: var(--font-heading);
 }
 
 .page-eyebrow {
   display: block;
   margin-bottom: var(--sp-1);
-  color: var(--accent-ink);
-  font-size: var(--fs-xs);
-  font-weight: 750;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
 }
 
 .page-title {
   margin: 0;
   font-size: clamp(1.65rem, 3vw, 2.1rem);
-  letter-spacing: -0.025em;
 }
 
 .page-description {
@@ -1242,11 +1273,6 @@ button::before,
 .appearance-popover-eyebrow {
   display: block;
   margin-bottom: var(--sp-1);
-  color: var(--on-primary-container);
-  font-size: var(--fs-2xs);
-  font-weight: var(--fw-bold);
-  letter-spacing: .08em;
-  text-transform: uppercase;
 }
 
 .appearance-status {
@@ -1882,7 +1908,6 @@ button::before,
   margin: 0;
   color: var(--text);
   font-size: var(--fs-lg);
-  font-weight: var(--fw-regular);
   letter-spacing: normal;
   text-transform: none;
   overflow-wrap: break-word;

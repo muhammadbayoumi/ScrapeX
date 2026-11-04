@@ -4,7 +4,7 @@
 {% block content %}
 <header class="page-header">
   <div class="page-heading">
-    <span class="page-eyebrow">Intelligence</span>
+    <span class="page-eyebrow heading-meta muted">Intelligence</span>
     <h1 class="page-title">Changes</h1>
     <p class="page-description">Review new records, price movements, availability updates,
       and the evidence behind each detected change.</p>
@@ -16,7 +16,7 @@
   <div>
     {% for kind, n in summary.items() %}
       <span class="chip {% if 'increase' in kind %}amber{% elif kind == 'new' %}accent{% endif %}">
-        {{ n }} {{ kind.replace("_", " ") }}</span>
+        {{ n }} {{ change_words.get(kind, kind.replace("_", " ")) }}</span>
     {% endfor %}
   </div>
 {% endif %}
@@ -50,7 +50,7 @@
           if c.unit and c.field_label == "price" and c.display_new %}<span class="per">/ {{ c.unit }}</span>{% endif %}</td>
         <td class="num">{{ c.display_change or "—" }}</td>
         <td><span class="chip {% if 'increase' in c.change_type %}amber{% elif c.change_type == 'new' %}accent{% endif %}">
-          {{ c.change_type.replace("_", " ") }}</span></td>
+          {{ change_words.get(c.change_type, c.change_type.replace("_", " ")) }}</span></td>
       </tr>
     {% endfor %}
     </tbody>

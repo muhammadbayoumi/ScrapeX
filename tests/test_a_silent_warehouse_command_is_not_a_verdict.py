@@ -667,12 +667,20 @@ def test_overlapping_ticks_end_the_restart_once(open_panel):
 def test_a_slow_answer_from_the_engine_that_came_back_is_taken_once(open_panel):
     """The other half of the same overlap: when the successor answers, every tick
     still in flight sees it answer, and each said "The engine is back." and redrew
-    the panel."""
+    the panel.
+
+    THE SUCCESSOR IS A DIFFERENT ENGINE, with a later `build.sealed_at`. This stub
+    used to answer as the very engine that was asked to leave, which the panel now
+    rightly refuses to call back (#1517)."""
     page = open_panel(host={"CHECK_STARTUP": {"after": 0, "reply": FOUND_CURRENT}},
                       record=("engine-restart-note",))
     page.evaluate(NEVER_BACK.replace(
         'return Promise.reject(new TypeError("Failed to fetch"));',
-        'return new Promise((ok) => setTimeout(ok, 2000)).then(() => real(url, options));'))
+        'return new Promise((ok) => setTimeout(ok, 2000))'
+        '.then(() => real(url, options)).then((answer) => answer.json())'
+        '.then((body) => new Response(JSON.stringify({...body, build: {...body.build,'
+        ' sealed_at: "2026-10-20T09:00:00.000001+00:00"}}), {status: 200,'
+        ' headers: {"Content-Type": "application/json"}}));'))
     page.click('nav.side-rail button[data-view="engines"]')
     page.click('#view-engines .engine-row[data-engine-id="scrapex-engine"]')
     page.wait_for_selector("#view-engine-detail:not(.hidden)", timeout=10_000)

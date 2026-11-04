@@ -49,12 +49,12 @@ categories; price is one of them, not the whole tool.**
   `extension/transport.js` sends `START_ENGINE` and `scrapex/native.py` obeys; the engine
   launches nothing. Every app is started that same way, through the one native host, so no
   app depends on another and dropping one costs nothing.
-- **An app brings its own way of working, and holds only the permissions it needs.**
-  Adding a project like Scrapy is worth it for its own network path and concurrency, not
-  to be wrapped in ours; ours grows where the external ones do not serve and neither
-  pauses the other. Choose per run by measured performance, not by authorship. More
-  permission than an app needs is a defect to fix, not a status to keep. Extending is an
-  entry in a registry, not a new module: `scrapex/connectors/factory.py`,
+- **An app brings its own way of working, and holds only the permissions it needs.** An
+  external engine takes only the source's information and where to store, and shares no
+  rule with us: requests, pace, concurrency, robots, agent and retries are its own design.
+  Ours grows where it does not serve and neither pauses the other. Choose per run by
+  measured performance, not by authorship. More permission than an app needs is a defect
+  to fix. Extending is a registry entry, not a new module: `scrapex/connectors/factory.py`,
   `scrapex/directories.py`, `scrapex/enrichment/providers/__init__.py`.
 - **The warehouse write permission is exclusive, and the panel cannot hold it.** One
   writer at a time, whichever app it is; the engine holds the write lock, and a second
@@ -112,12 +112,13 @@ categories; price is one of them, not the whole tool.**
   *skipped* until `pip install -e .[dev,browser]` and `python -m playwright install
   chromium`.
 - **Integration tests run the real `db/engine/schema.sql`**, never a fixture schema.
-- **Respect the politeness budget.** A crawl that hammers a site is a defect, and
-  `crawl_obey_disallow` ships at `0` (`scrapex/settings.py:99`): never set a source
-  `active: true`, or leave `robots` at its default, without his word.
+- **ScrapeX's engine respects the politeness budget.** A crawl that hammers a site is a
+  defect, and `crawl_obey_disallow` ships at `0` (`scrapex/settings.py:99`): never set a
+  source `active: true`, or leave `robots` at its default, without his word.
 - **A source is studied before anything is built from it, to one standard**: the
   **`study-a-source` skill**, and the study lands in an issue. One domain is one source,
-  always; its datasets divide inside it.
+  always; its datasets divide inside it. Every source he names shows on Run from then on,
+  inactive, until it is studied and built.
 - **Never start a run you cannot watch to the end.** A crawl outlasts a session and holds
   the write lock while it runs.
 

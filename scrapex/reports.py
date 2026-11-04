@@ -212,6 +212,12 @@ def browse_google_finance_rates(conn: sqlite3.Connection, *,
     return BrowsePage(rows=rows, total=total, offset=offset, limit=limit)
 
 
+# What the Availability column says. An observation is what the shop stated on a
+# day, so a product gone from the listing is not a value of po.availability: it is
+# the product's own state, and it speaks for the row where the row is shown (#1841).
+_SHOWN_AVAILABILITY = ("CASE WHEN sp.status = 'vanished' THEN 'no_longer_listed' "
+                       "ELSE po.availability END")
+
 # One row per offer = its LATEST observation (current price), reused by browse+count.
 _LATEST_PER_OFFER = (
     "FROM price_observation po "
@@ -274,8 +280,18 @@ def price_unit(unit_code: str | None, basis_quantity: float | None = 1) -> str:
     return f"{quantity} {unit_code}"
 
 
+def _fractional(quantity) -> bool:
+    """True when the shop states a quantity that is not a whole number."""
+    try:
+        number = float(quantity)
+    except (TypeError, ValueError):
+        return False
+    return number > 0 and not number.is_integer()
+
+
 def price_basis(unit_code: str | None, weight, weight_unit: str | None,
-                quantity_is_decimal) -> str:
+                quantity_is_decimal, minimum_quantity,
+                quantity_increment) -> str:
     """'1,000 kg' — the WEIGHT a price is quoted against, when the source
     quotes it that way and names no unit. "" in every other case.
 
@@ -299,12 +315,14 @@ def price_basis(unit_code: str | None, weight, weight_unit: str | None,
     and promoting it would make the same 109 offers disagree with each other
     about a fact none of them states.
 
-    So the Unit column beside this one stays EMPTY, because empty is the honest
-    answer to "what unit did the shop state?", and what a reader sees here is
-    two facts the shop did publish, side by side: its weight and its own word
-    for the unit that weight is in. Nobody's inference is on screen.
+    So this function fills no Unit column, because empty is the honest answer
+    where the shop stated none, and what a reader sees here is two facts the
+    shop did publish, side by side: its weight and its own word for the unit
+    that weight is in. Nobody's inference is on screen. Where the shop later
+    states a unit in words, its charter puts that on the row (#1833), and rule 1
+    below means this function is never reached for it.
 
-    THREE CONDITIONS, and all three are the SOURCE's:
+    FOUR CONDITIONS, and all four are the SOURCE's:
 
     1. The source states no selling unit. If it does, that IS the answer and
        price_unit() already gives it — riyadh cement says «50كجم» in the name
@@ -319,6 +337,13 @@ def price_basis(unit_code: str | None, weight, weight_unit: str | None,
     3. The source publishes a weight AND the unit of its weights. Both or
        neither: a number whose unit we failed to read is not shown as a bare
        number (ingest._quantity_facts stores the pair or nothing).
+    4. The source sells a FRACTION of that weight: its minimum or its step is
+       not a whole number. The owner's ruling of 2026-10-26 (#1833, option B).
+       is_qty_decimal alone let madar's steel mesh through, whose 17 decimal
+       children weigh 5.9 to 61.7 kg each and are sold 1 at a time in steps of
+       1: that weight is one sheet's mass, and printing "/ 5.918 kg" beside a
+       sheet's price named a basis nobody quotes. The rebar's 0.25 / 0.05 is
+       a fraction OF the 1,000 kg, and is what makes that weight a basis.
 
     Kept apart from price_unit() rather than folded into it because the two
     answer different questions and one of them has to be allowed to answer
@@ -328,6 +353,8 @@ def price_basis(unit_code: str | None, weight, weight_unit: str | None,
     if unit_code:
         return ""
     if not quantity_is_decimal:
+        return ""
+    if not (_fractional(minimum_quantity) or _fractional(quantity_increment)):
         return ""
     if not weight_unit:
         return ""
@@ -477,7 +504,7 @@ def _browse_filters(search: str | None, availability: str | None,
             params.append(code)
         clause += ")"
     if availability:
-        clause += " AND po.availability = ?"
+        clause += f" AND {_SHOWN_AVAILABILITY} = ?"
         params.append(availability)
     # Per-column filters. Built by iterating FILTERABLE, never the caller's dict,
     # so an unknown key cannot reach SQL even if one slipped past parse_filters.
@@ -523,7 +550,7 @@ FILTERABLE: dict[str, tuple[str, str]] = {
     "variant": ("sv.variant", "text"),
     "sku": ("sv.external_sku", "text"),
     "price": ("po.price", "number"),
-    "availability": ("po.availability", "exact"),
+    "availability": (_SHOWN_AVAILABILITY, "exact"),
     "price_changed_on": ("po.business_date", "date"),
     "last_confirmed_on": ("ost.last_confirmed_at", "date"),
     "curation": ("sp.curation", "exact"),
@@ -599,7 +626,7 @@ def browse_observations(conn: sqlite3.Connection, source_key: str, *, search: st
     total = int(conn.execute(f"SELECT COUNT(*) {_LATEST_PER_OFFER}{filt}", base_params).fetchone()[0])
     rows = conn.execute(
         "SELECT sp.product_name_ar, sv.variant_ar, sv.external_sku, po.price, "
-        "       po.price_before, po.price_sale, po.currency, po.availability, po.tax_included, "
+        f"       po.price_before, po.price_sale, po.currency, {_SHOWN_AVAILABILITY}, po.tax_included, "
         "       po.business_date, sp.product_link, sp.curation, so.country_code_alpha2, "
         "       ost.last_confirmed_at, su.unit_code, so.basis_quantity, so.offer_id, "
         # Appended LAST: every index above is positional. The tax rules are
@@ -611,7 +638,10 @@ def browse_observations(conn: sqlite3.Connection, source_key: str, *, search: st
         # the shop's own word for its unit, plus the flag that says the shop
         # sells this by a divisible quantity — three facts that only mean
         # something together, so they travel together.
-        "       so.quantity_is_decimal, so.weight, so.weight_unit "
+        "       so.quantity_is_decimal, so.weight, so.weight_unit, "
+        # Appended LAST again: the minimum and the step say whether that weight
+        # is a basis sold in fractions or one piece's own mass (#1833).
+        "       so.minimum_quantity, so.quantity_increment "
         f"{_LATEST_PER_OFFER}{filt} {_order_by(sort, direction)} LIMIT ? OFFSET ?",
         [*base_params, limit, offset],
     ).fetchall()
@@ -630,7 +660,7 @@ def browse_observations(conn: sqlite3.Connection, source_key: str, *, search: st
          # ...and where the source states NO unit but does state a weight it
          # prices by, what that weight is. The two never both fill: a stated
          # unit is the answer, and this is what stands in when there is none.
-         "price_basis": price_basis(r[14], r[20], r[21], r[19]),
+         "price_basis": price_basis(r[14], r[20], r[21], r[19], r[22], r[23]),
          # Resolved per ROW because one source can hold a different tax position
          # per country. Rules are loaded once above, never queried per row.
          # for_row() then reads that evidence for THIS figure: the rule owns the
@@ -917,7 +947,7 @@ def column_presence(conn: sqlite3.Connection, source_key: str) -> set[str]:
         # 'unknown' is a non-empty string that states nothing. Counting it as
         # present gave GPP a Status column reading "Unknown" on all 721 rows —
         # a column of noise. No information is not information.
-        "       COUNT(NULLIF(NULLIF(TRIM(COALESCE(po.availability,'')),''),'unknown')), "
+        f"       COUNT(NULLIF(NULLIF(TRIM(COALESCE({_SHOWN_AVAILABILITY},'')),''),'unknown')), "
         "       COUNT(NULLIF(TRIM(COALESCE(po.official_source_name,'')),'')), "
         "       COUNT(NULLIF(TRIM(COALESCE(sp.brand,'')),'')), "
         "       SUM(CASE WHEN po.price_before > po.price THEN 1 ELSE 0 END), "
@@ -1081,7 +1111,9 @@ _EXPORT_SELECT: dict[str, str] = {
     "price_sale": "po.price_sale",
     "price_trade": "po.price_trade",
     "currency": "po.currency",
-    "availability": "po.availability",
+    # The Sheet carries the same mark as the table, in the column it already has:
+    # his ruling on #1841.
+    "availability": _SHOWN_AVAILABILITY,
     "tax_included": "po.tax_included",
     "business_date": "po.business_date",
     "product_link": "sp.product_link",
@@ -1095,6 +1127,9 @@ _EXPORT_SELECT: dict[str, str] = {
     "quantity_is_decimal": "so.quantity_is_decimal",
     "weight": "so.weight",
     "weight_unit": "so.weight_unit",
+    # ...and whether the shop sells a FRACTION of that weight (#1833).
+    "minimum_quantity": "so.minimum_quantity",
+    "quantity_increment": "so.quantity_increment",
     "brand": "sp.brand",
     "brand_ar": "sp.brand_ar",
     "category_path": "sp.category_path_ar",
@@ -1191,7 +1226,9 @@ EXPORT_COLUMNS: list[tuple[str, Callable[[dict, object], object]]] = [
     # the export is the record leaving the building.
     ("price_basis", lambda r, s: price_basis(r["unit_code"], r["weight"],
                                              r["weight_unit"],
-                                             r["quantity_is_decimal"])),
+                                             r["quantity_is_decimal"],
+                                             r["minimum_quantity"],
+                                             r["quantity_increment"])),
     ("price_before", lambda r, s: _or_blank(r["price_before"])),
     ("price_sale", lambda r, s: _or_blank(r["price_sale"])),
     ("price_trade", lambda r, s: _or_blank(r.get("price_trade"))),
@@ -1654,7 +1691,7 @@ def price_extremes(conn: sqlite3.Connection, source_key: str, limit: int = 50) -
         "JOIN source_variant sv ON sv.source_variant_id = so.source_variant_id "
         "JOIN source_product sp ON sp.source_product_id = sv.source_product_id "
         "JOIN source_site ss ON ss.source_id = sp.source_id "
-        "WHERE ss.source_key = ? AND sv.status = 'active' "
+        "WHERE ss.source_key = ? AND sv.status = 'active' AND so.status = 'active' "
         f"AND po.currency = {current_currency} "
         "GROUP BY so.offer_id "
         "ORDER BY sp.product_name_ar, so.country_code_alpha2 LIMIT ?",
@@ -1717,7 +1754,8 @@ def offer_identity(conn: sqlite3.Connection, source_key: str,
         "       ss.source_key, sp.product_name, sv.variant, "
         # Appended LAST: the inspector prints the price too, so it needs the
         # same basis the table cell shows or the panel and the row disagree.
-        "       so.quantity_is_decimal, so.weight, so.weight_unit "
+        "       so.quantity_is_decimal, so.weight, so.weight_unit, "
+        "       so.minimum_quantity, so.quantity_increment "
         "FROM source_offer so "
         "JOIN source_variant sv ON sv.source_variant_id = so.source_variant_id "
         "JOIN source_product sp ON sp.source_product_id = sv.source_product_id "
@@ -1732,7 +1770,8 @@ def offer_identity(conn: sqlite3.Connection, source_key: str,
             "sku": row[2] or "",
             "country_code_alpha2": row[3] or "", "country": region_name(row[3]),
             "currency": row[4], "unit": price_unit(row[5], row[6]),
-            "price_basis": price_basis(row[5], row[12], row[13], row[11]),
+            "price_basis": price_basis(row[5], row[12], row[13], row[11],
+                                       row[14], row[15]),
             "product_link": row[7] or "", "source_key": row[8],
             "offer_id": offer_id}
 
@@ -2089,7 +2128,7 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
     total = int(conn.execute(f"SELECT COUNT(*) {_LATEST_PER_OFFER}", (source_key,)).fetchone()[0])
     rows = conn.execute(
         "SELECT sp.product_name_ar, sv.variant_ar, sv.external_sku, po.price, "
-        "       po.price_before, po.price_sale, po.currency, po.availability, "
+        f"       po.price_before, po.price_sale, po.currency, {_SHOWN_AVAILABILITY}, "
         "       po.business_date, sp.product_link, sp.curation, so.country_code_alpha2, "
         "       ost.last_confirmed_at, su.unit_code, so.basis_quantity, so.offer_id, "
         "       po.official_source_name, po.official_source_link, sp.brand, "
@@ -2195,8 +2234,8 @@ def table_payload(conn: sqlite3.Connection, source_key: str,
                # The price cell renders this when the Unit column is empty. It
                # is NOT a unit and must never fill that column: it is the
                # weight the shop publishes for the thing it is pricing, shown
-               # because the shop also says the quantity is divisible.
-               "price_basis": price_basis(r[13], r[39], r[40], r[38]),
+               # because the shop also sells fractions of it.
+               "price_basis": price_basis(r[13], r[39], r[40], r[38], r[-3], r[-2]),
                "official_source": r[16] or "",
                "official_source_link": r[17] or "",
                "brand": r[18] or "",
@@ -2457,13 +2496,14 @@ COLUMN_NOTES: dict[str, str] = {
     "unit": "What one price BUYS: a litre, a 50 kg bag, a 100 m roll. "
             "Empty when the source states no unit — never guessed.",
     "price_basis": "The WEIGHT a price is quoted against, where the source "
-                   "prices by weight and names no unit: madar's rebar is "
-                   "4,830 per 1,000 kg, and per bar it would be nonsense. "
-                   "Both numbers are the shop's — its published weight and "
-                   "its own word for the unit of that weight. Empty wherever "
-                   "the Unit column is filled, and wherever the source does "
-                   "not say its quantity is divisible.",
-    "availability": "In stock or out, as the source states it.",
+                   "names no unit and sells a fraction of that weight: 4,830 "
+                   "per 1,000 kg, which per bar would be nonsense. Both numbers "
+                   "are the shop's — its published weight and its own word for "
+                   "the unit of that weight. Empty wherever the Unit column is "
+                   "filled, and wherever the source's minimum and step are whole "
+                   "numbers, because then the weight is one piece's own mass.",
+    "availability": "In stock or out, as the source states it, or no longer listed where "
+                    "a complete crawl did not find the product.",
     "tax": "Whether THIS figure includes tax, and at what rate.",
     "tax_included": "The same fact as yes/no, for a spreadsheet.",
     "tax_evidence": "How well the tax position is known: stated, implied, unknown.",
@@ -2811,12 +2851,14 @@ _TABLE_BY_ALIAS = {
 }
 
 _COMPUTED_FROM: dict[str, str] = {
+    "availability": "price_observation.availability, or no_longer_listed by source_product.status",
     "category": "source_product.category_path",
     "category_ar": "source_product.category_path_ar",
     "variant": "source_variant.variant",
     "unit": "selling_unit + source_offer.basis_quantity",
     "price_basis": ("source_offer.weight + weight_unit, shown only where "
-                    "quantity_is_decimal and no selling_unit"),
+                    "quantity_is_decimal, a fractional minimum_quantity or "
+                    "quantity_increment, and no selling_unit"),
     "discount": "computed: price_observation.price_before − price",
     "discount_pct": "computed: the same two prices, as a percentage",
     "price_usd": "computed: price_observation × currency_rate",

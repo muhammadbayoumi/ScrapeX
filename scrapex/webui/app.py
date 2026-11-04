@@ -55,7 +55,7 @@ from .. import db as dbmod
 from .. import version as engine_version
 from ..capture import capture_source, crawl_settings
 from ..catalog_models import SiteCreate
-from ..changes import change_summary, recent_changes
+from ..changes import CHANGE_TYPE_WORDS, change_summary, recent_changes
 from ..config import (
     RefusedHostError,
     SourceEntry,
@@ -124,6 +124,7 @@ from ..outputs import (
     excel_status,
     rotate_funnel_token,
 )
+from ..paths import name_inside
 from ..payload import utc_now_iso
 from ..probe import probe as probe_url
 from ..publish import UnexportableCell, workbook_tables
@@ -172,6 +173,7 @@ from ..storage import (
     free_space,
     list_backups,
     list_bundles,
+    listed_backup,
     migrate_location,
     open_folder,
     reconcile_active,
@@ -1844,6 +1846,7 @@ def create_app(
                          changes=recent_changes(conn, source_key, limit=limit),
                          extremes=price_extremes(conn, source_key, limit=2000) if source_key else [],
                          offers=_offers_with_history(conn, source_key) if source_key else [],
+                         change_words=CHANGE_TYPE_WORDS,
                           sources=_display_sources(conn))
         finally:
             conn.close()
@@ -2800,7 +2803,10 @@ def create_app(
         exactly: a button must not quietly mean something different from the
         command that does the same job.
         """
-        if source_key not in {s.source_key for s in app.state.manifest.sources}:
+        # THE MANIFEST'S OWN KEY GOES ON, never the request's: it names a backup file.
+        source = next((s for s in app.state.manifest.sources
+                       if s.source_key == source_key), None)
+        if source is None:
             raise HTTPException(status_code=404, detail=f"unknown source {source_key!r}")
         if not bool((body or {}).get("confirm")):
             raise HTTPException(
@@ -2814,7 +2820,7 @@ def create_app(
         with dbmod.write_lock(app.state.db_path):
             conn = _write_conn()
             try:
-                result = wipe_source(conn, app.state.db_path, source_key)
+                result = wipe_source(conn, app.state.db_path, source.source_key)
                 conn.commit()
             finally:
                 conn.close()
@@ -3498,7 +3504,7 @@ def create_app(
             "JOIN source_variant sv ON sv.source_variant_id = so.source_variant_id "
             "JOIN source_product sp ON sp.source_product_id = sv.source_product_id "
             "JOIN source_site ss ON ss.source_id = sp.source_id "
-            "WHERE ss.source_key = ? GROUP BY so.offer_id "
+            "WHERE ss.source_key = ? AND so.status = 'active' GROUP BY so.offer_id "
             "HAVING COUNT(pp.price_period_id) > 1 "
             "ORDER BY periods DESC, sp.product_name_ar LIMIT 50", (source_key,))]
 
@@ -3689,12 +3695,10 @@ def create_app(
             finally:
                 conn.close()
             try:
-                offered = {Path(entry["path"]).resolve()
-                           for entry in list_backups(app.state.db_path, where)}
-                chosen = Path(asked).resolve()
+                chosen = listed_backup(asked, list_backups(app.state.db_path, where))
             except OSError:
-                offered, chosen = set(), None
-            if chosen is None or chosen not in offered:
+                chosen = None
+            if chosen is None:
                 raise HTTPException(
                     status_code=400,
                     detail=("ScrapeX checks only a backup it listed for this "
@@ -4287,7 +4291,7 @@ def create_app(
         finally:
             conn.close()
         folder.mkdir(parents=True, exist_ok=True)
-        archive = folder / f"{RECEIVED_PREFIX}{sha256[:16]}.zip"
+        archive = name_inside(folder, f"{RECEIVED_PREFIX}{sha256[:16]}.zip")
         partial = archive.with_name(archive.name + bundle.PARTIAL_SUFFIX)
 
         if not _receive_lock.acquire(blocking=False):

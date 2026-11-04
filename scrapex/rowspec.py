@@ -155,14 +155,16 @@ PRODUCT_PRICES = RowSpec(
         # madar's rebar is why. Every member declares is_qty_decimal, weight
         # 1000, a 0.25 minimum in 0.05 steps — and the Ø8 member costs 4,830
         # while the Ø32 costs 4,045, which is impossible per piece and exactly
-        # right per tonne. But the shop never writes «طن»: verified 2026-07-29
+        # right per tonne. On 2026-07-29 the shop wrote «طن» nowhere: verified
         # across member and parent attributes, description, short_description,
         # every meta field, both category descriptions, both store views and the
-        # full 932KB rendered page — 0 occurrences, and the quantity box is
+        # full 932KB rendered page — 0 occurrences, and the quantity box was
         # labelled «الكمية» and nothing else. So the OWNER's ruling is recorded
         # here as it was given: «الحقائق الخام فقط» — store what the site
         # publishes, let the display layer render "per 1,000 kg", and never let
-        # a connector write a unit the shop did not say.
+        # a connector write a unit the shop did not say. By 2026-10-25 its
+        # descriptions said «يباع بالطن», and the unit comes from those words,
+        # through the charter in sources.yaml, never from these numbers.
         "minimum_quantity",      # min_sale_qty: the smallest orderable amount
         "quantity_increment",    # qty_increments: the step it moves in
         "quantity_is_decimal",   # "0" | "1" — is_qty_decimal, as a FACT

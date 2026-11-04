@@ -220,6 +220,11 @@ class ScrapedTable:
     # skip_tokens on resume, so a paused 400-page crawl re-fetches only what
     # it has not already fetched.
     page_token: str = ""
+    # Products this table's connector met and deliberately did not emit. Not in
+    # to_payload, like warnings. A complete crawl marks what it did not find as
+    # no longer listed (ingest.mark_unlisted_products), and a product it refused
+    # is on the site all the same: madar's "publishes a price RANGE" is not gone.
+    refused_products: list[str] = field(default_factory=list)
     # Exchange rates the SITE ITSELF publishes: ISO code -> units per USD.
     # A storefront that prices for more than one country prints the rate it
     # converts with in its own page bootstrap. That number is a fact ABOUT THE
