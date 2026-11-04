@@ -545,6 +545,10 @@ def run_dataset_interpret_job_once(conn: sqlite3.Connection, job_ref: str,
 
     started = time.monotonic()
     read_to_the_end: dict[str, int] = {}
+    # WHAT THE WALK REFUSED, AGAINST WHAT IT READ AND WROTE (#1738), so its ending can say
+    # whether anything was stored. Page pairs, the unit `approve` counts in.
+    tally = {"pairs": 0, "made": 0, "refused": 0}
+    first_refusal: tuple[str, str] | None = None
     for position, (ref, _rows) in enumerate(plan, start=1):
         run_ref = ref
         if len(plan) > 1:
@@ -554,8 +558,8 @@ def run_dataset_interpret_job_once(conn: sqlite3.Connection, job_ref: str,
             conn.commit()
         try:
             with contractors.lines_go_to(note):
-                contractors.approve(conn, directory, ref,
-                                    between_pages=page_closed)
+                result = contractors.approve(conn, directory, ref,
+                                             between_pages=page_closed)
         except contractors.CrawlStopped:
             # NOT AN ERROR, AND NOT SILENT EITHER. `page_closed` has already written the
             # status and said where it stopped. THE RUN IT STOPPED INSIDE IS NOT
@@ -569,6 +573,12 @@ def run_dataset_interpret_job_once(conn: sqlite3.Connection, job_ref: str,
             raise
         if stopped:
             return jobs.get_job(conn, job_ref)
+        refused_here = len({key for key, _why in result.refused})
+        tally["pairs"] += result.pairs
+        tally["made"] += result.made
+        tally["refused"] += refused_here
+        if result.refused and first_refusal is None:
+            first_refusal = result.refused[0]
         # RECORDED AFTER THE RUN, NOT BEFORE, and committed on its own: a walk that
         # fails on run 7 keeps runs 1 to 6 out of the next walk, and run 7 in it.
         #
@@ -580,8 +590,20 @@ def run_dataset_interpret_job_once(conn: sqlite3.Connection, job_ref: str,
         # (An earlier version of this comment opened by claiming the size is RE-READ here.
         # It is not, and it never was -- `_rows` is unpacked from `plan`. The rest of the
         # paragraph argued for the plan's value while its first clause denied it.)
-        read_to_the_end[ref] = _rows
-        _remember_runs_read(conn, job["job_id"], read_to_the_end)
+        #
+        # AND NOT AT ALL WHEN A PAGE PAIR WAS REFUSED (#1738, his ruling). Recorded, the
+        # next walk would skip the run, and a page refused today -- by a parser since
+        # corrected, or a shape the site has since repaired -- would never be read again.
+        if refused_here:
+            jobs.append_log(
+                conn, job["job_id"],
+                f"{ref} is not recorded as read, because {refused_here:,} of its "
+                f"{result.pairs:,} page pair(s) were refused",
+                level=LogLevel.WARNING, source_key=source_key)
+            conn.commit()
+        else:
+            read_to_the_end[ref] = _rows
+            _remember_runs_read(conn, job["job_id"], read_to_the_end)
         # THE EARLIER RUNS' PAGES STAY COUNTED. `page_closed` writes this job's total
         # from `approve`'s per-run figure, which restarts at zero for each run -- so
         # without this the bar would fall back to 0 of 75 after finishing 0 of 469.
@@ -599,7 +621,26 @@ def run_dataset_interpret_job_once(conn: sqlite3.Connection, job_ref: str,
         source_key=source_key)
     jobs._update(conn, job["job_id"], progress_done=walked["pairs"],
                  progress_total=walked["pairs"])
-    jobs._finish(conn, job["job_id"], JobStatus.COMPLETED, None)
+    # THE ENDING SAYS WHETHER ANYTHING WAS STORED (#1738, his ruling): every page pair
+    # refused is a failure, some refused is a completion with errors. THE CONSEQUENCE
+    # LEADS, so the two-line clamp on Jobs keeps it (#1701).
+    if tally["refused"] and not tally["made"] and tally["refused"] == tally["pairs"]:
+        key, why = first_refusal
+        summary = (f"Nothing was stored: every one of the {tally['pairs']:,} page pair(s) "
+                   f"read was refused, and no run is recorded as read. The first: {key}: "
+                   f"{why}")
+        jobs.append_log(conn, job["job_id"], summary, level=LogLevel.ERROR,
+                        source_key=source_key)
+        jobs._finish(conn, job["job_id"], JobStatus.FAILED, summary)
+    elif tally["refused"]:
+        summary = (f"{tally['refused']:,} of {tally['pairs']:,} page pair(s) were refused, "
+                   "and the runs holding them are not recorded as read. The log lists the "
+                   "refusals.")
+        jobs.append_log(conn, job["job_id"], summary, level=LogLevel.WARNING,
+                        source_key=source_key)
+        jobs._finish(conn, job["job_id"], JobStatus.COMPLETED_WITH_ERRORS, summary)
+    else:
+        jobs._finish(conn, job["job_id"], JobStatus.COMPLETED, None)
     return jobs.get_job(conn, job_ref)
 
 

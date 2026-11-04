@@ -903,11 +903,12 @@ def create_app(
             # ordinary thing to do -- and it was the one action that put the badge out
             # for good. Before the chain he had to have started one by hand first.
             #
-            # An interpretation ends as one of three: COMPLETED, CANCELLED or FAILED,
-            # written by its runner, by a Cancel (`jobs.set_control`) or by the worker
-            # (`JobRunner._fail_orphan`). Only a COMPLETED one read everything it planned
-            # -- a cancel lands between page pairs, after some runs are already read --
-            # so only the first answers this question.
+            # An interpretation ends as one of four: COMPLETED, COMPLETED_WITH_ERRORS,
+            # CANCELLED or FAILED, written by its runner, by a Cancel (`jobs.set_control`)
+            # or by the worker (`JobRunner._fail_orphan`). Only a COMPLETED one read
+            # everything it planned -- a cancel lands between page pairs, after some runs
+            # are already read, and a run holding a refused page pair is not recorded as
+            # read (#1738) -- so only the first answers this question.
             read = general.execute(
                 "SELECT finished_at FROM crawl_job "
                 " WHERE job_kind = ? AND source_keys LIKE ? AND status = ? "
