@@ -744,6 +744,9 @@ def _get_offer_id(conn, variant_id: int, r: dict, result: IngestResult | None = 
     unit_id = _get_unit_id(conn, canonical_unit(r.get("unit", ""), r.get("currency", "")))
     basis = _basis_quantity(r.get("basis_quantity", ""))
     quantity = _quantity_facts(r)
+    # Only a commodity row states one, through its adapter; every other row is retail,
+    # the column's own default, so nothing that exists changes offer.
+    segment = r.get("customer_segment") or "retail"
     # The unit is part of what an offer IS: 15 per litre and 15 per gallon are
     # different offers, not one offer that changed price. The lookup used to pin
     # selling_unit_id IS NULL, which made every offer unit-less by construction
@@ -751,9 +754,9 @@ def _get_offer_id(conn, variant_id: int, r: dict, result: IngestResult | None = 
     found = _find_id(
         conn,
         "SELECT offer_id FROM source_offer WHERE source_variant_id = ? AND branch_id IS NULL "
-        "AND country_code_alpha2 = ? AND customer_segment = 'retail' "
+        "AND country_code_alpha2 = ? AND customer_segment = ? "
         "AND COALESCE(selling_unit_id,0) = ? AND basis_quantity = ?",
-        (variant_id, r["country_code_alpha2"], unit_id or 0, basis),
+        (variant_id, r["country_code_alpha2"], segment, unit_id or 0, basis),
     )
     # A row the source dates in the past says nothing about today (the REPORTED
     # path below), so it neither revives an offer nor takes a unit away.
@@ -785,9 +788,9 @@ def _get_offer_id(conn, variant_id: int, r: dict, result: IngestResult | None = 
         unstated = _find_id(
             conn,
             "SELECT offer_id FROM source_offer WHERE source_variant_id = ? AND branch_id IS NULL "
-            "AND country_code_alpha2 = ? AND customer_segment = 'retail' AND selling_unit_id IS NULL "
+            "AND country_code_alpha2 = ? AND customer_segment = ? AND selling_unit_id IS NULL "
             "ORDER BY status = 'active' DESC",
-            (variant_id, r["country_code_alpha2"]),
+            (variant_id, r["country_code_alpha2"], segment),
         )
         if unstated is not None:
             unit_facts = _unit_facts(r)
@@ -813,9 +816,9 @@ def _get_offer_id(conn, variant_id: int, r: dict, result: IngestResult | None = 
     if not unit_id and states_today:
         stated = conn.execute(
             "SELECT offer_id FROM source_offer WHERE source_variant_id = ? AND branch_id IS NULL "
-            "AND country_code_alpha2 = ? AND customer_segment = 'retail' "
+            "AND country_code_alpha2 = ? AND customer_segment = ? "
             "AND selling_unit_id IS NOT NULL AND status = 'active'",
-            (variant_id, r["country_code_alpha2"]),
+            (variant_id, r["country_code_alpha2"], segment),
         ).fetchall()
         if len(stated) == 1:
             conn.execute(
@@ -831,6 +834,7 @@ def _get_offer_id(conn, variant_id: int, r: dict, result: IngestResult | None = 
     minted = _insert(conn, "source_offer", {
         "source_variant_id": variant_id,
         "country_code_alpha2": r["country_code_alpha2"],
+        "customer_segment": segment,
         "currency": r["currency"],
         "tax_included": vat,
         "selling_unit_id": unit_id,
@@ -1163,27 +1167,30 @@ def _retire_offers_no_longer_stated(conn, source_id: int, result: IngestResult) 
     6 variants, and a run reading some of them proves nothing about the rest.
     Two units the same run states both stay. "*" is the one exception, because it
     means the country was not known, so a row naming the country answers for it.
-    Only a successful run gets here, and nothing is deleted.
+    A segment is its own series: a wholesale row answers for wholesale offers and
+    says nothing about a retail one (#1919). Only a successful run gets here, and
+    nothing is deleted.
     """
     offers = conn.execute(
-        "SELECT o.offer_id, o.source_variant_id, o.country_code_alpha2 "
+        "SELECT o.offer_id, o.source_variant_id, o.country_code_alpha2, o.customer_segment "
         "FROM source_offer o "
         "JOIN source_variant v ON v.source_variant_id = o.source_variant_id "
         "JOIN source_product p ON p.source_product_id = v.source_product_id "
         "WHERE p.source_id = ? AND o.status = 'active' AND o.branch_id IS NULL "
-        "AND o.customer_segment = 'retail' AND EXISTS ("
+        "AND EXISTS ("
         "  SELECT 1 FROM source_offer sibling "
         "   WHERE sibling.source_variant_id = o.source_variant_id "
         "     AND sibling.offer_id <> o.offer_id AND sibling.status = 'active')",
         (source_id,)).fetchall()
-    restated = {(variant, country) for offer, variant, country in offers
+    restated = {(variant, country, segment) for offer, variant, country, segment in offers
                 if offer in result.seen}
-    restated_variants = {variant for variant, _country in restated}
+    restated_variants = {(variant, segment) for variant, _country, segment in restated}
     retired = 0
-    for offer, variant, country in offers:
+    for offer, variant, country, segment in offers:
         if offer in result.seen:
             continue
-        if (variant, country) in restated or (country == "*" and variant in restated_variants):
+        if ((variant, country, segment) in restated
+                or (country == "*" and (variant, segment) in restated_variants)):
             conn.execute("UPDATE source_offer SET status = 'superseded' WHERE offer_id = ?",
                          (offer,))
             retired += 1
@@ -1422,6 +1429,8 @@ def _commodity_to_product_row(c: dict) -> dict:
         # that names no source stays empty rather than being invented.
         "official_source_name": c.get("official_source_name", ""),
         "official_source_link": c.get("official_source_link", ""),
+        # Not a product column: _get_offer_id reads it, and it reaches no other table.
+        "customer_segment": c.get("consumer_segment", ""),
     })
     return row
 
