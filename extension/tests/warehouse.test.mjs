@@ -50,12 +50,12 @@ const summaryFor = (() => {
   const body = PIECES.map(([name, pattern]) => extract(name, pattern)).join("\n")
     + "\nreturn engineStatusFromState();";
   // eslint-disable-next-line no-new-func
-  const run = new Function("state", "PROTOCOL_VERSION", body);
-  return (over = {}) => run(Object.assign({
+  const run = new Function("state", "PROTOCOL_VERSION", "restartRunning", body);
+  return (over = {}, restartRunning = false) => run(Object.assign({
     engineState: "ready", engineUp: true, engineReachable: true,
     engineVersion: "0.3.0", engineProtocol: 1, protocolMismatch: false,
     warehousePath: "",
-  }, over), 1);
+  }, over), 1, restartRunning);
 })();
 
 //: His warehouse, in the shape `GET /api/storage` reports it (`s.path`).
@@ -263,6 +263,20 @@ test("no other status branch is changed by a warehouse being known", () => {
       assert.ok(!summary.detail.includes(trace),
                 `${text} is describing a warehouse (${trace}): ${summary.detail}`);
     }
+  }
+});
+
+test("a restart under way outranks every other branch (#1517)", () => {
+  // The wait polls `/api/health` directly, so `state` still holds what the leaving
+  // engine said: Running, a temporary folder, a mismatch. None of it is said over it.
+  const branches = [
+    {}, {warehousePath: HIS}, {warehousePath: THE_INCIDENT},
+    {engineState: "checking"}, {engineState: "stopped", engineUp: false},
+    {protocolMismatch: true, engineProtocol: 99},
+  ];
+  for (const over of branches) {
+    assert.deepEqual(summaryFor(over, true),
+                     {text: "Restarting", tone: "busy", detail: ""}, JSON.stringify(over));
   }
 });
 

@@ -607,3 +607,60 @@ def test_the_lag_guard_reports_every_migration_this_database_is_missing(tmp_path
             "pending_migrations exists to break.")
     finally:
         conn.close()
+
+
+def _busy_error(path: Path) -> sqlite3.OperationalError:
+    holder = sqlite3.connect(path, isolation_level=None)
+    other = sqlite3.connect(path, timeout=0)
+    holder.execute("BEGIN IMMEDIATE")
+    try:
+        other.execute("UPDATE held SET n = 1")
+    except sqlite3.OperationalError as exc:
+        return exc
+    finally:
+        holder.execute("ROLLBACK")
+        other.close()
+        holder.close()
+    raise AssertionError("the second writer was not refused")
+
+
+def test_another_app_holding_the_warehouse_is_told_by_its_code(tmp_path: Path):
+    path = tmp_path / "held.db"
+    conn = sqlite3.connect(path)
+    conn.executescript("PRAGMA journal_mode = WAL; CREATE TABLE held (n INTEGER);"
+                       "INSERT INTO held VALUES (0);")
+    conn.commit()
+    assert dbmod.another_app_holds_it(dbmod.DbLockedError("held"))
+    assert dbmod.another_app_holds_it(_busy_error(path))
+
+    # A stale snapshot's upgrade answers with the extended code, the same family.
+    conn.execute("BEGIN")
+    conn.execute("SELECT * FROM held").fetchall()
+    writer = sqlite3.connect(path, isolation_level=None)
+    writer.execute("UPDATE held SET n = 1")
+    writer.close()
+    with pytest.raises(sqlite3.OperationalError) as stale:
+        conn.execute("UPDATE held SET n = 2")
+    assert stale.value.sqlite_errorname == "SQLITE_BUSY_SNAPSHOT"
+    assert dbmod.another_app_holds_it(stale.value)
+    conn.rollback()
+
+    # Words that only read like it: a name holding "locked", and this connection's own statement.
+    for sql in ("SELECT 1 FROM source_blocked", "SELECT is_locked FROM held"):
+        with pytest.raises(sqlite3.OperationalError, match="locked") as named:
+            conn.execute(sql)
+        assert not dbmod.another_app_holds_it(named.value)
+    conn.executescript("CREATE TABLE more (n INTEGER); INSERT INTO more VALUES (1), (2);")
+    conn.commit()
+    reading = conn.execute("SELECT * FROM more")
+    reading.fetchone()
+    with pytest.raises(sqlite3.OperationalError, match="locked") as own:
+        conn.execute("DROP TABLE more")
+    assert own.value.sqlite_errorname == "SQLITE_LOCKED"
+    assert not dbmod.another_app_holds_it(own.value)
+    reading.close()
+    conn.close()
+
+    # A sentence with no code behind it, and errors of other kinds.
+    assert not dbmod.another_app_holds_it(sqlite3.OperationalError("database is locked"))
+    assert not dbmod.another_app_holds_it(ValueError("database is locked"))

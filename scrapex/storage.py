@@ -550,7 +550,7 @@ def undeclared_sources(conn) -> list[str]:
     Reads the CURRENT manifest each call rather than a cached one, because the
     failure mode is precisely that the manifest changed.
     """
-    from . import directories
+    from . import directories, tenders
     from .config import MANIFEST_FILE, load_manifest
     try:
         declared = {entry.source_key for entry in load_manifest(MANIFEST_FILE).sources}
@@ -564,8 +564,8 @@ def undeclared_sources(conn) -> list[str]:
     # registered there and refreshable today -- was being reported as a source
     # nothing can ever refresh, on every visit to the Database page. A warning that
     # cries wolf on the biggest thing in the warehouse is how the real one below
-    # gets ignored.
-    declared |= set(directories.keys())
+    # gets ignored. A tender source is declared in `tenders.py`, for the same reason.
+    declared |= set(directories.keys()) | set(tenders.keys())
     try:
         # NO `WHERE active = 1`. That filter was here and did nothing: the column
         # is written once on insert and never set to 0, so every row matched it
