@@ -397,7 +397,8 @@ class GlobalPetrolPricesConnector:
         # 13 distinct price levels. The first point and each point whose price
         # differs from the one before it carry ALL the information: between
         # two kept points the price held, by construction. Measured across the
-        # whole backfill this drops 135,774 rows to 59,541.
+        # whole backfill this drops 135,774 rows to 59,541. change_points in
+        # connectors/pinksheet.py holds the same rule, for the months no edition revises.
         out: list[list[str]] = []
         previous_value: str | None = None
         for as_of, value in points:
