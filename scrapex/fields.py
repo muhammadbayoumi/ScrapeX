@@ -442,7 +442,10 @@ def promotable_attributes(conn: sqlite3.Connection, source_key: str) -> list[dic
                # value, and 760 of them is a chooser nobody can read. Anything
                # already a column stays listed whatever its coverage, so a
                # choice can always be undone.
-               if r[4] > 1 or bool(r[5]) or r[0] in chosen]
+               if (r[4] > 1 or bool(r[5]) or r[0] in chosen)
+               # A detail that is a card column's own fact (SIKA's stock_quantity)
+               # is already listed as that column, so it is not offered twice.
+               and (r[0] not in COLUMNS_ON_THE_CARD or r[0] in chosen)]
     # The axes ride the same list, so the panel that already reads it gains
     # them without a second endpoint — and the owner sees details and axes in
     # one place, ranked by how much of his data each actually fills.

@@ -2718,9 +2718,21 @@
     // The details the source printed for this product — colours, lengths,
     // categories, warranties — grouped as the page grouped them. Scraped
     // content throughout: names as text, URLs linked only when they parse.
+    //
+    // Fields that left the table are shown on the card instead, so nothing is ever lost
+    // by tidying the grid: hide moves a field into the details, show moves it back. A
+    // field with no value is left out, so a card never lists a blank.
+    const moved = (payload.moved_to_details || []).filter((column) =>
+      openOfferRow && text(openOfferRow[column.key]) !== "");
+    // A moved column whose key the record also holds as a detail is one fact in two
+    // places (SIKA's stock count, on 84 of its 94 rows). The column is the one shown: it
+    // is the latest observation, and on 5 of those rows the stored detail is older and
+    // reads 7 where the shop now states 0.
+    const movedKeys = new Set(moved.map((column) => column.key));
     if (details.length) {
       const groups = new Map();
       details.forEach((d) => {
+        if (movedKeys.has(d.code)) return;
         const key = d.group || "Details";
         // The product card already owns the complete gallery. Repeating media
         // inside the inspector wastes the space reserved for product facts.
@@ -2799,22 +2811,14 @@
       });
     }
 
-    // Fields that left the table are shown here instead, so nothing is ever lost by
-    // tidying the grid: hide moves a field into the details, show moves it back. The
-    // ones he sent to the card have a section of their own (#1835), and a field with no
-    // value is left out, so a card never lists a blank.
-    // A moved column whose key the record also holds as a detail is one fact in two
-    // places (SIKA's stock count, on 84 of its 94 rows): the detail, the shop's own
-    // record, is the one shown.
-    const detailCodes = new Set(details.map((d) => d.code || ""));
-    const moved = (payload.moved_to_details || []).filter((column) =>
-      openOfferRow && text(openOfferRow[column.key]) !== "" && !detailCodes.has(column.key));
+    // The moved fields he sent to the card have a section of their own (#1835).
     const movedCard = (title, columns, sections, key) => {
       if (!columns.length) return;
       const box = card(title);
       cardBody(box).appendChild(specList(columns.map((column) => ({
         label: column.label || column.key,
-        // The same money() the table cell and Price changes print, unit and all.
+        // The same money() Price changes prints, unit and all. The table's own cells for
+        // these columns format them apart (#1828's re-check), an issue of its own.
         value: PRICE_FACTS.has(column.key)
           ? money(openOfferRow[column.key], openOfferRow.currency,
                   basisOf(openOfferRow, offer)).textContent
@@ -2874,7 +2878,7 @@
       // The list is bounded and the count beside it is not, so the list says so.
       if ((data.observations_total || 0) > observations.length) {
         recordedBody.appendChild(el("p", "muted",
-          `The latest ${observations.length} of ${data.observations_total} are listed.`));
+          `Showing the latest ${observations.length} of ${data.observations_total}.`));
       }
       recordedBody.appendChild(miniTable(
         ["Date", "Price", "Where it came from"],
