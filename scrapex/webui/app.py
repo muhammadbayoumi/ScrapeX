@@ -55,7 +55,7 @@ from .. import db as dbmod
 from .. import version as engine_version
 from ..capture import capture_source, crawl_settings
 from ..catalog_models import SiteCreate
-from ..changes import change_summary, recent_changes
+from ..changes import CHANGE_TYPE_WORDS, change_summary, recent_changes
 from ..config import (
     RefusedHostError,
     SourceEntry,
@@ -1846,6 +1846,7 @@ def create_app(
                          changes=recent_changes(conn, source_key, limit=limit),
                          extremes=price_extremes(conn, source_key, limit=2000) if source_key else [],
                          offers=_offers_with_history(conn, source_key) if source_key else [],
+                         change_words=CHANGE_TYPE_WORDS,
                           sources=_display_sources(conn))
         finally:
             conn.close()
