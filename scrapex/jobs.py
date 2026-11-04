@@ -467,6 +467,28 @@ def job_capacity(conn: sqlite3.Connection) -> int:
 
 # ---- admission: the two rules that make concurrent JOBS safe ----------------
 
+def last_settled_crawls(conn: sqlite3.Connection, job_kinds: tuple[str, ...]) -> dict[str, dict]:
+    """Each source's newest settled crawl of these kinds: what its row says went wrong.
+
+    ONE QUERY FOR THE LISTING, and crawl kinds only: the newest job of three of his four
+    directories is an interpretation, which says nothing about the site (#1872). A skip
+    fetched nothing, so it is no crawl's outcome.
+    """
+    settled = sorted(status.value for status in TERMINAL_JOB_STATUSES
+                     if status.value != "skipped")
+    rows = conn.execute(
+        f"SELECT job_ref, status, finished_at, error_summary, source_keys FROM crawl_job "
+        f"WHERE job_kind IN ({','.join('?' * len(job_kinds))}) "
+        f"AND status IN ({','.join('?' * len(settled))}) ORDER BY job_id DESC",
+        (*job_kinds, *settled)).fetchall()
+    found: dict[str, dict] = {}
+    for row in rows:
+        for key in json.loads(row[4] or "[]"):
+            found.setdefault(key, {"job_ref": row[0], "status": row[1], "finished_at": row[2],
+                                   "error_summary": row[3]})
+    return found
+
+
 def host_of_url(base_url: str, fallback: str) -> str:
     """The politeness identity of a source: its host, www-stripped, lowercased.
 
