@@ -50,6 +50,8 @@ HIDDEN_SHEET = "Mismatch Details"
 _HIDDEN_HEADER = ("Period", "Commodity", "Current Cell", "Current Display", "Uploaded Cell",
                   "Uploaded Display", "Difference Type")
 _HIDDEN_KIND = "Blank vs number"
+#: The sheet's other kind: the older edition of a value the published sheet still states.
+_HIDDEN_PASSED_OVER = "Value mismatch"
 #: Who a hidden value is marked as coming from, on its own row.
 HIDDEN_SOURCE = "World Bank Pink Sheet workbook, hidden sheet 'Mismatch Details'"
 
@@ -295,10 +297,17 @@ def read_hidden(workbook, periods: list[str], series: dict[str, Series]
                     "from it; review it"]
     known = set(periods)
     out: dict[str, dict[str, Decimal]] = {}
-    filled = outside = unreadable = 0
+    filled = outside = unreadable = candidates = 0
+    # A renamed kind would otherwise end the hidden prices with nothing said.
+    strange: dict[str, int] = {}
     for row in rows[first + 1:]:
-        if row[0] is None or row[6] != _HIDDEN_KIND:
+        if row[0] is None or row[6] == _HIDDEN_PASSED_OVER:
             continue
+        if row[6] != _HIDDEN_KIND:
+            kind = str(row[6])[:40]
+            strange[kind] = strange.get(kind, 0) + 1
+            continue
+        candidates += 1
         one = series.get(series_name(str(row[1])))
         period = str(row[0]).strip()
         if one is None or period not in known:
@@ -316,6 +325,13 @@ def read_hidden(workbook, periods: list[str], series: dict[str, Series]
             continue
         out.setdefault(one.name, {})[period] = amount
     warnings = []
+    if strange:
+        kinds = ", ".join(f"{kind!r} x{count}" for kind, count in sorted(strange.items())[:3])
+        warnings.append(f"{sum(strange.values())} hidden row(s) of a kind this reader does not "
+                        f"know ({kinds}): read as nothing; review the sheet")
+    if not candidates:
+        warnings.append(f"the hidden sheet holds no {_HIDDEN_KIND!r} row: no hidden price "
+                        "this run")
     if filled:
         warnings.append(f"{filled} hidden value(s) ignored: the published sheet now states "
                         "those months")

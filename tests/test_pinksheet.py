@@ -211,6 +211,10 @@ def test_a_normal_run_sends_every_month_of_the_window_the_flat_ones_too(weekly):
     assert len(reported) == 802
     phosphate = {r["as_of_date"] for r in reported if r["material_key"] == "PHOSPHATE_ROCK"}
     assert {"2025-11-01", "2025-12-01", "2026-01-01"} <= phosphate
+    # Barley's and Sorghum's whole window is the hidden sheet's, and 2 of its months are flat:
+    # as change points this would be 18.
+    hidden = [r for r in prices(weekly[0]) if r["official_source_name"] == HIDDEN_SOURCE]
+    assert len(hidden) == 20
 
 
 def test_the_newest_month_is_the_observed_price(weekly):
@@ -324,6 +328,35 @@ def test_a_hidden_value_is_not_the_older_edition_of_a_published_one(full):
 def test_the_older_edition_rows_are_not_even_considered(full):
     assert not any("hidden value(s) ignored" in w for w in full[0].warnings), \
         "only `Blank vs number` rows are candidates, and on the real file none has a public cell"
+
+
+def test_the_real_sheet_holds_no_kind_the_reader_does_not_know(full):
+    assert not any("does not know" in w or "holds no" in w for w in full[0].warnings)
+
+
+def test_a_renamed_kind_in_the_hidden_sheet_is_said_not_silent():
+    """It ended the hidden prices with the warnings identical to a normal run's (#1919)."""
+    def rename(book):
+        for row in book["Mismatch Details"].iter_rows(min_row=5):
+            if row[6].value == "Blank vs number":
+                row[6].value = "Blank vs Number"
+    table = tables(history=True, stub=_Stub(workbook=edited(rename)))[0]
+    assert not any(r["official_source_name"] == HIDDEN_SOURCE for r in prices(table))
+    assert any("142 hidden row(s) of a kind this reader does not know ('Blank vs Number' x142)"
+               in w for w in table.warnings)
+    assert "the hidden sheet holds no 'Blank vs number' row: no hidden price this run" \
+        in table.warnings
+
+
+def test_a_hidden_sheet_with_only_older_editions_left_says_its_prices_stopped():
+    def passed_over(book):
+        for row in book["Mismatch Details"].iter_rows(min_row=5):
+            if row[6].value == "Blank vs number":
+                row[6].value = "Value mismatch"
+    table = tables(history=True, stub=_Stub(workbook=edited(passed_over)))[0]
+    assert "the hidden sheet holds no 'Blank vs number' row: no hidden price this run" \
+        in table.warnings
+    assert not any("does not know" in w for w in table.warnings)
 
 
 def test_a_published_cell_beats_the_hidden_value_for_the_same_month():
@@ -781,12 +814,42 @@ def test_a_zero_in_the_hidden_sheet_is_not_a_price():
     assert any("no price above 0" in w for w in table.warnings)
 
 
-def test_a_hidden_row_for_a_month_the_sheet_lacks_is_said():
+OUTSIDE = "hidden row(s) skipped: a series or a month the published sheet does not have"
+
+
+def skipped_outside(table) -> int:
+    said = [w for w in table.warnings if w.endswith(OUTSIDE)]
+    return int(said[0].split(" ")[0]) if said else 0
+
+
+@pytest.fixture(scope="module")
+def short_history():
+    """The shortened workbook unchanged: its hidden rows for the months cut away are outside
+    already, so a test counts what its edit adds rather than whether the warning exists."""
+    return tables(history=True, stub=_Stub(workbook=edited(lambda book: None)))
+
+
+def test_the_months_cut_from_the_shortened_workbook_are_outside(short_history):
+    assert skipped_outside(short_history[0]) == 80
+
+
+def test_a_hidden_row_for_a_month_the_sheet_lacks_is_said(short_history):
     def later(book):
         sheet = book["Mismatch Details"]
         sheet.cell(hidden_row(sheet, "2026M07", "Barley"), 1, "2026M11")
     table = tables(history=True, stub=_Stub(workbook=edited(later)))[0]
-    assert any("hidden row(s) skipped" in w for w in table.warnings)
+    assert skipped_outside(table) == skipped_outside(short_history[0]) + 1
+    assert not any("no price above 0" in w for w in table.warnings)
+
+
+def test_a_hidden_row_for_a_series_this_run_does_not_collect_is_a_warning_not_a_dead_run(
+        short_history):
+    """Every hidden row of the real file is Barley or Sorghum, so nothing else reached it."""
+    def stranger(book):
+        sheet = book["Mismatch Details"]
+        sheet.cell(hidden_row(sheet, "2026M07", "Barley"), 2, "Unobtainium")
+    table = tables(history=True, stub=_Stub(workbook=edited(stranger)))[0]
+    assert skipped_outside(table) == skipped_outside(short_history[0]) + 1
 
 
 def test_two_description_rows_for_one_series_give_it_no_sources_rather_than_a_guess():
