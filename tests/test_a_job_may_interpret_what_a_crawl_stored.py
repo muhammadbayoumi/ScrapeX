@@ -108,6 +108,7 @@ class _Interpreter:
             self.beats.append((index, self.pairs))
             self.seen += 1
         contractors.say(f"approved {self.seen} page(s)")
+        return contractors.Interpreted(pairs=self.pairs, made=self.pairs, refused=())
 
 
 # ---- the two registries and the database may not drift ----------------------
@@ -326,6 +327,7 @@ def test_progress_is_counted_in_page_pairs_and_the_total_arrives_first(conn, mon
                     "SELECT progress_done, progress_total FROM crawl_job "
                     " WHERE job_kind = ?", (datasetjob.JOB_KIND,)).fetchone()
                 seen.append((row[0], row[1]))
+            return contractors.Interpreted(pairs=self.pairs, made=self.pairs, refused=())
 
     monkeypatch.setattr(contractors, "approve", _Watching(pairs=3))
     _a_crawl_that_stored(conn, "job_crawl", pages=2)
@@ -741,6 +743,7 @@ def test_a_run_the_walk_stopped_inside_is_not_recorded_as_read(conn, monkeypatch
             if between_pages is not None:
                 between_pages(0, 1)
             contractors.say("approved 1 page(s)")
+            return contractors.Interpreted(pairs=1, made=1, refused=())
 
     fake = _StopsInTheSecondRun()
     monkeypatch.setattr(contractors, "approve", fake)
@@ -839,6 +842,7 @@ def test_a_resume_keeps_the_runs_the_first_pass_already_read(conn, monkeypatch):
             if between_pages is not None:
                 between_pages(0, 1)
             contractors.say("approved 1 page(s)")
+            return contractors.Interpreted(pairs=1, made=1, refused=())
 
     fake = _StopsInTheThirdRun()
     monkeypatch.setattr(contractors, "approve", fake)
@@ -979,6 +983,7 @@ def test_a_walk_that_FAILS_keeps_the_runs_it_finished_before_the_failure(
             if between_pages is not None:
                 between_pages(0, 1)
             contractors.say("approved 1 page(s)")
+            return contractors.Interpreted(pairs=1, made=1, refused=())
 
     monkeypatch.setattr(contractors, "approve", _BlowsUpInTheThirdRun())
     for name in ("job_one", "job_two", "job_three"):
@@ -1237,6 +1242,7 @@ def test_a_corrected_parser_reaches_the_newest_run_on_the_next_press(conn, monke
             self.run_ref = run_ref
             contractors.say(f"approve {run_ref}: 0 page pair(s) to interpret")
             contractors.say("approved 0 page(s)")
+            return contractors.Interpreted(pairs=0, made=0, refused=())
 
     blind = _Blind()
     monkeypatch.setattr(contractors, "approve", blind)
@@ -1582,3 +1588,137 @@ def test_one_pinned_to_its_run_is_not_waiting_for_these_pages(tmp_path):
 
     assert accepted.status_code == 200, (
         f"a job pinned to another run refused this press: {accepted.text}")
+
+
+# ---- a refusal is not a success: #1738 ---------------------------------------------
+
+class _Refusing(_Interpreter):
+    """`approve` returning what it refused, run by run: `outcomes[ref]` is
+    `(pairs, made, refused)` for that run, and an unnamed run writes every pair."""
+
+    def __init__(self, outcomes: dict[str, tuple[int, int, tuple]]) -> None:
+        super().__init__()
+        self.outcomes = outcomes
+
+    def __call__(self, conn, directory, run_ref, *, ids=(), between_pages=None):
+        self.refs.append(run_ref)
+        pairs, made, refused = self.outcomes.get(run_ref, (2, 2, ()))
+        contractors.say(f"approve {run_ref}: {pairs} page pair(s) to interpret")
+        for key, why in refused:
+            contractors.say(f"  refused {key}: {why}")
+        return contractors.Interpreted(pairs=pairs, made=made, refused=refused)
+
+
+def _ending(conn, ref: str) -> tuple[str, str | None]:
+    row = jobs.get_job(conn, ref)
+    return row["status"], row["error_summary"]
+
+
+def test_an_interpretation_whose_every_page_pair_is_refused_fails(conn, monkeypatch):
+    """#1738. Every page refused, nothing stored, and the job ended `completed` with no
+    error: on a fresh warehouse a green card over no rows. HIS RULING: it fails, and says
+    why, the consequence first."""
+    refused = (("page-1", "LanguagesDisagree: ids differ"), ("page-2", "?"),
+               ("page-3", "ShapeChanged: a key went missing"))
+    monkeypatch.setattr(contractors, "approve",
+                        _Refusing({"job-job_one": (3, 0, refused)}))
+    _a_crawl_that_stored(conn, "job_one", pages=6)
+    ref = _queue(conn)
+
+    datasetjob.run_dataset_interpret_job_once(conn, ref)
+
+    status, summary = _ending(conn, ref)
+    assert status == JobStatus.FAILED.value, (status, summary)
+    assert summary == ("Nothing was stored: every one of the 3 page pair(s) read was "
+                       "refused, and no run is recorded as read. The first: page-1: "
+                       "LanguagesDisagree: ids differ"), summary
+    assert "job-job_one" not in datasetjob.interpreted_runs(conn, "muqawil_org")
+
+
+def test_some_page_pairs_refused_completes_with_errors_and_the_run_is_not_read(
+        conn, monkeypatch):
+    """HIS RULING, THE OTHER HALF: something stored and something refused is a completion
+    with errors, with the count, and the run holding a refusal is not recorded as read --
+    recorded, no later walk would reach the refused pages after a parser is corrected."""
+    monkeypatch.setattr(contractors, "approve", _Refusing({
+        "job-job_two": (4, 3, (("page-9", "LanguagesDisagree: ids differ"),))}))
+    _a_crawl_that_stored(conn, "job_one", pages=4)
+    _a_crawl_that_stored(conn, "job_two", pages=8)
+    ref = _queue(conn)
+
+    datasetjob.run_dataset_interpret_job_once(conn, ref)
+
+    status, summary = _ending(conn, ref)
+    assert status == JobStatus.COMPLETED_WITH_ERRORS.value, (status, summary)
+    assert summary == ("1 of 6 page pair(s) were refused, and the runs holding them are "
+                       "not recorded as read. The log lists the refusals."), summary
+    read = datasetjob.interpreted_runs(conn, "muqawil_org")
+    assert read == {"job-job_one": 4}, (
+        f"the clean run must be recorded and the refused one must not: {read}")
+    logged = [row["message"] for row in jobs.job_logs(conn, ref)]
+    assert ("job-job_two is not recorded as read, because 1 of its 4 page pair(s) were "
+            "refused") in logged, logged
+    assert "  refused page-9: LanguagesDisagree: ids differ" in logged, (
+        "the interpreter's own naming of the refusal never reached the job log")
+
+
+def test_a_walk_that_stored_anything_does_not_fail(conn, monkeypatch):
+    """EVERY PAGE PAIR OF THE WALK, not of one run. A first run wholly refused and a second
+    written is a completion with errors: rows were stored."""
+    monkeypatch.setattr(contractors, "approve", _Refusing({
+        "job-job_one": (2, 0, (("page-1", "a"), ("page-2", "b")))}))
+    _a_crawl_that_stored(conn, "job_one", pages=4)
+    _a_crawl_that_stored(conn, "job_two", pages=4)
+    ref = _queue(conn)
+
+    datasetjob.run_dataset_interpret_job_once(conn, ref)
+
+    status, summary = _ending(conn, ref)
+    assert status == JobStatus.COMPLETED_WITH_ERRORS.value, (status, summary)
+    assert summary.startswith("2 of 4 page pair(s) were refused"), summary
+    assert datasetjob.interpreted_runs(conn, "muqawil_org") == {"job-job_two": 4}
+
+
+def test_a_derived_refusal_counts_its_page_once_and_does_not_fail_the_job(
+        conn, monkeypatch):
+    """A DERIVED DATASET'S REFUSAL is of a page whose listing rows were written
+    (`contractors.approve`, ES-5; `tvtc_training_plans` has one), so a walk whose every
+    page a derived reader refused still stored rows, and does not fail. Two derived readers
+    refusing one page are one refused page pair, not two."""
+    monkeypatch.setattr(contractors, "approve", _Refusing({"job-job_one": (
+        2, 2, (("page-1", "licences: no rows"), ("page-1", "plans: no rows"),
+               ("page-2", "licences: no rows")))}))
+    _a_crawl_that_stored(conn, "job_one", pages=4)
+    ref = _queue(conn)
+
+    datasetjob.run_dataset_interpret_job_once(conn, ref)
+
+    status, summary = _ending(conn, ref)
+    assert status == JobStatus.COMPLETED_WITH_ERRORS.value, (status, summary)
+    assert summary.startswith("2 of 2 page pair(s) were refused"), summary
+    assert "job-job_one" not in datasetjob.interpreted_runs(conn, "muqawil_org")
+
+
+def test_a_walk_with_nothing_refused_still_completes_clean(conn, monkeypatch):
+    """The unchanged ending, said again beside the two new ones: no refusal, no error."""
+    monkeypatch.setattr(contractors, "approve", _Refusing({}))
+    _a_crawl_that_stored(conn, "job_one", pages=4)
+    ref = _queue(conn)
+
+    datasetjob.run_dataset_interpret_job_once(conn, ref)
+
+    assert _ending(conn, ref) == (JobStatus.COMPLETED.value, None)
+    assert datasetjob.interpreted_runs(conn, "muqawil_org") == {"job-job_one": 4}
+
+
+def test_a_walk_of_no_page_pairs_is_not_a_failure(conn, monkeypatch):
+    """Zero of zero refused is not "every page refused": a run whose pages pair into
+    nothing ends as it did before #1738."""
+    monkeypatch.setattr(contractors, "approve", _Refusing({"job-job_one": (0, 0, ())}))
+    _a_crawl_that_stored(conn, "job_one", pages=4)
+    ref = _queue(conn)
+
+    datasetjob.run_dataset_interpret_job_once(conn, ref)
+
+    assert _ending(conn, ref) == (JobStatus.COMPLETED.value, None)
+

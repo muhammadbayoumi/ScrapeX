@@ -43,6 +43,7 @@ import time
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
+from dataclasses import dataclass
 
 from . import catalog, runs, source_settings, taxonomy
 from . import validators as validator_store
@@ -1698,8 +1699,24 @@ def _listing_membership_numbers(conn) -> dict[str, str]:
     return numbers
 
 
+@dataclass(frozen=True)
+class Interpreted:
+    """What one `approve` pass did with its page pairs, for the job that ran it.
+
+    RETURNED, NOT ONLY SAID (#1738). The refusals lived in the log alone, so a job whose
+    every page pair was refused finished `completed` and recorded its run as read: on a
+    fresh warehouse no row and a green card, and after a good crawl a dataset gone stale in
+    silence. `refused` is `approve`'s own list: a page pair once for its own refusal, or
+    once per derived dataset that refused a page whose listing rows were written.
+    """
+
+    pairs: int
+    made: int
+    refused: tuple[tuple[str, str], ...]
+
+
 def approve(conn, directory: Directory, run_ref: str, *,
-            ids: tuple[str, ...] = (), between_pages=None) -> None:
+            ids: tuple[str, ...] = (), between_pages=None) -> Interpreted:
     """Interpret the stored pages of `run_ref` into rows. Fetches nothing.
 
     `between_pages` IS CALLED AFTER EVERY PAGE PAIR IS INTERPRETED, with the number done
@@ -2032,6 +2049,7 @@ def approve(conn, directory: Directory, run_ref: str, *,
             f"mark is lifted and they are back in the count")
     say("")
     say(str(coverage(conn, directory.dataset_key)))
+    return Interpreted(pairs=total_pairs, made=made, refused=tuple(refused))
 
 
 def add_arguments(parser: argparse.ArgumentParser) -> None:
