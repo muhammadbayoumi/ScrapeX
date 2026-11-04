@@ -153,12 +153,16 @@ def test_an_interpretation_on_its_way_is_said_on_the_directory_row(warehouse, st
     assert row["observations"] == 0, row
 
 
-@pytest.mark.parametrize("status", [JobStatus.FAILED, JobStatus.CANCELLED])
+@pytest.mark.parametrize("status", [JobStatus.FAILED, JobStatus.CANCELLED,
+                                    JobStatus.COMPLETED_WITH_ERRORS])
 def test_an_interpretation_that_did_not_complete_leaves_the_press_owed(warehouse, status):
     """A FINISH TIME IS NOT A READING. Every terminal status gets one, and a failed or
     cancelled interpretation did not read what it planned -- so its finish time landing
     after the crawl's must not settle the press. On a dataset card that cost a badge; here
-    it costs the card and its only door, until a new crawl buys every page again."""
+    it costs the card and its only door, until a new crawl buys every page again.
+
+    COMPLETED WITH ERRORS is one of them (#1738): it refused page pairs, and the runs
+    holding them are not recorded as read, so the press stays owed for them."""
     conn, path, manifest = warehouse
     _job(conn, OMAN, directoryjob.JOB_KIND, JobStatus.COMPLETED,
          "2026-10-02T09:15:00Z", pages=4)
