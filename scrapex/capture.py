@@ -15,7 +15,14 @@ from . import settings, source_settings
 from .config import SourceEntry
 from .connectors.base import fetch_slot
 from .connectors.factory import build_connector
-from .ingest import IngestResult, ingest_payloads
+from .ingest import (
+    IngestResult,
+    canary_breach,
+    ingest_payloads,
+    mark_unlisted_products,
+    previous_rows_seen,
+)
+from .vocab import ExtractKind, ExtractScope, RunStatus
 
 
 class WarehouseSupersededError(RuntimeError):
@@ -305,9 +312,14 @@ def capture_source(conn: sqlite3.Connection, entry: SourceEntry,
         journal_skips = read.report()
     else:
         payloads = [t.to_payload() for t in tables]
+    archived_ids: list[int] = []
     with (lock() if lock is not None else nullcontext()):
         _refuse_if_superseded(conn)
         if archive_first:
+            archived_ids = [row[0] for row in conn.execute(
+                "SELECT sp.source_product_id FROM source_product sp "
+                "JOIN source_site ss ON ss.source_id = sp.source_id "
+                "WHERE ss.source_key = ? AND sp.status = 'active'", (entry.source_key,))]
             # A FULL REBUILD archives inside the same lock that writes the new
             # rows — atomically, and only once writing is actually possible.
             # Archiving earlier (as the job loop did) meant a lock conflict
@@ -331,6 +343,7 @@ def capture_source(conn: sqlite3.Connection, entry: SourceEntry,
         # panel had no measured expectation to show a bar against. From here a
         # successful run leaves the next crawl of this source a real number, and
         # it sharpens by itself every time.
+        previous_rows = previous_rows_seen(conn, entry.source_key)
         result = ingest_payloads(conn, entry, payloads, job_id=job_id,
                                  fetch_defects=defects,
                                  requests_count=requests_count)
@@ -340,6 +353,43 @@ def capture_source(conn: sqlite3.Connection, entry: SourceEntry,
         # clean success — the loss this path exists to prevent. PARTIAL rather
         # than FAILED, because everything readable did land.
         result.errors.extend(journal_skips)
+        # WHAT A REBUILD DID NOT FIND IS NOT YET "NO LONGER LISTED". His ruling of
+        # 2026-11-03, «ا و ج»: it stays marked only when the run succeeded, its
+        # connector proved the listing complete, and the canary and the bound hold,
+        # which is exactly the gate below. So the archived products the crawl did not
+        # bring back return to active here, and the gate marks the ones it can prove.
+        # A product marked before this rebuild was not archived by it and stays as it is.
+        if archived_ids:
+            restored = 0
+            for start in range(0, len(archived_ids), 500):
+                chunk = archived_ids[start:start + 500]
+                restored += conn.execute(
+                    "UPDATE source_product SET status = 'active' WHERE status = 'vanished' "
+                    f"AND source_product_id IN ({','.join('?' * len(chunk))})", chunk).rowcount
+            if restored:
+                result.notices.append(
+                    f"this rebuild did not find {restored} product(s): only a complete crawl "
+                    "it can prove marks them as no longer listed")
+        # ONLY OFF THE BACK OF A PROOF, as contractors.mark_departures. Absence means
+        # something only when the connector walked its whole listing (census_proven),
+        # for a source contracted to a census, in a run that lost nothing: not one the
+        # volume canary is about to fail (jobs.py). A resume holds pages an earlier
+        # attempt fetched, and what that attempt refused went with it, so it marks
+        # nothing and the next full crawl decides. And it says why it declined, because
+        # a crawl that silently marked nothing reads like one that found nothing gone.
+        if (hasattr(connector, "census_proven")
+                and any(spec.kind == ExtractKind.PRODUCT_PRICES
+                        and spec.scope == ExtractScope.CENSUS for spec in entry.extract)):
+            if (connector.census_proven and not resume and not history
+                    and result.status == RunStatus.SUCCESS):
+                mark_unlisted_products(conn, entry, payloads,
+                                       [p for t in tables for p in t.refused_products],
+                                       result, job_id,
+                                       breach=canary_breach(entry, sum(len(p.rows) for p in payloads),
+                                                            previous_rows))
+            else:
+                result.notices.append("this run did not prove the listing complete, "
+                                      "so no product was marked as no longer listed")
         _store_published_rates(conn, entry, tables, result)
     if journal:
         # `journal` is `job_id is not None`, so there is always a job to tell.
