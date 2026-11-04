@@ -145,7 +145,7 @@ def _directory_for(target: Target) -> Directory | None:
         return None
 
 
-def _coverage(general: sqlite3.Connection, dataset_key: str) -> dict:
+def _coverage(general: sqlite3.Connection, dataset_key: str, id_field: str) -> dict:
     """`scrapex/sightings.py`, called. NOT reimplemented.
 
     The same four functions `contractors.report_coverage` prints, so the route and
@@ -153,7 +153,7 @@ def _coverage(general: sqlite3.Connection, dataset_key: str) -> dict:
     window, which is `contractors.default_window` for both. The audit's own finding
     was `dataset_table_payload` reimplementing `fields.hidden_columns` inline.
     """
-    figure = coverage(general, dataset_key)
+    figure = coverage(general, dataset_key, id_field=id_field)
     window = contractors.default_window(general, dataset_key)
     body: dict = {
         "dataset_key": dataset_key,
@@ -168,7 +168,7 @@ def _coverage(general: sqlite3.Connection, dataset_key: str) -> dict:
         "frequencies": {str(times): count
                         for times, count in sighting_frequencies(
                             general, dataset_key).items()},
-        "missing_sample": list(missing_ids(general, dataset_key,
+        "missing_sample": list(missing_ids(general, dataset_key, id_field=id_field,
                                            limit=contractors.COVERAGE_SAMPLE)),
     }
     if not window:
@@ -177,7 +177,7 @@ def _coverage(general: sqlite3.Connection, dataset_key: str) -> dict:
             "no sightings recorded for this dataset, so there is no window to "
             "measure departures against")
         return body
-    left = departures(general, dataset_key, not_seen_since=window)
+    left = departures(general, dataset_key, not_seen_since=window, id_field=id_field)
     body["departures"] = {"not_seen_since": window, "gone": len(left.gone),
                           "unsighted": len(left.unsighted), "sentence": str(left)}
     return body
@@ -339,8 +339,17 @@ def dry_payload(source_key: str, *, general: sqlite3.Connection,
     # THE SAME TOP-LEVEL KEYS FOR BOTH KINDS, so the panel reads one shape. A key
     # present on one kind and absent on the other is how a reader learns to guard
     # every access, and then stops noticing which guards mean something.
-    body["coverage_note"] = None
-    body["coverage"] = [_coverage(general, key) for key in target.dataset_keys]
+    # THE DIRECTORY NAMES THE FIELD ITS IDS LIVE IN (#1727). A site no directory in this
+    # build registers has no field to match on, so its coverage is said to be unknown
+    # rather than computed against a guessed one: that guess was the defect.
+    if directory is None:
+        body["coverage_note"] = ("no directory in this build registers this site, so the "
+                                 "field its ids live in is unknown")
+        body["coverage"] = []
+    else:
+        body["coverage_note"] = None
+        body["coverage"] = [_coverage(general, key, directory.identity_field)
+                            for key in target.dataset_keys]
     body["impostors"] = _impostors(general, directory)
     body["last_run"] = _dataset_last_run(general)
     body["passes"] = [one.as_dict() for one in passes.directory_passes(

@@ -14,6 +14,8 @@ WHAT IS ASSERTED HERE RATHER THAN TRUSTED:
 """
 from __future__ import annotations
 
+import dataclasses
+
 import re
 
 import shutil
@@ -495,22 +497,62 @@ def test_coverage_comes_from_the_sightings_module(client, monkeypatch):
     """The audit's own finding was `dataset_table_payload` reimplementing
     `fields.hidden_columns` inline. If this payload grew its own SQL the sentinel
     below would never appear."""
-    calls: list[str] = []
+    calls: list[tuple[str, str]] = []
 
     real = dryrun.coverage
 
-    def spy(conn, dataset_key):
-        calls.append(dataset_key)
-        return real(conn, dataset_key)
+    def spy(conn, dataset_key, *, id_field):
+        calls.append((dataset_key, id_field))
+        return real(conn, dataset_key, id_field=id_field)
 
+    # THE DIRECTORY'S OWN FIELD, NOT A DEFAULT (#1727): muqawil's is `contractor_id`, the
+    # very value the default had, so the directory is given another to prove it is read.
+    found = dryrun._directory_for
+    monkeypatch.setattr(dryrun, "_directory_for", lambda target: dataclasses.replace(
+        found(target), identity_field="establishment_id"))
     monkeypatch.setattr(dryrun, "coverage", spy)
+    sampled: list[tuple[str, str]] = []
+    real_gap = dryrun.missing_ids
+
+    def gap_spy(conn, dataset_key, *, id_field, limit=None):
+        sampled.append((dataset_key, id_field))
+        return real_gap(conn, dataset_key, id_field=id_field, limit=limit)
+
+    monkeypatch.setattr(dryrun, "missing_ids", gap_spy)
+    left_asked: list[tuple[str, str]] = []
+    real_left = dryrun.departures
+
+    def left_spy(conn, dataset_key, *, not_seen_since, id_field, limit=None):
+        left_asked.append((dataset_key, id_field))
+        return real_left(conn, dataset_key, not_seen_since=not_seen_since,
+                         id_field=id_field, limit=limit)
+
+    monkeypatch.setattr(dryrun, "departures", left_spy)
     body = client.get(f"/api/dry/{DATASET}").json()
 
-    assert calls == [DATASET]
+    assert calls == [(DATASET, "establishment_id")]
+    assert sampled == [(DATASET, "establishment_id")], "the sample read another field"
+    assert left_asked == [(DATASET, "establishment_id")], "departures read another field"
     assert body["coverage"][0]["sentence"].startswith(DATASET)
     assert body["coverage"][0]["missing"] >= 1, (
         f"{NEVER_STORED} was sighted and never stored; coverage says nothing is "
         "missing, so the block is vacuous")
+
+
+def test_a_site_no_directory_registers_states_no_coverage(client, monkeypatch):
+    """#1727. The field a site's ids live in is its directory's, so with no directory
+    there is none to match on, and the old route matched on `contractor_id` regardless.
+    It says the figure is unknown instead of computing one."""
+    asked: list[tuple] = []
+    monkeypatch.setattr(dryrun, "_directory_for", lambda target: None)
+    monkeypatch.setattr(dryrun, "coverage", lambda *a, **k: asked.append(a))
+
+    body = client.get(f"/api/dry/{DATASET}").json()
+
+    assert body["coverage"] == []
+    assert body["coverage_note"] == ("no directory in this build registers this site, so "
+                                     "the field its ids live in is unknown")
+    assert asked == []
 
 
 def test_a_never_sighted_dataset_does_not_publish_100_percent_coverage(engine):
@@ -523,7 +565,7 @@ def test_a_never_sighted_dataset_does_not_publish_100_percent_coverage(engine):
     registry, _ = engine
     conn = registry.engine.connect()
     try:
-        block = dryrun._coverage(conn, "a_dataset_nothing_has_sighted")
+        block = dryrun._coverage(conn, "a_dataset_nothing_has_sighted", "contractor_id")
     finally:
         conn.close()
 

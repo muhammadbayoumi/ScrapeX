@@ -319,10 +319,12 @@ def test_a_page_past_the_end_is_not_approvable():
 
 # --- the real approval ------------------------------------------------------------------
 
-def _approve(tmp_path, monkeypatch, english: str, arabic: str) -> tuple[str, dict]:
+def _approve(tmp_path, monkeypatch, english: str, arabic: str,
+             *, sighted: tuple[str, ...] = ()) -> tuple[str, dict]:
     """The real `contractors.approve` over one stored page pair, on the real directory
     and the real schema, after the crawl's own site registration. Returns the log and
-    the stored rows by id."""
+    the stored rows by id. Given `sighted`, those ids are recorded as the crawl records
+    them and the closing coverage line is the real one."""
     import io
     from contextlib import redirect_stdout
 
@@ -358,7 +360,12 @@ def _approve(tmp_path, monkeypatch, english: str, arabic: str) -> tuple[str, dic
                 "ar": (stored(listing_url(locale="ar", page=1), arabic), arabic)}
         monkeypatch.setattr(contractors, "_pairs",
                             lambda c, d, run_ref, *, ids=(): {"page-1": pair})
-        monkeypatch.setattr(contractors, "coverage", lambda c, key: "")
+        if sighted:
+            from scrapex.sightings import record_sightings
+
+            record_sightings(conn, directory.dataset_key, sighted, run_ref="run-1")
+        else:
+            monkeypatch.setattr(contractors, "coverage", lambda c, key, *, id_field: "")
         monkeypatch.setattr(contractors, "LOG", tmp_path / "listing.log")
 
         said = io.StringIO()
@@ -384,6 +391,17 @@ def test_the_real_approval_stores_every_row_of_the_page(tmp_path, monkeypatch):
     stored = rows["859310"]
     assert stored["city_en"] == "Buraidah"
     assert stored["owner_id_number"] == _by_id(_candidate())["859310"]["owner_id_number"]
+
+
+def test_the_approvals_coverage_counts_the_rows_it_stored(tmp_path, monkeypatch):
+    """#1727. Approval closes on the coverage sentence, which matched on `contractor_id`
+    whatever the directory, so TVTC's read "0 stored" over every row it had just stored.
+    It matches on the directory's `establishment_id`."""
+    ids = tuple(sorted(_by_id(_candidate())))
+    log, rows = _approve(tmp_path, monkeypatch, _raw(1, "en"), _raw(1, "ar"), sighted=ids)
+
+    assert set(rows) == set(ids)
+    assert f"{DATASET_KEY}: {len(ids)} stored of {len(ids)} sighted" in log, log
 
 
 def test_a_refused_page_is_named_in_the_log_and_stores_nothing(tmp_path, monkeypatch):

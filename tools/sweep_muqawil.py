@@ -32,6 +32,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from scrapex import directories
 from scrapex.connectors.base import HttpFetcher          # noqa: E402
 from scrapex.databases import DatabaseRegistry
 from scrapex.extract.muqawil import read_listing         # noqa: E402
@@ -100,7 +101,9 @@ def main() -> None:
         say("")
         say(sweep.summary())
         say("")
-        say(str(coverage(conn, "contractors")))
+        # Matched on the directory's own identity field, as every caller is (#1727).
+        muqawil = directories.get("muqawil_org")
+        say(str(coverage(conn, muqawil.dataset_key, id_field=muqawil.identity_field)))
     finally:
         conn.close()
 

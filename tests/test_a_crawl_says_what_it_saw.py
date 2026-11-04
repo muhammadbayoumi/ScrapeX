@@ -106,7 +106,7 @@ def test_a_sighting_survives_the_process_that_saw_it(conn):
     """
     assert record_sightings(conn, "contractors", ["1298", "1301", "1303"]) == 3
 
-    assert coverage(conn, "contractors").seen == 3
+    assert coverage(conn, "contractors", id_field="contractor_id").seen == 3
 
 
 def test_the_missing_list_is_the_answer_he_could_not_be_given(conn):
@@ -114,9 +114,9 @@ def test_the_missing_list_is_the_answer_he_could_not_be_given(conn):
     _stored(conn, "1298", "1303")
     record_sightings(conn, "contractors", ["1298", "1301", "1303"])
 
-    assert missing_ids(conn, "contractors") == ("1301",)
+    assert missing_ids(conn, "contractors", id_field="contractor_id") == ("1301",)
 
-    got = coverage(conn, "contractors")
+    got = coverage(conn, "contractors", id_field="contractor_id")
     assert (got.seen, got.stored, got.missing) == (3, 2, 1)
 
 
@@ -131,14 +131,14 @@ def test_sighted_is_a_floor_and_the_report_says_so(conn):
     _stored(conn, "1298")
     record_sightings(conn, "contractors", ["1298", "1301"])
 
-    assert "FLOOR, not the population" in str(coverage(conn, "contractors"))
+    assert "FLOOR, not the population" in str(coverage(conn, "contractors", id_field="contractor_id"))
 
 
 def test_nothing_sighted_is_not_the_same_as_complete(conn):
     """Zero seen must not read as 100% covered, which is what stored/seen would
     give with an empty denominator guarded the lazy way."""
-    assert coverage(conn, "contractors").seen == 0
-    assert "cannot be stated" in str(coverage(conn, "contractors"))
+    assert coverage(conn, "contractors", id_field="contractor_id").seen == 0
+    assert "cannot be stated" in str(coverage(conn, "contractors", id_field="contractor_id"))
 
 
 # ---- the frequency distribution is a sample, not bookkeeping ------------------
@@ -160,7 +160,7 @@ def test_a_parser_that_failed_does_not_invent_a_contractor_called_none(conn):
     phantom to every pass, so a sweep would go dry looking convergent."""
     assert record_sightings(conn, "contractors", [None, "", "   ", "1301"]) == 1
 
-    assert coverage(conn, "contractors").seen == 1
+    assert coverage(conn, "contractors", id_field="contractor_id").seen == 1
 
 
 def test_two_datasets_do_not_share_a_sighting(conn):
@@ -168,8 +168,8 @@ def test_two_datasets_do_not_share_a_sighting(conn):
     record_sightings(conn, "contractors", ["1301"])
     record_sightings(conn, "suppliers", ["1301"])
 
-    assert coverage(conn, "contractors").seen == 1
-    assert coverage(conn, "suppliers").seen == 1
+    assert coverage(conn, "contractors", id_field="contractor_id").seen == 1
+    assert coverage(conn, "suppliers", id_field="contractor_id").seen == 1
 
 
 def test_the_most_repeatedly_seen_missing_contractor_comes_first(conn):
@@ -180,7 +180,7 @@ def test_the_most_repeatedly_seen_missing_contractor_comes_first(conn):
     record_sightings(conn, "contractors", ["1400"])
     record_sightings(conn, "contractors", ["1400"])
 
-    assert missing_ids(conn, "contractors") == ("1400", "1301")
+    assert missing_ids(conn, "contractors", id_field="contractor_id") == ("1400", "1301")
 
 
 def test_a_sighting_is_not_a_record_with_holes(conn):
@@ -217,7 +217,8 @@ def test_a_stored_contractor_the_site_stopped_showing_is_named(conn):
                  " WHERE external_id IN ('1301','1302')")
     conn.commit()
 
-    gap = departures(conn, "contractors", not_seen_since="2026-08-21T00:00:00Z")
+    gap = departures(conn, "contractors", not_seen_since="2026-08-21T00:00:00Z",
+                     id_field="contractor_id")
 
     assert gap.gone == ("1303",)
     assert gap.unsighted == ()
@@ -233,7 +234,8 @@ def test_a_row_that_predates_the_ledger_is_not_called_a_departure(conn):
     record_sightings(conn, "contractors", ["1301"])
     conn.commit()
 
-    gap = departures(conn, "contractors", not_seen_since="2000-01-01T00:00:00Z")
+    gap = departures(conn, "contractors", not_seen_since="2000-01-01T00:00:00Z",
+                     id_field="contractor_id")
 
     assert gap.gone == (), "1301 was sighted after the window and has not left"
     assert gap.unsighted == ("1302",), "and 1302 was never in the ledger at all"
@@ -254,7 +256,8 @@ def test_a_contractor_never_seen_at_all_is_in_NEITHER_list(conn):
     record_sightings(conn, "contractors", ["1301"])
     conn.commit()
 
-    gap = departures(conn, "contractors", not_seen_since="2026-08-21T00:00:00Z")
+    gap = departures(conn, "contractors", not_seen_since="2026-08-21T00:00:00Z",
+                     id_field="contractor_id")
 
     assert "10001274" not in gap.gone
     assert "10001274" not in gap.unsighted
@@ -271,7 +274,8 @@ def test_departures_never_writes(conn):
     before = conn.execute(
         "SELECT status, last_seen_at FROM generic_record").fetchall()
 
-    departures(conn, "contractors", not_seen_since="2026-08-21T00:00:00Z")
+    departures(conn, "contractors", not_seen_since="2026-08-21T00:00:00Z",
+                     id_field="contractor_id")
 
     after = conn.execute("SELECT status, last_seen_at FROM generic_record").fetchall()
     assert [tuple(r) for r in after] == [tuple(r) for r in before]
@@ -288,7 +292,8 @@ def test_a_retired_record_is_not_reported_as_a_departure(conn):
                  " WHERE record_key = ?", (_record_key("1302"),))
     conn.commit()
 
-    gap = departures(conn, "contractors", not_seen_since="2026-08-21T00:00:00Z")
+    gap = departures(conn, "contractors", not_seen_since="2026-08-21T00:00:00Z",
+                     id_field="contractor_id")
 
     assert gap.gone == ("1301",)
 
@@ -476,3 +481,114 @@ def test_updated_outranks_confirmed_but_not_new_or_absent():
                      last_seen_at=crawl, row_run=2, latest_run=2,
                      run_started_at=crawl, changed_at=crawl,
                      sighted_at=crawl) == STATE_UPDATED
+
+
+def _stored_by(conn, field: str, *ids: str) -> None:
+    """Rows keyed by another field than `contractor_id`, as TVTC's and Oman's are, in the
+    columns `_stored` writes."""
+    _stored(conn)
+    for one in ids:
+        conn.execute(
+            "INSERT INTO generic_record "
+            "(dataset_definition_id, record_key, schema_version_id, data_json, "
+            " source_snapshot_id, source_locator, content_hash, "
+            " first_seen_at, last_seen_at, status) "
+            "VALUES (1, ?, 1, ?, 1, 'x', ?, "
+            "        '2026-08-20T00:00:00Z','2026-08-20T00:00:00Z','active')",
+            (_record_key(one), json.dumps({field: one}), f"h{one}"))
+    conn.commit()
+
+
+def test_coverage_matches_on_the_directorys_own_identity_field(conn):
+    """#1727. The field was fixed at `contractor_id`, so a directory keyed by anything
+    else read 0 stored. Measured on TVTC's real crawl: "0 stored of 3,141 sighted", with
+    3,141 rows stored. Oman, keyed by `short_name`, the same."""
+    record_sightings(conn, "contractors", ["E1", "E2", "E3"], run_ref="r1")
+    _stored_by(conn, "establishment_id", "E1", "E2")
+
+    got = coverage(conn, "contractors", id_field="establishment_id")
+    assert (got.seen, got.stored, got.missing) == (3, 2, 1)
+    assert missing_ids(conn, "contractors", id_field="establishment_id") == ("E3",)
+    # And the old field reads none of them: the figure he was shown.
+    assert coverage(conn, "contractors", id_field="contractor_id").stored == 0
+
+
+def test_departures_match_on_the_directorys_own_identity_field(conn):
+    """#1727's twin. On the old field every stored row read a NULL id, so the report
+    said nobody had left whatever the site had stopped showing."""
+    _stored_by(conn, "establishment_id", "E1", "E2")
+    record_sightings(conn, "contractors", ["E1", "E2"])
+    conn.execute("UPDATE dataset_sighting SET last_seen_at = '2026-01-01T00:00:00Z' "
+                 " WHERE external_id = 'E2'")
+    conn.commit()
+
+    gap = departures(conn, "contractors", not_seen_since="2026-08-21T00:00:00Z",
+                     id_field="establishment_id")
+    assert gap.gone == ("E2",)
+    wrong = departures(conn, "contractors", not_seen_since="2026-08-21T00:00:00Z",
+                       id_field="contractor_id")
+    assert (wrong.gone, wrong.unsighted) == ((), ())
+
+
+def test_the_crawls_report_names_the_directorys_field(conn, monkeypatch):
+    """`report_coverage` is what the crawl and approve logs print. It reads the directory's
+    own `identity_field`, as `mark_departures` always did."""
+    from types import SimpleNamespace
+
+    from scrapex import contractors
+
+    record_sightings(conn, "contractors", ["E1", "E2"], run_ref="r1")
+    # E3 is stored and no pass sighted it, which only the right field can see.
+    _stored_by(conn, "establishment_id", "E1", "E2", "E3")
+    said: list[str] = []
+    monkeypatch.setattr(contractors, "say", lambda text="": said.append(str(text)))
+    directory = SimpleNamespace(dataset_key="contractors", identity_field="establishment_id")
+
+    contractors.report_coverage(conn, directory, "2000-01-01T00:00:00Z")
+
+    assert said[0].startswith("contractors: 2 stored of 2 sighted"), said[0]
+    assert any(line.startswith("sighted and never stored: 0 shown") for line in said), said
+    assert any("1 stored contractor(s) are not in the sighting ledger" in line
+               for line in said), said
+
+
+def test_every_caller_names_the_field_its_ids_live_in():
+    """A caller that omits `id_field` raises where it has no default — but only when it
+    runs, and `tools/sweep_muqawil.py` runs once at the end of an hours-long sweep, under
+    no test. It was such a caller when #1727 was fixed. Where a default is left, omitting
+    it matches on `contractor_id`, which was #1727 itself. So every call outside
+    `sightings` to a function of it that takes `id_field` must name it."""
+    import ast
+    import inspect
+
+    from scrapex import sightings
+
+    taking = {name for name, one in inspect.getmembers(sightings, inspect.isfunction)
+              if one.__module__ == sightings.__name__
+              and "id_field" in inspect.signature(one).parameters}
+    assert {"coverage", "missing_ids", "departures", "stored_ids"} <= taking, taking
+
+    root = Path(__file__).resolve().parent.parent
+    files = [*sorted((root / "scrapex").rglob("*.py")), *sorted((root / "tools").rglob("*.py"))]
+    checked: list[str] = []
+    unnamed: list[str] = []
+    for path in files:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        names = {alias.asname or alias.name
+                 for node in ast.walk(tree)
+                 if isinstance(node, ast.ImportFrom)
+                 and (node.module or "").split(".")[-1] == "sightings"
+                 for alias in node.names
+                 if alias.name in taking}
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                    and node.func.id in names):
+                where = f"{path.relative_to(root).as_posix()}:{node.lineno}"
+                checked.append(where)
+                if not any(word.arg == "id_field" for word in node.keywords):
+                    unnamed.append(where)
+
+    assert unnamed == []
+    # The scan found the callers it exists for, so a renamed import cannot empty it.
+    assert {where.split(":")[0] for where in checked} >= {
+        "scrapex/contractors.py", "scrapex/dryrun.py", "tools/sweep_muqawil.py"}

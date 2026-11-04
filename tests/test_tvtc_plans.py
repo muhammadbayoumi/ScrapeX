@@ -387,7 +387,7 @@ def _approve(tmp_path, monkeypatch, english: str, arabic: str) -> tuple[str, dic
                        arabic)}
         monkeypatch.setattr(contractors, "_pairs",
                             lambda c, d, run_ref, *, ids=(): {"page-1": pair})
-        monkeypatch.setattr(contractors, "coverage", lambda c, key: "")
+        monkeypatch.setattr(contractors, "coverage", lambda c, key, *, id_field: "")
         monkeypatch.setattr(contractors, "LOG", tmp_path / "listing.log")
         said = io.StringIO()
         with redirect_stdout(said):
