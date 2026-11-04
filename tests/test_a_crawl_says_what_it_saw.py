@@ -63,7 +63,7 @@ def _record_key(contractor_id: str) -> str:
     return _digest(_canonical([contractor_id]))
 
 
-def _stored(conn, *contractor_ids: str) -> None:
+def _stored(conn, *contractor_ids: str, dataset: str = "contractors") -> None:
     """Records for contractors we actually ingested, minimally shaped.
 
     Written against the REAL column list rather than a remembered one — the
@@ -77,7 +77,7 @@ def _stored(conn, *contractor_ids: str) -> None:
         "INSERT INTO dataset_definition "
         "(source_id, dataset_key, original_name, dataset_kind, "
         " discovery_method, locator_json) "
-        "VALUES (1,'contractors','contractors','table','html_table','{}')")
+        "VALUES (1,?,?,'table','html_table','{}')", (dataset, dataset))
     conn.execute(
         "INSERT INTO dataset_schema_version "
         "(dataset_definition_id, version_number, schema_hash) VALUES (1,1,'h')")
@@ -483,10 +483,10 @@ def test_updated_outranks_confirmed_but_not_new_or_absent():
                      sighted_at=crawl) == STATE_UPDATED
 
 
-def _stored_by(conn, field: str, *ids: str) -> None:
+def _stored_by(conn, field: str, *ids: str, dataset: str = "contractors") -> None:
     """Rows keyed by another field than `contractor_id`, as TVTC's and Oman's are, in the
     columns `_stored` writes."""
-    _stored(conn)
+    _stored(conn, dataset=dataset)
     for one in ids:
         conn.execute(
             "INSERT INTO generic_record "
@@ -532,22 +532,28 @@ def test_departures_match_on_the_directorys_own_identity_field(conn):
 
 def test_the_crawls_report_names_the_directorys_field(conn, monkeypatch):
     """`report_coverage` is what the crawl and approve logs print. It reads the directory's
-    own `identity_field`, as `mark_departures` always did."""
+    own `identity_field` and `dataset_key`, as `mark_departures` always did. NEITHER IS
+    MUQAWIL'S, because muqawil's are the values a hard-coded line would carry -- the sweep
+    tool held `coverage(conn, "contractors")` until #1727 -- and a test on them could not
+    tell the directory's from a literal."""
     from types import SimpleNamespace
 
     from scrapex import contractors
 
-    record_sightings(conn, "contractors", ["E1", "E2"], run_ref="r1")
-    # E3 is stored and no pass sighted it, which only the right field can see.
-    _stored_by(conn, "establishment_id", "E1", "E2", "E3")
+    dataset = "tvtc_training_establishments"
+    # E3 is stored and no pass sighted it, and E4 is sighted and never stored: each is
+    # seen only on the directory's own field and dataset.
+    record_sightings(conn, dataset, ["E1", "E2", "E4"], run_ref="r1")
+    _stored_by(conn, "establishment_id", "E1", "E2", "E3", dataset=dataset)
     said: list[str] = []
     monkeypatch.setattr(contractors, "say", lambda text="": said.append(str(text)))
-    directory = SimpleNamespace(dataset_key="contractors", identity_field="establishment_id")
+    directory = SimpleNamespace(dataset_key=dataset, identity_field="establishment_id")
 
     contractors.report_coverage(conn, directory, "2000-01-01T00:00:00Z")
 
-    assert said[0].startswith("contractors: 2 stored of 2 sighted"), said[0]
-    assert any(line.startswith("sighted and never stored: 0 shown") for line in said), said
+    assert said[0].startswith(f"{dataset}: 2 stored of 3 sighted"), said[0]
+    assert any(line.startswith("sighted and never stored: 1 shown") for line in said), said
+    assert "    E4" in said, said
     assert any("1 stored contractor(s) are not in the sighting ledger" in line
                for line in said), said
 
@@ -569,26 +575,75 @@ def test_every_caller_names_the_field_its_ids_live_in():
     assert {"coverage", "missing_ids", "departures", "stored_ids"} <= taking, taking
 
     root = Path(__file__).resolve().parent.parent
-    files = [*sorted((root / "scrapex").rglob("*.py")), *sorted((root / "tools").rglob("*.py"))]
+    files = [path for folder in ("scrapex", "tools", "packaging")
+             for path in sorted((root / folder).rglob("*.py"))]
     checked: list[str] = []
     unnamed: list[str] = []
     for path in files:
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        names = {alias.asname or alias.name
-                 for node in ast.walk(tree)
-                 if isinstance(node, ast.ImportFrom)
-                 and (node.module or "").split(".")[-1] == "sightings"
-                 for alias in node.names
-                 if alias.name in taking}
-        for node in ast.walk(tree):
-            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
-                    and node.func.id in names):
-                where = f"{path.relative_to(root).as_posix()}:{node.lineno}"
-                checked.append(where)
-                if not any(word.arg == "id_field" for word in node.keywords):
-                    unnamed.append(where)
+        where = path.relative_to(root).as_posix()
+        for line, named in _calls_into_sightings(path.read_text(encoding="utf-8"), taking):
+            checked.append(f"{where}:{line}")
+            if not named:
+                unnamed.append(f"{where}:{line}")
 
     assert unnamed == []
     # The scan found the callers it exists for, so a renamed import cannot empty it.
     assert {where.split(":")[0] for where in checked} >= {
         "scrapex/contractors.py", "scrapex/dryrun.py", "tools/sweep_muqawil.py"}
+
+
+def _calls_into_sightings(source: str, taking: set[str]) -> list[tuple[int, bool]]:
+    """Every call in `source` to a `sightings` function in `taking`, with whether it names
+    `id_field`: by name after `from ...sightings import f [as g]`, or through the module
+    after `from ... import sightings [as s]`, `import scrapex.sightings as s` or a bare
+    `import scrapex.sightings`. A call through a variable holding the function is out of a
+    static scan's reach."""
+    import ast
+
+    tree = ast.parse(source)
+    names: set[str] = set()
+    modules: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                if (node.module or "").split(".")[-1] == "sightings" and alias.name in taking:
+                    names.add(alias.asname or alias.name)
+                if alias.name == "sightings":
+                    modules.add(alias.asname or alias.name)
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name.split(".")[-1] == "sightings" and alias.asname:
+                    modules.add(alias.asname)
+    found = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        by_name = isinstance(func, ast.Name) and func.id in names
+        through = (isinstance(func, ast.Attribute) and func.attr in taking
+                   and ((isinstance(func.value, ast.Name) and func.value.id in modules)
+                        or (isinstance(func.value, ast.Attribute)
+                            and func.value.attr == "sightings")))
+        if by_name or through:
+            found.append((node.lineno, any(word.arg == "id_field" for word in node.keywords)))
+    return found
+
+
+@pytest.mark.parametrize("caller", [
+    "from scrapex.sightings import coverage\ncoverage(conn, key)",
+    "from scrapex.sightings import record_absences as gone\ngone(conn, key, seen=(), run_ref='r')",
+    "from . import sightings\nsightings.stored_ids(conn, key)",
+    "from scrapex import sightings as s\ns.departures(conn, key, not_seen_since='x')",
+    "import scrapex.sightings as s\ns.coverage(conn, key)",
+    "import scrapex.sightings\nscrapex.sightings.missing_ids(conn, key)",
+])
+def test_the_scan_sees_every_way_a_module_calls_sightings(caller):
+    """The gate of #1992 found the scan blind to a call through the module, the style
+    `scrapex/profilejob.py` already imports `sightings` in. Each spelling here omits the
+    field and must be caught; the same spelling naming it must pass."""
+    taking = {"coverage", "missing_ids", "departures", "stored_ids", "record_absences"}
+
+    assert _calls_into_sightings(caller, taking) == [(2, False)], caller
+    named = caller[:-1] + ", id_field='establishment_id')"
+    assert _calls_into_sightings(named, taking) == [(2, True)], named
+

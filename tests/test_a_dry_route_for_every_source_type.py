@@ -15,7 +15,6 @@ WHAT IS ASSERTED HERE RATHER THAN TRUSTED:
 from __future__ import annotations
 
 import dataclasses
-
 import re
 
 import shutil
@@ -47,6 +46,16 @@ SITE = "muqawil_org"
 #: An id no page approved, so `coverage.missing` is not zero and the block is not
 #: vacuous.
 NEVER_STORED = "99999901"
+#: DATASETS NO DIRECTORY KEYS (#1727's gate): one under muqawil's own site, as an
+#: enrichment output is, and two under a site no directory registers. Keyed by the
+#: listing's membership number, not `contractor_id`, so a coverage read on the
+#: directory's field or on the old default reads 0 stored.
+ENRICHED = "contractors_enrichment"
+UNREGISTERED = "registry_example"
+KEYED = "registry_orgs"
+TWO_KEYS = "registry_pairs"
+NEVER_ENRICHED = "M-NEVER-1"
+NEVER_KEYED = "M-NEVER-2"
 
 
 def _price_key() -> str:
@@ -91,6 +100,29 @@ def engine(tmp_path_factory):
         stored_ids = [str(row["contractor_id"]) for row in candidate.rows]
         record_sightings(conn, DATASET, [*stored_ids, NEVER_STORED],
                          run_ref="listing-test")
+        numbers = [str(row["card_membership_number"]) for row in candidate.rows]
+        for url, site, dataset, identity in (
+                ("https://muqawil.org/en/contractors?page=1&enriched=1", SITE, ENRICHED,
+                 {"card_membership_number"}),
+                ("https://registry.example/orgs?page=1", UNREGISTERED, KEYED,
+                 {"card_membership_number"}),
+                ("https://registry.example/pairs?page=1", UNREGISTERED, TWO_KEYS,
+                 {"contractor_id", "card_membership_number"})):
+            page = service.save_snapshot(conn, SnapshotCreate(
+                source_url=url, html_content=LISTING, crawl_run_ref="listing-test"))
+            service.approve_candidate(
+                conn, int(page["page_snapshot_id"]),
+                CandidateApproval(
+                    table_index=0, site_key=site, site_display_name=site,
+                    dataset_key=dataset, dataset_name=dataset,
+                    fields=[ApprovalField(field_key=f.field_key,
+                                          display_name=f.source_name, data_type="text",
+                                          identity=f.field_key in identity)
+                            for f in candidate.fields]),
+                candidate=candidate)
+        record_sightings(conn, ENRICHED, [*numbers, NEVER_ENRICHED], run_ref="enrich")
+        record_sightings(conn, KEYED, [*numbers, NEVER_KEYED], run_ref="registry")
+        record_sightings(conn, TWO_KEYS, stored_ids, run_ref="registry")
         # NO EXPLICIT `source_id`, AND THE MERGE IS WHY. `approve_candidate` above
         # registers the SITE, which since `0014` is a row in this very table -- so a
         # hard-coded `1` here collided with it. The two registries were two id spaces
@@ -539,20 +571,54 @@ def test_coverage_comes_from_the_sightings_module(client, monkeypatch):
         "missing, so the block is vacuous")
 
 
-def test_a_site_no_directory_registers_states_no_coverage(client, monkeypatch):
-    """#1727. The field a site's ids live in is its directory's, so with no directory
-    there is none to match on, and the old route matched on `contractor_id` regardless.
-    It says the figure is unknown instead of computing one."""
+def test_a_dataset_the_directory_does_not_key_reads_its_schemas_field(client):
+    """#1727'S GATE. An enrichment output under muqawil's site is keyed by its own field,
+    not the listing's, and the route applied the directory's field to every dataset the
+    site owns: 0 stored of 5 sighted. Its schema's one key part names the field."""
+    body = client.get(f"/api/dry/{ENRICHED}").json()
+
+    assert body["coverage_note"] is None, body["coverage_note"]
+    [block] = body["coverage"]
+    assert (block["dataset_key"], block["seen"], block["stored"], block["missing"]) == (
+        ENRICHED, 5, 4, 1), block
+    assert block["missing_sample"] == [NEVER_ENRICHED], block
+
+
+def test_the_directorys_own_dataset_still_reads_the_directorys_field(client):
+    """The site's route lists both of muqawil's datasets, each on its own field."""
+    body = client.get(f"/api/dry/{SITE}").json()
+
+    by_key = {block["dataset_key"]: block for block in body["coverage"]}
+    assert set(by_key) >= {DATASET, ENRICHED}, by_key
+    assert by_key[DATASET]["missing_sample"] == [NEVER_STORED], by_key[DATASET]
+    assert by_key[ENRICHED]["missing_sample"] == [NEVER_ENRICHED], by_key[ENRICHED]
+    assert body["coverage_note"] is None, body["coverage_note"]
+
+
+def test_a_site_no_directory_registers_reads_each_datasets_schema(client):
+    """A SITE NO DIRECTORY REGISTERS is read through the real route, not a patched one:
+    the dataset whose schema names one key is computed on it, and the one naming two is
+    named in the note rather than computed on a guessed field."""
+    body = client.get(f"/api/dry/{UNREGISTERED}").json()
+
+    by_key = {block["dataset_key"]: block for block in body["coverage"]}
+    assert set(by_key) == {KEYED}, by_key
+    assert (by_key[KEYED]["stored"], by_key[KEYED]["missing_sample"]) == (
+        4, [NEVER_KEYED]), by_key[KEYED]
+    assert body["coverage_note"] == (
+        f"no identity field is stated for {TWO_KEYS}: no directory in this build keys it "
+        "and its schema names no single key, so its coverage is not computed")
+
+
+def test_a_dataset_whose_schema_names_no_single_key_is_not_computed(client, monkeypatch):
+    """Two key parts state no single field, and its sightings are not matched on one."""
     asked: list[tuple] = []
-    monkeypatch.setattr(dryrun, "_directory_for", lambda target: None)
     monkeypatch.setattr(dryrun, "coverage", lambda *a, **k: asked.append(a))
 
-    body = client.get(f"/api/dry/{DATASET}").json()
+    body = client.get(f"/api/dry/{TWO_KEYS}").json()
 
-    assert body["coverage"] == []
-    assert body["coverage_note"] == ("no directory in this build registers this site, so "
-                                     "the field its ids live in is unknown")
-    assert asked == []
+    assert body["coverage"] == [] and asked == [], body["coverage"]
+    assert body["coverage_note"].startswith(f"no identity field is stated for {TWO_KEYS}:")
 
 
 def test_a_never_sighted_dataset_does_not_publish_100_percent_coverage(engine):
