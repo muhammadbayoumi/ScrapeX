@@ -2,16 +2,19 @@
 from __future__ import annotations
 
 import shutil
+import sqlite3
 from pathlib import Path
 
 import pytest
 
 pytest.importorskip("fastapi")
+from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 from scrapex import db as dbmod  # noqa: E402
 from scrapex.config import MANIFEST_FILE  # noqa: E402
 from scrapex.webui.app import create_app  # noqa: E402
+from scrapex.webui.catalog_api import create_catalog_router  # noqa: E402
 
 
 @pytest.fixture()
@@ -147,3 +150,36 @@ def test_feature_manifest_reports_foundation_without_enabling_the_ui(client):
     # matters now -- the UI it reports on serves one dataset, not a catalogue.
     assert catalog_feature["stage"] == "partial"
     assert catalog_feature["enabled"] is True
+
+
+def _route_answering(raised) -> TestClient:
+    def write_action(_run):
+        raise raised
+
+    app = FastAPI()
+    app.include_router(create_catalog_router(lambda: None, write_action))
+    return TestClient(app, raise_server_exceptions=False)
+
+
+def _new_site(client):
+    return client.post("/api/catalog/sites", json={
+        "site_key": "example_site", "display_name": "Example", "base_url": "https://example.com"})
+
+
+def test_a_write_another_app_holds_up_is_a_retryable_conflict(tmp_path: Path):
+    path = tmp_path / "held.db"
+    holder = sqlite3.connect(path, isolation_level=None)
+    holder.executescript("PRAGMA journal_mode = WAL; CREATE TABLE held (n INTEGER);")
+    other = sqlite3.connect(path, timeout=0)
+    holder.execute("BEGIN IMMEDIATE")
+    with pytest.raises(sqlite3.OperationalError) as busy:
+        other.execute("INSERT INTO held VALUES (1)")
+    holder.execute("ROLLBACK")
+    other.close()
+    answer = _new_site(_route_answering(busy.value))
+    assert answer.status_code == 409 and "the database is busy" in answer.json()["detail"]
+    with pytest.raises(sqlite3.OperationalError) as missing:
+        holder.execute("SELECT 1 FROM source_blocked")
+    holder.close()
+    # Its name holds "locked", and no retry will ever make the table exist.
+    assert _new_site(_route_answering(missing.value)).status_code == 500

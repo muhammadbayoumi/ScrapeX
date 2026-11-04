@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Path, Query, status
 
 from .. import catalog, catalog_relations
 from .. import catalog_models as models
+from .. import db as dbmod
 from ..catalog_models import DatasetCreate, FieldCreate, RelationshipCreate, SiteCreate
 
 ReadConnection = Callable[[], sqlite3.Connection]
@@ -46,7 +47,7 @@ def create_catalog_router(
             # Only LOCK contention is a retryable conflict. Reporting a malformed
             # statement or a missing table as "the database is busy" would send
             # the owner to retry something that will never succeed.
-            if "locked" in str(exc).lower() or "busy" in str(exc).lower():
+            if dbmod.another_app_holds_it(exc):
                 raise HTTPException(
                     status_code=409,
                     detail=f"the database is busy — try again shortly ({exc})")
