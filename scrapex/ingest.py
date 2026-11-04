@@ -929,11 +929,19 @@ def _observation_values(r: dict, observed_at: str) -> dict:
     # It is NOT added to the price key, and that stays deliberate: this is a
     # different customer's price, so it must not split the retail timeline. It
     # answers "is this row new", not "did the price change".
+    # A REPORTED row's edition joins the hash on the same terms as `trade`: only when
+    # the row carries one, so no other source re-hashes. It names which edition of a
+    # source that revises its past restated the month. Without it, a month revised
+    # A -> B -> A was a duplicate of its first row on the third edition, and every
+    # reader kept showing B (#1993, his answer «اختم بالإصدار»). An observed row never
+    # takes it: the publisher's dating does not drive our own observations' identity.
+    edition = r.get("edition") if r.get("provenance") == "reported" else ""
     content_hash = record_hash({
         "effective": _canon_amount(effective), "regular": _canon_amount(regular),
         "sale": _canon_amount(sale), "currency": r["currency"], "vat": vat,
         "availability": availability, "stock": _canon_amount(stock_dec),
         **({"trade": _canon_amount(trade_dec)} if trade_dec is not None else {}),
+        **({"edition": edition} if edition else {}),
     })
     # price_hash answers a different question: is this the SAME PRICE? It leaves
     # availability and stock out — the owner wants the latest stock state, not
@@ -1431,6 +1439,9 @@ def _commodity_to_product_row(c: dict) -> dict:
         "official_source_link": c.get("official_source_link", ""),
         # Not a product column: _get_offer_id reads it, and it reaches no other table.
         "customer_segment": c.get("consumer_segment", ""),
+        # Not a product column either: _observation_values hashes it on a reported row,
+        # and it reaches no table.
+        "edition": c.get("edition", ""),
     })
     return row
 
