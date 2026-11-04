@@ -362,13 +362,16 @@ def test_the_question_focuses_its_title_only_where_cancel_would_scroll_it_away(
 
 
 def test_start_stays_disabled_while_the_engine_answers(panel):
-    """A second press posted a second job, and one behind an open question took its focus."""
-    page = panel(sources=SOURCES, script=engine(cost=COST_FIRST, delay_ms=1_500))
+    """The study's probe: a price crawl running, so the 1.5 s tick redraws Start, and the engine
+    answering 3 s late. The tick re-enabled Start, a second press posted a second job, and one
+    behind an open question took its focus."""
+    page = panel(sources=SOURCES, jobs=[PRICE_RUNNING],
+                 script=engine(cost=COST_FIRST, delay_ms=3_000))
     tick(page, "worldbank_org")
     choose_mode(page, "initial_crawl")
     page.click("#run")
-    page.wait_for_timeout(300)
-    assert page.is_disabled("#run")
+    page.wait_for_timeout(2_000)
+    assert page.is_disabled("#run"), "a tick re-enabled Start while the engine answered"
     page.click("#run", force=True)
     wait_asking(page)
     assert len(posts(page)) == 1

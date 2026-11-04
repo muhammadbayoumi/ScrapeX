@@ -82,7 +82,7 @@ class SourceState:
     held_whole_at: str | None
     #: The mode of the job that took the newest count: the cost question's words.
     count_mode: str | None = None
-    #: When the last crawl that left areas unread ended (#1701's `stopped_at`).
+    #: When the newest settled crawl ended (#1701's `stopped_at`), once any has counted.
     stopped_at: str | None = None
     #: Whether a tender crawl of the source is not settled: queued, running, paused...
     unsettled: bool = False
@@ -135,9 +135,10 @@ def source_state(conn: sqlite3.Connection, source_key: str) -> SourceState:
             held = changes.get("held_whole_at") or held
         if status not in settled:
             unsettled = True
-        elif count and not {name for name, _ in count["areas"]} <= read:
-            # A SETTLED CRAWL THAT LEFT AREAS UNREAD: the newest such end is where the
-            # row says the last crawl stopped, which after an update is that update's.
+        elif count:
+            # THE NEWEST SETTLED CRAWL'S END: where the row says the last crawl stopped,
+            # which after an update is that update's. One that left nothing unread sends
+            # no `first_crawl` at all, so its end is never shown.
             stopped = finished_at
     return SourceState(count=count, areas_read=frozenset(read), first_counted_at=first,
                        held_whole_at=held, count_mode=mode, stopped_at=stopped,

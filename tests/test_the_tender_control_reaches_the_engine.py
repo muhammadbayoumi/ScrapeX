@@ -118,6 +118,14 @@ def test_no_first_crawl_is_sent_while_unsettled_unread_or_whole(client, warehous
     assert "first_crawl" not in tender_row(client)
 
 
+def test_no_first_crawl_is_sent_once_an_update_has_finished_it(client, warehouse):
+    """The stopped first crawl is still on record, dated, and an update read the rest."""
+    past_job(warehouse, {"count": COUNT, "areas_read": [KENYA]})
+    past_job(warehouse, {"count": COUNT, "areas_read": [EGYPT]}, status="completed",
+             mode="update")
+    assert "first_crawl" not in tender_row(client)
+
+
 def test_no_first_crawl_is_sent_while_the_update_that_finishes_it_runs(client, warehouse):
     """The stopped first crawl is on record, and an update of it is running: the row says
     nothing about a stop while the crawl that finishes it is under way (#1701, 13)."""

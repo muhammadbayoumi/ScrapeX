@@ -1932,3 +1932,32 @@ def test_the_progress_unit_is_what_the_figures_count_not_what_comes_next(conn, b
 def test_a_job_before_its_first_count_counts_areas(conn, bank):
     ref = a_job(conn)
     assert tenderjob.progress_unit(jobs.get_job(conn, ref)) == "areas"
+
+
+def test_a_resume_that_meets_a_new_area_counts_areas_again(conn, bank, monkeypatch):
+    """Paused in the pass over changes, then the Bank counts an area it did not list before:
+    the resume reads that area first, and its figures are areas, not the pages it left at."""
+    run(conn)
+    bank["bank"].changed = changes(2_500)
+    ref = a_job(conn, "update")
+    pause_after(bank["bank"], conn, ref, offset=1000)
+    assert tenderjob.progress_unit(tenderjob.run_tender_crawl_job_once(conn, ref)) == "pages"
+    assert jobs.set_control(conn, ref, "resume")
+    bank["bank"] = Bank({EGYPT: notices(1_200), KENYA: notices(300, start=5_000),
+                         "Zambia": notices(1_500, start=9_000)}, changed=changes(2_500))
+    pause_after(bank["bank"], conn, ref, area="Zambia")
+    job = tenderjob.run_tender_crawl_job_once(conn, ref)
+    assert job["status"] == "paused" and tenderjob.progress_unit(job) == "areas"
+
+
+def test_the_pass_over_changes_drops_the_areas_declared_total(conn, bank):
+    """#1701, row 18: the total is not known in the pass over changes, so the bar must not go
+    on stating the areas' total and where it was counted from."""
+    bank["bank"] = Bank({EGYPT: notices(1_200), KENYA: notices(300, start=5_000)},
+                        fail={(KENYA, 0): 503})
+    run(conn)
+    bank["bank"] = Bank({EGYPT: notices(1_200), KENYA: notices(300, start=5_000)},
+                        changed=changes(3))
+    job, _ = run(conn, "update")
+    slot = job["counters"]["sources"]["worldbank_org"]
+    assert slot["expected"] is None and slot["basis"] is None and slot["requests"] == 3
