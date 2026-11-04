@@ -67,7 +67,8 @@ def test_adapter_maps_commodity_row_onto_every_product_column():
     assert set(r) == set(PRODUCT_PRICES.columns) | {"provenance", "as_of_date",
                                                 "official_source_name",
                                                 "official_source_link",
-                                                "customer_segment"}
+                                                "customer_segment", "edition"}
+    assert r["edition"] == "", "a row that names no edition hashes as it always did"
     assert r["customer_segment"] == "", "a row that states no segment stays retail"
     assert r["external_product_id"] == "DIESEL" and r["product_name"] == "DIESEL"
     # The unit goes to its own column and nowhere else. It used to be stuffed

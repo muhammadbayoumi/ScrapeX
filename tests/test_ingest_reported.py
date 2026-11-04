@@ -21,7 +21,13 @@ from scrapex import db as dbmod
 from scrapex import pricehistory
 from scrapex.config import ExtractSpec, SourceEntry
 from scrapex.connectors.base import ScrapedTable
-from scrapex.ingest import ingest_payloads
+from scrapex.ingest import (
+    _canon_amount,
+    _commodity_to_product_row,
+    _observation_values,
+    ingest_payloads,
+)
+from scrapex.normalize import parse_money, record_hash
 from scrapex.rowspec import COMMODITY_PRICE, RowBuilder
 from scrapex.vocab import ExtractKind, ExtractScope
 
@@ -140,6 +146,51 @@ def test_recrawling_the_same_anchor_is_idempotent(conn):
     rows = _observations(conn)
     assert len([r for r in rows if r["provenance"] == "reported"]) == 1
     assert result.duplicates >= 1
+
+
+def test_a_month_a_later_edition_restates_at_an_old_value_is_a_new_row(conn):
+    """#1993: A, then B, then A again. Without the edition the third row was the first
+    one's duplicate, and every reader, which takes a month's newest row, kept showing B."""
+    month = dict(provenance="reported", as_of_date="2026-07-01")
+    for price, edition in (("20.50", "2026M09"), ("21.00", "2026M10"), ("20.50", "2026M11")):
+        ingest_payloads(conn, _entry(), [_payload([dict(month, price=price, edition=edition)])])
+    assert [r["price"] for r in _observations(conn)] == [20.5, 21.0, 20.5]
+
+
+def test_one_edition_read_twice_is_still_one_row(conn):
+    row = dict(price="20.50", provenance="reported", as_of_date="2026-07-01",
+               edition="2026M09")
+    ingest_payloads(conn, _entry(), [_payload([row])])
+    result = ingest_payloads(conn, _entry(), [_payload([row])])
+    assert len(_observations(conn)) == 1
+    assert result.duplicates == 1
+
+
+DIESEL = dict(material_key="DIESEL", country_code_alpha2="EG", currency="EGP", price="20.50",
+              tax_included="1")
+AT = "2026-11-04T09:00:00Z"
+
+
+def _hash(**row) -> str:
+    return _observation_values(_commodity_to_product_row(dict(DIESEL, **row)), AT)["record_hash"]
+
+
+def test_a_row_with_no_edition_hashes_exactly_as_before():
+    """Every source but the Pink Sheet leaves it blank, so no stored row re-hashes."""
+    before = record_hash({"effective": _canon_amount(parse_money("20.50")), "regular": "",
+                          "sale": "", "currency": "EGP", "vat": 1, "availability": "unknown",
+                          "stock": ""})
+    assert _hash(provenance="reported", as_of_date="2026-07-01") == before
+    assert _hash() == before
+
+
+def test_an_observed_row_never_takes_an_edition_into_its_hash():
+    """The publisher's dating does not drive our own observations' identity; only a
+    reported row's month is restated by an edition."""
+    assert _hash(edition="2026M09") == _hash()
+    reported = dict(provenance="reported", as_of_date="2026-07-01")
+    assert _hash(edition="2026M09", **reported) != _hash(**reported)
+    assert _hash(edition="2026M09", **reported) != _hash(edition="2026M10", **reported)
 
 
 def test_two_anchors_same_price_different_dates_both_persist(conn):
