@@ -215,7 +215,7 @@ A conflict exists only where Supabase **specifies** something different. Where i
 | `prefers-contrast` | Media Queries 5; WCAG 2.2 SC 1.4.6 and 1.4.11 | #724, #406 |
 | Reduced motion outside the animations Supabase guards itself (`packages/config/css/utilities.css@86c813ec:176-182` guards `.shimmer`) | WCAG 2.2 SC 2.3.3; Media Queries 5 | #701 |
 | Status messages, and progress past a declared total | WCAG 2.2 SC 4.1.3; WAI-ARIA 1.2 `status`, `alert` and `progressbar` | #1066, #1036 |
-| Keyboard models Supabase leaves to Radix: menu button, listbox, tabs | WAI-ARIA APG Menu Button, Listbox and Tabs. Radix itself is the implementation layer | #1058 |
+| Keyboard models Supabase leaves to Radix: menu button, listbox, tabs, and a dialog's first focus when reaching its first button would scroll its start out of view | WAI-ARIA APG Menu Button, Listbox, Tabs and Dialog (Modal), its note on initial focus. Radix itself is the implementation layer | #1058, #1701 (row 7) |
 | Touch-target size outside action cells | WCAG 2.2 SC 2.5.8 | #1051 |
 | Landmarks on surfaces without header and sidebar chrome | WCAG 2.2 SC 2.4.1 and 1.3.1 | #749 |
 | Order among overlays on one layer | CSS 2.2 Appendix E; the HTML `dialog` top layer | #410 |
@@ -252,6 +252,7 @@ Whatever the reason, he grants it only after seeing Supabase's version and the a
 | A sheet says why a save failed, or got no answer, in its footer above its buttons | gap: Studio says it in a toast, which leaves after 4 s and which a 320 px-high panel hides | WCAG 2.2 SC 4.1.3 | The sheet's footer | #1631 |
 | The sheet names its site in full, English and Arabic | study-backed proposal: the shared identity ellipsizes its names, as Jobs' rows do; the sheet that edits one shows every word | WCAG 2.2 SC 1.4.10 | The sheet's identity | #1631 |
 | Add source and Edit source have no "Schedule" select; Add source says where a schedule is made, and records `manual` | his preference: one feature in one place. The select wrote `cadence`, which nothing that schedules reads (#1415) | his ruling on #1631 (option (c)), the decision #1575 owns | Add source, Edit source | #1631 |
+| No hint under Start while the engine's refusal of the selection on screen stands | study-backed proposal: Supabase draws a field's description beside its error (`FormLayout.tsx@86c813ec:317-350, 425-426, 452-453`), where the description states a constraint that stays true; this hint predicts what a press will do, and the engine's answer has superseded it. He chose from 09 against 09a on 2026-10-19 | — | The Run page's hint under Start (`#run-blocked`) | #1701 (row 15) |
 
 **Barred:** Carbon, Material 3, Polaris, Atlassian, GOV.UK and Office cannot govern anything Supabase covers. Carbon's single row above is for vocabulary, in a gap.
 

@@ -27,7 +27,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from scrapex import cli, directories, sourceboard
+from scrapex import cli, directories, sourceboard, tenders
 from scrapex.config import SourceEntry
 from scrapex.databases import DatabaseRegistry, EngineDatabase
 from scrapex.vocab import SourceCategory
@@ -69,14 +69,15 @@ def test_the_board_reads_without_a_database(conn):
 
     assert found, "the manifest's own sources should be listed with no warehouse"
     assert {one.registry for one in found} == {"manifest", "code"}
-    # THE CODE HALF IS `directories.BUILDERS` AND NOTHING ELSE. This named the one
-    # key that registry happened to hold, so a SECOND directory arriving -- the
-    # change the registry exists for, and whose own docstring promises it -- read as
-    # a regression. The emptiness check is not decoration: against an emptied
-    # `BUILDERS` the comparison below passes while measuring nothing.
+    # THE CODE HALF IS THE CODE'S REGISTRIES AND NOTHING ELSE: `directories.BUILDERS`,
+    # and since milestone 51 `tenders.BUILDERS`. This named the one key a registry
+    # happened to hold, so a SECOND entry arriving -- the change a registry exists for,
+    # and whose own docstring promises it -- read as a regression. The emptiness check
+    # is not decoration: against emptied registries the comparison below passes while
+    # measuring nothing. The board sorts by category, then key.
     registered_in_code = [one.key for one in found if one.registry == "code"]
     assert registered_in_code, "a build that can crawl directories listed none"
-    assert registered_in_code == sorted(directories.BUILDERS)
+    assert registered_in_code == sorted(directories.BUILDERS) + sorted(tenders.BUILDERS)
 
 
 def test_the_code_half_is_every_directory_this_build_registers():
@@ -90,7 +91,9 @@ def test_the_code_half_is_every_directory_this_build_registers():
     """
     found = sourceboard.from_code()
 
-    assert [one.key for one in found] == sorted(directories.BUILDERS)
+    # EVERY COLLECTOR THE CODE REGISTERS, directories and tender sources alike (#1701):
+    # extending is an entry in a registry, and this is the one answer to "which exist".
+    assert [one.key for one in found] == sorted({*directories.BUILDERS, *tenders.BUILDERS})
     assert {one.registry for one in found} == {"code"}
     assert {one.state for one in found} == {"built"}, (
         "`built` is the vocabulary word for a collector that exists and is unscheduled")
@@ -203,6 +206,24 @@ def test_the_manifest_is_products_and_the_warehouse_is_organizations(conn):
 
     assert by_registry["manifest"] == {SourceCategory.PRODUCTS}
     assert by_registry["warehouse"] == {SourceCategory.ORGANIZATIONS}
+
+
+def test_a_tender_source_is_a_tender_source_before_and_after_its_first_crawl(conn):
+    """Listed from the code before its first crawl, and from its `source_site` row after
+    it, which the tender job writes on its first run (`tenderjob._site_id`). Both halves
+    must name it a tender source, or `scrapex sources` would call the World Bank a
+    contractor directory once it had been crawled."""
+    before = {one.key: one for one in sourceboard.board(conn, manifest_file=MANIFEST)}
+    assert before["worldbank_org"].category == SourceCategory.TENDERS
+    assert before["worldbank_org"].registry == "code"
+    assert before["worldbank_org"].collector == "tender · registered in the code"
+    site(conn, "worldbank_org")
+    after = [one for one in sourceboard.board(conn, manifest_file=MANIFEST)
+             if one.key == "worldbank_org"]
+    assert [(one.category, one.registry) for one in after] == [
+        (SourceCategory.TENDERS, "warehouse")]
+    assert [one.key for one in sourceboard.board(
+        conn, manifest_file=MANIFEST, category=SourceCategory.TENDERS)] == ["worldbank_org"]
 
 
 def test_filtering_by_category_returns_only_that_category(conn):

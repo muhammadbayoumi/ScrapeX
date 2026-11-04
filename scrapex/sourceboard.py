@@ -47,6 +47,7 @@ import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import tenders
 from .config import MANIFEST_FILE, load_manifest
 from .vocab import ConnectorFamily, SourceCategory
 
@@ -136,12 +137,16 @@ def from_warehouse(conn: sqlite3.Connection) -> tuple[Source, ...]:
     found = []
     for row in rows:
         datasets = int(row["datasets"] or 0)
+        key = str(row["site_key"])
         found.append(Source(
-            key=str(row["site_key"]),
-            # NO COLUMN SAYS WHAT A source_site ROW IS, so this one word covers the whole
-            # side. It is true of the directories and false of a price source's row
-            # (#1906). `REQ-25` puts the category on the row and this line goes away.
-            category=SourceCategory.ORGANIZATIONS,
+            key=key,
+            # NO COLUMN SAYS WHAT A source_site ROW IS (`REQ-25` puts the category on the
+            # row and this line goes away), so the code's registries say: a key the tender
+            # registry holds is a tender source, written by the tender job's first run, and
+            # every other row is an organization source. That is false of a price source's
+            # row (#1906).
+            category=(SourceCategory.TENDERS if key in tenders.BUILDERS
+                      else SourceCategory.ORGANIZATIONS),
             name=str(row["display_name"] or row["site_key"]),
             base_url=str(row["base_url"] or ""),
             collector=f"{row['crawl_scope']} · {datasets} dataset(s)",
@@ -189,7 +194,16 @@ def from_code() -> tuple[Source, ...]:
             collector="directory · registered in the code",
             state="built",
             registry="code"))
-    return tuple(found)
+    # AND EVERY TENDER SOURCE, the same way (#1701): a collector this build has, listed
+    # before its first crawl. Sorted with the directories, by key, because the panel
+    # appends these rows in the order they come.
+    for key in sorted(tenders.BUILDERS):
+        source = tenders.get(key)
+        found.append(Source(
+            key=key, category=SourceCategory.TENDERS, name=source.display_name,
+            base_url=source.base_url, collector="tender · registered in the code",
+            state="built", registry="code"))
+    return tuple(sorted(found, key=lambda one: one.key))
 
 
 def board(conn: sqlite3.Connection | None = None,

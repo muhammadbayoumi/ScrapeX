@@ -1,14 +1,14 @@
 {
-  "version": "0.4.87",
-  "minimum_extension_version": "0.3.9",
+  "version": "0.4.88",
+  "minimum_extension_version": "0.3.16",
   "capability_reporting_since": "0.2.0",
   "note": "Both copies of capabilityProblem must reproduce every `problem` string exactly. Python: scrapex/version.py. JavaScript: extension/version.js.",
   "cases": [
     {
       "name": "in step — the engine deploys it and the extension is new enough",
       "key": "crawl_parallel_sources",
-      "extension_version": "0.4.87",
-      "engine_version": "0.4.87",
+      "extension_version": "0.4.88",
+      "engine_version": "0.4.88",
       "deployed": {
         "crawl_pace": {
           "since": "0.2.0",
@@ -57,6 +57,10 @@
         "schedule_active_switch": {
           "since": "0.3.9",
           "summary": "Turn a source's scheduled runs on or off from its row on the Schedules page, with one switch."
+        },
+        "tender_control": {
+          "since": "0.3.16",
+          "summary": "Collect the World Bank's tenders from Run: a first crawl states its size before it starts, and the crawl is followed in Activity and Jobs."
         }
       },
       "update_instructions": "Update the engine first (it carries the new extension with it), then open chrome://extensions, turn on Developer mode and press Reload on ScrapeX. Close and reopen the side panel afterwards.",
@@ -66,7 +70,7 @@
       "name": "the extension is behind the engine",
       "key": "crawl_parallel_sources",
       "extension_version": "0.1.0",
-      "engine_version": "0.4.87",
+      "engine_version": "0.4.88",
       "deployed": {
         "crawl_pace": {
           "since": "0.2.0",
@@ -115,15 +119,19 @@
         "schedule_active_switch": {
           "since": "0.3.9",
           "summary": "Turn a source's scheduled runs on or off from its row on the Schedules page, with one switch."
+        },
+        "tender_control": {
+          "since": "0.3.16",
+          "summary": "Collect the World Bank's tenders from Run: a first crawl states its size before it starts, and the crawl is followed in Activity and Jobs."
         }
       },
       "update_instructions": "Update the engine first (it carries the new extension with it), then open chrome://extensions, turn on Developer mode and press Reload on ScrapeX. Close and reopen the side panel afterwards.",
-      "problem": "«Crawl several different sites at the same time. Two sources on the SAME site still take turns, so no site is asked for more than before.» needs ScrapeX extension 0.2.0; this extension is 0.1.0 and the engine is 0.4.87. Update the engine first (it carries the new extension with it), then open chrome://extensions, turn on Developer mode and press Reload on ScrapeX. Close and reopen the side panel afterwards."
+      "problem": "«Crawl several different sites at the same time. Two sources on the SAME site still take turns, so no site is asked for more than before.» needs ScrapeX extension 0.2.0; this extension is 0.1.0 and the engine is 0.4.88. Update the engine first (it carries the new extension with it), then open chrome://extensions, turn on Developer mode and press Reload on ScrapeX. Close and reopen the side panel afterwards."
     },
     {
       "name": "the engine is behind and says so",
       "key": "crawl_parallel_sources",
-      "extension_version": "0.4.87",
+      "extension_version": "0.4.88",
       "engine_version": "0.1.0",
       "deployed": {
         "crawl_pace": {
@@ -169,25 +177,29 @@
         "schedule_active_switch": {
           "since": "0.3.9",
           "summary": "Turn a source's scheduled runs on or off from its row on the Schedules page, with one switch."
+        },
+        "tender_control": {
+          "since": "0.3.16",
+          "summary": "Collect the World Bank's tenders from Run: a first crawl states its size before it starts, and the crawl is followed in Activity and Jobs."
         }
       },
       "update_instructions": "Update the engine first (it carries the new extension with it), then open chrome://extensions, turn on Developer mode and press Reload on ScrapeX. Close and reopen the side panel afterwards.",
-      "problem": "«crawl_parallel_sources» is not deployed by this ScrapeX engine (0.1.0); this extension is 0.4.87. Update the engine to 0.4.87 or newer."
+      "problem": "«crawl_parallel_sources» is not deployed by this ScrapeX engine (0.1.0); this extension is 0.4.88. Update the engine to 0.4.88 or newer."
     },
     {
       "name": "the engine is too old to say anything",
       "key": "crawl_parallel_sources",
-      "extension_version": "0.4.87",
+      "extension_version": "0.4.88",
       "engine_version": "0.1.0",
       "deployed": null,
       "update_instructions": "Update the engine first (it carries the new extension with it), then open chrome://extensions, turn on Developer mode and press Reload on ScrapeX. Close and reopen the side panel afterwards.",
-      "problem": "«crawl_parallel_sources» cannot be confirmed: the ScrapeX engine reports version 0.1.0 and is too old to say which features it deploys. This extension is 0.4.87. Update the engine to 0.4.87."
+      "problem": "«crawl_parallel_sources» cannot be confirmed: the ScrapeX engine reports version 0.1.0 and is too old to say which features it deploys. This extension is 0.4.88. Update the engine to 0.4.88."
     },
     {
       "name": "an extension newer than the requirement is not refused for being newer",
       "key": "crawl_parallel_sources",
       "extension_version": "9.9.9",
-      "engine_version": "0.4.87",
+      "engine_version": "0.4.88",
       "deployed": {
         "crawl_pace": {
           "since": "0.2.0",
@@ -236,6 +248,10 @@
         "schedule_active_switch": {
           "since": "0.3.9",
           "summary": "Turn a source's scheduled runs on or off from its row on the Schedules page, with one switch."
+        },
+        "tender_control": {
+          "since": "0.3.16",
+          "summary": "Collect the World Bank's tenders from Run: a first crawl states its size before it starts, and the crawl is followed in Activity and Jobs."
         }
       },
       "update_instructions": "Update the engine first (it carries the new extension with it), then open chrome://extensions, turn on Developer mode and press Reload on ScrapeX. Close and reopen the side panel afterwards.",
