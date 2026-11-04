@@ -591,7 +591,7 @@ def test_a_revised_month_lands_beside_the_old_value_and_overwrites_nothing(conn,
         sheet = book["Monthly Prices"]
         sheet.cell(row_of(sheet, "2026M07"), column_of(sheet, "Copper"), 13000)
     ingest(conn, tables(stub=_Stub(workbook=edited(revise))))
-    assert copper_reported(conn, "2026-07-01") == [13000.0, 13543.0]
+    assert copper_reported(conn, "2026-07-01") == [13543.0, 13000.0]
 
 
 def test_a_month_revised_to_equal_the_one_before_it_lands_too(conn, weekly):
@@ -606,17 +606,71 @@ def test_a_month_revised_to_equal_the_one_before_it_lands_too(conn, weekly):
         june.append(sheet.cell(row_of(sheet, "2026M06"), col).value)
         sheet.cell(row_of(sheet, "2026M07"), col).value = june[0]
     ingest(conn, tables(stub=_Stub(workbook=edited(revise))))
-    assert copper_reported(conn, "2026-07-01") == sorted([float(june[0]), 13543.0])
+    assert copper_reported(conn, "2026-07-01") == [13543.0, float(june[0])]
 
 
 def copper_reported(conn, business_date: str) -> list[float]:
+    """Copper's reported rows for one month, oldest first: every reader takes the last."""
     return [r[0] for r in conn.execute(
         "SELECT po.price FROM price_observation po "
         "JOIN source_offer so ON so.offer_id = po.offer_id "
         "JOIN source_variant sv ON sv.source_variant_id = so.source_variant_id "
         "JOIN source_product sp ON sp.source_product_id = sv.source_product_id "
         "WHERE sp.external_product_id = 'COPPER' AND po.provenance = 'reported' "
-        "AND po.business_date = ? ORDER BY po.price", (business_date,))]
+        "AND po.business_date = ? ORDER BY po.price_observation_id", (business_date,))]
+
+
+def with_months(book, *stamps: str) -> None:
+    """A later edition: the sheet reaches further, each new month copying the last one."""
+    sheet = book["Monthly Prices"]
+    last = sheet.max_row
+    for stamp in stamps:
+        row = sheet.max_row + 1
+        for col in range(2, sheet.max_column + 1):
+            sheet.cell(row, col).value = sheet.cell(last, col).value
+        sheet.cell(row, 1).value = stamp
+
+
+def test_only_the_window_carries_the_edition(weekly, full):
+    """The newest month the sheet reaches, on every reported row of the window and on no
+    other row: older months are never revised, and the observed row is our own."""
+    for table in (weekly[0], full[0]):
+        for r in prices(table):
+            inside = r["provenance"] == "reported" and r["as_of_date"] >= "2025-10-01"
+            assert r["edition"] == ("2026M09" if inside else ""), r
+
+
+def test_a_month_revised_and_revised_back_reads_the_newest_edition(conn):
+    """#1993 on the real workbook, his answer «اختم بالإصدار»: July 13543, then 13000 in the
+    next edition, then 13543 again. The third edition's July is stored, so the newest row,
+    which every reader shows, is the bank's word."""
+    def second(book):
+        sheet = book["Monthly Prices"]
+        sheet.cell(row_of(sheet, "2026M07"), column_of(sheet, "Copper")).value = 13000
+        with_months(book, "2026M10")
+
+    def third(book):
+        with_months(book, "2026M10", "2026M11")
+    for change in (lambda book: None, second, third):
+        ingest(conn, tables(stub=_Stub(workbook=edited(change))))
+    assert copper_reported(conn, "2026-07-01") == [13543.0, 13000.0, 13543.0]
+
+
+def test_a_new_edition_stores_its_window_again_and_rereading_it_stores_nothing(conn):
+    """The cost he accepted on #1993: one row per month of the window per edition."""
+    def reported_rows() -> int:
+        return conn.execute("SELECT COUNT(*) FROM price_observation "
+                            "WHERE provenance = 'reported'").fetchone()[0]
+    ingest(conn, tables(stub=_Stub(workbook=edited(lambda book: None))))
+    later = tables(stub=_Stub(workbook=edited(lambda book: with_months(book, "2026M10"))))
+    window = [r for r in prices(later[0]) if r["provenance"] == "reported"]
+    assert {r["edition"] for r in window} == {"2026M10"}
+    before = reported_rows()
+    assert ingest(conn, later).duplicates == 0
+    # 819: November 2025 to October 2026, the window of the edition reaching 2026M10.
+    assert reported_rows() - before == len(window) == 819
+    assert ingest(conn, later).duplicates == len(window)
+    assert reported_rows() - before == len(window)
 
 
 def test_the_units_have_names_in_both_languages(conn, weekly):
