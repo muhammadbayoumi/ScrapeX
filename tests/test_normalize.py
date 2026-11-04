@@ -14,6 +14,9 @@ from scrapex.normalize import (
     parse_instant,
     parse_money,
     parse_money_with_currency,
+    parse_month_stamp,
+    parse_quoted_unit,
+    parse_sheet_amount,
     record_hash,
     selling_unit_from,
 )
@@ -432,3 +435,70 @@ def test_a_coded_amount_whose_number_parse_money_refuses_fails_loud():
 @pytest.mark.parametrize("raw", [None, "", "   "])
 def test_no_amount_written_is_none(raw):
     assert parse_money_with_currency(raw) is None
+
+
+# ---- workbook cells, the Pink Sheet's three ways of saying nothing (#1912) -----------
+
+@pytest.mark.parametrize("cell, expected", [
+    (14474, Decimal("14474")),
+    (102.3, Decimal("102.3")),           # never the binary expansion of 102.3
+    (0.14, Decimal("0.14")),
+    ("1,075", Decimal("1075")),
+    (0, Decimal("0")),                   # a real zero: the caller decides it is a hole
+])
+def test_a_sheet_cell_with_an_amount(cell, expected):
+    assert parse_sheet_amount(cell) == expected
+
+
+@pytest.mark.parametrize("cell", [None, "", "  ", "…", "...", "..", " … ",
+                                  "#VALUE!", "#N/A", "#DIV/0!", "#REF!", "#NAME?", "#NUM!", "#NULL!"])
+def test_a_sheet_cell_that_states_nothing(cell):
+    assert parse_sheet_amount(cell) is None
+
+
+def test_an_excel_error_is_never_the_zero_parse_money_would_read():
+    """parse_money('#DIV/0!') keeps the digit and returns 0 (#1900 §1.8): a false price."""
+    assert parse_money("#DIV/0!") == Decimal("0")
+    assert parse_sheet_amount("#DIV/0!") is None
+
+
+@pytest.mark.parametrize("cell", ["discontinued", "n/a", True, False, object(), ["1"]])
+def test_a_sheet_cell_that_is_neither_is_loud(cell):
+    with pytest.raises(ValueError):
+        parse_sheet_amount(cell)
+
+
+@pytest.mark.parametrize("raw, expected", [
+    ("2026M09", "2026-09-01"), ("1960M01", "1960-01-01"), (" 2026M12 ", "2026-12-01"),
+])
+def test_a_month_stamp(raw, expected):
+    assert parse_month_stamp(raw) == expected
+
+
+@pytest.mark.parametrize("raw", ["2026M13", "2026M00", "2026M9", "2026M091", "x2026M09", "2026-09", "26M09", "", "M09", None, 202609])
+def test_a_month_stamp_of_any_other_shape_is_loud(raw):
+    with pytest.raises(ValueError, match="YYYYMmm"):
+        parse_month_stamp(raw)
+
+
+@pytest.mark.parametrize("raw, expected", [
+    ("($/mt)", ("USD", Decimal(1), "tonne")),
+    ("($/kg)", ("USD", Decimal(1), "kg")),
+    ("($/bbl)", ("USD", Decimal(1), "bbl")),
+    ("($/mmbtu)", ("USD", Decimal(1), "mmbtu")),
+    ("($/cubic meter)", ("USD", Decimal(1), "m3")),
+    ("($/troy oz)", ("USD", Decimal(1), "troy oz")),
+    ("($/dmtu)", ("USD", Decimal(1), "dmtu")),
+    ("$/dmt", ("USD", Decimal(1), "dmt")),
+    ("(cents/sheet)", ("USD", Decimal("0.01"), "sheet")),
+    ("(¢/sheet)", ("USD", Decimal("0.01"), "sheet")),
+    (" ( $ / MT ) ", ("USD", Decimal(1), "tonne")),
+])
+def test_a_quoted_unit(raw, expected):
+    assert parse_quoted_unit(raw) == expected
+
+
+@pytest.mark.parametrize("raw", ["(2010=100)", "($/furlong)", "(EUR/mt)", "($mt)", "", "()", "(/mt)", "($/)", None])
+def test_a_quoted_unit_of_any_other_shape_is_loud(raw):
+    with pytest.raises(ValueError, match="price unit"):
+        parse_quoted_unit(raw)

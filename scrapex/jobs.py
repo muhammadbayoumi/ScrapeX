@@ -77,6 +77,7 @@ SPECIALISED_RUNNERS: dict[str, tuple[str, str]] = {
     "directory_crawl": (".directoryjob", "run_directory_crawl_job_once"),
     "dataset_interpret": (".datasetjob", "run_dataset_interpret_job_once"),
     "profile_crawl": (".profilejob", "run_profile_crawl_job_once"),
+    "tender_crawl": (".tenderjob", "run_tender_crawl_job_once"),
 }
 
 #: DERIVED, NEVER LISTED TWICE. This used to be a literal set of the same strings a
@@ -1214,7 +1215,8 @@ def worker_is_alive(conn: sqlite3.Connection, max_age_s: float = HEARTBEAT_MAX_A
 
 
 def note_a_re_entry(conn: sqlite3.Connection, job: dict, *, unit: str,
-                    consequence: str, source_key: str | None = None) -> int:
+                    consequence: str, source_key: str | None = None,
+                    opening: str = "starting again from the beginning") -> int:
     """Say that this pass is not the job's first, and what the previous one had done.
 
     ISSUE 796, MEASURED ON HIS WAREHOUSE 2026-09-07. Two `dataset_interpret` jobs logged
@@ -1258,6 +1260,9 @@ def note_a_re_entry(conn: sqlite3.Connection, job: dict, *, unit: str,
     name a job it cannot identify for exactly the same reason. So the line states what it
     knows: this pass is not the first, and here is where the last one got to.
 
+    `opening` IS THE RUNNER'S WHEN IT DOES NOT START AGAIN. The tender crawl goes on from a
+    page its record holds, and "from the beginning" would name a cost he is not paying.
+
     Returns what the previous pass had reached, or 0 when this is a first entry and
     nothing was said.
     """
@@ -1266,7 +1271,7 @@ def note_a_re_entry(conn: sqlite3.Connection, job: dict, *, unit: str,
     done = int(job.get("progress_done") or 0)
     append_log(
         conn, int(job["job_id"]),
-        "starting again from the beginning: this is not this job's first pass"
+        f"{opening}: this is not this job's first pass"
         + (f", and the last one had reached {done:,} {unit}" if done else "")
         + f". {consequence}",
         # A WARNING, LIKE THE SWEEP LINE IT FOLLOWS. It is news rather than a fault, and
@@ -1821,6 +1826,10 @@ class JobRunner:
         """Park a job whose execution blew up, on a fresh transaction so the
         failure record cannot be rolled away with the thing that failed."""
         try:
+            # THE RECORDER BEFORE THIS LEAVES ITS FAILED `BEGIN` OPEN, and a write inside it
+            # is an upgrade SQLite refuses at once, with no wait: on a warehouse another app
+            # held, that left the row `running` with no worker (#1802).
+            conn.rollback()
             job = get_job(conn, job_ref)
             if job is None or job["status"] in {s.value for s in TERMINAL_JOB_STATUSES}:
                 return

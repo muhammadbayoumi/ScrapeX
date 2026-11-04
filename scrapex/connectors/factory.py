@@ -15,16 +15,16 @@ from .gpp import GlobalPetrolPricesConnector
 from .heidelberg import HeidelbergPriceMatrixConnector
 from .hybris import HybrisOccConnector
 from .magento import MagentoGraphqlConnector
+from .pinksheet import PinkSheetConnector
 from .salla import SallaConnector
 from .shopify import ShopifyConnector
 from .woocommerce import WooCommerceConnector
 from .zid import ZidConnector
 
-# Families whose connector can collect the source's OWN published history
-# (the `_history` mode). Declared here beside the builders so a new family
-# cannot gain the capability without the registry saying so — and the Run
-# panel offers History backfill only to sources on this list.
-HISTORY_CAPABLE = frozenset({ConnectorFamily.STATIC_HTML_TABLE})
+# Families whose connector can collect the source's OWN published history (the `_history`
+# mode). Declared here beside the builders so a new family cannot gain the capability
+# without the registry saying so — and the Run panel offers History backfill only to these.
+HISTORY_CAPABLE = frozenset({ConnectorFamily.STATIC_HTML_TABLE, ConnectorFamily.WORLDBANK_PINK_SHEET})
 
 
 def supports_history(family: ConnectorFamily) -> bool:
@@ -42,6 +42,7 @@ _BUILDERS = {
     ConnectorFamily.HEIDELBERG_PRICE_MATRIX: lambda fetcher: HeidelbergPriceMatrixConnector(fetcher),
     ConnectorFamily.STATIC_HTML_TABLE: lambda fetcher: GlobalPetrolPricesConnector(fetcher),
     ConnectorFamily.ARAMCO_FUEL_PAGE: lambda fetcher: AramcoFuelConnector(fetcher),
+    ConnectorFamily.WORLDBANK_PINK_SHEET: lambda fetcher: PinkSheetConnector(fetcher),
 }
 
 

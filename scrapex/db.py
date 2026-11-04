@@ -476,6 +476,18 @@ _GATES: dict[str, threading.Lock] = {}
 _GATES_GUARD = threading.Lock()
 
 
+def another_app_holds_it(exc: BaseException) -> bool:
+    """Whether an error means another app has the warehouse (`CLAUDE.md`: wait for it).
+
+    The write lock's own refusal, or SQLite's `SQLITE_BUSY` family. BY ITS CODE, NEVER ITS
+    WORDS: `no such table: source_blocked` holds "locked", and `database table is locked`
+    (`SQLITE_LOCKED`) is this connection's own open statement. No wait ends either.
+    """
+    if isinstance(exc, DbLockedError):
+        return True
+    return getattr(exc, "sqlite_errorcode", 0) & 0xFF == sqlite3.SQLITE_BUSY
+
+
 def _process_gate(lock_path: Path) -> threading.Lock:
     """The in-process gate for a lock file, created once per path.
 

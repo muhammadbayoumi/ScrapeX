@@ -124,6 +124,12 @@ def _canonical(payload: dict[str, Any]) -> str:
     return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
+#: Far above any real release and far below SQLite's own limit, past which `jsonb()` answers
+#: `malformed JSON`: an `OperationalError`, which `worldbank_collect._keep` rightly reads as the
+#: warehouse's fault, so one such notice would fail the job, and each later update on it too.
+MAX_PAYLOAD_DEPTH = 64
+
+
 def _assert_release_shape(release: Release) -> None:
     payload = release.payload
     for key in ("ocid", "id", "date", "tag"):
@@ -137,17 +143,19 @@ def _assert_release_shape(release: Release) -> None:
     # Wherever OCDS would put a person -- a contact point on any organisation (a party,
     # the buyer, a tenderer, a supplier) or a party's beneficial owners -- at any depth,
     # because once stored the history cannot be edited to take one out.
-    stack: list[Any] = [payload]
+    stack: list[tuple[Any, int]] = [(payload, 1)]
     while stack:
-        node = stack.pop()
+        node, depth = stack.pop()
+        if isinstance(node, (dict, list)) and depth > MAX_PAYLOAD_DEPTH:
+            raise ValueError(f"release {payload['id']!r} nests deeper than {MAX_PAYLOAD_DEPTH}")
         if isinstance(node, dict):
             carried = sorted({"contactPoint", "beneficialOwners"} & node.keys())
             if carried:
                 raise ValueError(f"release {payload['id']!r} carries {carried} inside the "
                                  "payload; persons are kept beside it, in their own tables")
-            stack.extend(node.values())
+            stack.extend((value, depth + 1) for value in node.values())
         elif isinstance(node, list):
-            stack.extend(node)
+            stack.extend((value, depth + 1) for value in node)
 
 
 def store_release(conn: sqlite3.Connection, *, source_site_id: int, release: Release,
