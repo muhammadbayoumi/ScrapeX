@@ -8,6 +8,7 @@ from __future__ import annotations
 import io
 import sqlite3
 from decimal import Decimal
+from itertools import pairwise
 from pathlib import Path
 
 import openpyxl
@@ -172,20 +173,44 @@ def test_every_priced_series_comes_through_and_the_index_does_not(full):
     assert not any("Natural gas index" in w for w in full[0].warnings),         "the index is left out on purpose, so it is not a new series to review"
 
 
-def test_history_is_the_change_points_of_all_seventy_plus_the_hidden_values(full):
+def test_history_is_change_points_then_every_month_of_the_window(full):
     rows = prices(full[0])
     published = [r for r in rows if r["provenance"] == "reported"
                  and r["official_source_name"] != HIDDEN_SOURCE]
     hidden = [r for r in rows if r["official_source_name"] == HIDDEN_SOURCE]
-    # #1912 counted 40,787 with Rice Thai 25%'s run of zeros as one point. It is refused here.
-    assert len(published) == 40_786
-    assert len(hidden) == 138
+    # #1912 counted 40,787 change points with Rice Thai 25%'s run of zeros as one point; it
+    # is refused here, so 40,786. His answer on #1919 adds the 38 months of the window that
+    # equal the month before, and 2 of the hidden sheet's.
+    assert len(published) == 40_786 + 38
+    assert len(hidden) == 138 + 2
+
+
+def test_before_the_window_history_keeps_only_change_points(full):
+    """His rule where no edition revises a value: no two kept months in a row are equal."""
+    series: dict[tuple[str, str], list[tuple[str, str]]] = {}
+    for r in prices(full[0]):
+        if r["provenance"] == "reported" and r["as_of_date"] < "2025-10-01":
+            series.setdefault((r["material_key"], r["official_source_name"]), []).append(
+                (r["as_of_date"], r["price"]))
+    assert len(series) == 70 + 2
+    for key, points in series.items():
+        points.sort()
+        assert all(a[1] != b[1] for a, b in pairwise(points)), key
 
 
 def test_a_normal_run_reads_a_year_and_not_the_whole_history(weekly, full):
     reported = [r for r in prices(weekly[0]) if r["provenance"] == "reported"]
     assert reported and min(r["as_of_date"] for r in reported) == "2025-10-01"
     assert len(reported) < 1_000 < len(prices(full[0]))
+
+
+def test_a_normal_run_sends_every_month_of_the_window_the_flat_ones_too(weekly):
+    """Phosphate rock held 152.5 from October 2025: each month is a row, not only the first."""
+    reported = [r for r in prices(weekly[0]) if r["provenance"] == "reported"
+                and r["official_source_name"] != HIDDEN_SOURCE]
+    assert len(reported) == 802
+    phosphate = {r["as_of_date"] for r in reported if r["material_key"] == "PHOSPHATE_ROCK"}
+    assert {"2025-11-01", "2025-12-01", "2026-01-01"} <= phosphate
 
 
 def test_the_newest_month_is_the_observed_price(weekly):
@@ -514,7 +539,7 @@ def test_a_full_history_lands_with_no_errors(conn, full):
     assert conn.execute("SELECT COUNT(*) FROM source_offer").fetchone()[0] == 70
     reported = conn.execute(
         "SELECT COUNT(*) FROM price_observation WHERE provenance = 'reported'").fetchone()[0]
-    assert reported == 40_786 + 138
+    assert reported == 40_824 + 140
 
 
 def test_a_second_run_of_the_same_edition_adds_nothing_reported(conn, weekly):
@@ -533,14 +558,32 @@ def test_a_revised_month_lands_beside_the_old_value_and_overwrites_nothing(conn,
         sheet = book["Monthly Prices"]
         sheet.cell(row_of(sheet, "2026M07"), column_of(sheet, "Copper"), 13000)
     ingest(conn, tables(stub=_Stub(workbook=edited(revise))))
-    july = conn.execute(
+    assert copper_reported(conn, "2026-07-01") == [13000.0, 13543.0]
+
+
+def test_a_month_revised_to_equal_the_one_before_it_lands_too(conn, weekly):
+    """His answer on #1919: as a change point, July equal to June would never be sent, and
+    the warehouse would keep July's old value with nothing said."""
+    ingest(conn, weekly)
+    june: list[float] = []
+
+    def revise(book):
+        sheet = book["Monthly Prices"]
+        col = column_of(sheet, "Copper")
+        june.append(sheet.cell(row_of(sheet, "2026M06"), col).value)
+        sheet.cell(row_of(sheet, "2026M07"), col).value = june[0]
+    ingest(conn, tables(stub=_Stub(workbook=edited(revise))))
+    assert copper_reported(conn, "2026-07-01") == sorted([float(june[0]), 13543.0])
+
+
+def copper_reported(conn, business_date: str) -> list[float]:
+    return [r[0] for r in conn.execute(
         "SELECT po.price FROM price_observation po "
         "JOIN source_offer so ON so.offer_id = po.offer_id "
         "JOIN source_variant sv ON sv.source_variant_id = so.source_variant_id "
         "JOIN source_product sp ON sp.source_product_id = sv.source_product_id "
         "WHERE sp.external_product_id = 'COPPER' AND po.provenance = 'reported' "
-        "AND po.business_date = '2026-07-01' ORDER BY po.price").fetchall()
-    assert [r[0] for r in july] == [13000.0, 13543.0]
+        "AND po.business_date = ? ORDER BY po.price", (business_date,))]
 
 
 def test_the_units_have_names_in_both_languages(conn, weekly):
@@ -674,6 +717,140 @@ def test_two_segments_alone_on_a_variant_are_not_siblings(conn):
     land(conn, {"unit": "kg"}, {"unit": "tonne", "consumer_segment": "wholesale"})
     land(conn, {"unit": "tonne", "consumer_segment": "wholesale"})
     assert offers_of(conn) == [("retail", "kg", "*", "active"), ("wholesale", "tonne", "*", "active")]
+
+
+# ---- the merge gate's findings, each pinned (#1919) ----------------------------------------
+
+def hidden_row(sheet, period: str, commodity: str) -> int:
+    for row in sheet.iter_rows(min_row=5):
+        if row[0].value == period and row[1].value == commodity and row[6].value == "Blank vs number":
+            return row[0].row
+    raise AssertionError((period, commodity))
+
+
+def test_an_impossible_month_is_loud_on_a_weekly_run_too():
+    """One definition of a month stamp: a weekly run used to take 2026M13 silently."""
+    def add(book):
+        sheet = book["Monthly Prices"]
+        sheet.cell(sheet.max_row + 1, 1, "2026M13")
+    with pytest.raises(ValueError, match="where a month belongs"):
+        tables(stub=_Stub(workbook=edited(add)))
+
+
+def test_a_known_series_with_no_value_is_a_defect():
+    def blank(book):
+        sheet = book["Monthly Prices"]
+        col = column_of(sheet, "Copper")
+        for row in range(7, sheet.max_row + 1):
+            # openpyxl's cell(row, col, None) writes nothing; the attribute does.
+            sheet.cell(row, col).value = None
+    table = tables(stub=_Stub(workbook=edited(blank)))[0]
+    assert any("'Copper' holds no value" in d for d in table.defects)
+    assert "COPPER" not in {r["material_key"] for r in prices(table)}
+
+
+def test_a_sheet_whose_values_are_all_gone_is_loud_whatever_its_headers_say():
+    """What a formula with no cached value reads as: every header, no number."""
+    def blank(book):
+        sheet = book["Monthly Prices"]
+        for row in sheet.iter_rows(min_row=7, min_col=2):
+            for cell in row:
+                cell.value = None
+    with pytest.raises(ValueError, match="known series with a value"):
+        tables(stub=_Stub(workbook=edited(blank)))
+
+
+def test_a_word_in_the_hidden_sheet_is_a_warning_not_a_dead_run():
+    def word(book):
+        sheet = book["Mismatch Details"]
+        sheet.cell(hidden_row(sheet, "2026M07", "Sorghum"), 6, "n/a")
+    table = tables(history=True, stub=_Stub(workbook=edited(word)))[0]
+    assert any("no price above 0" in w for w in table.warnings)
+    assert "COPPER" in {r["material_key"] for r in prices(table)}
+    assert not any(r["material_key"] == "SORGHUM" and r["as_of_date"] == "2026-07-01"
+                   for r in prices(table))
+
+
+def test_a_zero_in_the_hidden_sheet_is_not_a_price():
+    def zero(book):
+        sheet = book["Mismatch Details"]
+        sheet.cell(hidden_row(sheet, "2026M07", "Barley"), 6, 0)
+    table = tables(history=True, stub=_Stub(workbook=edited(zero)))[0]
+    assert not any(r["material_key"] == "BARLEY" and r["as_of_date"] == "2026-07-01"
+                   for r in prices(table))
+    assert any("no price above 0" in w for w in table.warnings)
+
+
+def test_a_hidden_row_for_a_month_the_sheet_lacks_is_said():
+    def later(book):
+        sheet = book["Mismatch Details"]
+        sheet.cell(hidden_row(sheet, "2026M07", "Barley"), 1, "2026M11")
+    table = tables(history=True, stub=_Stub(workbook=edited(later)))[0]
+    assert any("hidden row(s) skipped" in w for w in table.warnings)
+
+
+def test_two_description_rows_for_one_series_give_it_no_sources_rather_than_a_guess():
+    def second(book):
+        sheet = book["Description"]
+        sheet.insert_rows(5)
+        sheet.cell(5, 1, "Copper (LME), grade A, three-month forward, NOT spot")
+        sheet.cell(5, 2, "Some other publisher")
+    table, facts = tables(stub=_Stub(workbook=edited(second)))
+    copper = next(r for r in prices(table)
+                  if r["material_key"] == "COPPER" and r["provenance"] == "observed")
+    assert copper["official_source_name"] == ""
+    assert any("2 Description rows begin 'Copper (LME)'" in w for w in table.warnings)
+    assert "market_terms" not in {d["attribute_code"] for d in details_of(facts, "COPPER")}
+
+
+def test_a_description_row_that_grows_a_third_cell_gives_no_sources_rather_than_a_guess():
+    """Which of three cells names the sources is a question for a person, not for the code."""
+    def third(book):
+        for row in book["Description"].iter_rows():
+            cells = [c for c in row if c.value is not None and str(c.value).strip()]
+            if any(str(c.value).strip().startswith("Copper (LME)") for c in cells):
+                book["Description"].cell(cells[-1].row, cells[-1].column + 1).value = "a note"
+                return
+        raise AssertionError("no Copper row")
+    table = tables(stub=_Stub(workbook=edited(third)))[0]
+    copper = next(r for r in prices(table)
+                  if r["material_key"] == "COPPER" and r["provenance"] == "observed")
+    assert copper["official_source_name"] == ""
+    assert "no Description row for 'Copper'" in table.warnings
+
+
+def test_a_change_log_line_that_shares_a_prefix_is_not_a_second_row(full):
+    """Coal (South Africa) and Potassium chloride each have a one-cell change-log line."""
+    for key in ("COAL_SOUTH_AFRICA", "POTASSIUM_CHLORIDE"):
+        assert "market_terms" in {d["attribute_code"] for d in details_of(full[1], key)}
+
+
+def test_an_iron_ore_unit_the_correction_does_not_know_is_stored_as_written_and_said():
+    def retype(book):
+        sheet = book["Monthly Prices"]
+        sheet.cell(6, column_of(sheet, "Iron ore, cfr spot"), "($/mt)")
+    table = tables(stub=_Stub(workbook=edited(retype)))[0]
+    iron = next(r for r in prices(table) if r["material_key"] == "IRON_ORE")
+    assert iron["unit"] == "tonne"
+    assert any("Iron ore, cfr spot: the unit now reads '($/mt)'" in w for w in table.warnings)
+
+
+def test_every_unit_the_parser_can_answer_has_words():
+    from scrapex.normalize import _QUOTED_UNITS
+    from scrapex.units import UNIT_NAMES
+    assert set(_QUOTED_UNITS.values()) <= set(UNIT_NAMES)
+
+
+def test_a_wholesale_row_does_not_give_a_retail_blank_offer_its_unit(conn):
+    land(conn, {"unit": ""})
+    land(conn, {"unit": "kg", "consumer_segment": "wholesale"})
+    assert offers_of(conn) == [("retail", "", "*", "active"), ("wholesale", "kg", "*", "active")]
+
+
+def test_a_retail_row_does_not_give_a_wholesale_blank_offer_its_unit(conn):
+    land(conn, {"unit": "", "consumer_segment": "wholesale"})
+    land(conn, {"unit": "kg"})
+    assert offers_of(conn) == [("wholesale", "", "*", "active"), ("retail", "kg", "*", "active")]
 
 
 # ---- the manifest and the registry -------------------------------------------------------

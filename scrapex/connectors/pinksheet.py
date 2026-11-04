@@ -5,11 +5,12 @@ landing page on www.worldbank.org: 71 columns, months in rows. There is no API. 
 is a month's average in US dollars of a named international market. It is not an offer:
 nobody sells at it, so no row says retail.
 
-A NORMAL RUN reads the newest month as `observed`, and the last twelve months as
+A NORMAL RUN reads the newest month as `observed`, and every month of the last twelve as
 `reported` so that a revised month lands: 10 of July 2026's values moved between two
-editions (LNG Japan by +17.4%, #1912 §5). A HISTORY run reads every month back to 1960,
-as `reported` change points (his rule, connectors/gpp.py). Corrections older than the
-window arrive only that way.
+editions (LNG Japan by +17.4%, #1912 §5). Every month, not its change points: a month
+revised to equal the one before it would otherwise keep its old value (his answer on
+#1919). A HISTORY run adds every older month back to 1960 as `reported` change points
+(his rule, connectors/gpp.py). Corrections older than the window arrive only that way.
 
 HIS WORD ON THE HIDDEN SHEET, against my recommendation (#1912 Q6): «تتبع اسعار طالما
 مذكورة». `Mismatch Details`, a hidden QA sheet, holds barley and sorghum prices that the
@@ -52,7 +53,6 @@ _HIDDEN_KIND = "Blank vs number"
 #: Who a hidden value is marked as coming from, on its own row.
 HIDDEN_SOURCE = "World Bank Pink Sheet workbook, hidden sheet 'Mismatch Details'"
 
-_PERIOD = re.compile(r"\d{4}M\d{2}")
 #: How many of the newest months a normal run re-reads. July 2026 was revised in the
 #: October edition; a year leaves room for the corrections the change log dates.
 REVISION_WINDOW = 12
@@ -66,8 +66,9 @@ MIN_SERIES = 60
 INDEX_SERIES = "Natural gas index"
 #: The workbook's unit row says ($/dmtu), but the value is per dry ton: 97.7, the PDF prints
 #: `$/dmt`, and the Description says spot is in dollars per dry ton, contracts in cents per
-#: dmtu (#1912 §5). The workbook's own words are kept in `unit_as_published`.
-_UNIT_OVERRIDE = {"Iron ore, cfr spot": "dmt"}
+#: dmtu (#1912 §5). Keyed on the exact words it corrects, so a workbook that changes them
+#: is read as written and said out loud. The workbook's words stay in `unit_as_published`.
+_UNIT_OVERRIDE = {"Iron ore, cfr spot": ("($/dmtu)", "dmt")}
 
 # The header as the workbook writes it, with its " **" flag stripped, to the material key,
 # the group, and how its row in the Description tab begins. Names are the only key this
@@ -175,6 +176,14 @@ class Series:
     error_cells: int = 0
 
 
+def _is_month(cell) -> bool:
+    try:
+        parse_month_stamp(cell)
+    except ValueError:
+        return False
+    return True
+
+
 def read_prices(sheet) -> tuple[list[str], dict[str, Series], list[str]]:
     """(periods oldest first, series by name, warnings) from `Monthly Prices`.
 
@@ -185,8 +194,7 @@ def read_prices(sheet) -> tuple[list[str], dict[str, Series], list[str]]:
     if not rows or "nominal US dollars" not in str(rows[1][0] if len(rows) > 1 else ""):
         raise ValueError(f"{PRICES_SHEET} no longer says its prices are in nominal US "
                          "dollars: layout change, nothing parsed")
-    first = next((i for i, r in enumerate(rows)
-                  if isinstance(r[0], str) and _PERIOD.fullmatch(r[0].strip())), None)
+    first = next((i for i, r in enumerate(rows) if _is_month(r[0])), None)
     if first is None or first < 2:
         raise ValueError(f"{PRICES_SHEET} has no YYYYMmm row with a header and a unit row "
                          "above it: layout change, nothing parsed")
@@ -216,7 +224,7 @@ def read_prices(sheet) -> tuple[list[str], dict[str, Series], list[str]]:
         if stamp is None:
             continue
         stamp = str(stamp).strip()
-        if not _PERIOD.fullmatch(stamp):
+        if not _is_month(stamp):
             raise ValueError(f"{PRICES_SHEET} column A holds {stamp!r} where a month belongs: "
                              "layout change, nothing parsed")
         if periods and stamp <= periods[-1]:
@@ -240,12 +248,14 @@ def read_prices(sheet) -> tuple[list[str], dict[str, Series], list[str]]:
     return periods, series, warnings
 
 
-def read_descriptions(sheet) -> dict[str, tuple[str, str]]:
-    """Series name -> (the Description tab's text, its named sources).
+def read_descriptions(sheet) -> tuple[dict[str, tuple[str, str]], list[str]]:
+    """(series name -> (the Description tab's text, its named sources), warnings).
 
     A row carries no key and differs in spelling from the headers, so a row is found by
-    how it begins. A series whose row is not found simply has no text, and is reported by
-    the caller: the prices do not depend on this.
+    how it begins. A series' row is exactly two cells, the text and its sources; the
+    change-log lines that share a prefix are one cell. A prefix that finds no such row,
+    or two, gives the series no text rather than a guess: its sources would land on every
+    price row. The prices do not depend on this.
     """
     rows: list[tuple[str, str]] = []
     for row in sheet.iter_rows(values_only=True):
@@ -253,15 +263,18 @@ def read_descriptions(sheet) -> dict[str, tuple[str, str]]:
         # A leading '*' or '*, **' is the forecast mark, not the description.
         while cells and set(cells[0]) <= set("*, "):
             cells = cells[1:]
-        if len(cells) >= 2:
-            rows.append((cells[0], cells[-1]))
+        if len(cells) == 2:
+            rows.append((cells[0], cells[1]))
     out: dict[str, tuple[str, str]] = {}
+    warnings: list[str] = []
     for name, (_key, _group, prefix) in _SERIES.items():
-        for text, sources in rows:
-            if text.startswith(prefix):
-                out[name] = (text, sources)
-                break
-    return out
+        found = [row for row in rows if row[0].startswith(prefix)]
+        if len(found) == 1:
+            out[name] = found[0]
+        elif found:
+            warnings.append(f"{len(found)} Description rows begin {prefix!r}: {name!r} gets no "
+                            "text or sources until one is chosen")
+    return out, warnings
 
 
 def read_hidden(workbook, periods: list[str], series: dict[str, Series]
@@ -282,29 +295,47 @@ def read_hidden(workbook, periods: list[str], series: dict[str, Series]
                     "from it; review it"]
     known = set(periods)
     out: dict[str, dict[str, Decimal]] = {}
-    filled = 0
+    filled = outside = unreadable = 0
     for row in rows[first + 1:]:
         if row[0] is None or row[6] != _HIDDEN_KIND:
             continue
         one = series.get(series_name(str(row[1])))
         period = str(row[0]).strip()
         if one is None or period not in known:
+            outside += 1
             continue
         if period in one.values:
             filled += 1
             continue
-        amount = parse_sheet_amount(row[5])
-        if amount is not None and amount > 0:
-            out.setdefault(one.name, {})[period] = amount
-    warnings = [f"{filled} hidden value(s) ignored: the published sheet now states those "
-                "months"] if filled else []
+        try:
+            amount = parse_sheet_amount(row[5])
+        except ValueError:
+            amount = None
+        if amount is None or amount <= 0:
+            unreadable += 1
+            continue
+        out.setdefault(one.name, {})[period] = amount
+    warnings = []
+    if filled:
+        warnings.append(f"{filled} hidden value(s) ignored: the published sheet now states "
+                        "those months")
+    if outside:
+        warnings.append(f"{outside} hidden row(s) skipped: a series or a month the published "
+                        "sheet does not have")
+    if unreadable:
+        warnings.append(f"{unreadable} hidden row(s) skipped: no price above 0 in "
+                        "`Uploaded Display`")
     return out, warnings
 
 
 def change_points(values: dict[str, Decimal], periods: Iterable[str]
                   ) -> Iterator[tuple[str, Decimal]]:
     """The first value and each one that differs from the one before it (his rule for
-    history): between two kept points the price held, by construction."""
+    history): between two kept points the price held, by construction.
+
+    connectors/gpp.py holds the same rule in its own loop, over its string points. Both
+    apply it only where no new edition revises a value: inside the revision window this
+    module sends every month instead (his answer on #1919)."""
     previous = None
     for period in periods:
         amount = values.get(period)
@@ -346,15 +377,19 @@ class PinkSheetConnector:
                 raise ValueError(f"the monthly workbook no longer has a sheet {sheet!r}: "
                                  "layout change, nothing parsed")
         periods, series, warnings = read_prices(workbook[PRICES_SHEET])
-        if len(series) < MIN_SERIES:
-            raise ValueError(f"{PRICES_SHEET} yielded {len(series)} known series of "
-                             f"{len(_SERIES)}: layout change, nothing parsed")
+        priced = [one for one in series.values() if one.values]
+        if len(priced) < MIN_SERIES:
+            raise ValueError(f"{PRICES_SHEET} yielded {len(priced)} known series with a value, "
+                             f"of {len(_SERIES)}: layout change, nothing parsed")
         missing = sorted(set(_SERIES) - set(series))
         defects = [f"the series {name!r} is gone from the workbook or renamed: no price for "
                    "it this run" for name in missing]
+        defects += [f"the series {one.name!r} holds no value in any month: no price for it "
+                    "this run" for one in series.values() if not one.values]
         hidden, hidden_warnings = read_hidden(workbook, periods, series)
         warnings += hidden_warnings
-        descriptions = read_descriptions(workbook[DESCRIPTION_SHEET])
+        descriptions, description_warnings = read_descriptions(workbook[DESCRIPTION_SHEET])
+        warnings += description_warnings
         warnings += [f"no Description row for {name!r}"
                      for name in sorted(set(series) - set(descriptions))]
 
@@ -362,13 +397,24 @@ class PinkSheetConnector:
         rows: list[list[str]] = []
         details = RowBuilder(ENRICHMENT)
         detail_rows: list[list[str]] = []
-        window = periods if self._history else periods[-REVISION_WINDOW:]
+        # Every month the window holds, or a month revised to equal the one before it keeps
+        # its old value; ingest ignores a month it already holds unchanged. Before the window
+        # nothing is revised, so his change-points rule holds there (#1919).
+        revisable = periods[-REVISION_WINDOW:]
+        settled = periods[:-REVISION_WINDOW] if self._history else []
         # The stored bit only, and no claim: with no `tax:` rule this reads Unverified.
         tax = "1" if source.vat_mode.value == "incl" else "0"
         for name, one in series.items():
             key, group, _prefix = _SERIES[name]
             currency, per_unit, unit = parse_quoted_unit(one.unit_raw)
-            unit = _UNIT_OVERRIDE.get(name, unit)
+            if name in _UNIT_OVERRIDE:
+                corrects, instead = _UNIT_OVERRIDE[name]
+                if one.unit_raw == corrects:
+                    unit = instead
+                else:
+                    warnings.append(f"{name}: the unit now reads {one.unit_raw!r}, not "
+                                    f"{corrects!r}, so it is stored as written; review "
+                                    "the correction")
             text, sources = descriptions.get(name, ("", ""))
             common = {"material_key": key, "material_label": name, "country_code_alpha2": "*",
                       "currency": currency, "unit": unit, "tax_included": tax,
@@ -388,7 +434,9 @@ class PinkSheetConnector:
                 warnings.append(f"{name}: no current price, last published "
                                 f"{max(one.values)} (the sheet reaches {periods[-1]})")
             for values, named in ((one.values, sources), (hidden.get(name, {}), HIDDEN_SOURCE)):
-                for period, amount in change_points(values, window):
+                kept = [*change_points(values, settled),
+                        *((period, values[period]) for period in revisable if period in values)]
+                for period, amount in kept:
                     fields = _amount_fields(amount, per_unit, period)
                     rows.append(builder.row(
                         **common, provenance="reported", official_source_name=named,

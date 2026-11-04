@@ -88,6 +88,7 @@ UNIT_NAMES: dict[str, tuple[str, str]] = {
     "m3":    ("cubic metre", "متر مكعب"),
     "troy oz": ("troy ounce", "أونصة"),
     "dmt":   ("dry metric ton", "طن متري جاف"),
+    "dmtu":  ("dry metric ton unit", "وحدة طن متري جاف"),
     "sheet": ("sheet", "لوح"),
 }
 
