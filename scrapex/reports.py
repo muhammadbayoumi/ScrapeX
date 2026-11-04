@@ -1832,6 +1832,9 @@ def offer_card(conn: sqlite3.Connection, source_key: str,
         "offer": offer,
         "periods": pricehistory.timeline(conn, offer_id),
         "observations": offer_observations(conn, offer_id),
+        # The list above is bounded; this is how many there are, so the card can say so.
+        "observations_total": int(conn.execute(
+            "SELECT COUNT(*) FROM price_observation WHERE offer_id = ?", (offer_id,)).fetchone()[0]),
         "changes": changes_for_offer(conn, offer_id),
         "details": product_attributes(conn, offer_id),
     }

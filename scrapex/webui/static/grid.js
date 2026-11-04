@@ -2803,15 +2803,21 @@
     // tidying the grid: hide moves a field into the details, show moves it back. The
     // ones he sent to the card have a section of their own (#1835), and a field with no
     // value is left out, so a card never lists a blank.
+    // A moved column whose key the record also holds as a detail is one fact in two
+    // places (SIKA's stock count, on 84 of its 94 rows): the detail, the shop's own
+    // record, is the one shown.
+    const detailCodes = new Set(details.map((d) => d.code || ""));
     const moved = (payload.moved_to_details || []).filter((column) =>
-      openOfferRow && text(openOfferRow[column.key]) !== "");
+      openOfferRow && text(openOfferRow[column.key]) !== "" && !detailCodes.has(column.key));
     const movedCard = (title, columns, sections, key) => {
       if (!columns.length) return;
       const box = card(title);
       cardBody(box).appendChild(specList(columns.map((column) => ({
         label: column.label || column.key,
+        // The same money() the table cell and Price changes print, unit and all.
         value: PRICE_FACTS.has(column.key)
-          ? formatMoney(openOfferRow[column.key]) + " " + (openOfferRow.currency || "")
+          ? money(openOfferRow[column.key], openOfferRow.currency,
+                  basisOf(openOfferRow, offer)).textContent
           : text(openOfferRow[column.key]),
       }))));
       sections.get(key).push(box);
@@ -2865,6 +2871,11 @@
     if (observations.length) {
       const recorded = card("What was recorded", "record-card-wide");
       const recordedBody = cardBody(recorded);
+      // The list is bounded and the count beside it is not, so the list says so.
+      if ((data.observations_total || 0) > observations.length) {
+        recordedBody.appendChild(el("p", "muted",
+          `The latest ${observations.length} of ${data.observations_total} are listed.`));
+      }
       recordedBody.appendChild(miniTable(
         ["Date", "Price", "Where it came from"],
         observations.map((o) => [
