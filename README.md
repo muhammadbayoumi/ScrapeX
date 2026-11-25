@@ -9,7 +9,7 @@ collected tables to Google Sheets, where the mbiX Excel add-in reads them.
 
 ## Install and run
 
-Everything here happens in Chrome and the ScrapeX panel; none of it needs a terminal.
+None of these steps needs a terminal.
 
 1. In Chrome, open `chrome://extensions`, turn on **Developer mode**, choose
    **Load unpacked** and select this repository's `extension/` folder.
