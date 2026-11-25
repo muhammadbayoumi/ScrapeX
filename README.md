@@ -4,8 +4,9 @@ ScrapeX collects published web data into a SQLite warehouse on your own machine,
 categories: products, organizations and tenders (`SourceCategory` in `scrapex/vocab.py`).
 It has two parts: a Chrome extension, whose side panel is where all the work is done
 (`extension/`), and a local engine, `scrapex-engine.exe`, built from `scrapex/`, which
-crawls and writes the warehouse. The panel signs in to Google itself and writes the
-collected tables to Google Sheets, where the mbiX Excel add-in reads them.
+crawls and writes the warehouse. The panel signs in to Google with Chrome's own token and
+writes each source's table, as the engine exports it, into a Google Sheet in your Drive,
+where the mbiX Excel add-in can read it as a data source.
 
 ## Install and run
 
