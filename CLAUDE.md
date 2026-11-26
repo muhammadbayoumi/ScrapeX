@@ -121,6 +121,8 @@ categories; price is one of them, not the whole tool.**
   inactive, until it is studied and built.
 - **Never start a run you cannot watch to the end.** A crawl outlasts a session and holds
   the write lock while it runs.
+- **`README.md` carries only the basics, and each line of it stays true.** A change that
+  makes one false corrects it in the same PR.
 
 ## Review
 
