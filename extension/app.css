@@ -990,6 +990,14 @@
     background: var(--control-hover);
     color: var(--accent-ink);
   }
+  /* On a touch screen the DB Browser card's Copy database path and Open download page, one
+     over the other at panel widths, stand --touch-stack-gap apart, so their 44px reaches, 9px
+     past each edge of their 26px boxes, meet between them: at the cluster's 12px the link's
+     reach took the gap and Copy reached 37.5px (his ruling on #1457; design/tokens.css says
+     why it is 18px). */
+  @media (hover: none), (pointer: coarse) {
+    #db-browser-actions { row-gap: var(--touch-stack-gap); }
+  }
   #runtime-note:empty,
   #diag-out:empty { display: none; }
   #runtime-note,
@@ -3861,11 +3869,9 @@
     background: var(--accent-weak);
     color: var(--accent-ink);
   }
-  .engine-state-banner[data-tone="warn"] {
-    border-color: var(--amber);
-    background: var(--amber-weak);
-    color: var(--amber);
-  }
+  /* NO WARN TINT (#1556's N6, approved): `--amber` words on `--amber-weak` measured
+     2.68:1. A warning keeps its tone on the icon and the tile's border only, the words
+     in the foreground -- the rule for `busy` below, which it now shares. */
   .engine-state-banner[data-tone="danger"] {
     border-color: var(--red);
     background: var(--red-weak);
@@ -3880,7 +3886,8 @@
   /* A restart under way (#1556's R04) claims nothing about the engine, so the banner
      stays untinted and only the tile shows work in progress. --warning-600 is the
      glyph's colour on --surface (tokens.css, #1542). */
-  .engine-state-banner[data-tone="busy"] > .icon-tile {
+  .engine-state-banner[data-tone="busy"] > .icon-tile,
+  .engine-state-banner[data-tone="warn"] > .icon-tile {
     border: 1px solid var(--warning-600);
     color: var(--warning-600);
   }
@@ -3931,6 +3938,18 @@
        sentence have a second row at all. */
     row-gap: 2px;
     padding: var(--sp-3) var(--sp-4);
+  }
+  /* A BADGE WRAPS UNDER ITS LABEL BEFORE A NUMBER BREAKS (#1527). The `auto` label
+     track took the badge's max-content, so "Upgrade needed" left "3.14.7" 25.8px and
+     broke it into "3.1" / "4.7", and "Update available" printed 0.9.10 one character
+     per line, at 320px. `fit-content(60%)` caps the label column; the label is a
+     wrapping flex box, so the badge drops under it and the value keeps its line.
+     ONLY ROWS THAT CARRY A VALUE: a row whose one child spans the list (the versions
+     note) keeps the template above. Measured at 320, 360, 400 and 600px on #1527's
+     own list: every version on one line; Heritrix's and Firecrawl's Role, Integration
+     and Licence rows unchanged to the pixel. */
+  .engine-spec-row:has(> .engine-spec-value) {
+    grid-template-columns: fit-content(60%) minmax(0, 1fr);
   }
   /* A switch is 46x40 and brings its own touch target, so the row gives back
      the padding it would otherwise double. */

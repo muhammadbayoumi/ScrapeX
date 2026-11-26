@@ -559,12 +559,15 @@ def test_the_card_under_a_wait_does_not_say_press_again(open_panel):
 
 # ---- Restart engine -----------------------------------------------------------
 
-def press_restart(open_panel, host: dict, **stub_kwargs):
+def press_restart(open_panel, host: dict, before: str = "", **stub_kwargs):
+    """Restart, pressed on ScrapeX's Engine screen, `before` run on the page first."""
     page = open_panel(host=host, record=("engine-restart-note", "runtime-note"),
                       **stub_kwargs)
     page.click('nav.side-rail button[data-view="engines"]')
     page.click('#view-engines .engine-row[data-engine-id="scrapex-engine"]')
     page.wait_for_selector("#view-engine-detail:not(.hidden)", timeout=10_000)
+    if before:
+        page.evaluate(before)
     page.evaluate("() => { window.__writes.length = 0; }")
     page.click("#runtime-restart")
     return page
@@ -575,10 +578,28 @@ def restart_posts(page) -> list:
             if w["path"] == "/api/engine/restart"]
 
 
+# THE ENGINE LEFT AFTER THE SCREEN WAS DRAWN, and nothing has asked since: every engine
+# route is refused from here, and a restart sent anyway is recorded as the harness
+# records every write, so "nothing was sent" is read and not assumed.
+THE_ENGINE_LEFT = """() => {
+  const inner = window.fetch;
+  window.fetch = async (url, options = {}) => {
+    const path = String(url);
+    if (!path.startsWith("http://127.0.0.1:8000/api/")) return inner(url, options);
+    if (path.endsWith("/api/engine/restart")) {
+      window.__writes.push({path: "/api/engine/restart", method: "POST", body: null});
+    }
+    throw new TypeError("Failed to fetch");
+  };
+}"""
+
+
 def test_restart_with_no_engine_running_says_so_and_waits_for_nothing(open_panel):
     """#1094's second fault: the refused POST was read as the engine leaving, and
-    the panel then waited two minutes for an engine nobody was starting."""
-    page = press_restart(open_panel, engine_up=False,
+    the panel then waited two minutes for an engine nobody was starting. Restart is
+    drawn only beside an engine that answered (#1556), so the engine here leaves after
+    the screen is drawn."""
+    page = press_restart(open_panel, before=THE_ENGINE_LEFT,
                          host={"CHECK_STARTUP": {"after": 0, "reply": FOUND_CURRENT}})
 
     page.clock.run_for(3 * 60_000)

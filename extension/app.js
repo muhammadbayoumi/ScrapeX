@@ -8,7 +8,7 @@
 // markup goes through esc(), and content spans use unicode-bidi:plaintext so
 // Arabic renders right-to-left without disturbing the English chrome around it.
 import { checkEngine, getBackend, setBackend } from "./engine.js";
-import { autostartStatus, checkStartup, setAutostart, startEngine, upgradeDatabase } from "./transport.js";
+import { autostartStatus, checkStartup, ping, setAutostart, startEngine, upgradeDatabase } from "./transport.js";
 import { capabilityProblem, deployedFrom, installedVersion, CAPABILITY_REPORTING_SINCE, isOlder } from "./version.js";
 import { PROTOCOL_VERSION } from "./transport.js";
 import { ENGINE_CANDIDATES, latestEngineRelease } from "./releases.js";
@@ -172,6 +172,18 @@ const state = {
   // not seen. So it is also filled by `loadStorage` on entry to Settings, off
   // the read that screen already makes.
   warehousePath: "",
+  // WHAT THE NATIVE HELPER SAID WHEN NO ENGINE ANSWERED (#1556's N4): null until
+  // the Engine page asks; then {kind: "ok", version} or {kind} for a refusal
+  // (`absent`, `forbidden`, `crashed`, `timeout`). It tells "no engine here" from
+  // "an engine here, stopped". Kept across a re-check, so the page keeps the last
+  // answer while it asks again; dropped when an engine answers.
+  engineHelper: null,
+  engineHelperAsking: false,
+  // WHAT THE RELEASE FEED SAID, for the sentence that offers Download: its state
+  // (`ok`, `none`, `offline`, `unreadable`, or "" before it is read) and whether it
+  // names an installer the panel can hand to Chrome.
+  releaseState: "",
+  releaseInstallable: false,
 };
 
 // ---- views ----------------------------------------------------------------
@@ -700,6 +712,8 @@ function setStatus(engine) {
   const wasUp = state.engineUp;
   state.engineUp = engine.running;
   state.engineReachable = engine.reachable;
+  // An engine answered, so what the helper said about a stopped one is history.
+  if (engine.running) state.engineHelper = null;
   state.engineState = engine.running
     ? "ready"
     : engine.timedOut ? "timeout"
@@ -4035,7 +4049,17 @@ let engineRecheckRunning = false;
 // answer landed announced a finished recheck while Check again was still
 // disabled and the release feed still out.
 function refreshEngineBusy() {
-  setEngineBusy(engineRecheckRunning || state.engineState === "checking");
+  const checking = engineRecheckRunning || state.engineState === "checking";
+  setEngineBusy(checking);
+  // A CHECK HOLDS DOWNLOAD (#1556): the page keeps the last answer while it asks
+  // again, and a press waits for the new one. `aria-disabled`, not `disabled`, so
+  // focus stays on it (components.css, #1542). A browser download in flight owns
+  // its button and is left alone.
+  const download = $("engine-download");
+  if (download && !installerDownloadRunning) {
+    if (checking) download.setAttribute("aria-disabled", "true");
+    else download.removeAttribute("aria-disabled");
+  }
 }
 
 // ---- WHICH warehouse the engine has open -----------------------------------
@@ -4230,6 +4254,51 @@ async function askWhichWarehouse() {
   return warehouseAsk;
 }
 
+// ---- the native helper, asked when no engine answers (#1556's N4) ---------------
+//
+// ONE ASK PER ENGINE-PAGE RENDER OR CHECK AGAIN, NEVER ON A TIMER: each PING starts
+// a helper process (`scrapex/native.py`), and the approved cost was one per look.
+// Its answer tells "no engine here" (`absent`: the Download state) from "an engine
+// here, stopped" (`ok`: Stopped, no Download) and from a helper that refused, died
+// or did not answer. The newest ask owns the answer; an engine that came up in the
+// meantime outranks it.
+let helperGeneration = 0;
+
+async function askTheHelper() {
+  const asked = ++helperGeneration;
+  state.engineHelperAsking = true;
+  renderEngineStatusUI();
+  let answer;
+  try {
+    const reply = await ping();
+    answer = { kind: "ok", version: (reply && reply.app_version) || "" };
+  } catch (error) {
+    const kind = error && error.kind;
+    // A HOST THAT ANSWERED IS A HOST THAT IS THERE, even when it refused the
+    // command or spoke another protocol: only these four are about its presence.
+    answer = ["absent", "forbidden", "crashed", "timeout"].includes(kind)
+      ? { kind } : { kind: "ok", version: "" };
+    // Not swallowed: anything but "not installed" goes into the startup trace, so a
+    // helper that misbehaves can be found afterwards and not only by its silence.
+    if (kind !== "absent") {
+      markStartup("helper-unanswered",
+                  {kind: kind || "refused", message: (error && error.message) || ""});
+    }
+  }
+  if (asked !== helperGeneration) return;
+  state.engineHelperAsking = false;
+  if (!state.engineUp) state.engineHelper = answer;
+  renderEngineStatusUI();
+}
+
+// THE RELEASE FEED'S ANSWER, kept where the status sentence can read it: whether it
+// was reached, and whether it names an installer Chrome can be handed.
+function noteRelease(latest) {
+  state.releaseState = (latest && latest.state) || "";
+  state.releaseInstallable = Boolean(latest && latest.state === "ok" && latest.installer
+    && latest.installer.verifiable !== false);
+}
+
 function engineStatusFromState() {
   // A RESTART UNDER WAY OUTRANKS EVERY BRANCH BELOW (#1517; #1556's R04). They read
   // what the engine that is leaving said: the wait polls `/api/health` directly and
@@ -4271,19 +4340,68 @@ function engineStatusFromState() {
       detail: "The engine did not answer before its deadline. Check again when it is ready.",
     };
   }
-  if (state.engineVersion) {
-    return { text: "Installed, not running", tone: "warn", detail: "" };
-  }
-  if (state.engineReachable) {
-    // The endpoint answered but the worker is not alive. We cannot prove the
-    // executable is absent, only that it is not running right now.
+  // THE ENGINE ANSWERED BUT ITS WORKER IS NOT ALIVE, or the port answered and the
+  // health check failed. "Not running" for either build: the word this used to say,
+  // "Installed, not running", sat over project files, which are not installed (#1556).
+  if (state.engineVersion || state.engineReachable) {
     return { text: "Not running", tone: "warn", detail: "" };
   }
-  return {
-    text: "Not detected",
-    tone: "neutral",
-    detail: "The panel could not reach the Engine.",
-  };
+  // NOTHING ANSWERED. The helper says whether an engine is on this computer
+  // (#1556's N4, approved 2026-10-11 and built here): the Engine page asks it once
+  // per render or Check again. Its words are the approved rows (#1556 rounds 10-11);
+  // `row` is the list row's, whose badge takes one or two words (badge.mdx@86c813ec:23)
+  // and whose sentence names the page that holds Check again.
+  const helper = state.engineHelper;
+  if (helper && helper.kind === "ok") {
+    return {
+      text: "Stopped",
+      tone: "neutral",
+      detail: `ScrapeX Engine${helper.version ? ` ${helper.version}` : ""} is on this `
+        + "computer and not running. Start engine is on the Run page.",
+    };
+  }
+  if (helper && helper.kind === "timeout") {
+    return {
+      text: "Local helper did not answer", tone: "warn", detail: "Press Check again.",
+      row: { text: "No answer", detail: "The local helper did not answer. "
+        + "Press Check again on the ScrapeX Engine page." },
+    };
+  }
+  if (helper && helper.kind === "forbidden") {
+    return {
+      text: "Local helper not linked", tone: "warn",
+      detail: "It does not recognise this extension, so Chrome cannot start the engine "
+        + "from here. Start it by running scrapex-engine.exe.",
+      row: { text: "Not linked", detail: "The local helper does not recognise this "
+        + "extension. Open ScrapeX Engine for what to do." },
+    };
+  }
+  if (helper && helper.kind === "crashed") {
+    return {
+      text: "Local helper stopped", tone: "warn",
+      detail: "It closed before it answered. Nothing is lost, and the engine can still "
+        + "be started from Windows.",
+      row: { text: "Helper stopped", detail: "The local helper closed before it "
+        + "answered. Open ScrapeX Engine for what to do." },
+    };
+  }
+  // THE ASK IS STILL OUT and nothing has been heard from the helper yet: the check
+  // has not finished, so nothing is concluded.
+  if (!helper && state.engineHelperAsking) {
+    return { text: "Checking engine…", tone: "neutral", detail: "" };
+  }
+  // NO ENGINE DETECTED: no helper either, or none asked. Download engine is the action
+  // when a release can be installed; the sentence allows for an engine installed but
+  // never linked (issue 839), which reads exactly the same.
+  let detail = "No engine answered on this computer.";
+  if (state.releaseInstallable) {
+    detail += " Download engine to install it, or run scrapex-engine.exe if it is "
+      + "already installed.";
+  } else if (state.releaseState === "offline" || state.releaseState === "unreadable") {
+    detail = "No engine answered on this computer, and the release page could not be "
+      + "reached. Press Check again to retry.";
+  }
+  return { text: "Not detected", tone: "neutral", detail, noEngine: true };
 }
 
 // The glyph the banner wears, one per tone. `material-play-circle` on a running engine
@@ -4315,10 +4433,13 @@ function updateEngineStatus() {
     badge.classList.add("danger");
     dot.classList.add("off");
   }
-  $("engine-status").textContent = summary.text;
+  // THE ROW'S OWN SHORT FORM where the summary has one: the badge is `nowrap`, and at
+  // 320px "Local helper did not answer" ran under the chevron (#1556).
+  const rowSays = summary.row || summary;
+  $("engine-status").textContent = rowSays.text;
   const detail = $("engine-status-detail");
-  detail.textContent = summary.detail;
-  detail.classList.toggle("hidden", !summary.detail);
+  detail.textContent = rowSays.detail;
+  detail.classList.toggle("hidden", !rowSays.detail);
 
   // THE BANNER IS ScrapeX-ENGINE'S. Every health answer that lands while a
   // candidate's screen is open would otherwise repaint Scrapy's banner with
@@ -4369,16 +4490,20 @@ function engineProtocolText() {
 // source tree it does not have — renders as the mode alone with no verdict, because
 // a verdict there would be a guess dressed as a measurement.
 function engineBuildText(build) {
-  if (!build) return { value: "Not reported", verdict: "", detail: "" };
+  if (!build) return { value: "Not reported by this engine", verdict: "", detail: "" };
   const short = build.commit ? String(build.commit).slice(0, 7) : "";
+  // HIS OWN WORDS FOR THE TWO KINDS (#1556): «التثبيت» and «ملفات المشروع», the
+  // distinction his question was about. An installed build gets no sentence: the
+  // engine's ("this is an installed build; it carries no source tree to compare
+  // against…") was six lines of jargon at 320px and said nothing he can act on.
   if (build.mode === "frozen") {
-    return { value: short ? `installed · ${short}` : "installed build",
-             verdict: "", detail: build.detail || "" };
+    return { value: short ? `Installed build · ${short}` : "Installed build",
+             verdict: "", detail: "" };
   }
   if (build.mode !== "source") {
     return { value: "Unknown", verdict: "", detail: build.detail || "" };
   }
-  const value = short ? `source · ${short}` : "source";
+  const value = short ? `Project files · ${short}` : "Project files";
   // Two different reasons to restart, and the sharper one wins the badge: code
   // this engine LOADED has changed, which is the defect that cost the owner a
   // wrong belief about his data. A checkout that merely moved is a weaker signal
@@ -4395,7 +4520,9 @@ function engineBuildText(build) {
 // is read when it appears. A verdict this panel does not know — a newer engine's —
 // is said to be unrecognised, never guessed at.
 function engineSqliteText(sqlite) {
-  if (!sqlite || !sqlite.version) return { value: "Not reported", verdict: "", detail: "" };
+  if (!sqlite || !sqlite.version) {
+    return { value: "Not reported by this engine", verdict: "", detail: "" };
+  }
   const value = String(sqlite.version);
   if (sqlite.wal_reset_bug === "affected") {
     return { value, verdict: "Affected",
@@ -4415,13 +4542,25 @@ function engineSqliteText(sqlite) {
 // "Not reported" for an engine from before the field, a badge only when it is
 // below, and an answer this panel does not know is said to be unrecognised. A pin
 // the engine could not read is its own answer, and it wears no badge.
-function enginePythonText(python) {
-  if (!python || !python.version) return { value: "Not reported", verdict: "", detail: "" };
+//
+// THE VERDICT IS A FACT, NOT AN ORDER (#1556): "Upgrade needed" told him to do what no
+// control does, and he decided there is no Python control. Only project files can be
+// below the pin -- a release is built on the pinned Python and carries its pin
+// (.github/workflows/release-engine.yml, `python-version-file`) -- so the sentence
+// names them and says what fixes it.
+function enginePythonText(python, buildMode = "") {
+  if (!python || !python.version) {
+    return { value: "Not reported by this engine", verdict: "", detail: "" };
+  }
   const value = String(python.version);
   if (python.verdict === "below") {
-    return { value, verdict: "Upgrade needed",
-             detail: `ScrapeX needs Python ${python.floor} or newer. `
-                     + "Parts of the engine can fail on an older one." };
+    const detail = buildMode === "source"
+      ? `This engine runs Python ${value} from the project files; ScrapeX needs `
+        + `${python.floor} or newer. Parts of the engine can fail until the project `
+        + `files run on ${python.floor}.`
+      : `This engine runs Python ${value}; ScrapeX needs ${python.floor} or newer. `
+        + "Parts of the engine can fail on an older one.";
+    return { value, verdict: "Too old", detail };
   }
   if (python.verdict === "ok") return { value, verdict: "", detail: "" };
   if (python.verdict === "unknown") {
@@ -4462,14 +4601,40 @@ function renderEngineStatusUI() {
   // Amber, the one "attend to this" badge the kit has (see the Build badge above).
   sqliteBadge.className = "badge off";
   sqliteBadge.classList.toggle("hidden", !sqlite.verdict);
-  const python = enginePythonText(state.enginePython);
+  const python = enginePythonText(state.enginePython,
+                                  state.engineBuild && state.engineBuild.mode);
   $("engine-python-value").textContent = python.value;
   $("engine-python-detail").textContent = python.detail;
   const pythonBadge = $("engine-python-verdict");
   pythonBadge.textContent = python.verdict;
-  // Amber, as the SQLite badge is.
-  pythonBadge.className = "badge off";
+  // NEUTRAL, NOT AMBER: amber words on amber are 2.68:1 in light (#1934). The word
+  // carries the state, as the mandate for warning words asks (#1556).
+  pythonBadge.className = "badge";
   pythonBadge.classList.toggle("hidden", !python.verdict);
+  // WHILE NO ENGINE HAS ANSWERED, ONE NOTE STANDS WHERE THE VERSION ROWS WERE
+  // (#1556): five rows of "Not reported" read as five things missing, and he asked
+  // for buttons to install Python and SQLite. With no engine detected the note says
+  // the engine brings both; otherwise only that the versions come with an answer. A
+  // re-check of a running engine keeps its rows (`setEngineChecking` keeps the last
+  // answer's versions), so nothing jumps while Check again asks.
+  if (theInstalledEngineIsOnScreen()) {
+    const noAnswer = !state.engineUp && !state.engineVersion;
+    const noEngine = noEngineDetected();
+    for (const id of ["engine-spec-installed", "engine-spec-build", "engine-spec-python",
+                      "engine-spec-sqlite", "engine-spec-protocol"]) {
+      $(id).classList.toggle("hidden", noAnswer);
+    }
+    $("engine-spec-versions-note").classList.toggle("hidden", !noAnswer);
+    $("engine-versions-note-title").textContent =
+      noEngine ? "Python and SQLite come with the engine" : "";
+    $("engine-versions-note-text").textContent =
+      (noEngine ? "Nothing else has to be installed. " : "")
+      + "Versions show here once the engine answers.";
+    // NOTHING TO RESTART when nothing answered and no check ran out of time: Restart
+    // can only reach a running engine (RestartServerButton.tsx@86c813ec:39, #1095).
+    $("runtime-restart").classList.toggle("hidden", noAnswer && !state.engineReachable
+      && state.engineState !== "timeout" && !restartRunning);
+  }
   // The version beside the name on the catalogue row: shown only when there IS
   // one, because an empty `.tech` chip beside a name reads as a missing value
   // rather than as an engine nobody has installed.
@@ -4480,18 +4645,40 @@ function renderEngineStatusUI() {
   refreshEngineBusy();
 }
 
+// NO VERDICT WITHOUT AN ENGINE THAT ANSWERED (#1556): "Available to install" was a
+// third word for what Download engine already says, and it called a stopped engine
+// uninstalled (#1636). And none for a running engine NEWER than the release: "Up to
+// date" said the published 0.4.67 was current beside a running 0.4.89 (#1637); the
+// version row says "Unreleased" instead (`paintEngineRelease`).
 function engineReleaseVerdict(installed, latest) {
+  if (!installed) return "";
   if (latest.state === "offline" || latest.state === "unreadable") return "Update status unavailable";
-  if (latest.state === "none") return "";
   if (latest.state !== "ok") return "";
-  const hasInstaller = !!latest.installer;
-  if (!installed) return hasInstaller ? "Available to install" : "";
   try {
     if (isOlder(installed, latest.version)) return "Update available";
+    if (isOlder(latest.version, installed)) return "";
     return "Up to date";
   } catch {
     return "";
   }
+}
+
+// THE RUNNING ENGINE IS NEWER THAN THE PUBLISHED ONE: project files ahead of the
+// release, as Studio marks a local build newer than the latest
+// (LocalVersionPopover.tsx@86c813ec:45-46, 61-62).
+function engineIsUnreleased(installed, latest) {
+  if (!installed || latest.state !== "ok") return false;
+  try {
+    return isOlder(latest.version, installed);
+  } catch {
+    return false;
+  }
+}
+
+// NO ENGINE DETECTED: nothing answered and the helper says none is here (or was not
+// asked). The one state where Download engine is the action (#1556).
+function noEngineDetected() {
+  return engineStatusFromState().noEngine === true;
 }
 
 // THE ENGINE'S OWN ANSWER ABOUT ITS OWN UPDATE, and the reason this exists at
@@ -4610,6 +4797,12 @@ function engineUpdateSentence(report) {
   if (!report.update_available) {
     const latest = report.latest || {};
     if (latest.state && latest.state !== "ok") return latest.detail || "";
+    // A RUNNING ENGINE NEWER THAN THE RELEASE is not "the published version": with
+    // project files at 0.4.89 and 0.4.67 published, that sentence was false (#1637).
+    // The version row's "Unreleased" says it (#1556).
+    if (latest.version && report.installed && engineIsUnreleased(report.installed, latest)) {
+      return "";
+    }
     return `${report.installed} is the published version.`;
   }
   if (!report.can_self_update) {
@@ -4675,6 +4868,8 @@ function writeEngineUpdateLine(text) {
 // guard that accepted any 4xx and so recorded a reason it never measured.
 async function startEngineUpdate() {
   const button = $("engine-download");
+  // Held while a check runs (`refreshEngineBusy`): the press waits for the answer.
+  if (button.getAttribute("aria-disabled") === "true") return;
   button.disabled = true;
   writeEngineUpdateLine("Asking the engine to fetch it…");
   let answer;
@@ -4845,18 +5040,38 @@ function paintEngineRelease(latest, installed) {
     : latest.state === "none" ? "No release yet"
     : "Unavailable";
 
-  $("engine-latest-detail").textContent = latest.state === "ok"
-    ? (latest.installer
-        ? ""
-        : "This release has no installer attached, so there is nothing to install yet.")
-    : (latest.detail || "");
+  // WITH NO ENGINE DETECTED THE ROW SAYS WHAT DOWNLOAD BRINGS (#1556): its size and
+  // date, and the one thing it cannot do -- a release cannot open a database a newer
+  // engine has upgraded (scrapex/databases/domain.py, "Needs a newer ScrapeX"). With
+  // no engine at all, "The engine you have keeps working." is not true, and "No engine
+  // has been released yet." would say "No release yet" twice.
+  const none = noEngineDetected();
+  let latestDetail = "";
+  if (latest.state === "ok") {
+    if (!latest.installer) {
+      latestDetail = "This release has no installer attached, so there is nothing to install yet.";
+    } else if (none) {
+      const when = latest.publishedAt
+        ? `, published ${window.ScrapeXTime.format(latest.publishedAt, "date")}` : "";
+      latestDetail = `${fmtMegabytes(latest.installer.bytes || 0)} installer${when}. `
+        + `Version ${latest.version} cannot open a database that a newer version has upgraded.`;
+    }
+  } else if (latest.state === "offline" || latest.state === "unreadable") {
+    latestDetail = !installed ? "Could not reach the release page." : (latest.detail || "");
+  }
+  $("engine-latest-detail").textContent = latestDetail;
+
+  // "UNRELEASED" ON THE RUNNING VERSION, neutral: the amber badge is 2.68:1 (#1934).
+  const unreleased = $("engine-version-verdict");
+  const isUnreleased = engineIsUnreleased(installed, latest);
+  unreleased.textContent = isUnreleased ? "Unreleased" : "";
+  unreleased.classList.toggle("hidden", !isUnreleased);
 
   // A VERDICT IS A BADGE NOW, and it is on both screens: beside the Latest
   // version label on the detail, and beside the state on the catalogue row. An
   // empty verdict is no badge at all rather than an empty pill.
   const verdict = engineReleaseVerdict(installed, latest);
-  const tone = verdict === "Update available" || verdict === "Available to install"
-    ? "badge ok" : "badge";
+  const tone = verdict === "Update available" ? "badge ok" : "badge";
   for (const id of ["engine-release-verdict", "engine-row-verdict"]) {
     const node = $(id);
     node.textContent = verdict;
@@ -4892,12 +5107,6 @@ async function updateEngineReleaseUI(panelLatest) {
   // forget it.
   const report = state.engineUp ? await engineUpdateState() : null;
 
-  // WHAT THE ENGINE SAID, IN ITS OWN WORDS OR NOT AT ALL. An empty sentence is
-  // no line rather than an empty paragraph -- the same idiom as the verdict
-  // badge above. The screen guard lives in the writer, which is where all four
-  // callers of this line now get it from.
-  writeEngineUpdateLine(engineUpdateSentence(report));
-
   // THE ENGINE WINS. HIS RULING, and it settles a contradiction the review
   // found rather than a preference. Two sources answer "what is the newest
   // engine": the panel's own manifest fetch and the engine's report. They can
@@ -4926,6 +5135,27 @@ async function updateEngineReleaseUI(panelLatest) {
   const latest = engineLatest || panelLatest;
   const installed = (report && report.installed) || state.engineVersion || "";
   if (engineLatest) paintEngineRelease(latest, installed);
+
+  // WHAT THE ENGINE SAID, IN ITS OWN WORDS OR NOT AT ALL. An empty sentence is
+  // no line rather than an empty paragraph -- the same idiom as the verdict
+  // badge above. The screen guard lives in the writer, which is where all four
+  // callers of this line now get it from.
+  //
+  // EXCEPT FOR PROJECT FILES BEHIND THE RELEASE (#1556, C10). The engine's own
+  // sentence there names git (`scrapex/update.py`), a terminal he never opens, and
+  // the installer is not their update: switching to it is one-way for the
+  // warehouse, and he decided this page does not offer it. So it says where their
+  // update comes from instead -- and only while the engine reports no work of its own:
+  // a download, a staged file or a failed check is the engine's to say, whatever the
+  // build (THE ENGINE WINS, above).
+  const buildMode = state.engineBuild && state.engineBuild.mode;
+  const engineAtWork = Boolean(report && report.phase && report.phase !== "idle");
+  const projectFilesBehind = buildMode === "source" && !engineAtWork
+    && engineReleaseVerdict(installed, latest) === "Update available";
+  writeEngineUpdateLine(projectFilesBehind
+    ? `${latest.version} is published. These project files are ${installed}; they are `
+      + "updated with the code, not downloaded here."
+    : engineUpdateSentence(report));
 
   const download = $("engine-download");
   const steps = $("engine-install-steps");
@@ -4995,12 +5225,14 @@ async function updateEngineReleaseUI(panelLatest) {
   // Measured: 40% on screen while the engine reported 80%, and no further GETs.
   // `pollEngineUpdate` refuses a second concurrent run, so this cannot stack.
   if (installerDownloadRunning) {
+    download.classList.remove("hidden");
     steps.classList.toggle("hidden", !theInstalledEngineIsOnScreen());
     if (busy) pollEngineUpdate();
     return;
   }
 
   if (engineCanTakeIt || busy || staged) {
+    download.classList.remove("hidden");
     $("engine-download-label").textContent =
       busy ? "Downloading…"
       : staged ? "Downloaded and checked"
@@ -5034,6 +5266,18 @@ async function updateEngineReleaseUI(panelLatest) {
   // explicit `false` is a judgement.
   const engineRefusedTheHost = Boolean(installer)
     && installer.verifiable === false;
+  // DOWNLOAD IS DRAWN WHERE IT CAN BE THE ANSWER (#1556, approved 2026-11-26): a
+  // first install when no engine is detected, and an installed build's update. Not
+  // for a stopped or silent engine (an engine is there), not for one at or past the
+  // release (0.4.67 offered to a running 0.4.89 was a downgrade), not to turn project
+  // files into the installed build, and not for a feed that answered with nothing to
+  // install (CLAUDE.md: a control for a route that 404s is not drawn). A feed that
+  // could not be reached keeps it, held, beside "Press Check again to retry."
+  const offered = noEngineDetected()
+    ? Boolean(installer) || latest.state === "offline" || latest.state === "unreadable"
+    : Boolean(installer) && buildMode !== "source"
+      && engineReleaseVerdict(installed, latest) === "Update available";
+  download.classList.toggle("hidden", !offered);
   download.disabled = !installer || engineRefusedTheHost;
   // AND ONLY WHILE SCRAPEX'S OWN SCREEN IS THE ONE ON SHOW. This renderer is
   // called after two awaits (renderEngines, refreshEngines), so it can land
@@ -5044,7 +5288,8 @@ async function updateEngineReleaseUI(panelLatest) {
   // renderEngineDetail had just set. The other writes above are safe without
   // this because their ancestors are hidden for a candidate; this node's are
   // not. Same guard the two callers below already use.
-  steps.classList.toggle("hidden", !installer || !theInstalledEngineIsOnScreen());
+  // The steps go with Download: instructions for a file nobody is offered are noise.
+  steps.classList.toggle("hidden", !offered || !installer || !theInstalledEngineIsOnScreen());
 
   // The digest is still shown when the host was refused: it is what he would
   // compare against if he fetched the file himself, and hiding it would leave
@@ -5092,6 +5337,8 @@ async function startInstallerDownload(installer) {
   const steps = $("engine-install-steps");
   const label = $("engine-download-label");
   const button = $("engine-download");
+  // Held while a check runs (`refreshEngineBusy`): the press waits for the answer.
+  if (button.getAttribute("aria-disabled") === "true") return;
   steps.open = true;
   if (!chrome?.downloads?.download) {
     window.open(installer.url, "_blank");
@@ -5267,9 +5514,12 @@ function renderEngineDetail(id) {
     ? SCRAPEX_ENGINE.sub : "Candidate backend · not installable yet";
   $("engine-licence").textContent = engine.licence;
 
+  // The versions note is ScrapeX's too; `renderEngineStatusUI`, which `renderEngines`
+  // runs in this same task, then decides between it and the version rows.
   for (const row of ["engine-spec-installed", "engine-spec-build",
                      "engine-spec-python", "engine-spec-sqlite", "engine-spec-latest",
-                     "engine-spec-protocol", "engine-spec-power"]) {
+                     "engine-spec-protocol", "engine-spec-power",
+                     "engine-spec-versions-note"]) {
     $(row).classList.toggle("hidden", !installed);
   }
   for (const row of ["engine-spec-role", "engine-spec-shape"]) {
@@ -5355,6 +5605,11 @@ async function renderEngines() {
   if (!latestRelease) {
     latestRelease = await latestEngineRelease();
   }
+  noteRelease(latestRelease);
+  // NOTHING ANSWERED: the helper says whether an engine is here (#1556's N4), and
+  // Download waits for that answer.
+  if (state.engineState === "unavailable") await askTheHelper();
+  renderEngineStatusUI();
   // THE ENGINE FIRST WHEN IT IS THERE. Its report carries two things the panel
   // cannot compute -- whether this build could replace itself, and what phase an
   // update already in flight has reached -- so it is asked whenever it can
@@ -5376,11 +5631,25 @@ async function refreshEngines() {
     // same renderer every other answer takes. This used to hand-write the badge,
     // the dot and the words here — a second description of "checking" that the
     // status renderer knew nothing about and could contradict.
-    await updateEngineState();
+    const engine = await updateEngineState();
+    if (!engine.cancelled) {
+      // RUN'S START CARD FOLLOWS THIS ANSWER TOO (#1974's first half). Only
+      // `render()` drew it, so after a Check again here found the engine gone, Run
+      // had no Start; and the Stopped state's "Start engine is on the Run page." has
+      // to be true when he gets there (#1556).
+      $("setup").classList.toggle("hidden", engine.running);
+      // AN ENGINE THAT ANSWERED IS ASKED WHICH DATABASE IT HAS OPEN, as
+      // `renderEngines` asks: `setStatus` forgets the path when an engine comes up,
+      // and without this the banner and the DB Browser card had none to show.
+      if (engine.running) askWhichWarehouse();
+    }
     renderEngineStatusUI();
 
     latestRelease = null;
     const latest = await latestEngineRelease();
+    noteRelease(latest);
+    if (state.engineState === "unavailable") await askTheHelper();
+    renderEngineStatusUI();
     await updateEngineReleaseUI(latest);
   } finally {
     // Both in the same synchronous step, deliberately: a reader who sees the
@@ -5401,7 +5670,7 @@ async function copyEngineDetails() {
   const backend = await backendBase();
   const lines = [
     `Status: ${$("engine-status").textContent}`,
-    `Installed version: ${$("engine-installed-version").textContent}`,
+    `Version: ${$("engine-installed-version").textContent}`,
     // THE LINE THAT WOULD HAVE ENDED THE 2026-08-23 INVESTIGATION IN ONE PASTE.
     // This block is what he copies when something looks wrong, and on that
     // morning every line in it was true and none of them said the engine was
@@ -8961,6 +9230,7 @@ async function loadDatabase() {
     // a different file where the engine is looking — so the engine status picks
     // both up from here rather than asking the route a second time.
     noteWarehouse(s);
+    paintDbBrowserCard("known");
 
     const schema = s.schema || {};
     const at = schema.version;
@@ -9058,6 +9328,46 @@ async function loadDatabase() {
     renderSnapshots([], { detail: (error && error.message) || "the engine did not answer" });
     renderBundles([], { detail: "The engine did not answer, so the folder could not be read." });
     out("db-msg", esc((error && error.message) || "Couldn't read the database."), "err");
+    paintDbBrowserCard("failed");
+  }
+}
+
+// ---- DB Browser for SQLite (#1556: placement D, option O1, approved 2026-11-26) ------
+//
+// SHOWN WHILE AN ENGINE RUNS: the warning and the download page need no path, and an
+// engine that is down has nothing open to look at. COPY DATABASE PATH IS DRAWN ONLY
+// WITH A PATH, the one `state.warehousePath` holds (the read this page just made).
+// When the read failed it says so in the card's live region, where the next result
+// goes too. The region is reserved with &nbsp; so a result does not move the page.
+function paintDbBrowserCard(read) {
+  const card = $("db-browser");
+  if (!card) return;
+  card.classList.toggle("hidden", !state.engineUp);
+  const failed = read === "failed";
+  $("db-browser-copy").classList.toggle("hidden", failed || !state.warehousePath);
+  if (failed) {
+    sayDbBrowserResult("Could not ask the engine which database is open. "
+      + "Open this page again to retry.");
+  } else if (read === "known") {
+    sayDbBrowserResult("");
+  }
+}
+
+function sayDbBrowserResult(text) {
+  $("db-browser-result").textContent = text || " ";
+}
+
+// THE PATH ITSELF, NEVER A SENTENCE ABOUT IT: he pastes it into DB Browser's file
+// dialog. A refusal is said, with the way round it (CLAUDE.md: no silent failure).
+async function copyDatabasePath() {
+  const path = state.warehousePath;
+  if (!path) return;
+  try {
+    await navigator.clipboard.writeText(path);
+    sayDbBrowserResult("Database path copied.");
+  } catch (error) {
+    markStartup("db-browser-copy-refused", {message: (error && error.message) || ""});
+    sayDbBrowserResult("Could not copy. Select the path at the top of this page and copy it.");
   }
 }
 
@@ -12188,6 +12498,7 @@ function wireDeferredControls() {
 
   wireRuntimeRepair();
   $("db-integrity-check").addEventListener("click", checkIntegrityFromPanel);
+  $("db-browser-copy").addEventListener("click", copyDatabasePath);
   wireSourceColumns();
   $("setup-recheck").addEventListener("click", render);
   $("engine-start").addEventListener("click", startEngineFromPanel);
