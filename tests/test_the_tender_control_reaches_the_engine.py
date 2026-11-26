@@ -8,6 +8,7 @@ unit and `counted_from`. Every expected value here is the one the confirmed mock
 from __future__ import annotations
 
 import json
+import sqlite3
 
 import pytest
 from fastapi.testclient import TestClient
@@ -197,6 +198,41 @@ def test_a_second_crawl_of_a_source_with_one_unfinished_is_refused(client, wareh
     assert start(client, run_mode="full_rebuild").json()["detail"] == DUPLICATE
 
 
+def test_a_mix_beside_an_unfinished_crawl_hears_about_the_mix(client, warehouse):
+    """#1701, "What the engine must send", POST /api/jobs in order: the mix (1) is refused
+    before the crawl not settled (2), so he hears about what he selected, by its domains."""
+    past_job(warehouse, {}, status="paused")
+    answer = client.post("/api/jobs", json={"source_keys": ["worldbank_org", "MADAR"]})
+    assert (answer.status_code, answer.json()["detail"]) == (
+        400, "search.worldbank.org collects tenders and runs on its own. Start madar.com "
+             "separately.")
+
+
+def test_the_state_is_read_under_the_write_lock(client, warehouse, monkeypatch):
+    """#1701 refusal 2 (09b) when two presses meet: the route takes the warehouse's write lock
+    BEFORE it reads whether a crawl is unfinished, so a second press cannot also hear "nothing
+    unfinished" before the first has written its job. While the route reads the state, a
+    second connection cannot take the lock."""
+    seen = []
+    read = tenderjob.source_state
+
+    def reading(conn, key):
+        other = sqlite3.connect(str(warehouse), timeout=0, isolation_level=None)
+        try:
+            other.execute("BEGIN IMMEDIATE")
+            other.execute("ROLLBACK")
+            seen.append("the lock was free")
+        except sqlite3.OperationalError as refused:
+            seen.append(str(refused))
+        finally:
+            other.close()
+        return read(conn, key)
+
+    monkeypatch.setattr(tenderjob, "source_state", reading)
+    start(client, run_mode="initial_crawl")
+    assert seen == ["database is locked"]
+
+
 @pytest.mark.parametrize("mode, says", [("full_rebuild", BLOCKED),
                                         ("history_backfill", "runs initial_crawl or update")])
 def test_a_mode_it_does_not_run_is_refused_with_its_sentence(client, mode, says):
@@ -226,6 +262,15 @@ def test_the_figure_accepted_starts_the_crawl_and_another_figure_is_asked_again(
     finally:
         conn.close()
     assert (job["job_kind"], job["run_mode"]) == (tenderjob.JOB_KIND, "initial_crawl")
+
+
+def test_a_figure_above_the_engines_is_asked_again(client, warehouse):
+    """#1701 refusal 4: the run starts only when `accept_cost.requests` EQUALS the figure the
+    engine would run now. A figure that moved down while he read is a moved figure too, and
+    he is asked again with the new one."""
+    answer = start(client, run_mode="initial_crawl", accept_cost={"requests": 538})
+    assert answer.status_code == 409 and answer.json()["cost"]["requests"] == 537
+    assert tender_jobs(warehouse) == 0
 
 
 def test_after_a_count_the_question_is_the_stored_count_dated_by_it(client, warehouse):
