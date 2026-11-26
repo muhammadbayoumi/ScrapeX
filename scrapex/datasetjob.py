@@ -452,12 +452,13 @@ def run_dataset_interpret_job_once(conn: sqlite3.Connection, job_ref: str,
     # THE CONSEQUENCE IS THE LEDGER'S, and it used to say "every pair is read from disk
     # again" -- true before the ledger, false after it. A re-entry recomputes its plan from
     # `runs_to_interpret`, so the runs this job finished are not read again; only the run
-    # it stopped inside starts from its first pair.
+    # it stopped inside starts from its first pair. EXCEPT A RUN HOLDING A REFUSED PAGE
+    # PAIR (#1738): it was not recorded as read, so the plan holds it again.
     jobs.note_a_re_entry(
         conn, job, unit="page pair(s)", source_key=source_key,
-        consequence="Runs this job already finished are not read again; the one it "
-                    "stopped inside starts from its first pair, and the site is asked "
-                    "for nothing")
+        consequence="Runs this job already finished are not read again, unless a page "
+                    "pair in them was refused; the one it stopped inside starts from its "
+                    "first pair, and the site is asked for nothing")
     jobs._update(conn, job["job_id"], status=JobStatus.PREPARING.value,
                  stage=JobStage.PREPARING.value, progress_done=0,
                  current_source_key=source_key, last_heartbeat_at=utc_now_iso(),
@@ -545,9 +546,20 @@ def run_dataset_interpret_job_once(conn: sqlite3.Connection, job_ref: str,
 
     started = time.monotonic()
     read_to_the_end: dict[str, int] = {}
-    # WHAT THE WALK REFUSED, AGAINST WHAT IT READ AND WROTE (#1738), so its ending can say
-    # whether anything was stored. Page pairs, the unit `approve` counts in.
-    tally = {"pairs": 0, "made": 0, "refused": 0}
+    # WHAT EACH RUN THIS JOB READ HELD, AGAINST WHAT IT WROTE AND REFUSED (#1738), so its
+    # ending can say whether anything was stored: `[pairs, made, refused]` per run, in page
+    # pairs, the unit `approve` counts in.
+    #
+    # THE JOB'S, NOT THIS ENTRY'S, SO IT IS KEPT IN THE CHECKPOINT AND READ BACK HERE. A
+    # Resume, or the worker reclaiming a job whose engine was killed, enters this function
+    # afresh (`_remember_runs_read` says when). Counted per entry, a resumed walk whose
+    # first entry stored ten rows ended FAILED with "Nothing was stored": the merge gate of
+    # #1999 measured it. KEYED BY RUN, because a refused run stays unread and the resumed
+    # entry reads it again: its second reading replaces its first rather than adding to it.
+    # So the first refusal needs no keeping: the run holding it is read again, oldest first.
+    per_run: dict[str, list[int]] = {
+        str(ref): [int(count) for count in counts]
+        for ref, counts in ((job.get("checkpoint") or {}).get("pairs_by_run") or {}).items()}
     first_refusal: tuple[str, str] | None = None
     for position, (ref, _rows) in enumerate(plan, start=1):
         run_ref = ref
@@ -574,9 +586,7 @@ def run_dataset_interpret_job_once(conn: sqlite3.Connection, job_ref: str,
         if stopped:
             return jobs.get_job(conn, job_ref)
         refused_here = len({key for key, _why in result.refused})
-        tally["pairs"] += result.pairs
-        tally["made"] += result.made
-        tally["refused"] += refused_here
+        per_run[ref] = [result.pairs, result.made, refused_here]
         if result.refused and first_refusal is None:
             first_refusal = result.refused[0]
         # RECORDED AFTER THE RUN, NOT BEFORE, and committed on its own: a walk that
@@ -592,18 +602,20 @@ def run_dataset_interpret_job_once(conn: sqlite3.Connection, job_ref: str,
         # paragraph argued for the plan's value while its first clause denied it.)
         #
         # AND NOT AT ALL WHEN A PAGE PAIR WAS REFUSED (#1738, his ruling). Recorded, the
-        # next walk would skip the run, and a page refused today -- by a parser since
-        # corrected, or a shape the site has since repaired -- would never be read again.
+        # next walk would skip the run, and a page refused today by a parser since
+        # corrected would never be read again. ONLY A PARSER CHANGE HELPS IT: a re-read
+        # reads the same stored page, so a page the site has since repaired is no reason.
+        # The repair is stored by a later crawl under that crawl's own run, which is
+        # unread until a walk reads it (`_pairs` reads one run's snapshots).
         if refused_here:
             jobs.append_log(
                 conn, job["job_id"],
                 f"{ref} is not recorded as read, because {refused_here:,} of its "
                 f"{result.pairs:,} page pair(s) were refused",
                 level=LogLevel.WARNING, source_key=source_key)
-            conn.commit()
         else:
             read_to_the_end[ref] = _rows
-            _remember_runs_read(conn, job["job_id"], read_to_the_end)
+        _remember_runs_read(conn, job["job_id"], read_to_the_end, pairs_by_run=per_run)
         # THE EARLIER RUNS' PAGES STAY COUNTED. `page_closed` writes this job's total
         # from `approve`'s per-run figure, which restarts at zero for each run -- so
         # without this the bar would fall back to 0 of 75 after finishing 0 of 469.
@@ -623,19 +635,21 @@ def run_dataset_interpret_job_once(conn: sqlite3.Connection, job_ref: str,
                  progress_total=walked["pairs"])
     # THE ENDING SAYS WHETHER ANYTHING WAS STORED (#1738, his ruling): every page pair
     # refused is a failure, some refused is a completion with errors. THE CONSEQUENCE
-    # LEADS, so the two-line clamp on Jobs keeps it (#1701).
-    if tally["refused"] and not tally["made"] and tally["refused"] == tally["pairs"]:
+    # LEADS, so the two-line clamp on Jobs keeps it (#1701). Counted over every run this
+    # JOB read, in this entry or an earlier one.
+    pairs = sum(counts[0] for counts in per_run.values())
+    made = sum(counts[1] for counts in per_run.values())
+    refused = sum(counts[2] for counts in per_run.values())
+    if refused and not made and refused == pairs:
         key, why = first_refusal
-        summary = (f"Nothing was stored: every one of the {tally['pairs']:,} page pair(s) "
-                   f"read was refused, and no run is recorded as read. The first: {key}: "
-                   f"{why}")
+        summary = (f"Nothing was stored: every one of the {pairs:,} page pair(s) read was "
+                   f"refused, and no run is recorded as read. The first: {key}: {why}")
         jobs.append_log(conn, job["job_id"], summary, level=LogLevel.ERROR,
                         source_key=source_key)
         jobs._finish(conn, job["job_id"], JobStatus.FAILED, summary)
-    elif tally["refused"]:
-        summary = (f"{tally['refused']:,} of {tally['pairs']:,} page pair(s) were refused, "
-                   "and the runs holding them are not recorded as read. The log lists the "
-                   "refusals.")
+    elif refused:
+        summary = (f"{refused:,} of {pairs:,} page pair(s) were refused, and the runs "
+                   "holding them are not recorded as read. The log lists the refusals.")
         jobs.append_log(conn, job["job_id"], summary, level=LogLevel.WARNING,
                         source_key=source_key)
         jobs._finish(conn, job["job_id"], JobStatus.COMPLETED_WITH_ERRORS, summary)
@@ -657,12 +671,17 @@ def _rows_under(conn: sqlite3.Connection, source_key: str, ref: str) -> int:
 
 
 def _remember_runs_read(conn: sqlite3.Connection, job_id: int,
-                        refs: dict[str, int]) -> None:
+                        refs: dict[str, int], *,
+                        pairs_by_run: dict[str, list[int]]) -> None:
     """Record, on this job, every run it has read to the end and how much it held.
 
     MERGED INTO THE CHECKPOINT RATHER THAN REPLACING IT, because the checkpoint is also
     where an explicit `run_ref` arrives from the caller, and overwriting the dict would
     erase the instruction the job is executing.
+
+    AND WHAT EACH RUN IT READ HELD, refused or not (#1738): `pairs_by_run`, which the
+    runner reads back on a re-entry so the job's ending counts every entry. Written whole,
+    because the runner holds the whole of it.
     """
     # IMPORTED HERE FOR THE REASON THE CALLER STATES: `jobs` names this module in
     # `SPECIALISED_RUNNERS`, so importing it at the top would close the circle.
@@ -701,5 +720,6 @@ def _remember_runs_read(conn: sqlite3.Connection, job_id: int,
         if int(rows or 0) > merged.get(str(ref), -1):
             merged[str(ref)] = int(rows or 0)
     held["runs_read"] = merged
+    held["pairs_by_run"] = pairs_by_run
     jobs._update(conn, job_id, checkpoint_json=json.dumps(held))
     conn.commit()

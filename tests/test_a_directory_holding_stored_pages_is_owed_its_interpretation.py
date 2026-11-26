@@ -153,16 +153,12 @@ def test_an_interpretation_on_its_way_is_said_on_the_directory_row(warehouse, st
     assert row["observations"] == 0, row
 
 
-@pytest.mark.parametrize("status", [JobStatus.FAILED, JobStatus.CANCELLED,
-                                    JobStatus.COMPLETED_WITH_ERRORS])
+@pytest.mark.parametrize("status", [JobStatus.FAILED, JobStatus.CANCELLED])
 def test_an_interpretation_that_did_not_complete_leaves_the_press_owed(warehouse, status):
     """A FINISH TIME IS NOT A READING. Every terminal status gets one, and a failed or
     cancelled interpretation did not read what it planned -- so its finish time landing
     after the crawl's must not settle the press. On a dataset card that cost a badge; here
-    it costs the card and its only door, until a new crawl buys every page again.
-
-    COMPLETED WITH ERRORS is one of them (#1738): it refused page pairs, and the runs
-    holding them are not recorded as read, so the press stays owed for them."""
+    it costs the card and its only door, until a new crawl buys every page again."""
     conn, path, manifest = warehouse
     _job(conn, OMAN, directoryjob.JOB_KIND, JobStatus.COMPLETED,
          "2026-10-02T09:15:00Z", pages=4)
@@ -176,6 +172,31 @@ def test_an_interpretation_that_did_not_complete_leaves_the_press_owed(warehouse
         f"a {status.value} interpretation counted as a reading, so the only card of a "
         f"site whose pages nobody read is gone: {row['work_waiting']}")
     assert row["work_waiting"]["interpretation_live"] is False, row["work_waiting"]
+
+
+def test_an_interpretation_that_completed_with_refusals_settles_the_press(warehouse):
+    """THE BADGE NAMES THE NEWEST CRAWL, AND A WALK THAT READ IT TO THE END ANSWERED IT.
+
+    An older run holds a refused page pair, so the ledger leaves it unread (#1738). The
+    newest crawl's run was read whole, and the interpretation ended COMPLETED WITH ERRORS.
+    Counted as no reading, the card said "a crawl finished 09:15 and its pages are not rows
+    yet" beside the rows that walk wrote: the merge gate of #1999 measured 20. The refusal
+    is said on Jobs, and the next interpretation reads the older run again."""
+    conn, path, manifest = warehouse
+    _job(conn, OMAN, directoryjob.JOB_KIND, JobStatus.COMPLETED,
+         "2026-10-02T09:00:00Z", pages=2)
+    newest = _job(conn, OMAN, directoryjob.JOB_KIND, JobStatus.COMPLETED,
+                  "2026-10-02T09:15:00Z", pages=4)
+    _job(conn, OMAN, datasetjob.JOB_KIND, JobStatus.COMPLETED_WITH_ERRORS,
+         "2026-10-02T10:00:00Z", checkpoint={"runs_read": {f"job-{newest}": 4}})
+
+    row = _row(path, manifest, OMAN)
+
+    assert [ref for ref, _rows in datasetjob.runs_to_interpret(conn, OMAN)] != [], (
+        "precondition: the older run, holding the refusal, is still unread")
+    assert row["work_waiting"]["interpret"] is None, (
+        "an interpretation that read the newest crawl to the end left the card saying its "
+        f"pages are not rows yet: {row['work_waiting']}")
 
 
 def test_a_crawl_still_running_is_not_offered_yet(warehouse):
