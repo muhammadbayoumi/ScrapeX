@@ -5470,11 +5470,8 @@ PROGRESS_UNITS: dict[str, str] = {
 #: `total == len(source_keys) == 1` -- an enrichment job carries exactly one source key,
 #: always -- so a true "0 of 1 organizations" became "0 of 1 source(s)" until the job
 #: finished. That was unconditional before this page existed, and this keeps it so.
-#:
-#: A TENDER CRAWL IS SEEDED TOO (the merge gate of #1996): queued, its pair is `create_job`'s
-#: one source, and naming its unit said "0 of 1 areas" for as long as it waited.
 SEEDED_UNTIL_A_RUNNER_CLAIMS_IT = frozenset({
-    profilejob.JOB_KIND, datasetjob.JOB_KIND, directoryjob.JOB_KIND, tenderjob.JOB_KIND,
+    profilejob.JOB_KIND, datasetjob.JOB_KIND, directoryjob.JOB_KIND,
 })
 
 
@@ -5504,15 +5501,17 @@ def _job_view(job: dict, queue: dict | None = None) -> dict:
     # AND ONLY FOR THE KINDS WHOSE PAIR IS A SEED AT ALL. Asking this of a kind that
     # never had one silently withdrew a unit that used to be unconditional; see
     # SEEDED_UNTIL_A_RUNNER_CLAIMS_IT.
-    claimed = (job.get("job_kind") not in SEEDED_UNTIL_A_RUNNER_CLAIMS_IT
-               or bool(done)
-               or total != len(job.get("source_keys") or []))
+    seed = not done and total == len(job.get("source_keys") or [])
+    claimed = job.get("job_kind") not in SEEDED_UNTIL_A_RUNNER_CLAIMS_IT or not seed
     fetch = _fetch_progress(job)
     if job.get("job_kind") == tenderjob.JOB_KIND:
         # A TENDER CRAWL'S UNIT MOVES WITH ITS PHASE (#1701, row 19): areas, then pages;
-        # and the bar says what its total was counted from (row 18). Only once its runner
-        # has written a figure of its own, like every seeded kind above.
-        unit = tenderjob.progress_unit(job) if claimed else None
+        # and the bar says what its total was counted from (row 18). NOT WHILE THE PAIR IS
+        # STILL THE SEED: queued, it is `create_job`'s one source, and naming its unit said
+        # "0 of 1 areas" for as long as it waited (the merge gate of #1996). Its unit is
+        # not a `PROGRESS_UNITS` entry, so it asks the seed question here, not by joining
+        # SEEDED_UNTIL_A_RUNNER_CLAIMS_IT.
+        unit = None if seed else tenderjob.progress_unit(job)
         if fetch["basis"] == "declared":
             fetch["counted_from"] = tenderjob.COUNTED_FROM
     else:
