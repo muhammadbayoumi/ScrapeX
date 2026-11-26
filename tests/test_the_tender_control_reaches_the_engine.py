@@ -171,6 +171,24 @@ def test_a_tender_source_with_anything_else_is_refused_by_domain(client):
                                        "own. Start madar.com separately.")
 
 
+def test_a_press_while_another_app_writes_is_told_to_wait_and_queues_nothing(client, warehouse):
+    """CONTENTION IS NOT A FAULT (the merge gate of #1996). With another app holding the
+    write permission past the engine's busy wait, a press answered 500 and the panel said
+    "Couldn't start: Internal Server Error". It is the 409 `database_busy` every other press
+    gets (`CLAUDE.md`: `DbLockedError` means wait for it), and no job is written."""
+    holder = connect(warehouse)
+    try:
+        holder.execute("BEGIN IMMEDIATE")
+        answer = start(client)
+    finally:
+        holder.rollback()
+        holder.close()
+    assert answer.status_code == 409, answer.text
+    assert answer.json()["error"] == "database_busy", answer.json()
+    assert "nothing was queued" in answer.json()["detail"], answer.json()
+    assert tender_jobs(warehouse) == 0
+
+
 def test_a_second_crawl_of_a_source_with_one_unfinished_is_refused(client, warehouse):
     past_job(warehouse, {}, status="paused")
     answer = start(client, run_mode="update")
@@ -271,11 +289,23 @@ def test_his_pace_is_the_pace_the_question_states(client, warehouse):
 
 # ---- the job, as the control reads it ----------------------------------------------------------
 
+def test_a_queued_tender_job_names_no_unit_until_its_runner_counts(client, warehouse):
+    """A QUEUED JOB'S PAIR IS A SEED, NOT ITS WORK (the merge gate of #1996). `create_job`
+    seeds the total with the number of sources, one here, so a unit named before the runner
+    writes a figure of its own said "0 of 1 areas" for as long as the job waited."""
+    ref = past_job(warehouse, {}, status="queued")
+    view = client.get(f"/api/jobs/{ref}").json()
+    assert (view["progress"]["done"], view["progress"]["total"]) == (0, 1), view["progress"]
+    assert "unit" not in view["progress"], view["progress"]
+
+
 def test_a_tender_job_counts_areas_then_pages_and_says_what_it_counted_from(client, warehouse):
     ref = past_job(warehouse, {"unit": "areas"}, status="running")
     conn = connect(warehouse)
     try:
         job_id = jobs.get_job(conn, ref)["job_id"]
+        # THE FIGURES THE RUNNER WRITES (`keep` in `tenderjob._crawl`): two areas to read.
+        jobs._update(conn, job_id, progress_done=0, progress_total=2)
         jobs.record_source_fetch(conn, job_id, "worldbank_org", expected=537,
                                  basis="declared", requests=12)
         conn.commit()
@@ -288,6 +318,8 @@ def test_a_tender_job_counts_areas_then_pages_and_says_what_it_counted_from(clie
     try:
         conn.execute("UPDATE crawl_job SET checkpoint_json = ? WHERE job_ref = ?",
                      (json.dumps({"unit": "pages"}), ref))
+        # The pass over changes has no declared total, and the runner says so with 0 of 0.
+        jobs._update(conn, job_id, progress_done=0, progress_total=0)
         jobs.record_source_fetch(conn, job_id, "worldbank_org", expected=None, basis=None)
         conn.commit()
     finally:

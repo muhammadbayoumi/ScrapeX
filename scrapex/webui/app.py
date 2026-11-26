@@ -4940,18 +4940,28 @@ def create_app(
                     status_code=400,
                     detail=f"{source.host} collects tenders and runs on its own. Start "
                            f"{named} separately.")
-            try:
-                run_mode = RunMode(body.get("run_mode", RunMode.UPDATE.value)).value
-            except ValueError:
-                raise HTTPException(status_code=400, detail="run_mode must be "
-                                    f"{[m.value for m in RunMode]}")
+            run_mode = _run_mode(body).value
             conn = read_conn()
             try:
-                ensure_schema(conn)
                 # UNDER THE WRITE LOCK UNTIL THE JOB IS WRITTEN, for the reason the
                 # interpretation below gives: two presses a moment apart would each hear
                 # "nothing unfinished" before the other had written its job.
-                conn.execute("BEGIN IMMEDIATE")
+                #
+                # ANOTHER APP HOLDING IT IS CONTENTION, NOT A FAULT (`CLAUDE.md`: wait for
+                # it). SQLite's own busy answer is not a `DbLockedError`, so past the busy
+                # timeout it reached him as "Couldn't start: Internal Server Error"; as one,
+                # it gets the 409 `database_busy` every other press gets (the merge gate of
+                # #1996 held the lock from a second connection to measure it). The schema
+                # check writes too (it stamps the contract), so it is inside.
+                try:
+                    ensure_schema(conn)
+                    conn.execute("BEGIN IMMEDIATE")
+                except sqlite3.OperationalError as exc:
+                    if not dbmod.another_app_holds_it(exc):
+                        raise
+                    raise dbmod.DbLockedError(
+                        "another app is writing to the database; wait for it to finish "
+                        "and retry — nothing was queued") from exc
                 state = tenderjob.source_state(conn, source.key)
                 if state.unsettled:
                     # WORDED TO HOLD AT EVERY STATUS NOT SETTLED: running, paused, or
@@ -5023,11 +5033,7 @@ def create_app(
                 status_code=400,
                 detail=f"a {job_kind} runs one directory at a time, and this names "
                        f"{len(source_keys)}: {source_keys}")
-        try:
-            run_mode = RunMode(body.get("run_mode", RunMode.UPDATE.value))
-        except ValueError:
-            raise HTTPException(status_code=400, detail="run_mode must be "
-                                f"{[m.value for m in RunMode]}")
+        run_mode = _run_mode(body)
         # RESUME: continue an interrupted crawl from the pages it already kept,
         # instead of from the top. The worker reads `partial_source` out of the
         # checkpoint (jobs.run_job_once) and hands capture `resume=True`, which
@@ -5464,8 +5470,11 @@ PROGRESS_UNITS: dict[str, str] = {
 #: `total == len(source_keys) == 1` -- an enrichment job carries exactly one source key,
 #: always -- so a true "0 of 1 organizations" became "0 of 1 source(s)" until the job
 #: finished. That was unconditional before this page existed, and this keeps it so.
+#:
+#: A TENDER CRAWL IS SEEDED TOO (the merge gate of #1996): queued, its pair is `create_job`'s
+#: one source, and naming its unit said "0 of 1 areas" for as long as it waited.
 SEEDED_UNTIL_A_RUNNER_CLAIMS_IT = frozenset({
-    profilejob.JOB_KIND, datasetjob.JOB_KIND, directoryjob.JOB_KIND,
+    profilejob.JOB_KIND, datasetjob.JOB_KIND, directoryjob.JOB_KIND, tenderjob.JOB_KIND,
 })
 
 
@@ -5501,8 +5510,9 @@ def _job_view(job: dict, queue: dict | None = None) -> dict:
     fetch = _fetch_progress(job)
     if job.get("job_kind") == tenderjob.JOB_KIND:
         # A TENDER CRAWL'S UNIT MOVES WITH ITS PHASE (#1701, row 19): areas, then pages;
-        # and the bar says what its total was counted from (row 18).
-        unit = tenderjob.progress_unit(job)
+        # and the bar says what its total was counted from (row 18). Only once its runner
+        # has written a figure of its own, like every seeded kind above.
+        unit = tenderjob.progress_unit(job) if claimed else None
         if fetch["basis"] == "declared":
             fetch["counted_from"] = tenderjob.COUNTED_FROM
     else:
@@ -5577,6 +5587,17 @@ def _source_keys(body: dict) -> list[str]:
     if not keys:
         raise HTTPException(status_code=400, detail="source_keys is required")
     return keys
+
+
+def _run_mode(body: dict) -> RunMode:
+    """A request's `run_mode`: an update when none is named, a 400 naming the modes when it
+    is not one. ONE PARSE FOR `POST /api/jobs`' TWO PATHS, the tender one and the rest (the
+    merge gate of #1996), each calling it where its own order of refusals puts it."""
+    try:
+        return RunMode(body.get("run_mode", RunMode.UPDATE.value))
+    except ValueError:
+        raise HTTPException(status_code=400, detail="run_mode must be "
+                            f"{[m.value for m in RunMode]}") from None
 
 
 def _csv(value) -> list[str]:

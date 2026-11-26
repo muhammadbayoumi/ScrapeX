@@ -14,7 +14,6 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from urllib.parse import urlsplit
 
 from .robots import RobotsChoice
 
@@ -57,8 +56,16 @@ class TenderSource:
 
     @property
     def host(self) -> str:
-        """The host his panel names a tender source by (#1701's sentences)."""
-        return urlsplit(self.base_url).hostname or self.key
+        """The host his panel names a tender source by (#1701's sentences).
+
+        BY THE RULE EVERY OTHER SOURCE'S HOST IS NAMED BY, `jobs.host_of_url`, so a refusal
+        naming a tender source beside another source names both alike, and the panel's
+        `domainOf` agrees: a second rule here would keep `www.` (the merge gate of #1996).
+        Imported here, not at the top: this registry is imported by modules `jobs` needs.
+        """
+        from .jobs import host_of_url
+
+        return host_of_url(self.base_url, self.key)
 
     @property
     def runs_blocked(self) -> dict[str, str]:
