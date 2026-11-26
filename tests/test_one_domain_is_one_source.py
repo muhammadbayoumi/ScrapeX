@@ -81,6 +81,18 @@ def test_a_part_names_its_newest_settled_crawl_and_no_other_kind_of_job(client, 
     assert rows["tvtc_establishments"]["last_job"] is None
 
 
+def test_a_tender_crawl_is_a_crawl_the_row_names(client, db_path):
+    """THE DESIGN NAMES THE KINDS (#1872, round 5): "`directory_crawl` today; #1802's
+    `tender_crawl` joins the tuple at build", and #1802 is on main. No tender row is listed
+    until 3b-2b (#1996) draws one, so the kind is proved on a row that is listed: a settled
+    tender crawl naming it is its newest crawl."""
+    settle(db_path, "completed")
+    tender = settle(db_path, "failed", kind="tender_crawl", error="the Bank answered 503")
+    assert rows_by_key(client)["tvtc_training_plans"]["last_job"] == {
+        "job_ref": tender, "status": "failed", "finished_at": FINISHED,
+        "error_summary": "the Bank answered 503"}
+
+
 def test_a_crawl_still_running_is_not_the_last_crawl(client, db_path):
     done = settle(db_path, "completed")
     conn = dbmod.connect(db_path)
@@ -101,6 +113,53 @@ def test_a_table_derived_from_another_crawl_is_a_part_but_not_a_listing():
         (True, "Training plans"), (False, "Establishment licences")]
     # THE CRAWL'S OUTCOME BELONGS TO THE ROW A TICK CAN START, not to the table it feeds.
     assert out[0]["last_job"] == {"status": "failed"} and "last_job" not in out[1]
+
+
+def test_a_directory_holding_rows_is_its_dataset_card_and_still_names_its_part_and_crawl():
+    """ONCE A DIRECTORY HOLDS ROWS IT IS LISTED AS ITS DATASET CARD, whose `source_key` is the
+    dataset key, and its registered row is no longer drawn (`_registered_directories`). The
+    card is the listing a tick starts, so it names its part and carries its crawl. The merge
+    gate of #2000 found no test that read a card: TVTC's establishments are the case where
+    the two keys differ."""
+    establishments = directories.get("tvtc_establishments")
+    assert establishments.dataset_key != establishments.key, "precondition: the keys differ"
+    card = {"kind": "dataset", "source_key": establishments.dataset_key,
+            "site_key": establishments.key, "base_url": establishments.base_url}
+    out = sourceboard.with_domains([card], {establishments.key: {"status": "failed"}})
+    assert (out[0]["listing"], out[0]["part_name"], out[0]["last_job"]) == (
+        True, "Establishments", {"status": "failed"})
+
+
+def test_the_world_bank_is_named_on_the_row_it_has_today(client):
+    """THE NAME IS READ NOW, not only once tender rows land: the Pink Sheet's base is
+    www.worldbank.org, a part of the one source worldbank.org that stage 6 was approved on."""
+    pink = rows_by_key(client)["WORLDBANK_PINK_SHEET"]
+    assert (pink["domain"], pink["domain_name"], pink["part_name"]) == (
+        "worldbank.org", "World Bank", "")
+
+
+def test_an_entry_added_on_a_host_the_code_reads_does_not_hide_it(client):
+    """THE ROUTE'S OWN PROMISE (#1872): "an unbuilt entry added there must not hide it". Add
+    refuses only a duplicate key, so a second entry on muqawil.org can be filed, and a tab
+    there must still select the source the code reads."""
+    entry = {"source_key": "muqawil_again", "source_name": "Muqawil, filed again",
+             "base_url": "https://muqawil.org", "family": "shopify-json",
+             "kind": "product_prices", "scope": "census", "active": False}
+    assert client.post("/api/sources", json=entry).status_code == 200, "precondition"
+    assert client.get("/api/resolve", params={"url": "https://muqawil.org/ar/contractors"}).json() == {
+        "matched": True, "source_key": "muqawil_org",
+        "source_name": directories.get("muqawil_org").display_name, "implemented": True}
+
+
+def test_every_directory_s_own_address_selects_a_directory_on_that_host(client):
+    """EVERY HOST THE CODE READS, not only the first in sort order: a tab on each directory's
+    own address selects a directory there (both TVTC listings share pt-api.tvtc.gov.sa)."""
+    for key in directories.BUILDERS:
+        base = directories.get(key).base_url
+        answer = client.get("/api/resolve", params={"url": f"{base}/any/page"}).json()
+        assert answer.get("matched") and answer["source_key"] in directories.BUILDERS, (key, answer)
+        chosen = directories.get(answer["source_key"]).base_url
+        assert jobs.host_of_url(chosen, "") == jobs.host_of_url(base, ""), (key, answer)
 
 
 def test_a_tab_on_a_host_the_code_reads_selects_that_source(client):

@@ -50,6 +50,7 @@ from .. import (
     source_settings,
     sourceboard,
     taxonomy,
+    tenderjob,
 )
 from .. import db as dbmod
 from .. import jobs as jobs_module
@@ -2294,9 +2295,14 @@ def create_app(
         # the dataset listing so a site that already has a card keeps it and is not
         # drawn twice (`REQ-37`).
         out.extend(_registered_directories(out))
+        # THE CRAWL KINDS THE DESIGN NAMES (#1872, round 5): "`directory_crawl` today;
+        # #1802's `tender_crawl` joins the tuple at build". #1802 is on main, so it joins
+        # here, and a tender row (3b-2b, #1996) says what its last crawl did. A profile sweep
+        # is not one: a part is not a pass.
         conn = read_conn()
         try:
-            last_crawls = jobs_module.last_settled_crawls(conn, (directoryjob.JOB_KIND,))
+            last_crawls = jobs_module.last_settled_crawls(
+                conn, (directoryjob.JOB_KIND, tenderjob.JOB_KIND))
         finally:
             conn.close()
         return {"sources": sourceboard.with_domains(out, last_crawls)}
