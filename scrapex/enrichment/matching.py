@@ -20,10 +20,10 @@ _LEGAL_WORDS = {
     "company", "co", "corp", "corporation", "limited", "ltd", "llc",
     "establishment", "شركة", "مؤسسة", "المحدودة",
 }
-_MULTI_LABEL_PUBLIC_SUFFIXES = frozenset({
-    "co.uk", "org.uk", "com.sa", "net.sa", "org.sa", "com.eg", "com.ae",
-    "co.za", "com.au", "com.kw", "com.qa", "com.bh", "com.om", "com.jo",
-})
+#: A country's registries, whichever country: `gov.sa`, `edu.sa`, `gov.om`, `com.tr` (#1901).
+_GENERIC_SECOND_LABELS = frozenset({"ac", "co", "com", "edu", "go", "gov", "mil", "net", "or", "org", "sch"})
+#: Platforms that give each customer a subdomain: two shops here are two organisations.
+_SHARED_PLATFORMS = frozenset({"github.io", "myshopify.com", "salla.sa", "zid.store"})
 
 
 def normalized_name(value: str) -> str:
@@ -81,8 +81,9 @@ def registrable_domain(value: str) -> str:
     if len(labels) < 2:
         return host
     suffix = ".".join(labels[-2:])
-    return ".".join(labels[-3:]) if suffix in _MULTI_LABEL_PUBLIC_SUFFIXES \
-        and len(labels) >= 3 else suffix
+    registry = (suffix in _SHARED_PLATFORMS
+                or (labels[-2] in _GENERIC_SECOND_LABELS and len(labels[-1]) == 2))
+    return ".".join(labels[-3:]) if registry and len(labels) >= 3 else suffix
 
 
 def email_domain(value: str) -> str:

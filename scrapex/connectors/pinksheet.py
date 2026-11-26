@@ -11,6 +11,8 @@ editions (LNG Japan by +17.4%, #1912 §5). Every month, not its change points: a
 revised to equal the one before it would otherwise keep its old value (his answer on
 #1919). A HISTORY run adds every older month back to 1960 as `reported` change points
 (his rule, connectors/gpp.py). Corrections older than the window arrive only that way.
+Each row inside the window carries its EDITION, the sheet's newest month, so a month
+revised back to a value an earlier edition held is stored again (his answer on #1993).
 
 HIS WORD ON THE HIDDEN SHEET, against my recommendation (#1912 Q6): «تتبع اسعار طالما
 مذكورة». `Mismatch Details`, a hidden QA sheet, holds barley and sorghum prices that the
@@ -418,6 +420,9 @@ class PinkSheetConnector:
         # nothing is revised, so his change-points rule holds there (#1919).
         revisable = periods[-REVISION_WINDOW:]
         settled = periods[:-REVISION_WINDOW] if self._history else []
+        # The edition a window row came from. Older months carry none, so a second
+        # History run in a later edition does not store its forty thousand again.
+        edition = periods[-1]
         # The stored bit only, and no claim: with no `tax:` rule this reads Unverified.
         tax = "1" if source.vat_mode.value == "incl" else "0"
         for name, one in series.items():
@@ -456,7 +461,8 @@ class PinkSheetConnector:
                     fields = _amount_fields(amount, per_unit, period)
                     rows.append(builder.row(
                         **common, provenance="reported", official_source_name=named,
-                        as_of_date=fields["source_date"], **fields))
+                        as_of_date=fields["source_date"],
+                        edition=edition if period in revisable else "", **fields))
 
             if len(rows) == before:
                 # Ingest refuses a detail for a product this run did not register. Shrimp

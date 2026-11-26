@@ -26,7 +26,7 @@ from scrapex.catalog_relations import propose_relationship, review_relationship
 from scrapex.config import MANIFEST_FILE
 from scrapex.databases import DatabaseRegistry, EngineDatabase
 from scrapex.enrichment import service as enrichment
-from scrapex.enrichment.matching import email_domain, name_similarity
+from scrapex.enrichment.matching import email_domain, name_similarity, registrable_domain
 from scrapex.enrichment.models import (
     DefinitionCreate,
     EnrichmentRunMode,
@@ -359,6 +359,42 @@ def test_an_ambiguous_field_key_uses_the_source_value_the_picker_names():
 
     assert identity.company_name == "Source Name"
     assert identity.email == "source@example.com"
+
+
+@pytest.mark.parametrize(("value", "domain"), [
+    # A COUNTRY'S REGISTRIES KEEP THREE LABELS (#1901): each ministry is its own organisation,
+    # and before this every one of them read as `gov.sa`.
+    ("https://pt-api.tvtc.gov.sa/api/v1", "tvtc.gov.sa"),
+    ("https://www.hrsd.gov.sa/", "hrsd.gov.sa"),
+    ("mim.gov.sa", "mim.gov.sa"),
+    ("https://etendering.tenderboard.gov.om/", "tenderboard.gov.om"),
+    ("https://kocaeli.edu.tr", "kocaeli.edu.tr"),
+    ("https://shop.example.com.tr", "example.com.tr"),
+    ("https://www.unra.go.ug", "unra.go.ug"),
+    ("https://example.or.jp", "example.or.jp"),
+    ("https://x.ac.uk", "x.ac.uk"),
+    # The list this rule replaces still answers the same.
+    ("https://www.example.co.uk", "example.co.uk"),
+    ("https://store.madar.com.sa", "madar.com.sa"),
+    ("https://example.com.au", "example.com.au"),
+    # A generic word over a long top-level domain is an ordinary name.
+    ("https://www.worldbank.org", "worldbank.org"),
+    ("https://search.worldbank.org", "worldbank.org"),
+    ("https://go.com", "go.com"),
+    ("https://shop.com.net", "com.net"),
+    # A platform that gives each customer a subdomain: two shops are two organisations.
+    ("https://alpha.myshopify.com", "alpha.myshopify.com"),
+    ("https://beta.github.io/x", "beta.github.io"),
+    ("https://store.salla.sa", "store.salla.sa"),
+    ("https://store.zid.store", "store.zid.store"),
+    # A bare registry or platform is returned as it is, never padded.
+    ("gov.sa", "gov.sa"),
+    ("salla.sa", "salla.sa"),
+    ("localhost", "localhost"),
+    ("", ""),
+])
+def test_a_registrable_domain_is_one_organisation(value, domain):
+    assert registrable_domain(value) == domain
 
 
 def test_only_a_plausible_non_generic_email_can_propose_a_company_domain():

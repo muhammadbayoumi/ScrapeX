@@ -95,7 +95,11 @@ from .vocab import ExtractKind, PayloadClient
 # older capture remains complete, but a new capture can finally deliver a
 # source-specific charter decision to ingest instead of dropping it between
 # those layers. Sources without a charter leave the four slots empty.
-PAYLOAD_VERSION = 9
+# 10: COMMODITY_PRICE gains `edition`, the edition of a source that revises its
+# past which a reported row came from (his answer on #1993). ADDITIVE: one new
+# slot nothing used to fill, so a payload written before it is complete and
+# replays unchanged, and every source but the Pink Sheet leaves it empty.
+PAYLOAD_VERSION = 10
 
 # WHICH GENERATION EACH CONTENT VERSION BELONGS TO — the prose above, encoded.
 #
@@ -109,7 +113,7 @@ PAYLOAD_VERSION = 9
 # stamped 6 and carrying no generation at all, because they were written before
 # the field existed; this table is how a reader knows a 6 is a 5, so an inbox
 # that predates the split keeps publishing instead of going stale.
-GENERATION_OF_VERSION = {1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 5, 7: 5, 8: 5, 9: 5}
+GENERATION_OF_VERSION = {1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 5, 7: 5, 8: 5, 9: 5, 10: 5}
 
 # The generation THIS build speaks, derived rather than typed: it cannot drift
 # from the ledger, and a bump that forgets to declare its kind cannot start.

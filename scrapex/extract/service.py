@@ -1029,6 +1029,18 @@ def dataset_folds(conn: sqlite3.Connection, listed_keys: Iterable[str]) -> dict[
             if parent in listed and child in listed and child not in parents}
 
 
+def identity_field_of(fields: list[sqlite3.Row]) -> str | None:
+    """The field a dataset's ids live in: its schema's one `key_part`, or None when the
+    schema names none or several.
+
+    TWO READERS, ONE RULE: the table's row state reads sightings on it, and so does the
+    dry route's coverage for a dataset no directory keys (#1727). Two copies would let the
+    table and the coverage match a dataset's sightings on different fields.
+    """
+    identity = [row["field_key"] for row in fields if row["identity_role"] == "key_part"]
+    return identity[0] if len(identity) == 1 else None
+
+
 def dataset_schema_fields(
     conn: sqlite3.Connection, dataset_key: str, *, site_key: str | None = None,
 ) -> tuple[int, list[sqlite3.Row]] | None:
@@ -1139,9 +1151,7 @@ def dataset_table_payload(conn: sqlite3.Connection, dataset_key: str,
     # THE DATASET'S OWN IDENTITY FIELD, asked of the schema rather than hardcoded.
     # `contractor_id` is muqawil's answer; Balady's and the UAE's will not be, and
     # this function is the one the panel calls for every generic source.
-    identity = [row["field_key"] for row in fields
-                if row["identity_role"] == "key_part"]
-    identity_field = identity[0] if len(identity) == 1 else None
+    identity_field = identity_field_of(fields)
 
     # NO `status` FILTER, AND THAT IS `R-27`. «يجب ان يظل الصف ظاهر للمستخدم مهما
     # اختلف حالة الرصد» — a row stays on screen whatever the crawl saw. It used to

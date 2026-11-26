@@ -292,7 +292,7 @@ def _approve_log(tmp_path, monkeypatch, english: str, arabic: str, *, after=None
                 "ar": (stored(ar_url, arabic), arabic)}
         monkeypatch.setattr(contractors, "_pairs",
                             lambda c, d, run_ref, *, ids=(): {"page-369": pair})
-        monkeypatch.setattr(contractors, "coverage", lambda c, key: "")
+        monkeypatch.setattr(contractors, "coverage", lambda c, key, *, id_field: "")
         # `say` also writes a log file; it goes to this test's directory, not a home.
         monkeypatch.setattr(contractors, "LOG", tmp_path / "listing.log")
 
@@ -437,7 +437,7 @@ def test_rows_stored_before_the_column_move_to_its_version_when_a_new_run_is_app
                                 pointer_file=tmp_path / "databases.json")
     registry.initialize()
     conn = registry.engine.connect()
-    monkeypatch.setattr(contractors, "coverage", lambda c, key: "")
+    monkeypatch.setattr(contractors, "coverage", lambda c, key, *, id_field: "")
     monkeypatch.setattr(contractors, "LOG", tmp_path / "listing.log")
     try:
         def page_pair(run_ref: str, page: int, english: str, arabic: str) -> dict:

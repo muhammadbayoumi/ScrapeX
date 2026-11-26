@@ -227,7 +227,7 @@ def sighted_ids(conn: sqlite3.Connection, dataset_key: str) -> tuple[str, ...]:
 
 
 def missing_ids(conn: sqlite3.Connection, dataset_key: str,
-                *, limit: int | None = None) -> tuple[str, ...]:
+                *, id_field: str, limit: int | None = None) -> tuple[str, ...]:
     """Ids the site showed us that never became a record.
 
     THIS IS THE LIST THE OWNER COULD NOT BE GIVEN. Ordered by how often the site
@@ -235,12 +235,17 @@ def missing_ids(conn: sqlite3.Connection, dataset_key: str,
     signal than one glimpsed once, because the second may simply have arrived on
     the pass that ended.
 
-    Joined on `generic_record.data_json ->> 'contractor_id'` rather than on a
-    column, because the id lives inside the record's JSON body — there is no
-    external-id column on generic_record, and inventing one here would be a
-    schema change disguised as a query.
+    Joined on `generic_record.data_json ->> <id_field>` rather than on a column,
+    because the id lives inside the record's JSON body — there is no external-id
+    column on generic_record, and inventing one here would be a schema change
+    disguised as a query.
+
+    `id_field` HAS NO DEFAULT, because its default was the defect (#1727): it was
+    `contractor_id`, so every directory keyed by anything else (Oman's `short_name`,
+    TVTC's `establishment_id`) read 0 stored and listed every id it held as missing.
+    The caller names the directory's own `identity_field`, as `mark_departures` does.
     """
-    held = stored_ids(conn, dataset_key)
+    held = stored_ids(conn, dataset_key, id_field=id_field)
     # THE ORDER IS THE POINT AND STAYS IN SQL, where the index on
     # `(dataset_key, external_id)` and the `seen_count` are. Only the MEMBERSHIP test
     # moved into Python — see `stored_ids` for the 49.74s -> 0.06s that bought.
@@ -255,10 +260,12 @@ def missing_ids(conn: sqlite3.Connection, dataset_key: str,
     return tuple(itertools.islice(gap, int(limit)))
 
 
-def coverage(conn: sqlite3.Connection, dataset_key: str) -> Coverage:
-    """Stored against sighted, for one dataset."""
+def coverage(conn: sqlite3.Connection, dataset_key: str, *, id_field: str) -> Coverage:
+    """Stored against sighted, for one dataset, matched on its own identity field.
+
+    `id_field` has no default, for the reason `missing_ids` gives (#1727)."""
     seen = _count(conn, dataset_key)
-    held = stored_ids(conn, dataset_key)
+    held = stored_ids(conn, dataset_key, id_field=id_field)
     # SIGHTED **AND** HELD, which is not the same as the number of rows: a row whose
     # id no pass ever sighted is stored and not counted here, and that asymmetry is
     # what makes `stored/seen` a coverage figure rather than a row count.
@@ -306,7 +313,7 @@ class Departures:
 
 
 def departures(conn: sqlite3.Connection, dataset_key: str, *,
-               not_seen_since: str, id_field: str = "contractor_id",
+               not_seen_since: str, id_field: str,
                limit: int | None = None) -> Departures:
     """Stored contractors the site stopped showing us — the other half of coverage.
 
@@ -330,6 +337,10 @@ def departures(conn: sqlite3.Connection, dataset_key: str, *,
     THE DISTINCTION HE HAD TO CORRECT ME ON: this reaches only contractors we ALREADY
     HOLD. A contractor the site has never shown us is in neither list — that is the
     deficit `D`, and membership 10001274 was that case, not this one.
+
+    `id_field` has no default, for the reason `missing_ids` gives (#1727): on a
+    directory keyed by anything else, every stored row read a NULL id here, so the
+    report said nobody had left.
     """
     # THE EXTERNAL ID IS INSIDE THE JSON, AND `record_key` IS NOT IT. The first draft
     # of this function joined `s.external_id = r.record_key` and was wrong in a way

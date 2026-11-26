@@ -222,7 +222,7 @@ def _approve_pages(tmp_path, monkeypatch, pages, *, rounds: int = 1):
                               arabic, captured_at), arabic)}
         monkeypatch.setattr(contractors, "_pairs",
                             lambda c, d, run_ref, *, ids=(): pairs)
-        monkeypatch.setattr(contractors, "coverage", lambda c, key: "")
+        monkeypatch.setattr(contractors, "coverage", lambda c, key, *, id_field: "")
         monkeypatch.setattr(contractors, "LOG", tmp_path / "listing.log")
         said = io.StringIO()
         for _ in range(rounds):

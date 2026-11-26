@@ -519,7 +519,7 @@ def crawl(conn, directory: Directory, fetch, fetcher, run_ref: str,
                    rows_seen=len(getattr(outcome, "ids", ()) or ()),
                    requests=int(getattr(fetcher, "requests_count", 0) or 0))
     conn.commit()
-    say(str(coverage(conn, directory.dataset_key)))
+    say(str(coverage(conn, directory.dataset_key, id_field=directory.identity_field)))
 
 
 def mark_departures(conn, directory: Directory, outcome, run_ref: str) -> None:
@@ -1178,7 +1178,7 @@ def report_coverage(conn, directory: Directory, not_seen_since: str) -> None:
         departures          what we hold that the site stopped showing
         NEVER SEEN          not here at all — only the crawl's own D reaches those
     """
-    say(str(coverage(conn, directory.dataset_key)))
+    say(str(coverage(conn, directory.dataset_key, id_field=directory.identity_field)))
     say("")
 
     frequencies = sighting_frequencies(conn, directory.dataset_key)
@@ -1191,7 +1191,8 @@ def report_coverage(conn, directory: Directory, not_seen_since: str) -> None:
             "module does not pick a school.)")
         say("")
 
-    gap = missing_ids(conn, directory.dataset_key, limit=COVERAGE_SAMPLE)
+    gap = missing_ids(conn, directory.dataset_key, id_field=directory.identity_field,
+                      limit=COVERAGE_SAMPLE)
     say(f"sighted and never stored: {len(gap)} shown (ordered by how often the site "
         "showed it — one seen six times and still unstored is a stronger signal "
         "than one glimpsed once)")
@@ -1199,7 +1200,8 @@ def report_coverage(conn, directory: Directory, not_seen_since: str) -> None:
         say(f"    {', '.join(gap)}")
     say("")
 
-    say(str(departures(conn, directory.dataset_key, not_seen_since=not_seen_since)))
+    say(str(departures(conn, directory.dataset_key, not_seen_since=not_seen_since,
+                       id_field=directory.identity_field)))
     say("")
     say("AND WHAT NONE OF THIS REACHES: a contractor the site has never shown us. "
         "Only the crawl's own deficit D counts those, and membership 10001274 was "
@@ -2031,7 +2033,7 @@ def approve(conn, directory: Directory, run_ref: str, *,
         say(f"  {len(lifted):,} contractor(s) served a profile page again, so the "
             f"mark is lifted and they are back in the count")
     say("")
-    say(str(coverage(conn, directory.dataset_key)))
+    say(str(coverage(conn, directory.dataset_key, id_field=directory.identity_field)))
 
 
 def add_arguments(parser: argparse.ArgumentParser) -> None:

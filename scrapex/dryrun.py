@@ -25,6 +25,7 @@ from . import contractors, passes, source_settings
 from .crawlscope import CrawlScope
 from .directories import Directory
 from .directories import get as get_directory
+from .extract.service import dataset_schema_fields, identity_field_of
 from .features import FeatureKey, is_enabled
 from .sightings import coverage, departures, missing_ids, sighting_frequencies
 
@@ -145,7 +146,24 @@ def _directory_for(target: Target) -> Directory | None:
         return None
 
 
-def _coverage(general: sqlite3.Connection, dataset_key: str) -> dict:
+def _id_field(general: sqlite3.Connection, target: Target, directory: Directory | None,
+              dataset_key: str) -> str | None:
+    """The field this dataset's ids live in, or None when nothing states one (#1727).
+
+    THE DIRECTORY NAMES ITS OWN DATASET'S, as the crawl's closing report reads it. Any
+    other dataset of the site -- an enrichment output, a derived table, or one under a site
+    no directory registers -- is named by its schema's one `key_part`, the rule the table's
+    row state reads (`extract.service.identity_field_of`). The directory's field for all
+    of them was the gate's finding: an enrichment output keyed by `organization_id` read
+    0 stored.
+    """
+    if directory is not None and dataset_key == directory.dataset_key:
+        return directory.identity_field
+    resolved = dataset_schema_fields(general, dataset_key, site_key=target.site_key)
+    return identity_field_of(resolved[1]) if resolved else None
+
+
+def _coverage(general: sqlite3.Connection, dataset_key: str, id_field: str) -> dict:
     """`scrapex/sightings.py`, called. NOT reimplemented.
 
     The same four functions `contractors.report_coverage` prints, so the route and
@@ -153,7 +171,7 @@ def _coverage(general: sqlite3.Connection, dataset_key: str) -> dict:
     window, which is `contractors.default_window` for both. The audit's own finding
     was `dataset_table_payload` reimplementing `fields.hidden_columns` inline.
     """
-    figure = coverage(general, dataset_key)
+    figure = coverage(general, dataset_key, id_field=id_field)
     window = contractors.default_window(general, dataset_key)
     body: dict = {
         "dataset_key": dataset_key,
@@ -168,7 +186,7 @@ def _coverage(general: sqlite3.Connection, dataset_key: str) -> dict:
         "frequencies": {str(times): count
                         for times, count in sighting_frequencies(
                             general, dataset_key).items()},
-        "missing_sample": list(missing_ids(general, dataset_key,
+        "missing_sample": list(missing_ids(general, dataset_key, id_field=id_field,
                                            limit=contractors.COVERAGE_SAMPLE)),
     }
     if not window:
@@ -177,7 +195,7 @@ def _coverage(general: sqlite3.Connection, dataset_key: str) -> dict:
             "no sightings recorded for this dataset, so there is no window to "
             "measure departures against")
         return body
-    left = departures(general, dataset_key, not_seen_since=window)
+    left = departures(general, dataset_key, not_seen_since=window, id_field=id_field)
     body["departures"] = {"not_seen_since": window, "gone": len(left.gone),
                           "unsighted": len(left.unsighted), "sentence": str(left)}
     return body
@@ -339,8 +357,17 @@ def dry_payload(source_key: str, *, general: sqlite3.Connection,
     # THE SAME TOP-LEVEL KEYS FOR BOTH KINDS, so the panel reads one shape. A key
     # present on one kind and absent on the other is how a reader learns to guard
     # every access, and then stops noticing which guards mean something.
-    body["coverage_note"] = None
-    body["coverage"] = [_coverage(general, key) for key in target.dataset_keys]
+    # EACH DATASET'S OWN FIELD (#1727), and a dataset that states none is named rather
+    # than computed against a guessed field: that guess was the defect.
+    id_fields = {key: _id_field(general, target, directory, key)
+                 for key in target.dataset_keys}
+    unknown = [key for key, field in id_fields.items() if field is None]
+    body["coverage_note"] = (
+        f"no identity field is stated for {', '.join(unknown)}: no directory in this "
+        "build keys it and its schema names no single key, so its coverage is not computed"
+        if unknown else None)
+    body["coverage"] = [_coverage(general, key, field)
+                        for key, field in id_fields.items() if field is not None]
     body["impostors"] = _impostors(general, directory)
     body["last_run"] = _dataset_last_run(general)
     body["passes"] = [one.as_dict() for one in passes.directory_passes(

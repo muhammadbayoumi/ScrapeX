@@ -320,6 +320,11 @@ COMMODITY_PRICE = RowSpec(
         # because the pair IMPLIES the exchange rate the publisher used —
         # local/usd — which feeds currency_rate and the ranked USD column.
         "converted_usd_price",
+        # Which edition of a source that revises its past a REPORTED row came from: the
+        # Pink Sheet's newest month. A month a later edition restates is a new row, even
+        # at a value an earlier edition held (his answer on #1993). Blank for every other
+        # source, whose rows then hash exactly as they always did.
+        "edition",
     ),
     required=frozenset({"material_key", "country_code_alpha2", "currency", "price"}),
     additive=frozenset({"original_price", "original_currency", "price_basis",
@@ -327,7 +332,7 @@ COMMODITY_PRICE = RowSpec(
                         "tax_evidence", "tax_statement",
                         "provenance", "as_of_date", "source_date",
                         "official_source_name", "official_source_link",
-                        "converted_usd_price",
+                        "converted_usd_price", "edition",
                         # material_label_ar is NOT additive, for the same
                         # reason as the product _ar columns.
                         "material_label"}),
