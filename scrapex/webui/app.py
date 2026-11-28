@@ -903,17 +903,27 @@ def create_app(
             # ordinary thing to do -- and it was the one action that put the badge out
             # for good. Before the chain he had to have started one by hand first.
             #
-            # An interpretation ends as one of three: COMPLETED, CANCELLED or FAILED,
-            # written by its runner, by a Cancel (`jobs.set_control`) or by the worker
-            # (`JobRunner._fail_orphan`). Only a COMPLETED one read everything it planned
-            # -- a cancel lands between page pairs, after some runs are already read --
-            # so only the first answers this question.
+            # An interpretation ends as one of four: COMPLETED, COMPLETED_WITH_ERRORS,
+            # CANCELLED or FAILED, written by its runner, by a Cancel (`jobs.set_control`)
+            # or by the worker (`JobRunner._fail_orphan`). The first two read every run
+            # they planned to the end, so either answers this question -- a cancel lands
+            # between page pairs, after some runs are already read, and a failure either
+            # stopped part-way or stored nothing (#1738).
+            #
+            # COMPLETED WITH ERRORS ANSWERS IT TOO, because the badge's words name the
+            # newest crawl: "a crawl finished <then> and its pages are not rows yet". A
+            # walk that read it to the end and refused page pairs on the way made those
+            # pages rows; counted as no reading, the card said otherwise beside them (the
+            # merge gate of #1999 measured 20 rows under that sentence). The refused pairs
+            # are said where they belong: in the job's summary on Jobs, and in the ledger,
+            # which leaves their runs unread for the next interpretation (his ruling).
             read = general.execute(
                 "SELECT finished_at FROM crawl_job "
-                " WHERE job_kind = ? AND source_keys LIKE ? AND status = ? "
+                " WHERE job_kind = ? AND source_keys LIKE ? AND status IN (?, ?) "
                 "   AND finished_at IS NOT NULL "
                 " ORDER BY finished_at DESC LIMIT 1",
-                (datasetjob.JOB_KIND, like, JobStatus.COMPLETED.value)).fetchone()
+                (datasetjob.JOB_KIND, like, JobStatus.COMPLETED.value,
+                 JobStatus.COMPLETED_WITH_ERRORS.value)).fetchone()
             # A JOB ALREADY ON ITS WAY IS AN ANSWER. Both queries here require
             # `finished_at IS NOT NULL`, so a QUEUED or RUNNING interpretation counted as
             # none at all and the badge offered a press that one was already doing.
