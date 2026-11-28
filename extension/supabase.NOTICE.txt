@@ -227,6 +227,10 @@ where this summary is brief.
      Button names the first, and their transition utilities draw the second when
      they name no curve. Four of their durations are here too, 0.1s, 0.15s, 200ms
      and 0.25s. Their most-used animation duration, 300ms, has no rung here.
+     LogoLoader's own pair, 1.15s and cubic-bezier(0.39, 0.29, 0.5, 0.59)
+     (packages/ui/src/components/LogoLoader/loading-anim.module.css), is here too,
+     as --dur-logo-loader and --ease-logo-loader, read only by the panel's opening
+     check; naming them is this product's.
 
      THIS ITEM CLAIMED THE OPPOSITE UNTIL 2026-09-07 -- that neither curve
      appeared in their source. It was wrong in the direction a licence notice can

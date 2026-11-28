@@ -129,7 +129,8 @@
     "--animate-accordion-down": "0.15s",
     "--animate-accordion-up": "0.15s",
     "--animate-collapsible-down": "0.1s",
-    "--animate-collapsible-up": "0.1s"
+    "--animate-collapsible-up": "0.1s",
+    "LogoLoader (loading-anim.module.css)": "1.15s"
    }
   },
   "easing": {
@@ -148,7 +149,8 @@
     "--animate-panel-slide-left-out (curve)": "cubic-bezier(0.87, 0, 0.13, 1)",
     "--animate-panel-slide-left-in (curve)": "cubic-bezier(0.87, 0, 0.13, 1)",
     "--animate-panel-slide-right-out (curve)": "cubic-bezier(0.87, 0, 0.13, 1)",
-    "--animate-panel-slide-right-in (curve)": "cubic-bezier(0.87, 0, 0.13, 1)"
+    "--animate-panel-slide-right-in (curve)": "cubic-bezier(0.87, 0, 0.13, 1)",
+    "LogoLoader (curve)": "cubic-bezier(0.39, 0.29, 0.5, 0.59)"
    }
   },
   "focus": {

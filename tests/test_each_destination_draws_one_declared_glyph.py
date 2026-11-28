@@ -92,6 +92,26 @@ def _symbol_ids(text: str) -> list[str]:
     return re.findall(r'<symbol\b[^>]*?\sid="([^"]+)"', text)
 
 
+def _outside_the_generated_mark(text: str) -> str:
+    """extension/app.html also carries the mark's outline, which
+    tools/sync_design_assets.py generates from design/x-mark.svg for the opening
+    check's loader (#1544). That is the mark, a file the map records under its own
+    source, not an icon of the sprite, so it is cut out by its own markers. The cut
+    is not a hiding place: it holds that one symbol, from that recorded file."""
+    from tools.sync_design_assets import MARK_OUTLINE_CLOSE, MARK_OUTLINE_OPEN
+
+    start = text.find(MARK_OUTLINE_OPEN)
+    if start == -1:
+        return text
+    end = text.index(MARK_OUTLINE_CLOSE, start) + len(MARK_OUTLINE_CLOSE)
+    assert _symbol_ids(text[start:end]) == ["x-mark-outline"], (
+        "the generated mark block holds more than the mark's outline")
+    assert any(source["file"] == "x-mark.svg" and "x-mark" in source["glyphs"]
+               for source in _the_map()["sources"].values()), (
+        "the outline is drawn from design/x-mark.svg, which the map no longer records")
+    return text[:start] + text[end:]
+
+
 def _normalised(path: Path) -> bytes:
     # `* text=auto`: Windows checks out CRLF. Never compare a repo file's raw bytes.
     return path.read_bytes().replace(b"\r\n", b"\n")
@@ -191,7 +211,7 @@ def test_every_shipped_sprite_carries_exactly_the_glyphs_the_map_records(shipped
     """Every symbol has a recorded source and starts with that source's key, and
     every recorded glyph is drawn, in each sprite a surface ships."""
     recorded = _recorded_in_the_sprite(_the_map()["sources"])
-    symbols = _symbol_ids((ROOT / shipped).read_text(encoding="utf-8"))
+    symbols = _symbol_ids(_outside_the_generated_mark((ROOT / shipped).read_text(encoding="utf-8")))
     assert len(symbols) == len(set(symbols)), (
         f"{shipped} carries an id twice; <use> draws the first and hides the other")
     unprefixed = sorted(s for s in symbols if not s.startswith(f"{recorded.get(s)}-"))

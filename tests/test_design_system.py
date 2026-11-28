@@ -110,18 +110,23 @@ def test_the_generated_catalogue_is_the_same_on_every_platform() -> None:
 
 def test_ui_templates_do_not_embed_svg_paths() -> None:
     """An icon comes from the one canonical sprite, never from a shape drawn into
-    a template. The block tools/sync_design_assets.py generates into
-    extension/app.html IS that sprite (issue 1110), so it is the one exception —
-    cut out by its own markers, never by a pattern that could also excuse a
-    hand-drawn path elsewhere in the same file."""
-    from tools.sync_design_assets import SPRITE_CLOSE, SPRITE_OPEN
+    a template. The blocks tools/sync_design_assets.py generates into
+    extension/app.html ARE that sprite (issue 1110) and the mark's outline, drawn
+    from design/x-mark.svg for the opening check's loader (#1544), so they are the
+    only exceptions — each cut out by its own markers, never by a pattern that could
+    also excuse a hand-drawn path elsewhere in the same file."""
+    from tools.sync_design_assets import (MARK_OUTLINE_CLOSE, MARK_OUTLINE_OPEN, SPRITE_CLOSE,
+                                          SPRITE_OPEN)
 
     def outside_the_generated_sprite(text: str) -> str:
-        start = text.find(SPRITE_OPEN)
-        if start == -1:
-            return text
-        end = text.index(SPRITE_CLOSE, start) + len(SPRITE_CLOSE)
-        return text[:start] + text[end:]
+        for opener, closer in ((SPRITE_OPEN, SPRITE_CLOSE),
+                               (MARK_OUTLINE_OPEN, MARK_OUTLINE_CLOSE)):
+            start = text.find(opener)
+            if start == -1:
+                continue
+            end = text.index(closer, start) + len(closer)
+            text = text[:start] + text[end:]
+        return text
 
     files = [
         *ROOT.joinpath("extension").glob("*.html"),
@@ -303,6 +308,92 @@ def test_every_copy_of_the_mark_ships_tablers_notice() -> None:
         text = notice.read_text(encoding="utf-8")
         assert "MIT License" in text and "Paweł Kuna" in text, (
             f"{notice.relative_to(ROOT)} is not Tabler's MIT notice")
+
+
+def test_the_marks_outline_is_the_marks_own_stroked_path() -> None:
+    """ONE MARK (#1544). The outline the panel's opening check draws LogoLoader's dash
+    round is design/x-mark.svg's stroked path, which tools/sync_design_assets.py
+    generates into extension/app.html with pathLength="100" for the dash's geometry. A
+    hand copy would drift from the mark. It ships inside the extension, beside the
+    mark's Tabler notice (test above).
+
+    THE MARK IS READ AS SVG, by its own rule rather than the generator's (#2026's merge
+    gate). Anything but a container is painted when its stroke or its fill (inherited;
+    SVG's defaults are none and black) is not `none`, so one stroked, unfilled path must
+    be all the mark paints. The outline copies only `d`, so the mark may carry no
+    transform, style, class below the root, or nested viewport: each of those drew a
+    different outline in a pixel compare. And the block draws that one path and nothing
+    else, in the mark's own viewBox: it is not a hiding place, and a viewBox of its own
+    would draw the outline at another size."""
+    import xml.etree.ElementTree as ET
+
+    from tools.sync_design_assets import MARK_OUTLINE_CLOSE, MARK_OUTLINE_OPEN
+
+    svg = ET.parse(ROOT / "design" / "x-mark.svg").getroot()
+    painted: list[tuple[str, str, str, str]] = []
+
+    def walk(node, stroke, fill, depth=0):
+        tag = node.tag.rsplit("}", 1)[-1]
+        uncopied = {"transform", "style", *(["class"] if depth else [])} & set(node.attrib)
+        assert not uncopied and not (tag == "svg" and depth), (
+            f"design/x-mark.svg's <{tag}> carries {sorted(uncopied) or 'a nested viewport'}, "
+            "which the outline does not copy")
+        stroke, fill = node.get("stroke", stroke), node.get("fill", fill)
+        if tag not in {"svg", "g", "defs", "title", "desc"} and (stroke != "none" or fill != "none"):
+            painted.append((tag, node.get("d", ""), stroke, fill))
+        for child in node:
+            walk(child, stroke, fill, depth + 1)
+
+    walk(svg, "none", "black")
+    assert [(tag, stroke != "none", fill) for tag, _, stroke, fill in painted] == [
+        ("path", True, "none")], (
+        f"design/x-mark.svg paints {painted}; the loader's outline is one stroked, unfilled path")
+    drawn = [(tag, d) for tag, d, _, _ in painted]
+    panel = (ROOT / "extension" / "app.html").read_text(encoding="utf-8")
+    start = panel.index(MARK_OUTLINE_OPEN)
+    block = panel[start:panel.index(MARK_OUTLINE_CLOSE, start)]
+    assert re.findall(r"<(path|circle|ellipse|line|polygon|polyline|rect|use|image|text)\b",
+                      block) == ["path"], "the generated block draws more than the mark's outline"
+    symbol = re.search(r'<symbol id="x-mark-outline" viewBox="([^"]+)">'
+                       r'<path pathLength="100" d="([^"]+)"/>', block)
+    assert symbol, "the generated outline is missing or reshaped"
+    assert symbol.group(1) == svg.get("viewBox"), "the outline's viewBox is not the mark's"
+    assert symbol.group(2) == drawn[0][1]
+
+
+_MARK_PATH = '<path d="M12 16'
+_MARK_END = '" /></svg>'
+#: Each draws something the generated outline would not: the first five drew a different
+#: outline in #2026's merge gate (a pixel compare at 240 px), and none failed then.
+MARKS_THE_OUTLINE_WOULD_NOT_DRAW = {
+    "a transform on the path": lambda m: m.replace(_MARK_PATH, '<path transform="rotate(45 12 12)" d="M12 16'),
+    "a transformed group": lambda m: m.replace(_MARK_PATH, '<g transform="scale(0.5)">' + _MARK_PATH)
+                                      .replace(_MARK_END, '" /></g></svg>'),
+    "a nested viewport": lambda m: m.replace(_MARK_PATH, '<svg x="6" y="6" width="12" height="12" '
+                                                         'viewBox="0 0 24 24">' + _MARK_PATH)
+                                    .replace(_MARK_END, '" /></svg></svg>'),
+    "a stroke set by style": lambda m: m.replace(
+        "</svg>", '<path stroke="none" style="stroke: currentColor" d="M4 20L20 4"/></svg>'),
+    "a filled shape": lambda m: m.replace(
+        "</svg>", '<circle cx="12" cy="12" r="2" stroke="none" fill="currentColor"/></svg>'),
+    "a second stroked shape": lambda m: m.replace("</svg>", '<circle cx="12" cy="12" r="3" /></svg>'),
+    "a class on a shape": lambda m: m.replace(_MARK_PATH, '<path class="x" d="M12 16'),
+    "the path filled": lambda m: m.replace(_MARK_PATH, '<path fill="currentColor" d="M12 16'),
+}
+
+
+@pytest.mark.parametrize("change", MARKS_THE_OUTLINE_WOULD_NOT_DRAW.values(),
+                         ids=MARKS_THE_OUTLINE_WOULD_NOT_DRAW.keys())
+def test_the_sync_refuses_a_mark_its_outline_would_not_draw(change) -> None:
+    """The generator refuses what it does not model, loudly, instead of writing an outline
+    that is not the mark (#2026's merge gate)."""
+    from tools.sync_design_assets import _mark_outline
+
+    mark = (ROOT / "design" / "x-mark.svg").read_text(encoding="utf-8")
+    changed = change(mark)
+    assert changed != mark, "the change found nothing to change in design/x-mark.svg"
+    with pytest.raises(ValueError, match="design/x-mark.svg"):
+        _mark_outline(changed)
 
 
 def test_obsolete_custom_source_icons_are_not_shipped() -> None:

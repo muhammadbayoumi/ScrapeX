@@ -210,6 +210,10 @@ def test_the_motion_tokens_are_the_values_supabase_renders():
         "--ease": ["cubic-bezier(0.16, 1, 0.3, 1)"], "--ease-travel": ["cubic-bezier(0.87, 0, 0.13, 1)"],
         # Tailwind's, theme.css@v4.2.4:435 and :436 (= :493, the default transition curve).
         "--ease-out": ["cubic-bezier(0, 0, 0.2, 1)"], "--ease-in-out": ["cubic-bezier(0.4, 0, 0.2, 1)"],
+        # LogoLoader's own pair (loading-anim.module.css@86c813ec:3), read only by the
+        # panel's opening check (#1544).
+        "--dur-logo-loader": ["1.15s"],
+        "--ease-logo-loader": ["cubic-bezier(0.39, 0.29, 0.5, 0.59)"],
     }, declared
     curves = READING["axes"]["easing"]["declared"]
     assert declared["--ease-out"] == [curves["--ease-out"]] and declared["--ease-in-out"] == [curves["--ease-in-out"]]

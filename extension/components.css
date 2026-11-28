@@ -400,6 +400,93 @@ a.card:hover {
   background: var(--red-weak);
 }
 
+/* ADMONITION, Supabase's callout (ui-patterns Admonition.tsx@86c813ec:40-112) on their Alert
+   (alert.tsx@86c813ec:6-27): `rounded-lg border p-4 text-sm`, a 23 px badge beside the words
+   (`flex items-start gap-3`), the title `font-medium text-foreground`, the description
+   `text-sm text-foreground-light`. The default box is `bg-surface-200/25 border-default`;
+   warning and destructive take their 200 fill and 400 border. The badge is
+   AdmonitionTypeIcon (AdmonitionIcons.tsx@86c813ec:81-94): `size-[23px] p-1 rounded-sm`,
+   its colours ICON_BADGE_CLASS (:15-20). The glyph is the panel's sprite, not their own.
+   The element carries role="alert" and is named by its type (Admonition.tsx:43). */
+.admonition {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-3);
+  padding: var(--sp-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--surface-subtle) 25%, transparent);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-sm);
+  text-align: start;
+}
+
+.admonition.warning {
+  border-color: var(--warning-400);
+  background: var(--warning-200);
+}
+
+.admonition.destructive {
+  border-color: var(--destructive-400);
+  background: var(--destructive-200);
+}
+
+.admonition-icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 23px;
+  height: 23px;
+  padding: var(--sp-1);
+  border-radius: var(--radius-sm);
+  background: var(--text-subtle);
+  color: var(--bg);
+}
+
+.admonition.warning .admonition-icon {
+  background: var(--warning-600);
+  color: var(--warning-200);
+}
+
+.admonition.destructive .admonition-icon {
+  background: var(--destructive-600);
+  color: var(--destructive-200);
+}
+
+.admonition-icon .sx-icon {
+  width: 100%;
+  height: 100%;
+}
+
+/* `overflow-wrap: anywhere`: a scope URL in Google's answer is one long word. */
+.admonition-text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.admonition-title {
+  margin: 0 0 0.125rem;
+  color: var(--text);
+  font-weight: var(--fw-medium);
+}
+
+.admonition-title:empty {
+  display: none;
+}
+
+.admonition-description {
+  margin: 0;
+  color: var(--muted);
+}
+
+/* Description only: the words sit `my-0.5` lower beside the badge (Admonition.tsx:72). */
+.admonition-text:has(.admonition-title:empty) {
+  margin-block: 0.125rem;
+}
+
 /* THE BUTTON IS SUPABASE'S AT ITS TINY DEFAULT (Button.tsx@86c813ec:192, #1430):
    SIZE_VARIANTS.tiny is `text-xs px-2.5 py-1 h-[26px]` (constants.ts@86c813ec:47, :54,
    :61, :96). text-xs is 0.75rem on a 1rem line, calc(1 / 0.75) (Tailwind 4.2.4
