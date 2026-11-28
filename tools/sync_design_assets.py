@@ -249,33 +249,51 @@ def _gallery_generated() -> str:
         f'url("data:image/svg+xml;base64,{mark}"); }}\n{MARK_CLOSE}')
 
 
+def _mark_outline(svg_text: str) -> tuple[str, str]:
+    """The mark's one outline, as its viewBox and its path's `d`. PARSED AS SVG, NOT
+    MATCHED, and refusing what the outline would not draw (#2026's merge gate):
+    - a shape is painted when its stroke or its fill (its own, or the nearest
+      ancestor's; SVG's defaults are none and black) is not `none`; exactly one may
+      be, a stroked <path> with no fill;
+    - the outline copies only `d`, so a transform, a style, a class below the root,
+      or a nested <svg> viewport would draw something else, and is refused."""
+    svg = ET.fromstring(svg_text)
+    painted: list[tuple[str, ET.Element, str, str]] = []
+
+    def walk(node: ET.Element, stroke: str, fill: str, root: bool = False) -> None:
+        tag = node.tag.rsplit("}", 1)[-1]
+        refused = {"transform", "style"} | (set() if root else {"class"})
+        unmodelled = sorted(refused & set(node.attrib)) or (
+            ["a nested viewport"] if tag == "svg" and not root else [])
+        if unmodelled:
+            raise ValueError(f"design/x-mark.svg gives <{tag}> {unmodelled}, which the "
+                             "opening check's outline does not copy")
+        stroke, fill = node.get("stroke", stroke), node.get("fill", fill)
+        if tag not in {"svg", "g"} and (stroke != "none" or fill != "none"):
+            painted.append((tag, node, stroke, fill))
+        for child in node:
+            walk(child, stroke, fill)
+
+    walk(svg, "none", "black", root=True)
+    view_box = svg.get("viewBox", "")
+    if [tag for tag, *_ in painted] != ["path"] or painted[0][2:] == ("none", "none") \
+            or painted[0][3] != "none" or not re.fullmatch(r'[^"<>]+', painted[0][1].get("d", "")) \
+            or not re.fullmatch(r"[\d.\- ]+", view_box):
+        raise ValueError(f"design/x-mark.svg paints {[tag for tag, *_ in painted]} with viewBox "
+                         f"{view_box!r}; the opening check's loader needs exactly one stroked, "
+                         "unfilled <path> and a viewBox")
+    return view_box, painted[0][1].get("d")
+
+
 def _mark_outline_block() -> str:
     """The mark's outline as one symbol, so the panel's opening check (#1544) runs
     LogoLoader's dash round design/x-mark.svg's own path rather than a copy of it.
-    pathLength 100 keeps the loader's proportions on whatever length the path has.
-    PARSED AS SVG, NOT MATCHED: every shape whose stroke (its own, or the nearest
-    ancestor's; none by default) is not `none` is drawn, so it must be exactly one, a
-    <path>; and the symbol takes the mark's own viewBox (#2026's merge gate)."""
-    svg = ET.parse(ROOT / "design" / "x-mark.svg").getroot()
-    drawn: list[ET.Element] = []
-
-    def walk(node: ET.Element, stroke: str) -> None:
-        stroke = node.get("stroke", stroke)
-        if node.tag.rsplit("}", 1)[-1] not in {"svg", "g"} and stroke != "none":
-            drawn.append(node)
-        for child in node:
-            walk(child, stroke)
-
-    walk(svg, "none")
-    shapes = [node.tag.rsplit("}", 1)[-1] for node in drawn]
-    view_box = svg.get("viewBox", "")
-    if shapes != ["path"] or not re.fullmatch(r'[^"<>]+', drawn[0].get("d", "")) \
-            or not re.fullmatch(r"[\d.\- ]+", view_box):
-        raise ValueError(f"design/x-mark.svg draws {shapes} with viewBox {view_box!r}; the "
-                         "opening check's loader needs exactly one stroked <path> and a viewBox")
+    pathLength 100 keeps the loader's proportions on whatever length the path has,
+    and the symbol takes the mark's own viewBox."""
+    view_box, d = _mark_outline((ROOT / "design" / "x-mark.svg").read_text(encoding="utf-8"))
     return (f'{MARK_OUTLINE_OPEN}  <svg hidden aria-hidden="true">\n'
             f'    <symbol id="x-mark-outline" viewBox="{view_box}">'
-            f'<path pathLength="100" d="{drawn[0].get("d")}"/></symbol>\n'
+            f'<path pathLength="100" d="{d}"/></symbol>\n'
             f'  </svg>\n{MARK_OUTLINE_CLOSE}')
 
 

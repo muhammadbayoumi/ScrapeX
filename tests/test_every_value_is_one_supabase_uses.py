@@ -432,12 +432,15 @@ LOGO_LOADER_SHEET = """.loading path {
 
 def test_logoloaders_sheet_reads_as_its_duration_and_curve():
     """The two values --dur-logo-loader and --ease-logo-loader are judged against (#1544),
-    read from the animation, never from another rule that names a duration first."""
+    read from the animation, never from another rule that names a duration and a curve
+    first. The neighbour carries a cubic-bezier of its own, so a reading that lost its
+    `animation:` anchor would take the neighbour's pair (#2026's merge gate)."""
     from tools.read_supabase_values import _logo_loader
 
     expected = ("1.15s", "cubic-bezier(0.39, 0.29, 0.5, 0.59)")
     assert _logo_loader(LOGO_LOADER_SHEET) == expected
-    assert _logo_loader(".loading { transition: opacity 0.2s ease; }\n" + LOGO_LOADER_SHEET) == expected
+    neighbour = ".loading { transition: opacity 0.2s cubic-bezier(0, 0, 0.2, 1); }\n"
+    assert _logo_loader(neighbour + LOGO_LOADER_SHEET) == expected
 
 
 @pytest.mark.parametrize("changed", [
