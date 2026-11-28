@@ -127,6 +127,17 @@ function unwrap(response) {
   return response;
 }
 
+// WHETHER AN ENGINE IS ON THIS COMPUTER WHEN NONE ANSWERS (#1556's N4). The host
+// answers PING without starting anything (`scrapex/native.py`, `_dispatch`): the
+// app and the version of the engine it would launch. A rejection carries `kind`
+// (`absent`, `forbidden`, `crashed`, `timeout`), which is the answer itself: no
+// host registered, a host that does not list this extension, one that died, one
+// that did not answer. The Engine page asks once per render or Check again, never
+// on a timer, because each ask starts a helper process.
+export function ping() {
+  return sendNative({ command: "PING" }).then(unwrap);
+}
+
 // The "start with Windows" launcher is a file on the machine; only the native
 // host can read or write it. Native-only like startEngine — absence of the
 // host throws, and the caller turns that into "run the one-time installer".

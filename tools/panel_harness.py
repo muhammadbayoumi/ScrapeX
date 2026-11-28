@@ -147,7 +147,8 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
          remembered_accounts=None, drive=None,
          silent_for=None, revoke_status=200,
          worker_alive=True, engine_build=None, engine_sqlite=None, engine_python=None,
-         bundle=None, bundle_light_route=True, ui=None, schema_lag=None) -> str:
+         bundle=None, bundle_light_route=True, ui=None, schema_lag=None,
+         update_report=None) -> str:
     """A chrome.* shim plus a fetch() interceptor.
 
     Any state can be rendered deterministically, including ones a live engine
@@ -362,6 +363,11 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
             report = dict(report, capabilities=[
                 c for c in report["capabilities"] if c["key"] not in omit_capabilities])
         routes["/api/version"] = report
+    if update_report is not None:
+        # GET /api/update, the engine's own answer about its update
+        # (scrapex/webui/update_api.py). None keeps the default: no route, a 404,
+        # which the panel reads as an engine that cannot answer the question.
+        routes["/api/update"] = update_report
     if ui is not None:
         # /api/ui, the shared UI contract the panel adopts in its deferred phase.
         # None keeps the default every other test runs on: no route, a 404, and the
@@ -437,10 +443,32 @@ window.chrome = {{
               sendNativeMessage: (_host, message, callback) => {{
                 window.__nativeCalls.push(message.command);
                 if (NATIVE_MODE === "nonresponsive") return;
-                if (NATIVE_MODE === "absent") {{
-                  chrome.runtime.lastError = {{message: "Specified native messaging host not found."}};
+                // THE FAILURES CHROME HAS WORDS FOR, as `nativeFailure` in
+                // extension/transport.js classifies them: no host registered, a
+                // host that does not list this extension, and a host that died.
+                const refusal = {{
+                  absent: "Specified native messaging host not found.",
+                  forbidden: "Access to the specified native messaging host is forbidden.",
+                  crashed: "Native host has exited.",
+                }}[NATIVE_MODE];
+                if (refusal) {{
+                  chrome.runtime.lastError = {{message: refusal}};
                   callback(undefined);
                   chrome.runtime.lastError = null;
+                  return;
+                }}
+                // A HOST FROM BEFORE PING refuses it as an unknown command, as
+                // `scrapex/native.py` refuses any command it does not know.
+                if (NATIVE_MODE === "refuses" && message.command === "PING") {{
+                  callback({{ok: false, error: "unknown_command",
+                            detail: "unknown command 'PING'"}});
+                  return;
+                }}
+                // PING ANSWERS AS `scrapex/native.py` DOES: the app, the version of
+                // the engine this host launches, and the protocol.
+                if (message.command === "PING") {{
+                  callback({{ok: true, app: "scrapex", app_version: NATIVE_APP_VERSION,
+                            protocol_version: {PROTOCOL_VERSION}}});
                   return;
                 }}
                 callback({{ok: true, installed: false}});
@@ -572,6 +600,8 @@ const SIGNIN_NEVER_RETURNS = {str(signin_never_returns).lower()};
 const SILENT_FOR = {json.dumps(silent_for)};
 const REVOKE_STATUS = {json.dumps(revoke_status)};
 const NATIVE_MODE = {json.dumps(native_mode)};
+// The version PING reports: the engine the host would launch, which is the stub's own.
+const NATIVE_APP_VERSION = {json.dumps(engine_version)};
 const GOOGLE_ACCOUNT_MODE = {json.dumps(google_account_mode)};
 const DRIVE = {json.dumps(drive)};
 // THE BUNDLE ROUTES, so a whole backup can be driven end to end.
@@ -739,6 +769,9 @@ window.fetch = async (url, options = {{}}) => {{
     if (!ENGINE_MANIFEST) {{
       return {{ ok: false, status: 404, json: async () => null }};
     }}
+    // "offline" is the release page not answering at all, which the panel reads as
+    // `offline` (extension/releases.js, `latestEngineRelease`).
+    if (ENGINE_MANIFEST === "offline") throw new TypeError("Failed to fetch");
     return {{ ok: true, status: 200, json: async () => ENGINE_MANIFEST }};
   }}
   if (!ENGINE_UP) throw new Error("engine down");

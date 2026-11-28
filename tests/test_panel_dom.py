@@ -6680,7 +6680,14 @@ def test_the_engine_card_shows_a_labelled_primary_action_and_a_secondary_check_a
     """The primary action is no longer icon-only. A button that only shows an
     icon looked like a toolbar and gave no visible verb; Download and Check
     again are labelled actions that wrap on narrow panels."""
-    page = open_panel()
+    # THE FIRST INSTALL: no engine answers and a release has an installer, the state
+    # Download engine is the action in (#1556).
+    page = open_panel(engine_up=False, engine_manifest={
+        "product": "scrapex-engine", "version": "0.9.0",
+        "installer": {"name": "scrapex-engine.exe",
+                      "url": "https://example.test/scrapex-engine.exe",
+                      "bytes": 24000000, "sha256": "a" * 64},
+    })
 
     assert page.locator("#tab-engines use").get_attribute("href") == "#material-symbols-folder-code"
 
@@ -6907,8 +6914,8 @@ def test_the_engine_page_reports_what_is_installed_and_what_is_available(open_pa
     # timeout, so a fixed pause here would either be a flake or be longer than
     # the check it is waiting on.
     page.wait_for_function(
-        "() => document.getElementById('engine-latest-detail').textContent !== ''",
-        timeout=10_000)
+        "() => document.getElementById('engine-latest-version').textContent"
+        " === 'No release yet'", timeout=10_000)
 
     assert text_of(page, "#engine-status") == "Running"
 
@@ -6925,7 +6932,9 @@ def test_the_engine_page_reports_what_is_installed_and_what_is_available(open_pa
     # sentence directly beneath it, which said we had checked. Found by looking
     # at the panel — four guards covered the reader and none covered the row.
     assert text_of(page, "#engine-latest-version") == "No release yet"
-    assert "No engine has been released yet" in text_of(page, "#engine-latest-detail")
+    # SAID ONCE (#1556): a sentence under the row saying "No engine has been released
+    # yet" said the row again.
+    assert text_of(page, "#engine-latest-detail") == ""
 
 
 #: What actually happened: `tempfile.mkdtemp(prefix="scrapex-tests-")` under the
@@ -7067,8 +7076,8 @@ def test_the_build_row_tells_a_stale_engine_from_a_current_one(open_panel):
     level = open_panel()
     level.click("#tab-engines")
     open_engine(level)
-    assert "source" in text_of(level, "#engine-build-value")
-    assert "d10e974" in text_of(level, "#engine-build-value")
+    # HIS WORDS FOR THE TWO KINDS (#1556): «ملفات المشروع», project files, not "source".
+    assert text_of(level, "#engine-build-value") == "Project files · d10e974"
     assert level.locator("#engine-build-verdict").is_visible() is False, (
         "a level engine wore a badge; a badge that is always there is one the "
         "owner learns to scroll past")
@@ -7098,7 +7107,9 @@ def test_the_build_row_tells_a_stale_engine_from_a_current_one(open_panel):
                   "cannot be answered from inside it."})
     frozen.click("#tab-engines")
     open_engine(frozen)
-    assert text_of(frozen, "#engine-build-value") == "installed build"
+    assert text_of(frozen, "#engine-build-value") == "Installed build"
+    assert text_of(frozen, "#engine-build-detail") == "", (
+        "an installed build's six lines of the engine's own jargon came back (#1556)")
     assert frozen.locator("#engine-build-verdict").is_visible() is False
 
     # AN ENGINE FROM BEFORE THE FIELD EXISTED IS NOT AN ENGINE IN TROUBLE — the
@@ -7106,7 +7117,7 @@ def test_the_build_row_tells_a_stale_engine_from_a_current_one(open_panel):
     old = open_panel(engine_build=False)
     old.click("#tab-engines")
     open_engine(old)
-    assert text_of(old, "#engine-build-value") == "Not reported"
+    assert text_of(old, "#engine-build-value") == "Not reported by this engine"
     assert old.locator("#engine-build-verdict").is_visible() is False
 
 
@@ -7155,7 +7166,7 @@ def test_the_sqlite_row_says_when_the_engines_sqlite_is_affected(open_panel):
     old = open_panel(engine_sqlite=False)
     old.click("#tab-engines")
     open_engine(old)
-    assert text_of(old, "#engine-sqlite-value") == "Not reported"
+    assert text_of(old, "#engine-sqlite-value") == "Not reported by this engine"
     assert old.locator("#engine-sqlite-verdict").is_visible() is False
 
     # AN ENGINE THAT STOPS takes its facts with it: the row must not go on saying
@@ -7166,12 +7177,16 @@ def test_the_sqlite_row_says_when_the_engines_sqlite_is_affected(open_panel):
     affected.wait_for_function(
         "() => document.getElementById('estat-text').textContent.trim() === 'Stopped'")
     affected.wait_for_function("() => !document.getElementById('engine-recheck').disabled")
-    assert text_of(affected, "#engine-sqlite-value") == "Not reported", (
+    assert text_of(affected, "#engine-sqlite-value") == "Not reported by this engine", (
         "a stopped engine's SQLite verdict stayed on the screen")
     assert affected.locator("#engine-sqlite-verdict").is_visible() is False
     assert text_of(affected, "#engine-sqlite-detail") == ""
-    assert text_of(affected, "#engine-build-value") == "Not reported", (
+    assert text_of(affected, "#engine-build-value") == "Not reported by this engine", (
         "a stopped engine's build stayed on the screen")
+    # AND WITH NOTHING ANSWERING THE ROWS GIVE WAY TO ONE NOTE (#1556): five rows of
+    # "Not reported" read as five things missing.
+    assert affected.locator("#engine-spec-sqlite").is_visible() is False
+    assert affected.locator("#engine-spec-versions-note").is_visible() is True
 
 
 def test_the_python_row_says_when_the_engines_python_is_below_the_pin(
@@ -7223,10 +7238,11 @@ def test_the_python_row_says_when_the_engines_python_is_below_the_pin(
     open_engine(behind)
     assert text_of(behind, "#engine-python-value") == platform.python_version()
     assert behind.locator("#engine-python-verdict").is_visible() is True
-    assert text_of(behind, "#engine-python-verdict") == "Upgrade needed"
-    assert behind.get_attribute("#engine-python-verdict", "class") == "badge off", (
-        "the amber badge is the kit's one 'attend to this'")
-    assert f"ScrapeX needs Python {ahead} or newer." in text_of(
+    # A FACT, NOT AN ORDER (#1556): "Upgrade needed" asked for what no control does.
+    assert text_of(behind, "#engine-python-verdict") == "Too old"
+    assert behind.get_attribute("#engine-python-verdict", "class") == "badge", (
+        "amber words on the amber badge are 2.68:1 in light (#1934); the word carries it")
+    assert f"ScrapeX needs {ahead} or newer." in text_of(
         behind, "#engine-python-detail"), "the row must say which Python it needs"
     assert behind.locator("#engine-python-detail").is_visible() is True, (
         "the sentence that says which Python it needs is not shown")
@@ -7264,7 +7280,7 @@ def test_the_python_row_says_when_the_engines_python_is_below_the_pin(
     old = open_panel(engine_python=False)
     old.click("#tab-engines")
     open_engine(old)
-    assert text_of(old, "#engine-python-value") == "Not reported"
+    assert text_of(old, "#engine-python-value") == "Not reported by this engine"
     assert old.locator("#engine-python-verdict").is_visible() is False
     assert text_of(old, "#engine-python-detail") == ""
 
@@ -7274,7 +7290,7 @@ def test_the_python_row_says_when_the_engines_python_is_below_the_pin(
     behind.wait_for_function(
         "() => document.getElementById('estat-text').textContent.trim() === 'Stopped'")
     behind.wait_for_function("() => !document.getElementById('engine-recheck').disabled")
-    assert text_of(behind, "#engine-python-value") == "Not reported", (
+    assert text_of(behind, "#engine-python-value") == "Not reported by this engine", (
         "a stopped engine's Python verdict stayed on the screen")
     assert behind.locator("#engine-python-verdict").is_visible() is False
     assert text_of(behind, "#engine-python-detail") == ""
@@ -7400,13 +7416,17 @@ def test_the_latest_row_never_contradicts_the_sentence_under_it(open_panel):
     page = open_panel()
     page.click("#tab-engines")
     page.wait_for_function(
-        "() => document.getElementById('engine-latest-detail').textContent !== ''",
-        timeout=10_000)
+        "() => document.getElementById('engine-latest-version').textContent"
+        " === 'No release yet'", timeout=10_000)
 
     open_engine(page)
     value = text_of(page, "#engine-latest-version")
     detail = text_of(page, "#engine-latest-detail")
 
+    # The feed answered -- a 404 is the answer that nothing is released -- so the row
+    # may not say we could not find out, with or without a line under it (#1556 leaves
+    # none: the row says it once).
+    assert value == "No release yet", value
     if "has been released yet" in detail:
         assert value != "unknown", (
             f"the row says {value!r} — we could not find out — while the "
@@ -7451,7 +7471,9 @@ def test_the_download_button_hands_over_the_file_and_the_steps(open_panel):
     true and useless: the row knew a release existed and the owner still had no
     way to get it.
     """
-    page = open_panel(engine_manifest={
+    # THE FIRST INSTALL: no engine answers. With one running, Download is drawn only for
+    # an installed build's update (#1556).
+    page = open_panel(engine_up=False, engine_manifest={
         "product": "scrapex-engine", "version": "0.9.0",
         "installer": {"name": "scrapex-engine.exe",
                       "url": "https://example.test/scrapex-engine.exe",
@@ -7500,7 +7522,9 @@ def test_the_download_button_actually_hands_over_the_file(open_panel):
     by asking of each assertion what code change would break it, and finding that
     deleting the `onclick` broke none of them.
     """
-    page = open_panel(engine_manifest={
+    # THE FIRST INSTALL: no engine answers. With one running, Download is drawn only for
+    # an installed build's update (#1556).
+    page = open_panel(engine_up=False, engine_manifest={
         "product": "scrapex-engine", "version": "0.9.0",
         "installer": {"name": "scrapex-engine.exe",
                       "url": "https://example.test/scrapex-engine.exe",
@@ -7567,17 +7591,20 @@ def test_the_recheck_button_repaints_the_engine_card(open_panel):
         "so the feed is asked again")
 
 
-def test_the_download_button_stays_dead_when_there_is_nothing_to_download(open_panel):
+@pytest.mark.parametrize("engine_up", [True, False], ids=["an-engine-runs", "no-engine"])
+def test_the_download_button_stays_dead_when_there_is_nothing_to_download(
+        open_panel, engine_up):
     """The default state today: nothing released. A button that looks pressable
-    and does nothing is worse than one that is plainly not ready."""
-    page = open_panel()
+    and does nothing is worse than one that is plainly not ready, and one for a
+    feed that answered with nothing is not drawn at all (CLAUDE.md, #1556)."""
+    page = open_panel(engine_up=engine_up)
     page.click("#tab-engines")
     page.wait_for_function(
-        "() => document.getElementById('engine-latest-detail').textContent !== ''",
-        timeout=10_000)
+        "() => document.getElementById('engine-latest-version').textContent"
+        " === 'No release yet'", timeout=10_000)
 
     open_engine(page)
-    assert page.locator("#engine-download").is_disabled()
+    assert page.locator("#engine-download").is_hidden()
     assert not page.locator("#engine-install-steps").is_visible()
 
 
@@ -7678,7 +7705,9 @@ def test_the_engine_status_maps_protocol_mismatch_to_a_warning(open_panel):
 
 
 def test_the_engine_status_maps_installed_but_not_running(open_panel):
-    """An engine that reports a version but is not running is a warning state."""
+    """An engine that answers with a version and a stopped worker is a warning state,
+    and its word is "Not running" (#1556): "Installed, not running" named the
+    installed build for project files too."""
     page = open_panel()
     page.click("#tab-engines")
     page.wait_for_function(
@@ -7699,9 +7728,9 @@ def test_the_engine_status_maps_installed_but_not_running(open_panel):
     open_engine(page)
     page.click("#engine-recheck")
     page.wait_for_function(
-        "() => document.getElementById('engine-status').textContent === 'Installed, not running'",
+        "() => document.getElementById('engine-status').textContent === 'Not running'",
         timeout=10_000)
-    assert text_of(page, "#engine-status") == "Installed, not running"
+    assert text_of(page, "#engine-status") == "Not running"
 
 
 def test_a_health_check_that_times_out_is_not_reported_as_no_engine(open_panel):
@@ -7748,8 +7777,10 @@ def test_a_health_check_that_times_out_is_not_reported_as_no_engine(open_panel):
     assert not page.locator("#engine-recheck").is_disabled()
 
 
-def test_the_engine_release_verdict_says_available_to_install(open_panel):
-    """No engine + a valid installer means the release is available to install."""
+def test_the_engine_release_wears_no_verdict_with_no_engine(open_panel):
+    """No engine + a valid installer: the release wears no badge (#1556). "Available
+    to install" was a third word for what Download engine says, and it called a
+    stopped engine uninstalled (#1636)."""
     page = open_panel(engine_up=False, engine_manifest={
         "product": "scrapex-engine", "version": "0.9.0",
         "installer": {"name": "scrapex-engine.exe",
@@ -7761,7 +7792,10 @@ def test_the_engine_release_verdict_says_available_to_install(open_panel):
         "() => document.getElementById('engine-status').textContent !== 'Checking engine…'",
         timeout=10_000)
     open_engine(page)
-    assert text_of(page, "#engine-release-verdict") == "Available to install"
+    assert text_of(page, "#engine-release-verdict") == ""
+    assert page.locator("#engine-release-verdict").is_visible() is False
+    assert page.locator("#engine-download").is_visible()
+    assert text_of(page, "#engine-download-label") == "Download engine"
 
 
 def test_the_engine_release_verdict_says_update_available(open_panel):
@@ -7823,8 +7857,12 @@ def test_the_engine_release_verdict_says_unavailable_when_feed_is_offline(open_p
 
 def test_the_engine_download_does_not_claim_completion(open_panel):
     """Clicking Download hands the URL to the browser and opens the steps, but
-    the page never claims the file finished downloading."""
-    page = open_panel(engine_manifest={
+    the page never claims the file finished downloading. An installed build behind
+    the release: the one running engine Download is drawn for (#1556)."""
+    page = open_panel(engine_build={
+        "mode": "frozen", "sealed_at": "2026-08-23T04:00:00+00:00", "commit": None,
+        "commit_now": None, "moved": None, "stale": None,
+        "detail": "this is an installed build."}, engine_manifest={
         "product": "scrapex-engine", "version": "0.9.0",
         "installer": {"name": "scrapex-engine.exe",
                       "url": "https://example.test/scrapex-engine.exe",
@@ -7848,7 +7886,9 @@ def test_the_engine_download_does_not_claim_completion(open_panel):
 
 def test_the_engine_page_does_not_overflow_at_320px(open_panel):
     """The Engine card and its actions survive the narrowest panel width."""
-    page = open_panel(engine_manifest={
+    # THE FIRST INSTALL: no engine answers. With one running, Download is drawn only for
+    # an installed build's update (#1556).
+    page = open_panel(engine_up=False, engine_manifest={
         "product": "scrapex-engine", "version": "0.9.0",
         "installer": {"name": "scrapex-engine.exe",
                       "url": "https://example.test/scrapex-engine.exe",
@@ -7875,7 +7915,9 @@ def test_the_engine_page_does_not_overflow_at_320px(open_panel):
 
 def test_the_engine_actions_have_visible_keyboard_focus(open_panel):
     """Both Engine actions are focusable and show the shared focus outline."""
-    page = open_panel(engine_manifest={
+    # THE FIRST INSTALL: no engine answers. With one running, Download is drawn only for
+    # an installed build's update (#1556).
+    page = open_panel(engine_up=False, engine_manifest={
         "product": "scrapex-engine", "version": "0.9.0",
         "installer": {"name": "scrapex-engine.exe",
                       "url": "https://example.test/scrapex-engine.exe",
@@ -7899,7 +7941,9 @@ def test_the_engine_actions_have_visible_keyboard_focus(open_panel):
 def test_the_engine_page_scrolls_when_the_panel_is_short(open_panel):
     """With a short panel and expanded install steps the Engine view must
     scroll internally, keeping the heading fixed and the actions reachable."""
-    page = open_panel(engine_manifest={
+    # THE FIRST INSTALL: no engine answers. With one running, Download is drawn only for
+    # an installed build's update (#1556).
+    page = open_panel(engine_up=False, engine_manifest={
         "product": "scrapex-engine", "version": "0.9.0",
         "installer": {"name": "scrapex-engine.exe",
                       "url": "https://example.test/scrapex-engine.exe",
@@ -8002,21 +8046,22 @@ def test_the_engine_compatibility_warning_is_not_a_second_live_announcement(open
 
 
 def test_the_engine_page_does_not_restate_no_release_three_times(open_panel):
-    """One metadata value and one explanation are enough; three consecutive
-    restatements of the same fact train the owner to ignore the row."""
+    """Three consecutive restatements of the same fact train the owner to ignore
+    the row, and the row's value is the whole statement now: the explanation under
+    it said it a second time (#1556)."""
     page = open_panel()
     page.click("#tab-engines")
     page.wait_for_function(
         "() => document.getElementById('engine-status-region').getAttribute('aria-busy') === 'false'",
         timeout=10_000)
     page.wait_for_function(
-        "() => document.getElementById('engine-latest-detail').textContent !== ''",
-        timeout=10_000)
+        "() => document.getElementById('engine-latest-version').textContent"
+        " === 'No release yet'", timeout=10_000)
 
     open_engine(page)
     view_text = text_of(page, "#view-engine-detail")
-    assert view_text.count("No release yet") <= 1
-    assert "No engine has been released yet" in view_text
+    assert view_text.count("No release yet") == 1
+    assert "No engine has been released yet" not in view_text
     assert "No release available yet" not in view_text
 
 
@@ -8312,8 +8357,9 @@ def test_every_documented_candidate_backend_is_offered_and_none_pretends_to_inst
     # ScrapeX's own screen first, so every one of its rows has been painted
     # before a candidate's screen is asked to hide them.
     open_engine(page)
+    # The versions note stands only while no engine has answered (#1556).
     assert _visible_spec_rows(page) == _all_spec_rows(page) - {
-        "engine-spec-role", "engine-spec-shape"}
+        "engine-spec-role", "engine-spec-shape", "engine-spec-versions-note"}
     page.click("#engine-detail-back")
     page.wait_for_selector("#view-engines:not(.hidden)")
 
@@ -9346,10 +9392,12 @@ def test_a_restart_whose_engine_never_comes_back_redraws_the_screen(open_panel):
     the press, so the banner went on reading "Running" -- the engine as it was
     before Restart -- over a note saying the engine has not answered, and the
     release row went on offering "Update to 0.9.1" to the engine that left. The
-    ending redraws both from what answers now: nothing.
+    ending redraws both from what answers now: no engine, and the local helper, which
+    says one is on this computer.
 
-    What the release row then says for an engine that does not answer --
-    "Available to install" -- is what Check again says too, and #1636 records it."""
+    So the banner says "Stopped", the release row judges nothing, and Download is not
+    offered: Start engine on the Run page is the way back (#1556, which settled #1636's
+    "Available to install" for an engine that is installed and stopped)."""
     page = open_panel(engine_build=ENGINE_BEFORE_RESTART, native_mode="ok",
                       engine_version="0.9.0", engine_manifest=PUBLISHED_091)
     page.click("#tab-engines")
@@ -9367,15 +9415,16 @@ def test_a_restart_whose_engine_never_comes_back_redraws_the_screen(open_panel):
         " === 'The engine has not answered in two minutes. It may still be starting.'",
         timeout=10_000)
 
-    assert text_of(page, "#engine-state-text") == "Not detected", (
+    assert text_of(page, "#engine-state-text") == "Stopped", (
         "the banner still describes the engine as it was before Restart")
     # Run is not the open screen, so its card is read by its own class.
     assert page.evaluate(
         "() => !document.getElementById('setup').classList.contains('hidden')"), (
         "Run does not say the engine is not running")
-    assert text_of(page, "#engine-release-verdict") == "Available to install", (
+    assert text_of(page, "#engine-release-verdict") == "", (
         "the release row still judges the engine that left")
-    assert text_of(page, "#engine-download-label") == "Download engine"
+    assert page.is_hidden("#engine-download"), (
+        "Download is offered for an engine that is on this computer, stopped")
     assert not page.js_errors, page.js_errors
 
 
@@ -9440,7 +9489,7 @@ def test_the_banner_says_restarting_for_the_whole_wait(open_panel):
     (ENGINE_AFTER_RESTART, ENGINE_BOW_OUT_MS, ENGINE_DARK_MS,
      ["Running", "Checking engine…", "Running"], "ok"),
     (None, 10**9, ENGINE_DARK_MS, ["Running"], "ok"),
-    (ENGINE_AFTER_RESTART, ENGINE_BOW_OUT_MS, 10**9, ["Not detected"], None),
+    (ENGINE_AFTER_RESTART, ENGINE_BOW_OUT_MS, 10**9, ["Stopped"], None),
 ], ids=["a-new-engine-answers", "the-same-engine-still-answers", "no-engine-comes-back"])
 def test_the_banner_says_restarting_until_the_ending(
         open_panel, successor_build, bow_out_ms, dark_ms, said, tone):
@@ -9537,7 +9586,7 @@ def test_a_restart_with_the_engine_gone_unnoticed_draws_what_answers(open_panel)
 
     assert text_of(page, "#engine-restart-note") == (
         "No engine is running, so there is nothing to restart. Start it on the Run page.")
-    assert page.evaluate("() => window.__bannerSaid") == ["Restarting", "Not detected"]
+    assert page.evaluate("() => window.__bannerSaid") == ["Restarting", "Stopped"]
     assert page.get_attribute("#engine-state-banner", "data-tone") is None
     assert page.evaluate(RUN_DRAWS_ITS_START), "Run draws no Start for the engine that went"
     # What the row says for an engine that does not answer is #1636's; here, only that it
@@ -9607,7 +9656,7 @@ def test_a_restart_that_finds_the_engine_slow_then_gone_draws_it_as_gone(open_pa
 
     assert text_of(page, "#engine-restart-note") == (
         "No engine is running, so there is nothing to restart. Start it on the Run page.")
-    assert page.evaluate("() => window.__bannerSaid") == ["Restarting", "Not detected"]
+    assert page.evaluate("() => window.__bannerSaid") == ["Restarting", "Stopped"]
     assert page.evaluate(RUN_DRAWS_ITS_START), "Run draws no Start for the engine that went"
     assert not page.js_errors, page.js_errors
 
@@ -9691,7 +9740,7 @@ def test_a_candidate_keeps_its_own_banner_through_the_wait(open_panel):
     page.clock.run_for(3_000)
     assert text_of(page, "#engine-state-text") == "Not installed", (
         "ScrapeX's ending is drawn on a candidate's banner")
-    assert text_of(page, "#engine-status") == "Not detected"
+    assert text_of(page, "#engine-status") == "Stopped"
     assert not page.js_errors, page.js_errors
 
 
@@ -10990,12 +11039,13 @@ def stacks_off_the_gap(page, stacks: list, label: str) -> list[str]:
 def test_on_a_touch_screen_the_panels_stacks_stand_18px_apart_at_the_widths_they_failed(
         open_panel):
     """His ruling on #1457, read in a browser: on a touch screen the Engine screen's Download
-    and Check again, and Run's Select all and Clear, stand 18px apart, at 320, 420 and 500px,
-    where the stacks took each other's taps before it. The static guard holds where each
-    stack reads --touch-stack-gap, and a later rule scoped to a width that set the gap back
-    to 8px passed it, and the sweep, which reads only 360px."""
+    and Check again, Run's Select all and Clear, and the DB Browser card's Copy database path
+    and Open download page (#1556), stand 18px apart, at 320, 420 and 500px, where the stacks
+    took each other's taps before it. The static guard holds where each stack reads
+    --touch-stack-gap, and a later rule scoped to a width that set the gap back to 8px passed
+    it, and the sweep, which reads only 360px."""
     stacks = [where for where in STACK_GAP if where[0] == APP]
-    assert len(stacks) == 2, stacks
+    assert len(stacks) == 3, stacks
     page = open_panel(touch=True)
     off = []
     for width in (320, 420, 500):
@@ -11511,7 +11561,9 @@ def test_the_engine_power_disclosure_is_grouped_with_its_label(open_panel):
 def test_the_engine_install_region_is_divided_and_sha_wraps(open_panel):
     """The expandable installation region is separated by a divider and the
     SHA-256 value is presented as a wrapped technical block."""
-    page = open_panel(engine_manifest={
+    # THE FIRST INSTALL: no engine answers. With one running, Download is drawn only for
+    # an installed build's update (#1556).
+    page = open_panel(engine_up=False, engine_manifest={
         "product": "scrapex-engine", "version": "0.9.0",
         "installer": {"name": "scrapex-engine.exe",
                       "url": "https://example.test/scrapex-engine.exe",
@@ -11549,7 +11601,9 @@ def test_the_engine_install_region_is_divided_and_sha_wraps(open_panel):
 def test_the_engine_actions_stack_full_width_at_320px(open_panel):
     """At the narrowest width the two action buttons stack cleanly to the full
     available width instead of colliding."""
-    page = open_panel(engine_manifest={
+    # THE FIRST INSTALL: no engine answers. With one running, Download is drawn only for
+    # an installed build's update (#1556).
+    page = open_panel(engine_up=False, engine_manifest={
         "product": "scrapex-engine", "version": "0.9.0",
         "installer": {"name": "scrapex-engine.exe",
                       "url": "https://example.test/scrapex-engine.exe",
@@ -11650,7 +11704,9 @@ def test_the_full_bleed_screens_still_bleed_exactly_at_320px(open_panel):
 def test_engine_neutral_controls_keep_text_color_on_hover(open_panel):
     """Engine controls that intentionally stay neutral must not inherit the
     shared button hover foreground (which can be white on a pale background)."""
-    page = open_panel(engine_manifest={
+    # THE FIRST INSTALL: no engine answers. With one running, Download is drawn only for
+    # an installed build's update (#1556).
+    page = open_panel(engine_up=False, engine_manifest={
         "product": "scrapex-engine", "version": "0.9.0",
         "installer": {"name": "scrapex-engine.exe",
                       "url": "https://example.test/scrapex-engine.exe",
@@ -12772,6 +12828,9 @@ def test_reopening_scrapex_after_a_candidate_brings_its_sentence_back(open_panel
     asked the engine about nothing. So the screen the panel's own poll tells him
     to reopen came back with the line MISSING, which reads as "no update state"
     rather than the refusal the engine had actually given.
+
+    The harness runs project files, so the line is the panel's sentence for them
+    behind a release (#1556, C10), not the engine's, which names git.
     """
     page = open_panel()
     _engines(page)
@@ -12782,7 +12841,7 @@ def test_reopening_scrapex_after_a_candidate_brings_its_sentence_back(open_panel
     open_engine(page)
     page.wait_for_function(
         "() => document.getElementById('engine-update-state')"
-        ".textContent.includes('source checkout')", timeout=10_000)
+        ".textContent.includes('updated with the code')", timeout=10_000)
 
     _back_to_the_catalogue(page)
     open_engine(page, "firecrawl")
@@ -12794,7 +12853,7 @@ def test_reopening_scrapex_after_a_candidate_brings_its_sentence_back(open_panel
     open_engine(page)
     page.wait_for_function(
         "() => document.getElementById('engine-update-state')"
-        ".textContent.includes('source checkout')", timeout=10_000)
+        ".textContent.includes('updated with the code')", timeout=10_000)
     assert page.locator("#engine-update-state").is_visible(), (
         "reopening ScrapeX's own screen left it with no update state at all, so "
         "the panel's own instruction to reopen it is false")
@@ -13466,6 +13525,28 @@ def test_leaving_the_screen_stops_the_asking(open_panel):
     assert page.evaluate("() => window.__updateGets") == settled, (
         "the panel kept asking the engine about an update after the reader left "
         "the screen -- up to 310 requests for a page nobody is looking at")
+
+
+def test_a_check_holds_the_engines_download_and_drops_a_press(open_panel):
+    """Check again holds Download until its answer (`refreshEngineBusy`), and a press in
+    the meantime is dropped by `startEngineUpdate`'s guard, so no POST reaches the engine.
+    #2014's merge gate found the guard deletable with every test green."""
+    page = open_panel()
+    _engines(page)
+    _engine_with_update(page, _report())
+    open_engine(page)
+    page.wait_for_function(
+        "() => document.getElementById('engine-download-label').textContent"
+        ".startsWith('Download and check')", timeout=15_000)
+    page.evaluate("() => { window.__update.__delay_ms = 3000; }")
+    page.click("#engine-recheck")
+    page.wait_for_function(
+        "() => document.getElementById('engine-download').getAttribute('aria-disabled') === 'true'")
+    page.evaluate("() => document.getElementById('engine-download').click()")
+    page.wait_for_function("() => !document.getElementById('engine-recheck').disabled",
+                           timeout=15_000)
+    assert page.evaluate("() => window.__updatePosts") == 0, (
+        "a press during a check reached the engine")
 
 
 def test_a_verification_failure_reaches_the_screen_in_the_engines_own_words(open_panel):

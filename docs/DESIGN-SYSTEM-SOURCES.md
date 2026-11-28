@@ -226,6 +226,8 @@ A conflict exists only where Supabase **specifies** something different. Where i
 | A time read in a zone other than his display zone: a schedule's next slot in the schedule's own zone and 24-hour clock | ECMA-402 `Intl.DateTimeFormat` `timeZone`; the IANA time zone database. Drawn by `ScrapeXTime.wallClock`, the one formatter | #1631 |
 | Where focus goes when the row holding it leaves a list | WCAG 2.2 SC 2.4.3; WAI-ARIA APG (focus moves to a logical place) | #1631 |
 | A modal sheet in a panel with a rail: it stops at the rail, its veil covers the rail, and everything behind it is inert | WAI-ARIA APG Dialog (Modal); the HTML `inert` attribute | #1631 |
+| The word for an engine that is on this computer and not running | Microsoft `ServiceControllerStatus`, for vocabulary only: `Stopped`, "The service is not running." Studio's `Paused` is a deliberate pause (`ProjectCardStatus.tsx@86c813ec:51-52`) | #1556 |
+| What a third-party app the panel points to calls its own controls, and what a second connection does to the warehouse | The app's own source and documentation at a named release (DB Browser for SQLite `src/MainWindow.ui@v3.13.1`, its wiki); SQLite's documentation (`wal.html`, `lang_transaction.html`) | #1556 |
 
 ## Mandates
 
@@ -253,6 +255,7 @@ Whatever the reason, he grants it only after seeing Supabase's version and the a
 | The sheet names its site in full, English and Arabic | study-backed proposal: the shared identity ellipsizes its names, as Jobs' rows do; the sheet that edits one shows every word | WCAG 2.2 SC 1.4.10 | The sheet's identity | #1631 |
 | Add source and Edit source have no "Schedule" select; Add source says where a schedule is made, and records `manual` | his preference: one feature in one place. The select wrote `cadence`, which nothing that schedules reads (#1415) | his ruling on #1631 (option (c)), the decision #1575 owns | Add source, Edit source | #1631 |
 | No hint under Start while the engine's refusal of the selection on screen stands | study-backed proposal: Supabase draws a field's description beside its error (`FormLayout.tsx@86c813ec:317-350, 425-426, 452-453`), where the description states a constraint that stays true; this hint predicts what a press will do, and the engine's answer has superseded it. He chose from 09 against 09a on 2026-10-19 | — | The Run page's hint under Start (`#run-blocked`) | #1701 (row 15) |
+| The Engine page's versions note is a row of the version list, not an Admonition box | study-backed proposal: the panel has no Admonition atom; the note stands where the versions would be, as Studio places its own (`ServiceVersionsSection.tsx@86c813ec:100-106`), with a title and a description (`admonition.mdx@86c813ec:20-22`) | — | The versions note on the ScrapeX Engine page | #1556 |
 
 **Barred:** Carbon, Material 3, Polaris, Atlassian, GOV.UK and Office cannot govern anything Supabase covers. Carbon's single row above is for vocabulary, in a gap.
 

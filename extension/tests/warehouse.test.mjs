@@ -165,16 +165,19 @@ test("it says the data is not his, names the folder, and prints the path", () =>
   assert.ok(!summary.detail.includes("…"), summary.detail);
 });
 
+//: The longest word the catalogue row's badge may carry (see the test below).
+const BADGE_CEILING = "Installed, not running".length;
+
 test("the badge text stays inside the length the row is known to hold", () => {
   // `.badge` is `white-space: nowrap` with no ellipsis (extension/
   // components.css), and the row already carries an icon tile, a version chip
   // and a chevron. Measured in the harness at a 360px panel: "Temporary
   // database" renders 138px wide and neither the badge nor the row overflows.
-  // "Installed, not running" is the longest word this badge has ever shown, so
-  // it is the ceiling a new one may not pass — a character count rather than a
-  // pixel one, because this suite runs without a browser.
-  assert.ok(summaryFor({warehousePath: THE_INCIDENT}).text.length
-              <= "Installed, not running".length,
+  // "Installed, not running" was the longest word this badge ever showed (it reads
+  // "Not running" since #1556), so its 22 characters stay the ceiling a new one may
+  // not pass — a character count rather than a pixel one, because this suite runs
+  // without a browser.
+  assert.ok(summaryFor({warehousePath: THE_INCIDENT}).text.length <= BADGE_CEILING,
             summaryFor({warehousePath: THE_INCIDENT}).text);
 });
 
@@ -246,9 +249,9 @@ test("no other status branch is changed by a warehouse being known", () => {
     [{engineState: "ready", protocolMismatch: true, engineProtocol: 99},
      "Incompatible", "danger"],
     [{engineState: "timeout", engineUp: false}, "Check timed out", "warn"],
-    [{engineState: "stopped", engineUp: false}, "Installed, not running", "warn"],
+    [{engineState: "stopped", engineUp: false}, "Not running", "warn"],
     [{engineState: "unavailable", engineUp: false, engineVersion: "",
-      engineReachable: false}, "Not detected", "neutral"],
+      engineReachable: false, engineHelper: {kind: "absent"}}, "Not detected", "neutral"],
   ];
   for (const [over, text, tone] of cases) {
     const summary = summaryFor(Object.assign({warehousePath: THE_INCIDENT}, over));
@@ -263,6 +266,59 @@ test("no other status branch is changed by a warehouse being known", () => {
       assert.ok(!summary.detail.includes(trace),
                 `${text} is describing a warehouse (${trace}): ${summary.detail}`);
     }
+  }
+});
+
+test("when nothing answers, the helper's answer is the state (#1556)", () => {
+  const down = {engineState: "unavailable", engineUp: false, engineVersion: "",
+                engineReachable: false};
+  // AN ENGINE ON THIS COMPUTER, STOPPED: named by the version the helper launches.
+  const stopped = summaryFor(Object.assign({engineHelper: {kind: "ok", version: "0.4.89"}}, down));
+  assert.equal(stopped.text, "Stopped");
+  assert.equal(stopped.tone, "neutral");
+  assert.equal(stopped.detail, "ScrapeX Engine 0.4.89 is on this computer and not running. "
+    + "Start engine is on the Run page.");
+  assert.notEqual(stopped.noEngine, true);
+  // A HELPER THAT DID NOT ANSWER: the row keeps one or two words, and its sentence
+  // names the page that holds Check again.
+  const silent = summaryFor(Object.assign({engineHelper: {kind: "timeout"}}, down));
+  assert.equal(silent.text, "Local helper did not answer");
+  assert.equal(silent.detail, "Press Check again.");
+  assert.equal(silent.row.text, "No answer");
+  assert.match(silent.row.detail, /on the ScrapeX Engine page\.$/);
+  for (const kind of ["timeout", "forbidden", "crashed"]) {
+    const summary = summaryFor(Object.assign({engineHelper: {kind}}, down));
+    assert.ok(summary.row.text.split(" ").length <= 2, `${kind}: ${summary.row.text}`);
+    assert.ok(summary.row.text.length <= BADGE_CEILING, `${kind}: ${summary.row.text}`);
+    assert.notEqual(summary.noEngine, true, kind);
+  }
+  // NOTHING HEARD FROM THE HELPER YET, asked or not: nothing is concluded (A9), and
+  // nothing is called absent -- that took an installed engine for none (#2014's gate).
+  const unasked = summaryFor(down);
+  assert.equal(unasked.text, "Checking engine…");
+  assert.notEqual(unasked.noEngine, true);
+  // NO ENGINE DETECTED, and the sentence offers Download only when a release can be
+  // installed -- and says the release page was not reached when it was not.
+  const none = summaryFor(Object.assign({engineHelper: {kind: "absent"},
+                                         releaseInstallable: true}, down));
+  assert.equal(none.text, "Not detected");
+  assert.equal(none.noEngine, true);
+  assert.equal(none.detail, "No engine answered on this computer. Download engine to "
+    + "install it, or run scrapex-engine.exe if it is already installed.");
+  const absent = Object.assign({engineHelper: {kind: "absent"}}, down);
+  assert.equal(summaryFor(Object.assign({releaseState: "offline"}, absent)).detail,
+    "No engine answered on this computer, and the release page could not be reached. "
+    + "Press Check again to retry.");
+  assert.equal(summaryFor(Object.assign({releaseState: "none"}, absent)).detail,
+    "No engine answered on this computer.");
+});
+
+test("a worker that stopped reads Not running for either build (#1556)", () => {
+  // "Installed, not running" sat over project files, which are not installed.
+  for (const over of [{engineState: "ready", engineUp: false, engineVersion: "0.4.89"},
+                      {engineState: "stopped", engineUp: false, engineVersion: "",
+                       engineReachable: true}]) {
+    assert.equal(summaryFor(over).text, "Not running");
   }
 });
 

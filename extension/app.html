@@ -1616,6 +1616,38 @@
         <div id="db-integrity-note" class="muted text-xs" role="status"></div>
       </div>
 
+      <!-- DB BROWSER FOR SQLITE: a way to look through this file, never a second
+           writer to it (CLAUDE.md: the warehouse write permission is exclusive).
+           Designed and approved on #1556 (placement D, option O1, 2026-11-26).
+
+           THE WARNING IS THE GUARD. DB Browser opens a file read-write unless
+           File › Open Database Read Only… (Ctrl+Shift+O) is chosen
+           (src/MainWindow.ui@v3.13.1:2395-2414); read-write, its first edit opens a
+           savepoint held until Write Changes or Revert Changes (its wiki,
+           Transactions), and SQLite allows one writer at a time (sqlite.org,
+           lang_transaction.html §2.1), so the engine's writes wait and then fail.
+           The glyph carries the warning colour and the words stay the foreground
+           (the mandate "Warning words readable at 12 px").
+
+           Shown while an engine runs. Copy database path copies the path the page's
+           own header shows, `state.warehousePath`, and is drawn only once that path
+           is known; the line under the buttons is the one live region, reserved
+           with &nbsp; so a result does not move what is below it. -->
+      <div class="card hidden" id="db-browser">
+        <div class="kv"><strong id="db-browser-title">DB Browser for SQLite</strong></div>
+        <p class="muted text-xs" id="db-browser-line">A free desktop app for looking through this database's tables.</p>
+        <p class="text-sm job-tone-warning" id="db-browser-warning" role="note"><svg class="sx-icon inline-icon" aria-hidden="true"><use href="#material-warning"></use></svg>
+          <strong>Open it read-only.</strong> In DB Browser, choose File › Open Database
+          Read Only… (Ctrl+Shift+O). If you open it any other way, one edit there stops
+          the engine from saving until you choose Revert Changes.</p>
+        <div class="cluster" id="db-browser-actions">
+          <button class="ghost compact" id="db-browser-copy" type="button">Copy database path</button>
+          <a class="button ghost compact icon-label" id="db-browser-download"
+             href="https://sqlitebrowser.org/dl/" target="_blank" rel="noreferrer"><span>Open download page</span><svg class="sx-icon sm" aria-hidden="true"><use href="#material-open-in-new"></use></svg></a>
+        </div>
+        <p class="muted text-xs" id="db-browser-result" role="status">&nbsp;</p>
+      </div>
+
       <div class="card">
         <strong>Size on disk</strong>
         <div id="db-sizes"></div>
@@ -1770,8 +1802,33 @@
         </div>
 
         <section class="engine-spec-list" aria-label="Engine details">
+          <!-- ONE NOTE WHERE THE VERSION ROWS STAND while no engine has answered:
+               nothing can report them yet (ServiceVersionsSection.tsx@86c813ec:100-106
+               places such a note where the versions would be). The title is drawn only
+               when no engine is detected at all, where Download engine is the action:
+               the engine it installs carries its own Python and SQLite
+               (packaging/engine_entry.py), so neither is something he installs. The
+               panel has no Admonition atom, so the note is this list's own row (#1556,
+               approved 2026-11-26). -->
+          <div class="engine-spec-row hidden" id="engine-spec-versions-note">
+            <span class="engine-spec-note">
+              <span class="engine-spec-label"><strong id="engine-versions-note-title"></strong></span>
+              <small id="engine-versions-note-text"></small>
+            </span>
+          </div>
+          <!-- "VERSION", NOT "INSTALLED VERSION": project files are not installed, and
+               which of the two runs is the Build row's to say (#1556). The badge is
+               "Unreleased" when the running engine is newer than the published one,
+               as Studio marks a local build newer than the release
+               (LocalVersionPopover.tsx@86c813ec:45-46, 61-62); neutral, because the
+               amber badge fails text contrast in light (#1934). -->
           <div class="engine-spec-row" id="engine-spec-installed">
-            <span class="engine-spec-label">Installed version</span>
+            <span class="engine-spec-note">
+              <span class="engine-spec-label">
+                Version
+                <span class="badge hidden" id="engine-version-verdict"></span>
+              </span>
+            </span>
             <span class="engine-spec-value tech" id="engine-installed-version">—</span>
           </div>
           <!-- DIRECTLY UNDER THE VERSION, because the version is the row that
@@ -1981,7 +2038,9 @@
            (issue 439). Hidden until the engine has answered. -->
       <p class="muted text-xs hidden" id="engine-update-state"></p>
       <div class="engine-detail-actions" id="engine-detail-actions">
-        <button class="engine-action-primary" id="engine-download" type="button" disabled>
+        <!-- HIDDEN UNTIL THE FIRST ANSWER: nothing is offered before it (A9, #1556).
+             `updateEngineReleaseUI` draws it where it can be the answer. -->
+        <button class="engine-action-primary hidden" id="engine-download" type="button" disabled>
           <svg class="sx-icon sm" aria-hidden="true">
             <use href="#material-file-download"></use>
           </svg>
