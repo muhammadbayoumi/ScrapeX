@@ -13527,6 +13527,28 @@ def test_leaving_the_screen_stops_the_asking(open_panel):
         "the screen -- up to 310 requests for a page nobody is looking at")
 
 
+def test_a_check_holds_the_engines_download_and_drops_a_press(open_panel):
+    """Check again holds Download until its answer (`refreshEngineBusy`), and a press in
+    the meantime is dropped by `startEngineUpdate`'s guard, so no POST reaches the engine.
+    #2014's merge gate found the guard deletable with every test green."""
+    page = open_panel()
+    _engines(page)
+    _engine_with_update(page, _report())
+    open_engine(page)
+    page.wait_for_function(
+        "() => document.getElementById('engine-download-label').textContent"
+        ".startsWith('Download and check')", timeout=15_000)
+    page.evaluate("() => { window.__update.__delay_ms = 3000; }")
+    page.click("#engine-recheck")
+    page.wait_for_function(
+        "() => document.getElementById('engine-download').getAttribute('aria-disabled') === 'true'")
+    page.evaluate("() => document.getElementById('engine-download').click()")
+    page.wait_for_function("() => !document.getElementById('engine-recheck').disabled",
+                           timeout=15_000)
+    assert page.evaluate("() => window.__updatePosts") == 0, (
+        "a press during a check reached the engine")
+
+
 def test_a_verification_failure_reaches_the_screen_in_the_engines_own_words(open_panel):
     """`phase: "failed"` HAD NO TEST AT ALL, and it is the state that carries
     this whole feature's security value.

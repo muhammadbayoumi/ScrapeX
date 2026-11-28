@@ -178,7 +178,6 @@ const state = {
   // "an engine here, stopped". Kept across a re-check, so the page keeps the last
   // answer while it asks again; dropped when an engine answers.
   engineHelper: null,
-  engineHelperAsking: false,
   // WHAT THE RELEASE FEED SAID, for the sentence that offers Download: its state
   // (`ok`, `none`, `offline`, `unreadable`, or "" before it is read) and whether it
   // names an installer the panel can hand to Chrome.
@@ -959,6 +958,14 @@ async function updateEngineState() {
   const engine = await checkEngine({backend, signal: backendSignal()});
   if (!current() || engine.cancelled) return {cancelled: true};
   setStatus(engine);
+  // NOTHING ANSWERED, WITH THE ENGINE PAGE OPEN, AND NO ONE ELSE WILL ASK THE HELPER: a
+  // first check that settled after he opened the page, or a `render()`. So the page is
+  // drawn the way entering it draws it, which asks. Check again asks for itself
+  // (`refreshEngines`), and a restart's ending draws the page itself (#2014's gate).
+  if (state.engineState === "unavailable" && !engineRecheckRunning && !restartRunning
+      && ["engines", "engine-detail"].includes(currentViewName())) {
+    renderEngines();
+  }
   await loadVersions(engine, current);
   if (!current()) return {cancelled: true};
   // The Schedules page's switches and its old-engine note follow this answer, from what
@@ -4266,7 +4273,6 @@ let helperGeneration = 0;
 
 async function askTheHelper() {
   const asked = ++helperGeneration;
-  state.engineHelperAsking = true;
   renderEngineStatusUI();
   let answer;
   try {
@@ -4286,7 +4292,6 @@ async function askTheHelper() {
     }
   }
   if (asked !== helperGeneration) return;
-  state.engineHelperAsking = false;
   if (!state.engineUp) state.engineHelper = answer;
   renderEngineStatusUI();
 }
@@ -4385,12 +4390,16 @@ function engineStatusFromState() {
         + "answered. Open ScrapeX Engine for what to do." },
     };
   }
-  // THE ASK IS STILL OUT and nothing has been heard from the helper yet: the check
-  // has not finished, so nothing is concluded.
-  if (!helper && state.engineHelperAsking) {
+  // NOTHING HEARD FROM THE HELPER YET, asked or not: nothing is concluded, as A9 draws
+  // the first check. "Not detected" here called an installed engine absent (#1636)
+  // whenever a path found the engine gone before the helper was asked: a first visit
+  // during the release fetch, a check that settled with this page open, Run
+  // diagnostics (#2014's gate). Those paths ask now (`updateEngineState`,
+  // `runEngineDiagnostics`).
+  if (!helper) {
     return { text: "Checking engine…", tone: "neutral", detail: "" };
   }
-  // NO ENGINE DETECTED: no helper either, or none asked. Download engine is the action
+  // NO ENGINE DETECTED: the helper says none is here. Download engine is the action
   // when a release can be installed; the sentence allows for an engine installed but
   // never linked (issue 839), which reads exactly the same.
   let detail = "No engine answered on this computer.";
@@ -5605,7 +5614,11 @@ async function renderEngines() {
   if (!latestRelease) {
     latestRelease = await latestEngineRelease();
   }
-  noteRelease(latestRelease);
+  // THE RELEASE THIS DRAW READ IS THE ONE IT PAINTS. The ask below is an await, and
+  // Check again empties the cache meanwhile (`refreshEngines`): painting from the
+  // cache after it threw on `null` (#2014's gate).
+  const release = latestRelease;
+  noteRelease(release);
   // NOTHING ANSWERED: the helper says whether an engine is here (#1556's N4), and
   // Download waits for that answer.
   if (state.engineState === "unavailable") await askTheHelper();
@@ -5615,7 +5628,16 @@ async function renderEngines() {
   // update already in flight has reached -- so it is asked whenever it can
   // answer. `null` when it cannot leaves the panel's own fetch as the whole
   // answer, which is the engine-down case (issue 439).
-  await updateEngineReleaseUI(latestRelease);
+  await updateEngineReleaseUI(release);
+}
+
+// RUN'S START CARD FOLLOWS A CHECK'S ANSWER (#1974's first half), so the Stopped
+// state's "Start engine is on the Run page." is true when he gets there (#1556) --
+// BUT NOT A TIMEOUT. A deadline is not the dark: a slow engine is still serving, and
+// a Start beside it can launch a second one (#1974), the rule the restart's preflight
+// keeps. Check again and Run diagnostics draw it here; `render()` keeps its own.
+function drawRunsStartCard(engine) {
+  if (!engine.timedOut) $("setup").classList.toggle("hidden", engine.running);
 }
 
 async function refreshEngines() {
@@ -5635,9 +5657,8 @@ async function refreshEngines() {
     if (!engine.cancelled) {
       // RUN'S START CARD FOLLOWS THIS ANSWER TOO (#1974's first half). Only
       // `render()` drew it, so after a Check again here found the engine gone, Run
-      // had no Start; and the Stopped state's "Start engine is on the Run page." has
-      // to be true when he gets there (#1556).
-      $("setup").classList.toggle("hidden", engine.running);
+      // had no Start.
+      drawRunsStartCard(engine);
       // AN ENGINE THAT ANSWERED IS ASKED WHICH DATABASE IT HAS OPEN, as
       // `renderEngines` asks: `setStatus` forgets the path when an engine comes up,
       // and without this the banner and the DB Browser card had none to show.
@@ -5702,7 +5723,12 @@ async function runEngineDiagnostics() {
   // hang for ever is the one button in the panel that must not.
   const engine = await probeEngine();
   setStatus(engine);
-  renderEngineStatusUI();
+  // THE WHOLE PAGE IS DRAWN AGAIN FROM THIS ANSWER, the way entering it draws it. The
+  // banner alone left the release row, Download and the install steps saying what the
+  // last answer said: "Download engine" beside an engine now running. And the helper
+  // is asked when nothing answered (#2014's gate).
+  renderEngines();
+  drawRunsStartCard(engine);
   out.textContent = engine.protocolMismatch
     ? `The panel and the ScrapeX engine speak different protocol versions ` +
       `(panel ${engine.clientProtocol}, engine ${engine.engineProtocol}). ` +

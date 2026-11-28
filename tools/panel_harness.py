@@ -457,6 +457,13 @@ window.chrome = {{
                   chrome.runtime.lastError = null;
                   return;
                 }}
+                // A HOST FROM BEFORE PING refuses it as an unknown command, as
+                // `scrapex/native.py` refuses any command it does not know.
+                if (NATIVE_MODE === "refuses" && message.command === "PING") {{
+                  callback({{ok: false, error: "unknown_command",
+                            detail: "unknown command 'PING'"}});
+                  return;
+                }}
                 // PING ANSWERS AS `scrapex/native.py` DOES: the app, the version of
                 // the engine this host launches, and the protocol.
                 if (message.command === "PING") {{

@@ -2038,7 +2038,9 @@
            (issue 439). Hidden until the engine has answered. -->
       <p class="muted text-xs hidden" id="engine-update-state"></p>
       <div class="engine-detail-actions" id="engine-detail-actions">
-        <button class="engine-action-primary" id="engine-download" type="button" disabled>
+        <!-- HIDDEN UNTIL THE FIRST ANSWER: nothing is offered before it (A9, #1556).
+             `updateEngineReleaseUI` draws it where it can be the answer. -->
+        <button class="engine-action-primary hidden" id="engine-download" type="button" disabled>
           <svg class="sx-icon sm" aria-hidden="true">
             <use href="#material-file-download"></use>
           </svg>

@@ -251,7 +251,7 @@ test("no other status branch is changed by a warehouse being known", () => {
     [{engineState: "timeout", engineUp: false}, "Check timed out", "warn"],
     [{engineState: "stopped", engineUp: false}, "Not running", "warn"],
     [{engineState: "unavailable", engineUp: false, engineVersion: "",
-      engineReachable: false}, "Not detected", "neutral"],
+      engineReachable: false, engineHelper: {kind: "absent"}}, "Not detected", "neutral"],
   ];
   for (const [over, text, tone] of cases) {
     const summary = summaryFor(Object.assign({warehousePath: THE_INCIDENT}, over));
@@ -292,9 +292,11 @@ test("when nothing answers, the helper's answer is the state (#1556)", () => {
     assert.ok(summary.row.text.length <= BADGE_CEILING, `${kind}: ${summary.row.text}`);
     assert.notEqual(summary.noEngine, true, kind);
   }
-  // THE FIRST ASK STILL OUT: nothing is concluded yet.
-  assert.equal(summaryFor(Object.assign({engineHelperAsking: true}, down)).text,
-               "Checking engine…");
+  // NOTHING HEARD FROM THE HELPER YET, asked or not: nothing is concluded (A9), and
+  // nothing is called absent -- that took an installed engine for none (#2014's gate).
+  const unasked = summaryFor(down);
+  assert.equal(unasked.text, "Checking engine…");
+  assert.notEqual(unasked.noEngine, true);
   // NO ENGINE DETECTED, and the sentence offers Download only when a release can be
   // installed -- and says the release page was not reached when it was not.
   const none = summaryFor(Object.assign({engineHelper: {kind: "absent"},
@@ -303,10 +305,11 @@ test("when nothing answers, the helper's answer is the state (#1556)", () => {
   assert.equal(none.noEngine, true);
   assert.equal(none.detail, "No engine answered on this computer. Download engine to "
     + "install it, or run scrapex-engine.exe if it is already installed.");
-  assert.equal(summaryFor(Object.assign({releaseState: "offline"}, down)).detail,
+  const absent = Object.assign({engineHelper: {kind: "absent"}}, down);
+  assert.equal(summaryFor(Object.assign({releaseState: "offline"}, absent)).detail,
     "No engine answered on this computer, and the release page could not be reached. "
     + "Press Check again to retry.");
-  assert.equal(summaryFor(Object.assign({releaseState: "none"}, down)).detail,
+  assert.equal(summaryFor(Object.assign({releaseState: "none"}, absent)).detail,
     "No engine answered on this computer.");
 });
 

@@ -120,6 +120,9 @@ def test_with_no_engine_and_no_helper_download_is_the_one_action(open_panel, wid
     assert primaries.count() == 1
     # Nothing to restart.
     assert not visible(page, "#runtime-restart")
+    # "Not installed" is the one answer the startup trace leaves out (`askTheHelper`).
+    assert page.evaluate(
+        "() => performance.getEntriesByName('scrapex:helper-unanswered').length") == 0
 
 
 def test_an_unreachable_release_page_is_said_and_download_is_held(open_panel):
@@ -183,24 +186,33 @@ def test_a_silent_helper_is_said_and_the_row_keeps_two_words(open_panel):
     assert text_of(page, "#engine-status") == "No answer"
     assert text_of(page, "#engine-status-detail") == (
         "The local helper did not answer. Press Check again on the ScrapeX Engine page.")
+    # NOT SWALLOWED: a helper that does not answer is in the startup trace.
+    page.wait_for_function(TRACED, arg="helper-unanswered")
 
 
-@pytest.mark.parametrize("mode, title, detail, row", [
+@pytest.mark.parametrize("mode, title, detail, row, row_detail", [
     ("forbidden", "Local helper not linked",
      "It does not recognise this extension, so Chrome cannot start the engine from "
-     "here. Start it by running scrapex-engine.exe.", "Not linked"),
+     "here. Start it by running scrapex-engine.exe.", "Not linked",
+     "The local helper does not recognise this extension. Open ScrapeX Engine for what "
+     "to do."),
     ("crashed", "Local helper stopped",
      "It closed before it answered. Nothing is lost, and the engine can still be "
-     "started from Windows.", "Helper stopped"),
+     "started from Windows.", "Helper stopped",
+     "The local helper closed before it answered. Open ScrapeX Engine for what to do."),
 ])
 def test_a_helper_that_refuses_or_dies_keeps_its_approved_words(open_panel, mode, title,
-                                                                 detail, row):
+                                                                 detail, row, row_detail):
     page = detail_page(open_panel, engine_up=False, engine_manifest=RELEASE,
                        native_mode=mode)
     wait_for_state(page, title)
     assert text_of(page, "#engine-state-detail") == detail
+    # THE LIST ROW: two words in the badge, and a sentence naming the page to open.
     assert text_of(page, "#engine-status") == row
+    assert text_of(page, "#engine-status-detail") == row_detail
     assert not visible(page, "#engine-download")
+    # NOT SWALLOWED: a helper that refuses or dies is in the startup trace.
+    page.wait_for_function(TRACED, arg="helper-unanswered")
 
 
 def test_a_check_that_timed_out_offers_no_download(open_panel):
@@ -220,6 +232,15 @@ def test_a_check_that_timed_out_offers_no_download(open_panel):
               text};
     }""")
     assert colours["bannerBg"] == colours["surface"], colours
+    assert colours["words"] == colours["text"], colours
+    # THE TONE IS THE ICON TILE'S: --warning-600 in light, as the busy tile wears it.
+    tile = page.evaluate("""() => {
+      const style = getComputedStyle(document.querySelector('#engine-state-banner > .icon-tile'));
+      return [style.color, style.borderTopColor];
+    }""")
+    assert tile == ["rgb(220, 123, 24)", "rgb(220, 123, 24)"], tile
+    # AN ENGINE MAY STILL BE THERE, so Restart stays: it goes only when nothing answered.
+    assert visible(page, "#runtime-restart")
 
 
 def test_a_worker_that_stopped_reads_not_running_for_either_build(open_panel):
@@ -362,22 +383,29 @@ def test_a_badge_never_breaks_a_version(open_panel, width):
 
 def test_the_helper_is_asked_once_per_check_and_never_while_the_engine_answers(
         open_panel):
-    page = detail_page(open_panel, engine_up=False, engine_manifest=RELEASE,
-                       native_mode="ok")
+    """Once per draw of the Engine screens -- the list, then the engine's own page --
+    and once per Check again. Never polled, and never while the engine answers, on a
+    draw or on Check again."""
+    page = open_panel(engine_up=False, engine_manifest=RELEASE, native_mode="ok")
+    page.click('nav.side-rail button[data-view="engines"]')
+    open_engine(page)
     wait_for_state(page, "Stopped")
-    pings = lambda: page.evaluate("() => window.__nativeCalls.filter(c => c === 'PING').length")  # noqa: E731
-    first = pings()
-    assert first >= 1
+    assert pings(page) == 2, "one ask per draw: the list, then the engine's own page"
     page.wait_for_timeout(3_000)
-    assert pings() == first, "the helper is being polled"
+    assert pings(page) == 2, "the helper is being polled"
     page.click("#engine-recheck")
     page.wait_for_function("() => !document.getElementById('engine-recheck').disabled")
     wait_for_state(page, "Stopped")
-    assert pings() == first + 1
+    assert pings(page) == 3
 
-    up = detail_page(open_panel, engine_up=True, engine_manifest=RELEASE, native_mode="ok")
+    up = open_panel(engine_up=True, engine_manifest=RELEASE, native_mode="ok")
+    up.click('nav.side-rail button[data-view="engines"]')
+    open_engine(up)
     wait_for_state(up, "Running")
-    assert up.evaluate("() => window.__nativeCalls.filter(c => c === 'PING').length") == 0
+    up.click("#engine-recheck")
+    up.wait_for_function("() => !document.getElementById('engine-recheck').disabled")
+    wait_for_state(up, "Running")
+    assert pings(up) == 0, "the helper was asked about an engine that answers"
 
 
 FLIP = """
@@ -436,6 +464,381 @@ def test_runs_start_card_follows_the_engine_pages_check(open_panel, browser, tmp
         page.wait_for_selector("#view-run", state="visible")
         engine_now_down = not down_at_start
         assert visible(page, "#setup") == engine_now_down
+    finally:
+        page.close()
+
+
+# ---- no verdict before the helper answers (#2014's merge gate, reviewer B) -----------
+
+#: Holds every fetch whose URL matches the pattern for `delay_ms` before the stub answers.
+SLOW = """
+(() => { let inner;
+  Object.defineProperty(window, 'fetch', { configurable: true,
+    get() { const captured = inner;
+      return (u, o) => new RegExp(%s).test(String(u))
+        ? new Promise((r) => setTimeout(r, %d)).then(() => captured(u, o))
+        : captured(u, o); },
+    set(v) { inner = v; } }); })();
+"""
+
+
+def slow_page(browser, tmp_path, pattern: str, delay_ms: int, ready: str, **stub):
+    """A panel opened with every fetch matching `pattern` held for `delay_ms`."""
+    page_file = harness.build_page(tmp_path, harness.stub(**stub), name="slow.html")
+    page = browser.new_page(viewport={"width": 400, "height": 900})
+    page.add_init_script(SLOW % (repr(pattern), delay_ms))
+    page.goto(page_file.as_uri())
+    {"settled": harness.wait_until_settled,
+     "interactive": harness.wait_until_interactive}[ready](page)
+    return page
+
+
+def pings(page) -> int:
+    return page.evaluate("() => window.__nativeCalls.filter((c) => c === 'PING').length")
+
+
+def test_the_first_check_concludes_and_offers_nothing_before_the_helper_answers(
+        browser, tmp_path):
+    """A9: nothing is offered and no verdict is drawn until the first check answers. With
+    the release feed taking 3 s, the banner said Not detected over an installed engine,
+    Download drawn, before the helper was asked."""
+    page = slow_page(browser, tmp_path, r"raw\.githubusercontent\.com", 3000, "settled",
+                     engine_up=False, engine_manifest=RELEASE, native_mode="ok")
+    try:
+        page.click('nav.side-rail button[data-view="engines"]')
+        open_engine(page)
+        page.wait_for_timeout(1000)
+        assert text_of(page, "#engine-state-text") == "Checking engine…"
+        assert not visible(page, "#engine-download"), "Download offered before any answer"
+        wait_for_state(page, "Stopped")
+        assert not visible(page, "#engine-download")
+    finally:
+        page.close()
+
+
+@pytest.mark.parametrize("native_mode, state", [("ok", "Stopped"), ("absent", "Not detected")])
+def test_a_check_that_settles_with_the_engine_page_open_asks_the_helper(
+        browser, tmp_path, native_mode, state):
+    """He opened the Engine page while the panel's first health check was still out. It
+    settled there with no one asking the helper: an installed engine read Not detected
+    until Check again, and with no engine the sentence named a Download not drawn."""
+    page = slow_page(browser, tmp_path, r"127\.0\.0\.1.*/api/health", 1500, "interactive",
+                     engine_up=False, engine_manifest=RELEASE, native_mode=native_mode)
+    try:
+        page.click('nav.side-rail button[data-view="engines"]')
+        open_engine(page)
+        wait_for_state(page, state)
+        assert pings(page) >= 1, "the helper was never asked"
+        if state == "Stopped":
+            assert not visible(page, "#engine-download")
+        else:
+            assert text_of(page, "#engine-state-detail") == A_SENTENCE
+            page.wait_for_function(
+                "() => !document.getElementById('engine-download').classList.contains('hidden')")
+    finally:
+        page.close()
+
+
+def test_run_diagnostics_that_finds_the_engine_gone_asks_the_helper(open_panel, browser,
+                                                                    tmp_path):
+    """Run diagnostics on the Engine page found the engine gone and drew Not detected, the
+    no-engine sentence and note, without asking the helper that says it is installed."""
+    page = flipping_page(open_panel, browser, tmp_path, down_at_start=False)
+    try:
+        page.click('nav.side-rail button[data-view="engines"]')
+        open_engine(page)
+        wait_for_state(page, "Running")
+        assert pings(page) == 0
+        page.evaluate("() => window.__engineDown = true")
+        page.click("#engine-diagnostics")
+        wait_for_state(page, "Stopped")
+        assert pings(page) == 1
+        assert not visible(page, "#engine-download")
+    finally:
+        page.close()
+
+
+#: A startup trace mark the panel wrote (`markStartup`), by name.
+TRACED = "(name) => performance.getEntriesByName('scrapex:' + name).length >= 1"
+
+#: The first PING is held and never answered (the transport times it out at 5 s); every
+#: later PING is answered at once, as `scrapex/native.py` answers it.
+HOLD_THE_FIRST_PING = """() => {
+  const real = chrome.runtime.sendNativeMessage;
+  let asked = 0;
+  chrome.runtime.sendNativeMessage = (host, message, callback) => {
+    if (message.command !== 'PING') return real(host, message, callback);
+    asked += 1;
+    window.__pings = asked;
+    if (asked === 1) return;
+    setTimeout(() => callback({ok: true, app: 'scrapex', app_version: '0.4.89',
+                               protocol_version: message.protocol_version}), 0);
+  };
+}"""
+
+
+def test_the_newest_ask_owns_the_answer(open_panel):
+    """The list's ask is still out when the engine's own page asks again and hears that an
+    engine is here. The list's ask then times out, and its late answer must not overwrite
+    the newer one (`helperGeneration`)."""
+    page = open_panel(engine_up=False, engine_manifest=RELEASE, native_mode="ok")
+    page.evaluate(HOLD_THE_FIRST_PING)
+    page.click('nav.side-rail button[data-view="engines"]')
+    page.wait_for_function("() => window.__pings === 1")
+    open_engine(page)
+    page.wait_for_function("() => window.__pings === 2")
+    wait_for_state(page, "Stopped")
+    page.wait_for_timeout(6_500)          # past the first ask's own 5 s deadline
+    assert text_of(page, "#engine-state-text") == "Stopped", (
+        "an older ask's late answer overwrote the newer one")
+
+
+def test_a_check_holds_download_and_a_press_in_it_starts_nothing(browser, tmp_path):
+    """A check keeps the last answer and holds Download (`refreshEngineBusy`). A press
+    in the meantime is dropped (`startInstallerDownload`), and the hold ends with the
+    check."""
+    page = slow_page(browser, tmp_path, r"127\.0\.0\.1.*/api/health", 2500, "interactive",
+                     engine_up=False, engine_manifest=RELEASE, native_mode="absent")
+    try:
+        page.click('nav.side-rail button[data-view="engines"]')
+        open_engine(page)
+        wait_for_state(page, "Not detected")
+        page.wait_for_function(
+            "() => !document.getElementById('engine-download').classList.contains('hidden')")
+        page.evaluate("""() => { window.__opened = [];
+          window.open = (url) => { window.__opened.push(url); return null; }; }""")
+        page.click("#engine-recheck")
+        page.wait_for_function(
+            "() => document.getElementById('engine-download').getAttribute('aria-disabled') === 'true'")
+        page.evaluate("() => document.getElementById('engine-download').click()")
+        assert page.evaluate("() => window.__opened") == [], (
+            "a press during a check handed over the installer")
+        page.wait_for_function("() => !document.getElementById('engine-recheck').disabled",
+                               timeout=15_000)
+        assert page.get_attribute("#engine-download", "aria-disabled") != "true"
+        page.evaluate("() => document.getElementById('engine-download').click()")
+        assert page.evaluate("() => window.__opened") == [RELEASE["installer"]["url"]]
+    finally:
+        page.close()
+
+
+def test_a_helper_that_refuses_ping_is_still_a_helper(open_panel):
+    """An older host answers PING "unknown command". It answered, so it is there and an
+    engine is installed: read as absent, Download engine would be offered over it."""
+    page = detail_page(open_panel, engine_up=False, engine_manifest=RELEASE,
+                       native_mode="refuses")
+    wait_for_state(page, "Stopped")
+    assert text_of(page, "#engine-state-detail") == (
+        "ScrapeX Engine is on this computer and not running. Start engine is on the Run page.")
+    assert not visible(page, "#engine-download")
+    page.wait_for_function(TRACED, arg="helper-unanswered")
+
+
+def test_an_unreadable_release_manifest_is_said_and_download_is_held(open_panel):
+    """A feed that answered with a manifest the panel cannot use: as with one that cannot
+    be reached, the sentence says to retry and Download stays drawn, held."""
+    page = detail_page(open_panel, engine_up=False, native_mode="absent",
+                       engine_manifest={"product": "xaddin", "version": "1.0.0"})
+    wait_for_state(page, "Not detected")
+    page.wait_for_function(
+        "(want) => document.getElementById('engine-state-detail').textContent === want",
+        arg=("No engine answered on this computer, and the release page could not be "
+             "reached. Press Check again to retry."))
+    assert visible(page, "#engine-download")
+    assert not page.locator("#engine-download").is_enabled()
+
+
+def test_with_an_engine_running_an_offline_feed_keeps_its_own_words(open_panel):
+    """"Could not reach the release page." is the no-engine sentence. With an engine
+    running, the Latest row keeps the feed's own words, which say that engine keeps
+    working."""
+    page = detail_page(open_panel, engine_up=True, engine_manifest="offline",
+                       native_mode="ok", engine_build=FROZEN)
+    wait_for_state(page, "Running")
+    page.wait_for_function(
+        "() => document.getElementById('engine-latest-detail').textContent !== ''")
+    assert text_of(page, "#engine-latest-detail") == (
+        "Could not reach the release endpoint. The engine you have keeps working.")
+
+
+# ---- the page drawn whole from each answer (#2014's merge gate, reviewer A) ------------
+
+#: PINGs are held until the test releases them, in the order it chooses; every other
+#: command goes to the stub's host. Unhandled rejections are recorded, because
+#: `renderEngines` is not awaited where the engine's page is opened.
+HOLD_PINGS = """() => {
+  window.__held = [];
+  window.__rejections = [];
+  window.addEventListener('unhandledrejection', (e) => {
+    window.__rejections.push(String((e.reason && e.reason.message) || e.reason));
+  });
+  const original = chrome.runtime.sendNativeMessage;
+  chrome.runtime.sendNativeMessage = (host, message, callback) => {
+    if (message.command !== 'PING') return original(host, message, callback);
+    window.__nativeCalls.push('PING');
+    window.__held.push(() => callback({ok: true, app: 'scrapex', app_version: '0.4.89',
+                                       protocol_version: 1}));
+  };
+}"""
+
+#: /api/health hangs while `window.__healthHangs` is true, honouring the abort signal, so
+#: the panel's own deadline fires: a check that times out, on demand.
+HEALTH_HANGS = """
+(() => { let inner;
+  Object.defineProperty(window, 'fetch', { configurable: true,
+    get() { const captured = inner;
+      return (u, o) => {
+        if (window.__healthHangs && /\\/api\\/health/.test(String(u))) {
+          return new Promise((_, reject) => {
+            const s = o && o.signal;
+            if (s) s.addEventListener('abort', () => reject(
+              s.reason || Object.assign(new Error('aborted'), {name: 'AbortError'})),
+              {once: true});
+          });
+        }
+        return captured(u, o);
+      }; },
+    set(v) { inner = v; } }); })();
+"""
+
+
+def scripted_page(browser, tmp_path, init: str, name: str, **stub):
+    """A panel with `init` run before its own scripts, settled, its page errors kept."""
+    page_file = harness.build_page(tmp_path, harness.stub(**stub), name=name)
+    page = browser.new_page(viewport={"width": 400, "height": 900})
+    page.js_errors = []
+    page.on("pageerror", lambda e: page.js_errors.append(str(e)))
+    page.add_init_script(init)
+    page.goto(page_file.as_uri())
+    harness.wait_until_settled(page)
+    return page
+
+
+def to_the_engine_page(page) -> None:
+    page.click('nav.side-rail button[data-view="engines"]')
+    page.wait_for_selector("#view-engines", state="visible")
+    open_engine(page)
+
+
+def diagnose(page) -> None:
+    page.click("#engine-diagnostics")
+    page.wait_for_function(
+        "() => !document.getElementById('engine-diagnostics-output').textContent"
+        ".startsWith('Running diagnostics')")
+
+
+def runs_start_card_is_drawn(page) -> bool:
+    page.click('nav.side-rail button[data-view="run"]')
+    page.wait_for_selector("#view-run", state="visible")
+    return visible(page, "#setup")
+
+
+def test_check_again_racing_a_draw_paints_the_release_it_read(open_panel):
+    """A draw holds its release across the helper's ask, while Check again empties the
+    cache: the draw went on to paint `null` and threw, unseen behind Check again's own
+    paint."""
+    page = open_panel(view="engines", engine_up=False, engine_manifest=RELEASE,
+                      native_mode="ok")
+    page.wait_for_function(
+        "() => document.getElementById('engine-status').textContent.trim() === 'Stopped'")
+    page.evaluate(HOLD_PINGS)
+    open_engine(page)                       # a draw: the release in hand, PING 1 out
+    page.wait_for_function("() => window.__held.length === 1")
+    page.click("#engine-recheck")           # Check again: the cache emptied, PING 2 out
+    page.wait_for_function("() => window.__held.length === 2", timeout=4_000)
+    page.evaluate("() => window.__held[0]()")   # the draw's PING answers first
+    page.wait_for_timeout(300)
+    page.evaluate("() => window.__held[1]()")
+    page.wait_for_function("() => !document.getElementById('engine-recheck').disabled")
+    page.wait_for_timeout(300)
+    assert page.evaluate("() => window.__rejections") == []
+    assert not page.js_errors, page.js_errors
+
+
+def test_run_diagnostics_draws_the_release_row_and_download_from_its_answer(browser,
+                                                                            tmp_path):
+    """No engine, then project files at 0.4.89 come up and he presses Run diagnostics:
+    the banner said Running beside Download engine and the 0.4.67 installer's line, the
+    downgrade this page never offers."""
+    page = scripted_page(browser, tmp_path, "window.__engineDown = true;" + FLIP,
+                         "diagnose-up.html", engine_up=True, engine_manifest=RELEASE,
+                         native_mode="absent", engine_version="0.4.89", engine_build=SOURCE,
+                         storage=None)
+    try:
+        to_the_engine_page(page)
+        wait_for_state(page, "Not detected")
+        page.wait_for_function(
+            "() => !document.getElementById('engine-download').classList.contains('hidden')")
+        page.evaluate("() => window.__engineDown = false")
+        diagnose(page)
+        wait_for_state(page, "Running")
+        page.wait_for_function(
+            "() => document.getElementById('engine-download').classList.contains('hidden')")
+        assert text_of(page, "#engine-latest-detail") != LATEST_IN_A
+        assert not visible(page, "#engine-install-steps")
+        page.wait_for_function(
+            "() => document.getElementById('engine-version-verdict').textContent === 'Unreleased'")
+    finally:
+        page.close()
+
+
+@pytest.mark.parametrize("down_at_start", [True, False], ids=["comes-up", "goes-away"])
+def test_run_diagnostics_draws_runs_start_card_from_its_answer(browser, tmp_path,
+                                                                 down_at_start):
+    """After Run diagnostics, Run's Start card stayed as the last check drew it: beside an
+    engine now running, or missing for one now gone."""
+    page = scripted_page(browser, tmp_path,
+                         f"window.__engineDown = {str(down_at_start).lower()};" + FLIP,
+                         f"diagnose-card-{down_at_start}.html", engine_up=True,
+                         engine_manifest=RELEASE, native_mode="ok", storage=None)
+    try:
+        to_the_engine_page(page)
+        page.evaluate(f"() => window.__engineDown = {str(not down_at_start).lower()}")
+        diagnose(page)
+        assert runs_start_card_is_drawn(page) == (not down_at_start)
+    finally:
+        page.close()
+
+
+def test_the_stopped_sentence_finds_its_start_on_run(browser, tmp_path):
+    """The engine stops; Run diagnostics; the Engine page reopened says "Start engine is
+    on the Run page." Run had no Start card to show for it."""
+    page = scripted_page(browser, tmp_path, "window.__engineDown = false;" + FLIP,
+                         "stopped-sentence.html", engine_up=True, engine_manifest=RELEASE,
+                         native_mode="ok", engine_version="0.4.89", storage=None)
+    try:
+        to_the_engine_page(page)
+        wait_for_state(page, "Running")
+        page.evaluate("() => window.__engineDown = true")
+        diagnose(page)
+        page.click("#engine-detail-back")
+        page.wait_for_selector("#view-engines", state="visible")
+        open_engine(page)
+        wait_for_state(page, "Stopped")
+        assert "Start engine is on the Run page." in text_of(page, "#engine-state-detail")
+        assert runs_start_card_is_drawn(page), "the sentence points at a Start that is not there"
+    finally:
+        page.close()
+
+
+def test_a_check_again_that_times_out_offers_no_start_beside_a_slow_engine(browser,
+                                                                          tmp_path):
+    """A DEADLINE IS NOT THE DARK: a check that ran out of time says nothing about
+    whether the engine is gone. Check again drew Run's "Engine not running" and Start
+    beside one still serving, which the restart's preflight already refuses to do."""
+    page = scripted_page(browser, tmp_path, "window.__healthHangs = false;" + HEALTH_HANGS,
+                         "slow-check.html", engine_up=True, engine_manifest=RELEASE,
+                         native_mode="ok", engine_version="0.4.67", engine_build=FROZEN)
+    try:
+        assert not visible(page, "#setup")
+        to_the_engine_page(page)
+        wait_for_state(page, "Running")
+        page.evaluate("() => window.__healthHangs = true")
+        page.click("#engine-recheck")
+        wait_for_state(page, "Check timed out", timeout=15_000)
+        page.wait_for_function("() => !document.getElementById('engine-recheck').disabled",
+                               timeout=15_000)
+        assert not runs_start_card_is_drawn(page), "Start offered beside a slow engine"
     finally:
         page.close()
 
@@ -517,14 +920,30 @@ def test_copy_database_path_copies_the_path_and_says_so(open_panel):
     page = database_page(open_panel, engine_up=True, storage=his_storage())
     page.evaluate("""() => Object.defineProperty(navigator, 'clipboard', {
       configurable: true, value: {writeText: async (t) => { window.__copied = t; }}})""")
+    # MEASURED ONCE THE CARD IS SETTLED: Copy is drawn only when the path arrives, and
+    # the line under it is written by the same read, so a measure taken as the page
+    # opens can be of a card still taking shape.
+    page.wait_for_selector("#db-browser-copy", state="visible")
+    page.wait_for_function(
+        "() => document.getElementById('db-browser-result').textContent === '\\u00a0'")
     width_before = page.locator("#db-browser-copy").bounding_box()["width"]
+    below = ("() => document.querySelector('#db-browser + .card').getBoundingClientRect().top"
+             " - document.getElementById('db-browser').getBoundingClientRect().top")
+    below_before = page.evaluate(below)
     page.click("#db-browser-copy")
     page.wait_for_function(
         "() => document.getElementById('db-browser-result').textContent === 'Database path copied.'")
     assert page.evaluate("() => window.__copied") == HIS_PATH
-    # THE BUTTON KEEPS ITS LABEL AND ITS WIDTH: nothing below it moves.
+    # THE BUTTON KEEPS ITS LABEL AND ITS WIDTH, and the result line is reserved
+    # (&nbsp;), so the card below does not move. Waited for with a bound, not read once.
     assert text_of(page, "#db-browser-copy") == "Copy database path"
     assert page.locator("#db-browser-copy").bounding_box()["width"] == width_before
+    try:
+        page.wait_for_function(f"(want) => ({below})() === want", arg=below_before,
+                               timeout=2_000)
+    except Exception:
+        raise AssertionError(f"the result moved the card below it: {below_before} px "
+                             f"before, {page.evaluate(below)} px after") from None
 
 
 def test_a_refused_copy_is_said(open_panel):
@@ -537,6 +956,7 @@ def test_a_refused_copy_is_said(open_panel):
         "() => document.getElementById('db-browser-result').textContent.startsWith('Could not copy')")
     assert text_of(page, "#db-browser-result") == \
         "Could not copy. Select the path at the top of this page and copy it."
+    page.wait_for_function(TRACED, arg="db-browser-copy-refused")
 
 
 def test_the_card_waits_for_the_path_and_says_a_failed_ask(open_panel):
@@ -554,3 +974,44 @@ def test_the_card_is_not_drawn_without_an_engine(open_panel):
     page = open_panel(view="database", engine_up=False)
     page.wait_for_timeout(500)
     assert not visible(page, "#db-browser")
+
+
+#: Every `/api/storage` read fails while `window.__fail` is true.
+STORAGE_FAILS = """() => { window.__fail = true; const inner = window.fetch;
+  window.fetch = async (url, options = {}) => (window.__fail && String(url).includes('/api/storage'))
+    ? Promise.reject(new TypeError('Failed to fetch')) : inner(url, options); }"""
+
+
+def reopen_database(page) -> None:
+    page.click('nav.side-rail button[data-view="run"]')
+    page.click('nav.side-rail button[data-view="database"]')
+
+
+def test_a_failed_read_withdraws_a_path_an_earlier_read_left(open_panel):
+    """A good read, then a failed one: Copy goes with the failure, though `state` still
+    holds the path the first read left."""
+    page = database_page(open_panel, engine_up=True, storage=his_storage())
+    assert visible(page, "#db-browser-copy")
+    page.evaluate(STORAGE_FAILS)
+    reopen_database(page)
+    page.wait_for_function(
+        "() => document.getElementById('db-browser-result').textContent.startsWith('Could not ask')",
+        timeout=10_000)
+    assert not visible(page, "#db-browser-copy"), "Copy offered beside the failure"
+
+
+def test_a_read_that_works_clears_the_failure_an_earlier_one_said(open_panel):
+    """A failed read, then a good one: the failure sentence goes, and Copy comes back."""
+    page = open_panel(view="database", engine_up=True, storage=his_storage())
+    page.evaluate(STORAGE_FAILS)
+    reopen_database(page)
+    page.wait_for_function(
+        "() => document.getElementById('db-browser-result').textContent.startsWith('Could not ask')",
+        timeout=10_000)
+    page.evaluate("() => { window.__fail = false; }")
+    reopen_database(page)
+    page.wait_for_function(
+        "() => !document.getElementById('db-browser-copy').classList.contains('hidden')",
+        timeout=10_000)
+    assert text_of(page, "#db-browser-result").strip() == "", (
+        "the failure outlived a read that worked")
