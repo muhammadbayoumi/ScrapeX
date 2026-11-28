@@ -14,6 +14,7 @@ import argparse
 import json
 import re
 import shutil
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 
@@ -251,16 +252,30 @@ def _gallery_generated() -> str:
 def _mark_outline_block() -> str:
     """The mark's outline as one symbol, so the panel's opening check (#1544) runs
     LogoLoader's dash round design/x-mark.svg's own path rather than a copy of it.
-    pathLength 100 keeps the loader's proportions on whatever length the path has."""
-    mark = (ROOT / "design" / "x-mark.svg").read_text(encoding="utf-8")
-    drawn = [d for stroke, d in re.findall(r'<path(?:\s+stroke="([^"]*)")?\s+d="([^"]+)"', mark)
-             if stroke != "none"]
-    if len(drawn) != 1:
-        raise ValueError(f"design/x-mark.svg draws {len(drawn)} stroked paths; the "
-                         "opening check's loader needs exactly one outline")
+    pathLength 100 keeps the loader's proportions on whatever length the path has.
+    PARSED AS SVG, NOT MATCHED: every shape whose stroke (its own, or the nearest
+    ancestor's; none by default) is not `none` is drawn, so it must be exactly one, a
+    <path>; and the symbol takes the mark's own viewBox (#2026's merge gate)."""
+    svg = ET.parse(ROOT / "design" / "x-mark.svg").getroot()
+    drawn: list[ET.Element] = []
+
+    def walk(node: ET.Element, stroke: str) -> None:
+        stroke = node.get("stroke", stroke)
+        if node.tag.rsplit("}", 1)[-1] not in {"svg", "g"} and stroke != "none":
+            drawn.append(node)
+        for child in node:
+            walk(child, stroke)
+
+    walk(svg, "none")
+    shapes = [node.tag.rsplit("}", 1)[-1] for node in drawn]
+    view_box = svg.get("viewBox", "")
+    if shapes != ["path"] or not re.fullmatch(r'[^"<>]+', drawn[0].get("d", "")) \
+            or not re.fullmatch(r"[\d.\- ]+", view_box):
+        raise ValueError(f"design/x-mark.svg draws {shapes} with viewBox {view_box!r}; the "
+                         "opening check's loader needs exactly one stroked <path> and a viewBox")
     return (f'{MARK_OUTLINE_OPEN}  <svg hidden aria-hidden="true">\n'
-            f'    <symbol id="x-mark-outline" viewBox="0 0 24 24">'
-            f'<path pathLength="100" d="{drawn[0]}"/></symbol>\n'
+            f'    <symbol id="x-mark-outline" viewBox="{view_box}">'
+            f'<path pathLength="100" d="{drawn[0].get("d")}"/></symbol>\n'
             f'  </svg>\n{MARK_OUTLINE_CLOSE}')
 
 

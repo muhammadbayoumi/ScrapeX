@@ -315,15 +315,41 @@ def test_the_marks_outline_is_the_marks_own_stroked_path() -> None:
     round is design/x-mark.svg's stroked path, which tools/sync_design_assets.py
     generates into extension/app.html with pathLength="100" for the dash's geometry. A
     hand copy would drift from the mark. It ships inside the extension, beside the
-    mark's Tabler notice (test above)."""
-    mark = (ROOT / "design" / "x-mark.svg").read_text(encoding="utf-8")
-    stroked = [d for stroke, d in re.findall(r'<path(?:\s+stroke="([^"]*)")?\s+d="([^"]+)"', mark)
-               if stroke != "none"]
+    mark's Tabler notice (test above).
+
+    THE MARK IS READ AS SVG, by its own rule rather than the generator's: anything but a
+    container whose stroke is not `none` is drawn, so a stroked shape of any kind beside
+    the path fails here, not only a second path (#2026's merge gate). And the block
+    draws that one path and nothing else, in the mark's own viewBox: it is not a hiding
+    place, and a viewBox of its own would draw the outline at another size."""
+    import xml.etree.ElementTree as ET
+
+    from tools.sync_design_assets import MARK_OUTLINE_CLOSE, MARK_OUTLINE_OPEN
+
+    svg = ET.parse(ROOT / "design" / "x-mark.svg").getroot()
+    drawn: list[tuple[str, str]] = []
+
+    def walk(node, stroke):
+        stroke = node.get("stroke", stroke)
+        tag = node.tag.rsplit("}", 1)[-1]
+        if tag not in {"svg", "g", "defs", "title", "desc"} and stroke != "none":
+            drawn.append((tag, node.get("d", "")))
+        for child in node:
+            walk(child, stroke)
+
+    walk(svg, "none")
+    assert [tag for tag, _ in drawn] == ["path"], (
+        f"design/x-mark.svg draws {drawn}; the loader's outline is one stroked path")
     panel = (ROOT / "extension" / "app.html").read_text(encoding="utf-8")
-    symbol = re.search(r'<symbol id="x-mark-outline"[^>]*><path pathLength="100" d="([^"]+)"/>',
-                       panel)
-    assert len(stroked) == 1 and symbol, "the mark or its generated outline is missing"
-    assert symbol.group(1) == stroked[0]
+    start = panel.index(MARK_OUTLINE_OPEN)
+    block = panel[start:panel.index(MARK_OUTLINE_CLOSE, start)]
+    assert re.findall(r"<(path|circle|ellipse|line|polygon|polyline|rect|use|image|text)\b",
+                      block) == ["path"], "the generated block draws more than the mark's outline"
+    symbol = re.search(r'<symbol id="x-mark-outline" viewBox="([^"]+)">'
+                       r'<path pathLength="100" d="([^"]+)"/>', block)
+    assert symbol, "the generated outline is missing or reshaped"
+    assert symbol.group(1) == svg.get("viewBox"), "the outline's viewBox is not the mark's"
+    assert symbol.group(2) == drawn[0][1]
 
 
 def test_obsolete_custom_source_icons_are_not_shipped() -> None:
