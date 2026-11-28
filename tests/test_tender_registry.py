@@ -8,12 +8,15 @@ it on (`CLAUDE.md`: no source is made active without his word).
 """
 from __future__ import annotations
 
+import dataclasses
+
 import pytest
 
-from scrapex import source_settings, tenders
+from scrapex import jobs, source_settings, tenderjob, tenders
 from scrapex.connectors.base import source_fetcher
 from scrapex.databases.domain import EngineDatabase
 from scrapex.robots import RobotsChoice
+from scrapex.vocab import RunMode
 
 
 @pytest.fixture()
@@ -36,6 +39,44 @@ def test_the_world_bank_is_the_first_tender_source():
     assert bank.key == "worldbank_org"
     assert bank.display_name == "World Bank procurement notices"
     assert bank.base_url == "https://search.worldbank.org"
+
+
+def test_the_world_bank_carries_the_figures_measured_before_any_count():
+    """What the cost question asks before the job has counted anything: #1647's request
+    12 of 10 Oct 2026, the figure #1701's question shows (537), not a guess."""
+    measured = tenders.get("worldbank_org").measured
+    assert (measured.requests, measured.total, measured.areas, measured.counted_at) == (
+        537, 422_285, 184, "2026-10-10")
+
+
+def test_a_full_rebuild_is_not_offered_and_says_why_in_its_host():
+    bank = tenders.get("worldbank_org")
+    assert bank.host == "search.worldbank.org"
+    assert bank.runs_blocked == {
+        "full_rebuild": "Full rebuild is not offered for search.worldbank.org: it keeps "
+                        "every notice as it was read, so there is nothing to archive."}
+
+
+def test_a_tender_source_is_named_by_the_host_rule_every_source_is_named_by():
+    """ONE RULE FOR A SOURCE'S HOST (the merge gate of #1996). A refusal names a tender
+    source beside another source (`POST /api/jobs`, "… collects tenders and runs on its
+    own. Start … separately."), and the panel's `domainOf` drops `www.` as `jobs.host_of_url`
+    does. A tender source on a `www.` host would otherwise be named two ways."""
+    on_www = dataclasses.replace(tenders.get("worldbank_org"), base_url="https://WWW.ungm.org")
+    assert on_www.host == jobs.host_of_url(on_www.base_url, on_www.key) == "ungm.org"
+
+
+def test_the_modes_a_tender_source_refuses_are_the_modes_its_job_does_not_run():
+    """TWO DECLARATIONS OF ONE FACT, TIED (the merge gate of #1996): the job's `RUNS` and the
+    source's `runs_blocked`, the sentence the panel draws a mode disabled with and the route
+    refuses it with. A mode in both is run and refused at once; a mode in neither is offered
+    with no sentence and refused by the job. History backfill is a price mode, hidden by the
+    row's `supports_history: False`, so it needs no sentence."""
+    every = {mode.value for mode in RunMode}
+    for key in tenders.BUILDERS:
+        blocked, runs = set(tenders.get(key).runs_blocked), set(tenderjob.RUNS)
+        assert not blocked & runs, (key, blocked & runs)
+        assert blocked | runs | {RunMode.HISTORY_BACKFILL.value} == every, (key, blocked, runs)
 
 
 def test_an_unknown_tender_source_is_refused_by_name():

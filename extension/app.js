@@ -112,6 +112,11 @@ const state = {
   // GET /api/schedules by source key, for the schedule labels (#1596).
   schedules: null,
   job: null, jobRef: null, logs: [], logSignature: null, logAtBottom: true,
+  // A Start press the engine has not answered yet (`startRun`).
+  starting: false,
+  // EVERY JOB NOT SETTLED, from the same tick `job` was adopted from. `job` is the one
+  // doing the work; a queued or paused job of a selected source is in here only.
+  activeJobs: [],
   financeRates: [], financeSavedSettings: null, financeStatus: null,
   engineUp: false, engineState: "checking",
   // The two versions and what the engine says it deploys. `versionReport` is
@@ -1706,6 +1711,20 @@ function renderSites() {
           stopped${stopped ? " " + stopped : ""}. Resume continues from
           there and re-fetches none of them; starting a run discards them.</span>
         </span>` : "";
+      // A FIRST CRAWL THAT STOPPED PARTWAY, said on its own row. The source holds rows, so
+      // Run offers Update, and Update reads what changed; the engine reads the areas the
+      // first crawl did not reach before that, and this line is where he learns so. The
+      // numbers are the engine's (`first_crawl`: sent once part of it is read and while
+      // it is incomplete; `stopped_at` is when the last crawl that left areas unread
+      // ended, so the sentence holds after an update that read some of them too).
+      const partial = s.first_crawl;
+      const partialBlock = partial ? `<span class="source-row-kept">
+          <span><strong>${fmtCount(partial.read)} of ${fmtCount(partial.of)} ${
+            esc(partial.unit)} read</strong> when the last crawl stopped${
+            partial.stopped_at ? " " + fmtStopped(partial.stopped_at) : ""}. An update
+          reads ${partial.of - partial.read === 1 ? "the last one"
+            : `the other ${fmtCount(partial.of - partial.read)}`} first.</span>
+        </span>` : "";
       return `<div class="srow ${ready ? "" : "off"}">
         <label>
           <input type="checkbox" data-key="${esc(s.source_key)}" ${checked} ${ready ? "" : "disabled"}>
@@ -1714,7 +1733,7 @@ function renderSites() {
         <span class="source-row-actions">
           ${auto}${reason}
         </span>
-        ${keptBlock}
+        ${keptBlock}${partialBlock}
       </div>`;
     }).join("");
     box.querySelectorAll("input[data-key]").forEach((cb) =>
@@ -2791,6 +2810,19 @@ function syncModeChoices() {
     ? { update: true, initial_crawl: true, full_rebuild: true, history_backfill: true }
     : { update: withData > 0, initial_crawl: without > 0, full_rebuild: withData > 0,
         history_backfill: allHistory };
+  // A MODE THE ENGINE SAYS A SOURCE CANNOT RUN, with the engine's sentence for why
+  // (`runs_blocked`, mode → sentence). A tender source keeps every notice as it was read,
+  // so a rebuild has nothing to archive; the route refuses it too. #1038's per-source
+  // `runnable` list (`available`, `blocked_because`) is the whole of this idea, approved
+  // and not built, and replaces this block when it lands.
+  const blockedSay = [];
+  for (const mode of Object.keys(allow)) {
+    const why = chosen.map((s) => (s.runs_blocked || {})[mode]).filter(Boolean);
+    // SAID ONLY WHERE IT CHANGES WHAT IS OFFERED: a source with no data has no rebuild on
+    // offer anyway, and three lines at 320 px explaining an option already off is noise.
+    if (why.length && allow[mode]) blockedSay.push(...why);
+    if (why.length) allow[mode] = false;
+  }
   const select = $("run-mode");
   for (const option of select.options) option.disabled = !allow[option.value];
   let note = "";
@@ -2798,6 +2830,17 @@ function syncModeChoices() {
     note = "The selected sites have no data yet, so this run is their first crawl.";
   } else if (chosen.length > 0 && without === 0) {
     note = "Every selected site already has data, so a first crawl is not on offer.";
+  }
+  // A FIRST CRAWL THAT STOPPED PARTWAY IS FINISHED BY THE UPDATE, and the row says so; the
+  // note above, about data already held, would read as if nothing were left of it.
+  const unfinished = chosen.filter((s) => s.first_crawl);
+  if (unfinished.length) {
+    note = unfinished.map((s) => {
+      const left = s.first_crawl.of - s.first_crawl.read;
+      return `Update finishes the initial crawl of ${sourceDomain(s.base_url) ||
+        s.source_name} first: ${left === 1 ? `1 of its ${s.first_crawl.unit} is`
+        : `${fmtCount(left)} ${s.first_crawl.unit} are`} not read yet.`;
+    }).join(" ");
   }
   if (chosen.length > 0 && !allHistory) {
     const capable = state.sources.filter((s) => s.supports_history)
@@ -2807,6 +2850,7 @@ function syncModeChoices() {
         capable.join(", ") + ".";
     }
   }
+  if (blockedSay.length) note += (note ? " " : "") + blockedSay.join(" ");
   if (!allow[select.value]) {
     // The mode the owner had chosen stopped being meaningful for this
     // selection. Switching silently would run something they did not pick, so
@@ -5530,16 +5574,99 @@ function refreshRunButton() {
   const n = state.selected.size;
   $("sel-count").textContent = `${n} selected`;
   const refusal = engineRefusal();
+  // A REFUSAL OUTLIVES THE POLL AND NOT THE QUESTION IT ANSWERED. This runs on every tick,
+  // so it clears the engine's last refusal only once the selection or the mode it refused
+  // has changed (#1332, #1656). Before the hint, which reads whether one stands.
+  if (state.refusedFor && state.refusedFor !== runQuestion()) showRunRefused("");
   let blocked = "";
   if (!refusal) {
+    // A SELECTED TENDER SOURCE THAT ALREADY HAS A JOB NOT SETTLED gets that fact and no
+    // promise of a queue: the engine refuses a second tender crawl of it. Asked of every
+    // job not settled, not only the adopted one, so a paused crawl or one queued behind
+    // another job counts; and worded to hold at any of those statuses. A tender source's
+    // only job is its crawl, so "a crawl" is true. Every other source keeps the queue
+    // sentence below, which the engine honours for it: a second price crawl queues, and
+    // an enrichment or an interpretation is not a crawl. Which sources a job holds is the
+    // jobs payload's fact; whether a press is refused stays the engine's.
+    const busy = state.sources.filter((s) => s.kind === "tender"
+      && state.selected.has(s.source_key)
+      && state.activeJobs.some((job) => (job.source_keys || []).includes(s.source_key)));
     if (!n) blocked = "Select at least one site above.";
+    // THE ENGINE'S ANSWER TO THIS SELECTION STANDS IN FOR THE HINT: beside a refusal, a
+    // hint either repeats it or promises the queue it has just refused.
+    else if (state.refusedFor && state.refusalAnswered) blocked = "";
+    else if (busy.length) blocked = `${busy.map((s) => sourceDomain(s.base_url)
+      || s.source_name).join(", ")} ${busy.length === 1 ? "already has a crawl that has"
+      : "already have crawls that have"} not finished.`;
     else if (state.job) blocked = "A job is already running. It will queue behind it.";
   }
   // The refusal disables the button as well as explaining it. A pressable
   // button that always fails is the dead panel with an extra click in it.
-  $("run").disabled = Boolean(refusal) || !n;
+  // A PRESS IN FLIGHT KEEPS IT DISABLED. This runs on every tick, and it re-enabled Start
+  // while the engine was still answering the last press: a second press posted a second
+  // job, and one behind an open cost question took its focus.
+  $("run").disabled = Boolean(refusal) || !n || state.starting;
   $("run-blocked").textContent = blocked;
   renderRefusal("run-refusal", refusal);
+}
+
+/** The selection and mode a press asks about, as one comparable string. */
+function runQuestion() {
+  return [...state.selected].sort().join("\u0000") + "\u0001" + $("run-mode").value;
+}
+
+/** Say what the engine refused on this page, or clear it. It stays until the selection or
+ *  the mode changes after it arrives: the answer to his press is never hidden, even when he
+ *  changed them while the engine answered, and it names the domains it is about. */
+function showRunRefused(text, answered = true) {
+  $("run-refused").textContent = text;
+  state.refusedFor = text ? runQuestion() : "";
+  // A press the engine never answered holds back no hint: the hint may be the truth.
+  state.refusalAnswered = Boolean(text) && answered;
+}
+
+/** The question a run asks before it reads a source it does not hold whole yet.
+ *
+ * Every figure but Time is the engine's 409 answer (`cost`). Time is the panel's own
+ * arithmetic on two of them, and says "at least": download time is not in it. */
+function costQuestion(cost, mode, before = null) {
+  // THE PANEL'S OWN ARITHMETIC, on the engine's two figures: N requests at a pace wait
+  // (N - 1) paces between them. A floor, since download time is not in it.
+  const seconds = Math.max(0, cost.requests - 1) * cost.pace_s;
+  const minutes = Math.floor(seconds / 60);
+  // A FLOOR AT EVERY SIZE. "Under a minute" would be a ceiling the pace cannot promise.
+  const whole = Math.floor(seconds);
+  const time = minutes < 1 ? `at least ${whole} second${whole === 1 ? "" : "s"}`
+    : `at least ${fmtCount(minutes)} minute${minutes === 1 ? "" : "s"}`;
+  return {
+    // The run and the source, named the way a job is (`jobLabel`: kind · source).
+    title: `${MODES[mode][0]} · ${cost.source}`,
+    // TWO SENTENCES, BOTH THE ENGINE'S: what the run reads, and what the figures rest on.
+    // The figures go in rows; a long value squeezes a `.kv` label to a letter a line.
+    // A RE-ASK SAYS WHY IT IS BACK, and names the new figure too: the sentences are the
+    // dialog's description, the only part read out when it opens.
+    copy: `${before ? `The figure changed from about ${fmtCount(before.requests)} to about `
+      + `${requestCount(cost.requests)}. ` : ""}${cost.reads} ${cost.basis}`,
+    facts: [
+      ["Requests", `about ${fmtCount(cost.requests)}`],
+      // NO WAIT TO STATE under a second: "at least 0 seconds" says nothing.
+      ...(seconds < 1 ? [] : [["Time", time]]),
+      ["Pace", `${cost.pace_s}s between requests`],
+      ["Counted on", fmtDay(cost.counted_at)],
+    ],
+    keep: "Cancel", go: `Start ${MODES[mode][0].toLowerCase()}`, tone: "",
+  };
+}
+
+/** `537 requests`, `1 request`. */
+function requestCount(n) {
+  return `${fmtCount(n)} request${n === 1 ? "" : "s"}`;
+}
+
+/** `2026-10-10` as `10 Oct 2026`: a day the source was counted, so the year stays. */
+function fmtDay(iso) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ""));
+  return m ? `${Number(m[3])} ${MONTHS[Number(m[2]) - 1]} ${m[1]}` : String(iso || "");
 }
 
 async function startRun() {
@@ -5564,14 +5691,82 @@ async function startRun() {
       discarding.map((s) => `  ${s.source_key} — ${pageCount(keptPages(s))}`).join("\n") +
       "\n\nResume, on the site's own row, continues from them instead and " +
       "re-fetches none of them.\n\nDiscard them and start from the top?")) return;
+  state.starting = true;
+  // Whether the engine answered this press at all: a refusal is its answer, a request cut
+  // off at its deadline is none (`kind: "http"`, backend.js).
+  let answered = false;
   $("run").disabled = true;
+  showRunRefused("");
+  const body = { source_keys: keys, run_mode: mode };
+  let refused = "";
   try {
-    const r = await post("/api/jobs", { source_keys: keys, run_mode: mode });
+    // A RUN THAT WOULD READ A SOURCE WHOLE STATES ITS SIZE FIRST, as Studio asks before a
+    // large first copy (`PipelineCostDialog.tsx@86c813ec:105-107, 143-146`). The engine
+    // answers 409 with `question: "cost"` and queues nothing; he answers; the request goes
+    // again accepting the figure he was shown. If the engine's figure has moved since,
+    // it asks again with the new one. Every refusal comes before the question, so he is
+    // never asked about a run that cannot start.
+    let r = null;
+    let accepted = null;
+    while (!r) {
+      try {
+        r = await post("/api/jobs", accepted ? { ...body, accept_cost: accepted } : body);
+        answered = true;
+      } catch (e) {
+        answered = e.kind === "http";
+        const cost = e.status === 409 && e.body && e.body.question === "cost" && e.body.cost;
+        if (!cost) throw e;
+        // EVERY PARSE ASSERTS ITS SHAPE: a question missing a figure would draw
+        // "undefined", so it is refused with what it lacks instead.
+        const lacks = ["source", "reads", "basis", "counted_at"]
+          .filter((k) => typeof cost[k] !== "string" || !cost[k])
+          .concat(["requests", "pace_s"].filter((k) => !Number.isFinite(cost[k])));
+        if (lacks.length) {
+          throw new Error(`the engine's cost question has no usable ${lacks.join(", ")}.`);
+        }
+        // THE SAME FIGURE ASKED AGAIN IS A REFUSAL, not a question: re-asking would trap him
+        // in a dialog that returns whatever he answers.
+        if (accepted && accepted.requests === cost.requests) {
+          throw new Error(`the engine asked again about the ${requestCount(cost.requests)} `
+            + "already accepted.");
+        }
+        if (!(await askToConfirm(costQuestion(cost, mode, accepted)))) return;
+        accepted = { requests: cost.requests };
+      }
+    }
     state.jobRef = r.job_ref;
     await pollJob();
   } catch (e) {
-    $("run-blocked").textContent = "Couldn't start: " + e.message;
-  } finally { refreshRunButton(); }
+    // ONLY THE ENGINE'S ANSWER IS A REFUSAL. A request cut off at its deadline, or one that
+    // never reached the engine, says nothing of the outcome, and the engine writes the job
+    // before it answers: so it is said as no answer, it holds back no hint, and the poll is
+    // asked once whether a job appeared.
+    // WHY THERE WAS NO ANSWER, as a clause. Fetch's own TypeError says only "Failed to
+    // fetch", and it comes both before the engine heard the press and after: a connection
+    // that dropped mid-answer may have started the run. A deadline says its own words.
+    const why = e.name === "TypeError" ? "the connection to the engine failed."
+      : `${e.message.charAt(0).toLowerCase()}${e.message.slice(1)}`;
+    refused = answered ? "Couldn't start: " + e.message
+      : `No answer to Start: ${/[.!?]$/.test(why) ? why : `${why}.`} `
+        + "If the engine started the run, Activity shows it.";
+    if (!answered) pollJob();
+  } finally {
+    state.starting = false;
+    // BEFORE THE REFRESH, so the hint is drawn knowing the engine's answer. The refresh
+    // keeps it: it answers the selection on screen (#1332, #1656).
+    if (refused) showRunRefused(refused, answered);
+    refreshRunButton();
+    // FOCUS GOES BACK TO START. Disabling it for the request dropped focus to the body, so
+    // the confirmation had nothing to return it to; and its own button, hidden with it,
+    // still holds focus here until the browser blurs it after this task. NEVER FROM WHERE
+    // HE PUT IT while the engine answered, the Run page included (`tabindex="0"`), and
+    // never out of an open question: another one asked since owns the focus it holds.
+    const at = document.activeElement;
+    const asking = !$("confirm-veil").classList.contains("hidden");
+    if (!asking && (!at || at === document.body || at.closest("#confirm-veil"))) {
+      $("run").focus({ preventScroll: true });
+    }
+  }
 }
 
 // ---- activity + mini-player ------------------------------------------------
@@ -5694,6 +5889,9 @@ function renderProgress(job) {
     const tilde = f.basis === "estimate" ? "~" : "";
     const basis = f.basis === "estimate"
       ? ` · estimate from the last crawl${f.as_of ? " (" + fmtAsOf(f.as_of) + ")" : ""}`
+      // WHAT THE TOTAL WAS COUNTED FROM, WHEN THE JOB SAYS. A tender crawl derives its
+      // pages from the Bank's notice totals, which no "page count" of the site states.
+      : f.counted_from ? ` · counted from ${f.counted_from}`
       : f.basis === "declared" ? " · the site's own page count"
       : "";
     label.textContent =
@@ -5810,7 +6008,24 @@ function activityCounters(job) {
   const c = job.counters || {};
   const f = job.fetch || {};
   const source = firstFetchingSource(job) || {};
-  const rows = [
+  // A TENDER CRAWL COUNTS NOTICES, NOT PRODUCTS. It is one source, so "Sites done" would
+  // read 0 / 1 for the whole run. What moves is the engine's own unit (the countries and
+  // regions of the first crawl, the pages of an update's pass over what changed), and
+  // what it keeps is one release per notice that is new or changed.
+  const p = job.progress || {};
+  const unit = String(p.unit || "");
+  const rows = job.job_kind === "tender_crawl" ? [
+    // A SHORT LABEL AND A SHORT FIGURE: `.kv` lets either side shrink below a word
+    // (`app.css:34`), so a long one broke "12 / 143" or the label itself at 320 px. The
+    // engine's unit is one word ("areas", "pages"); no-break spaces keep the fraction whole.
+    [unit ? `${unit.charAt(0).toUpperCase()}${unit.slice(1)} read` : "Read",
+     p.total ? `${fmtCount(p.done)} / ${fmtCount(p.total)}` : fmtCount(p.done)],
+    ["Requests", fmtCount(f.requests)],
+    ["Notices read", fmtCount(c.notices)],
+    ["New or changed", fmtCount(c.releases_new)],
+    ["Unchanged", fmtCount(c.releases_unchanged)],
+    ["Errors", fmtCount(c.errors)],
+  ] : [
     ["Sites done", `${job.progress.done} / ${job.progress.total}`],
     ["Requests", fmtCount(f.requests)],
     ["New data rows", fmtCount(c.observations)],
@@ -6056,6 +6271,7 @@ async function pollJobOnce() {
   // 620/938, and he read the panel as nothing working. `liveJob` ranks by status.
   const job = liveJob(jobs);
   state.job = job;
+  state.activeJobs = jobs;
   if (job) {
     await sourcesForJobNames();
     // A HANDOFF IS NOT A CONTINUATION, and until a crawl queued its own interpretation
@@ -6240,14 +6456,16 @@ let confirmReturnFocus = null;
 let confirmSettle = null;
 
 /**
- * Ask one irreversible question in `#confirm-veil` and resolve to his answer.
+ * Ask one question before a press in `#confirm-veil`, and resolve to his answer: an
+ * irreversible one in the `danger` tone, or one with a cost he should see first, in the
+ * primary tone, with the figures it rests on as labelled `facts` rows.
  *
  * NOT `window.confirm`, whose two buttons are the browser's: on the one control named
  * Cancel its "Cancel" meant KEEP. Focus opens on the choice that changes nothing, Tab
  * stays inside, and Escape or a click on the veil answers no -- the alertdialog pattern
  * (WAI-ARIA APG). Focus goes back to whatever he pressed.
  */
-function askToConfirm({ title, named = "", copy, keep, go, tone = "danger" }) {
+function askToConfirm({ title, named = "", copy, facts = [], keep, go, tone = "danger" }) {
   if (confirmSettle) confirmSettle(false);
   confirmReturnFocus = document.activeElement;
   $("confirm-title").textContent = title;
@@ -6259,12 +6477,51 @@ function askToConfirm({ title, named = "", copy, keep, go, tone = "danger" }) {
     body.append(who, document.createElement("br"));
   }
   body.append(document.createTextNode(copy));
+  // THE FIGURES AS LABELLED PAIRS, the way Studio lays out an estimate (a label and its
+  // value, `PipelineCostDialog.tsx@86c813ec:213-228`), in a list of their own AFTER the
+  // sentences. Not in `#confirm-copy`, the dialog's description: a screen reader reads a
+  // description as one string, and the APG Dialog (Modal) pattern keeps structured
+  // content out of it, as Supabase's atom does (`ConfirmationModal.tsx@86c813ec:110`).
+  const list = $("confirm-facts");
+  list.textContent = "";
+  for (const [label, value] of facts) {
+    const row = document.createElement("div");
+    row.className = "kv";
+    const name = document.createElement("dt");
+    name.textContent = label;
+    const figure = document.createElement("dd");
+    figure.className = "tech";
+    figure.textContent = value;
+    row.append(name, figure);
+    list.append(row);
+  }
+  list.hidden = !facts.length;
   $("confirm-keep").textContent = keep;
   $("confirm-go").textContent = go;
   // danger, warning, or "" for primary: the button variant the question needs.
   $("confirm-go").className = tone;
   $("confirm-veil").classList.remove("hidden");
-  $("confirm-keep").focus({ preventScroll: true });
+  // EVERY QUESTION OPENS AT ITS TOP. The card stays in the page between questions, and
+  // kept the scroll the last one was left at, with the new one's title out of view.
+  const card = $("confirm-dialog");
+  card.scrollTop = 0;
+  // FOCUS OPENS ON THE CHOICE THAT CHANGES NOTHING, unless reaching it would scroll the
+  // start of the question out of view: then the WAI-ARIA APG Dialog (Modal) pattern puts
+  // focus on the start of the content instead, its title. Its condition, measured: how far
+  // Cancel lies below what the card shows, against how far the title lies below the
+  // card's top. A Cancel clipped by less than that is scrolled into view and takes focus.
+  // CANCEL'S FOCUS RING COUNTS, by the reach `.modal-actions button` keeps in view below
+  // its border (`scroll-margin-block-end`), read back so the two cannot disagree.
+  const cancel = $("confirm-keep");
+  const ring = parseFloat(getComputedStyle(cancel).scrollMarginBottom) || 0;
+  const top = card.getBoundingClientRect().top + card.clientTop;
+  const below = cancel.getBoundingClientRect().bottom + ring - (top + card.clientHeight);
+  if (below > $("confirm-title").getBoundingClientRect().top - top) {
+    $("confirm-title").focus({ preventScroll: true });
+  } else {
+    cancel.focus({ preventScroll: true });
+    if (below > 0) cancel.scrollIntoView({ block: "nearest" });
+  }
   return new Promise((resolve) => { confirmSettle = resolve; });
 }
 
@@ -6297,6 +6554,9 @@ function trapConfirmFocus(event) {
   const next = event.shiftKey ? (at <= 0 ? choices.length - 1 : at - 1)
     : (at + 1) % choices.length;
   choices[next].focus({ preventScroll: true });
+  // INTO VIEW INSIDE THE CARD, which scrolls when its copy is taller than a short panel:
+  // focus on a button below the fold is focus he cannot see (WCAG 2.2 SC 2.4.11).
+  choices[next].scrollIntoView({ block: "nearest" });
 }
 
 async function controlJob(control) {
@@ -6339,9 +6599,21 @@ async function loadDatasets() {
   const box = $("datasets");
   try {
     const { sources } = await api("/api/sources");
-    const cards = sources.filter((s) => s.observations > 0 || storedNotRows(s));
+    // NO LINK UNTIL A PAGE CAN SHOW TENDERS. A dataset card opens `/source/<key>`, which
+    // reads a dataset, and a tender source keeps OCDS tables instead: the link would open
+    // a dead page. So it is drawn with the identity every card has, its count, and no link
+    // and no menu.
+    const cards = sources.filter((s) => s.kind !== "tender"
+      && (s.observations > 0 || storedNotRows(s)));
+    const held = sources.filter((s) => s.kind === "tender" && s.observations > 0)
+      .map((s) => `<article class="card dataset-card">
+        <div><div class="dataset-identity-line">${sourceIdentity(
+          s, false, fmtCount(s.observations), "Tenders")}</div>
+          <div class="n muted">No page shows tenders yet.</div></div>
+      </article>`).join("");
     if (!cards.length) {
-      box.innerHTML = `<div class="card"><span class="muted">No data yet. Run a crawl from the Run tab.</span></div>`;
+      box.innerHTML = held ||
+        `<div class="card"><span class="muted">No data yet. Run a crawl from the Run tab.</span></div>`;
       return;
     }
     // A CARD IS A LINK ONLY WHEN IT HAS ROWS TO OPEN. `openDataset` goes to
@@ -6363,7 +6635,7 @@ async function loadDatasets() {
           <div class="n muted">${freshnessLine(s)}</div>` : ""}
           ${waitingLine(s)}</div>
       </article>`;
-    }).join("");
+    }).join("") + held;
     box.querySelectorAll(".dataset-card .split-button").forEach((root) => {
       const card = root.closest("[data-open]");
       window.ScrapeXSplitButton.wire(
@@ -7298,8 +7570,12 @@ function renderSelected() {
   box.innerHTML = `<h2 class="flush">Selected (${chosen.length})</h2>` + chosen.map((s) => {
     const detail = compact ? "" : `
       <div class="kv"><span class="muted">Engine</span><span class="tech">${esc(s.family)}</span></div>
-      <div class="kv"><span class="muted">Dataset</span><span>${
-        Number(s.observations || 0).toLocaleString()} records</span></div>
+      ${s.kind === "tender"
+        // A TENDER SOURCE HAS NO DATASET; its rows are the tenders compiled from notices.
+        ? `<div class="kv"><span class="muted">Tenders</span><span>${
+            fmtCount(s.observations || 0)}</span></div>`
+        : `<div class="kv"><span class="muted">Dataset</span><span>${
+            Number(s.observations || 0).toLocaleString()} records</span></div>`}
       <div class="kv"><span class="muted">Status</span><span>${
         s.implemented ? "Ready" : "Not supported yet"}</span></div>`;
     return `<div class="card">
@@ -9067,11 +9343,21 @@ function drawSchedules() {
   if (page.writesOff || atLimit) $("sched-create").setAttribute("aria-disabled", "true");
   else $("sched-create").removeAttribute("aria-disabled");
   $("sched-limit").hidden = !atLimit;
-  const directories = schedulesSources().filter((source) => source.kind === "directory");
-  $("sched-dir-note").classList.toggle("hidden", !directories.length);
-  $("sched-dir-note").textContent = directories.length ? `Directory sources (${
-    directories.map((source) => sourceDomain(source.base_url)).join(", ")
-  }) can't be scheduled yet. Run them from the Run page.` : "";
+  // EVERY KIND THE LIST LEAVES OUT IS NAMED, or a source he can run is missing here with no
+  // sentence. A directory's key and a tender source's both answer 404 on POST
+  // /api/schedules, and a tender run asks its cost before it starts (#1701, round six's h).
+  const byHand = (kind) => schedulesSources().filter((source) => source.kind === kind)
+    .map((source) => sourceDomain(source.base_url));
+  const directories = byHand("directory");
+  const tenders = byHand("tender");
+  const named = [
+    directories.length ? `Directory sources (${directories.join(", ")})` : "",
+    tenders.length ? `${directories.length ? "tender" : "Tender"} sources (${
+      tenders.join(", ")})` : "",
+  ].filter(Boolean);
+  $("sched-dir-note").classList.toggle("hidden", !named.length);
+  $("sched-dir-note").textContent = named.length ? `${named.join(" and ")
+  } can't be scheduled yet. Run them from the Run page.` : "";
   $("sched-engine-note").textContent = page.note;
   drawScheduleBanner(box);
   // ONLY AN ENGINE KNOWN TO LACK THE SWITCH is told so, in its version as of this draw,
@@ -12021,6 +12307,12 @@ function wireDeferredControls() {
   runModeSelectUi = setupRunModeSelect();
   $("run-mode").addEventListener("change", refreshMode);
   $("run").addEventListener("click", startRun);
+  // A PRESS ON THE DISABLED START MOVES NO FOCUS. Chrome sends it `pointerdown` and then
+  // gives focus to what contains it, the Run page (`tabindex="0"`), and a question the
+  // press finds open would return focus there instead of to Start.
+  $("run").addEventListener("pointerdown", (event) => {
+    if ($("run").disabled) event.preventDefault();
+  });
 
   // ONE split button (the shared component the dataset Export uses), no more
   // "Pause auto-scroll" — the primary copies what is on screen, the menu
