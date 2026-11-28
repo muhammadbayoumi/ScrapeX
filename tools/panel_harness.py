@@ -147,7 +147,9 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
          remembered_accounts=None, drive=None,
          silent_for=None, revoke_status=200,
          worker_alive=True, engine_build=None, engine_sqlite=None, engine_python=None,
-         bundle=None, bundle_light_route=True, ui=None, schema_lag=None) -> str:
+         bundle=None, bundle_light_route=True, ui=None, schema_lag=None,
+         chrome_mints=None, received_bundle=None, export_table=None,
+         sheets=None) -> str:
     """A chrome.* shim plus a fetch() interceptor.
 
     Any state can be rendered deterministically, including ones a live engine
@@ -186,6 +188,32 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
     route: its build reply carries the light file's index, and
     `GET /api/bundle/light` answers FastAPI's 404, because the route shipped a
     release after the file (#1199).
+
+    `chrome_mints` turns on a model of Google access tokens, which this harness
+    did not have: every Google API request was answered whatever its bearer, so a
+    panel reading Drive with a token Google had stopped accepting passed every
+    test (#2028). It is the list of tokens Chrome mints, in order; the first is
+    what the panel is handed when it opens. Chrome CACHES the token it minted and
+    hands the same one back until it expires or `removeCachedAuthToken` drops
+    it, and only then mints the next; with the list spent, a silent ask fails
+    with Chrome's "OAuth2 not granted or revoked." and a pressed one is a
+    consent that grants a new token. Two doors move the clock:
+    `window.__sx_an_hour_passes()` expires every token handed out so far
+    (Chrome's cache empties with it), and
+    `window.__sx_grant_ends_elsewhere({regranted})` makes Google refuse the
+    cached token while Chrome goes on holding it -- with the list spent unless
+    `regranted`. Google answers 401 to a refused token on every Drive, Sheets
+    and account request, and records every bearer in `window.__sx_bearers`.
+    The account switcher's tokens carry the hour too: after it passes, a silent
+    mint for an account is a new token, and the account lookup answers for the
+    remembered account a switcher token was minted for. None keeps every
+    earlier behaviour, token strings included.
+
+    `received_bundle` is what `POST /api/storage/receive-bundle` answers; None
+    leaves the route unanswered, as before. `export_table` is the engine's
+    `GET /api/export/{key}` table. `sheets` turns on a Sheets API stub: a
+    spreadsheet whose tabs are `sheets["tabs"]`, whose writes are recorded in
+    `window.__sx_sheet_writes`.
     """
     from scrapex.native import PROTOCOL_VERSION
     from scrapex.version import VERSION, MINIMUM_EXTENSION_VERSION, version_report
@@ -368,6 +396,8 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
         # panel's own offline navigation. A dict is an engine's manifest, which is
         # how a test meets an engine older or newer than the panel (#1056).
         routes["/api/ui"] = ui
+    if export_table is not None:
+        routes["/api/export/"] = export_table
     # A write answers differently from a read on the same path: POST /api/jobs
     # returns the new job's ref, and the panel stores it to start polling. The
     # read table would hand back the job LIST, so anything that checked what a
@@ -407,6 +437,8 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
                        "same card."),
         }, **(adopt or {})),
     }
+    if received_bundle is not None:
+        write_routes["/api/storage/receive-bundle"] = received_bundle
     # The job log endpoint. A distinct shape from the jobs LIST (both live under
     # /api/jobs), and matched ahead of it by the interceptor's `/logs` check —
     # otherwise every log fetch would get the job list and the panel would draw
@@ -489,6 +521,7 @@ window.chrome = {{
   identity: {{
     getAuthToken: (opts, cb) => {{
       if (SIGNIN_NEVER_RETURNS) return;
+      if (CHROME_MINTS !== null) {{ chromeAnswers(opts, cb); return; }}
       if (SIGNIN_ERROR) {{ chrome.runtime.lastError = {{message: SIGNIN_ERROR}};
                            cb(undefined);
                            chrome.runtime.lastError = null; return; }}
@@ -515,6 +548,9 @@ window.chrome = {{
     removeCachedAuthToken: (opts, cb) => {{
       window.__sx_removed_tokens = (window.__sx_removed_tokens || [])
         .concat([opts && opts.token]);
+      // Under the token model Chrome forgets the TOKEN, not the account: the
+      // grant still stands, and the next silent ask mints a new one (#2028).
+      if (CHROME_MINTS !== null) {{ chromeForgets(opts && opts.token); cb && cb(); return; }}
       SIGNED_IN = null; cb && cb();
     }},
     // ---- the multi-account half, absent until 2026-08-16 -------------------
@@ -543,8 +579,14 @@ window.chrome = {{
         cb("https://harness.chromiumapp.org/#error=login_required");
         return;
       }}
-      cb("https://harness.chromiumapp.org/#access_token=minted-for-"
-         + encodeURIComponent(hint || "default")
+      // A NEW TOKEN AFTER THE HOUR, under the token model: the implicit flow
+      // mints afresh each time, so a silent ask made after the hour must not
+      // hand back the token the hour killed (#2028).
+      const minted = "minted-for-" + (hint || "default")
+        + (CHROME_MINTS !== null && tokenEpoch ? "-" + tokenEpoch : "");
+      if (CHROME_MINTS !== null) webMinted.add(minted);
+      cb("https://harness.chromiumapp.org/#access_token="
+         + encodeURIComponent(minted)
          + "&token_type=Bearer&expires_in=3599&scope="
          + encodeURIComponent(url.searchParams.get("scope") || ""));
     }},
@@ -570,10 +612,75 @@ const SIGNIN_NEVER_RETURNS = {str(signin_never_returns).lower()};
 // ordinary case. A list names the ones with a live session, so a test can say
 // "this account's session has ended" without inventing an error shape.
 const SILENT_FOR = {json.dumps(silent_for)};
+// GOOGLE'S TOKENS, MODELLED (#2028). `chrome_mints` in the docstring says what
+// each piece stands for; null keeps the harness as it was.
+const CHROME_MINTS = {json.dumps(chrome_mints)};
+const REMEMBERED_ACCOUNTS = {json.dumps(remembered_accounts)};
+let chromeCached = null;
+let consents = 0;
+let tokenEpoch = 0;
+const deadTokens = new Set();
+const webMinted = new Set();
+window.__sx_token_asks = [];
+window.__sx_bearers = [];
+function chromeAnswers(opts, cb) {{
+  const interactive = Boolean(opts && opts.interactive);
+  const answer = () => {{
+    if (!chromeCached && CHROME_MINTS.length) chromeCached = CHROME_MINTS.shift();
+    // A press with nothing left to mint silently is a consent screen he
+    // accepts: a new grant, and a token Google takes.
+    if (!chromeCached && interactive) chromeCached = "consented-" + (++consents);
+    window.__sx_token_asks.push({{interactive, answered: chromeCached}});
+    if (!chromeCached) {{
+      chrome.runtime.lastError = {{message: "OAuth2 not granted or revoked."}};
+      cb(undefined);
+      chrome.runtime.lastError = null;
+      return;
+    }}
+    cb(chromeCached);
+  }};
+  if (SIGNIN_DELAY_MS) {{ setTimeout(answer, SIGNIN_DELAY_MS); return; }}
+  answer();
+}}
+function chromeForgets(token) {{
+  if (token && token === chromeCached) chromeCached = null;
+}}
+// An hour passes: every token handed out so far expires, and Chrome's cache
+// empties with it, so its next silent answer is a fresh mint.
+window.__sx_an_hour_passes = () => {{
+  if (chromeCached) deadTokens.add(chromeCached);
+  chromeCached = null;
+  for (const token of webMinted) deadTokens.add(token);
+  tokenEpoch += 1;
+}};
+// The grant ends somewhere else -- a sign-out on another machine ends the same
+// grant -- and Chrome does not hear of it: it goes on handing back the token
+// Google now refuses. `regranted` is a new grant made since, so a silent mint
+// after the cache is dropped succeeds.
+window.__sx_grant_ends_elsewhere = ({{regranted = false}} = {{}}) => {{
+  if (chromeCached) deadTokens.add(chromeCached);
+  if (!regranted) CHROME_MINTS.length = 0;
+}};
+function bearerOf(options) {{
+  const sent = (options && options.headers) || {{}};
+  const value = typeof sent.get === "function"
+    ? sent.get("Authorization") : (sent.Authorization || sent.authorization);
+  return String(value || "").replace(/^Bearer\\s+/i, "");
+}}
+// Who a switcher token speaks for: the remembered account it was minted for.
+function webAccountFor(token) {{
+  const found = /^minted-for-(.+?)(?:-\\d+)?$/.exec(token || "");
+  if (!found) return null;
+  const held = ((REMEMBERED_ACCOUNTS && REMEMBERED_ACCOUNTS.accounts) || [])
+    .find((account) => account.email === found[1]);
+  return held ? {{sub: held.id, name: held.name || "", email: held.email,
+                  picture: held.picture || ""}} : null;
+}}
 const REVOKE_STATUS = {json.dumps(revoke_status)};
 const NATIVE_MODE = {json.dumps(native_mode)};
 const GOOGLE_ACCOUNT_MODE = {json.dumps(google_account_mode)};
 const DRIVE = {json.dumps(drive)};
+const STUB_SHEETS = {json.dumps(sheets)};
 // THE BUNDLE ROUTES, so a whole backup can be driven end to end.
 // Without this the harness could show the Manage-account screen and never
 // press its button: `/api/bundle` 404s, so every test of the control that
@@ -651,6 +758,50 @@ window.fetch = async (url, options = {{}}) => {{
     return new Response("", {{status: REVOKE_STATUS}});
   }}
 
+  // THE BEARER, ON EVERY GOOGLE API REQUEST, under the token model (#2028).
+  // Google's own 401 and its own body, so drive.js and sheets.js read the
+  // refusal they read from Google. A request with no bearer is refused too:
+  // nothing ScrapeX sends to these hosts is meant to go without one.
+  if (CHROME_MINTS !== null
+      && /^https:\\/\\/(?:www|sheets)\\.googleapis\\.com\\//.test(String(url))) {{
+    const sent = bearerOf(options);
+    window.__sx_bearers.push({{url: String(url), token: sent}});
+    if (!sent || deadTokens.has(sent)) {{
+      return new Response(JSON.stringify({{error: {{code: 401,
+        message: "Request had invalid authentication credentials. Expected OAuth 2 "
+          + "access token, login cookie or other valid authentication credential.",
+        status: "UNAUTHENTICATED"}}}}),
+        {{status: 401, headers: {{"content-type": "application/json"}}}});
+    }}
+  }}
+
+  // ONE SPREADSHEET, when `sheets` is given: its tabs, and every write to them.
+  if (STUB_SHEETS && String(url).startsWith("https://sheets.googleapis.com/v4/spreadsheets/")) {{
+    const target = String(url);
+    const ok = (payload) => ({{ ok: true, status: 200, headers: {{get: () => null}},
+                               json: async () => payload, text: async () => "" }});
+    window.__sx_sheet_writes = window.__sx_sheet_writes || [];
+    if (method === "GET") {{
+      return ok({{sheets: STUB_SHEETS.tabs.map((title) => ({{properties: {{title}}}}))}});
+    }}
+    let sent = null;
+    try {{ sent = JSON.parse(options.body || "null"); }} catch (_) {{}}
+    if (target.includes(":batchUpdate")) {{
+      for (const request of (sent && sent.requests) || []) {{
+        const title = request.addSheet && request.addSheet.properties.title;
+        if (title) STUB_SHEETS.tabs.push(title);
+      }}
+      window.__sx_sheet_writes.push({{kind: "batchUpdate", body: sent}});
+      return ok({{}});
+    }}
+    if (target.includes(":clear")) {{
+      window.__sx_sheet_writes.push({{kind: "clear", url: target}});
+      return ok({{}});
+    }}
+    window.__sx_sheet_writes.push({{kind: "values", url: target, body: sent}});
+    return ok({{updatedRows: ((sent && sent.values) || []).length}});
+  }}
+
   // DRIVE'S RESUMABLE UPLOAD, before the read branch below. `UPLOAD` is
   // `.../upload/drive/v3/files`, which CONTAINS `drive/v3/files`, so without
   // this the handshake fell into the folder search, came back with no
@@ -719,6 +870,16 @@ window.fetch = async (url, options = {{}}) => {{
       return {{ ok: true, status: 200, headers: {{get: () => null}},
                 json: async () => ({{files: DRIVE.files || []}}) }};
     }}
+    // ONE FILE'S METADATA (`files/<id>?fields=...`), which `verifyLatest` reads
+    // before a check or a fetch moves a byte. Answered for a file the folder
+    // holds; any other id falls through to the folder search, as before.
+    const one = /\\/drive\\/v3\\/files\\/([^/?]+)\\?/.exec(target);
+    const held = one && (DRIVE.files || []).find(
+      (file) => file.id === decodeURIComponent(one[1]));
+    if (held) {{
+      return {{ ok: true, status: 200, headers: {{get: () => null}},
+                json: async () => held }};
+    }}
     return {{ ok: true, status: 200, headers: {{get: () => null}},
               json: async () => ({{files: DRIVE.folder
                 ? [{{id: DRIVE.folder, name: "ScrapeX backups"}}] : []}}) }};
@@ -729,6 +890,9 @@ window.fetch = async (url, options = {{}}) => {{
       await waitWithSignal(60000, options.signal);
     }}
     if (!SIGNED_IN) return {{ ok: false, status: 401, json: async () => ({{}}) }};
+    // A switcher token answers for the account it was minted for (#2028).
+    const switched = CHROME_MINTS !== null ? webAccountFor(bearerOf(options)) : null;
+    if (switched) return {{ ok: true, status: 200, json: async () => switched }};
     return {{ ok: true, status: 200, json: async () => SIGNED_IN }};
   }}
   if (String(url).includes("raw.githubusercontent.com")) {{
