@@ -19,6 +19,7 @@ Never as a side effect of importing or of any other command.
 from __future__ import annotations
 
 import json
+import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -74,6 +75,13 @@ def write_launcher(directory: Path) -> Path:
                         encoding="utf-8")
         shim.chmod(0o755)
     return shim
+
+
+#: The interpreter a shim `write_launcher` wrote names, read back by `registration`,
+#: so a moved project whose shim names a Python that is gone reads as starting
+#: nothing. One format in two places, held together by a test that writes a shim
+#: and reads it back (tests/test_the_helper_links_itself.py).
+_SHIM_INTERPRETER = re.compile(r'"([^"]+)"\s+-m\s+scrapex\.cli\s+native-host')
 
 
 def resolve_launcher(executable: str | None, directory: Path) -> str:
@@ -178,10 +186,11 @@ class Registration:
     `works` is Chrome's own test, from chromium/src@4b0844bf
     `chrome/browser/extensions/api/messaging/launch_context.cc:186-245`: a manifest
     the registry names (Windows) or Chrome's folder holds (elsewhere), that loads,
-    names this host, allows some extension, and whose program exists. In every other
-    state Chrome starts nothing for anyone: it answers "not found" (`absent` in
-    extension/transport.js), or "forbidden" to everyone when no extension is allowed.
-    So nothing that works is ever lost by replacing it.
+    names this host, allows some extension, and whose program exists — and, for the
+    shim `write_launcher` writes, whose Python exists too. In every other state nothing
+    starts for anyone: Chrome answers "not found" (`absent` in extension/transport.js),
+    "forbidden" to everyone when no extension is allowed, or starts a shim that exits
+    at once (`crashed`). So nothing that works is ever lost by replacing it.
     """
 
     manifest: Path | None
@@ -220,6 +229,17 @@ def registration(platform: str | None = None) -> Registration:
         program = manifest.parent / program      # Chrome's rule on Windows (:224-234)
     ids = tuple(allowed_extension_ids(platform, manifest))
     works = bool(ids) and program.is_absolute() and program.is_file()
+    if works and program.suffix.lower() in _SCRIPT_SUFFIXES:
+        # A SHIM WHOSE PYTHON IS GONE STARTS NOTHING, though every file Chrome looks
+        # for is there: Chrome starts the script and it exits at once ("Native host
+        # has exited."). Measured 2026-11-28, when OneDrive moved the project folder.
+        # A script this module did not write names no interpreter it can read, and is
+        # believed while it exists.
+        try:
+            named = _SHIM_INTERPRETER.search(program.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            named = None
+        works = named is None or Path(named.group(1)).is_file()
     return Registration(manifest, str(program), ids, works)
 
 

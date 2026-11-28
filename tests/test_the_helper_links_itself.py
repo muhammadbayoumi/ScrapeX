@@ -97,8 +97,16 @@ def _register(folder: Path, registry: FakeRegistry, launcher: Path | str,
     return manifest
 
 
-def _project_shim(folder: Path, python: str) -> Path:
-    """The `.bat` `write_launcher` writes for a source checkout, naming its venv."""
+def _project_shim(folder: Path, python: str | None = None) -> Path:
+    """The `.bat` `write_launcher` writes for a source checkout, naming its venv.
+
+    With no `python`, the venv is made, so the shim works; name one that is not there
+    for a shim whose interpreter is gone."""
+    if python is None:
+        interpreter = folder.parent / "project" / ".venv" / "Scripts" / "python.exe"
+        interpreter.parent.mkdir(parents=True, exist_ok=True)
+        interpreter.write_bytes(b"MZ")
+        python = str(interpreter)
     folder.mkdir(parents=True, exist_ok=True)
     shim = folder / "scrapex-native-host.bat"
     shim.write_text(f'@echo off\r\n"{python}" -m scrapex.cli native-host %*\r\n',
@@ -215,7 +223,7 @@ def test_a_relative_program_is_found_beside_the_manifest_on_windows(machine):
     """Chrome resolves a relative `path` against the manifest's folder on Windows
     (`launch_context.cc:224-234`), so a relative shim that exists there works."""
     folder, registry = machine
-    shim = _project_shim(folder, r"C:\project\.venv\Scripts\python.exe")
+    shim = _project_shim(folder)
     _register(folder, registry, shim.name, [PANEL_EXTENSION_ID])
     assert nativehost.registration("win32").works is True
 
@@ -252,6 +260,50 @@ def test_a_script_launcher_is_the_project_files_and_a_program_is_an_installed_en
     assert nativehost.registration("win32").starts_project_files is project_files
 
 
+def test_a_shim_whose_python_is_gone_does_not_work(machine, tmp_path):
+    """THE FOLDER MOVED, measured on the owner's PC on 2026-11-28: OneDrive moved the
+    project, and the `.bat` went on naming a Python that no longer existed. Chrome finds
+    the `.bat`, starts it, and it exits at once ("Native host has exited.", `crashed` in
+    extension/transport.js): every file Chrome looks for is there, and nothing starts."""
+    folder, registry = machine
+    shim = _project_shim(folder, python=str(tmp_path / "moved" / "python.exe"))
+    _register(folder, registry, shim, [PANEL_EXTENSION_ID])
+
+    found = nativehost.registration("win32")
+
+    assert found.works is False
+    assert found.launcher == str(shim)
+
+
+def test_a_script_that_is_not_the_shim_is_judged_by_its_file_alone(machine):
+    """A launcher given by hand with `--executable` names no interpreter this module can
+    read, so it is believed while it exists."""
+    folder, registry = machine
+    folder.mkdir(parents=True, exist_ok=True)
+    script = folder / "run-my-checkout.cmd"
+    script.write_text("@echo off\r\ncall C:\\work\\start-host.cmd %*\r\n", encoding="utf-8")
+    _register(folder, registry, script, [PANEL_EXTENSION_ID])
+    assert nativehost.registration("win32").works is True
+
+
+def test_the_shim_write_launcher_writes_is_the_one_registration_reads(machine, tmp_path,
+                                                                      monkeypatch):
+    """ONE FORMAT, WRITTEN IN ONE PLACE AND READ IN ANOTHER, held together here: the shim
+    names the interpreter that wrote it, and stops working when that interpreter goes."""
+    folder, registry = machine
+    python = tmp_path / "venv" / "python.exe"
+    python.parent.mkdir(parents=True)
+    python.write_bytes(b"MZ")
+    monkeypatch.setattr(sys, "executable", str(python))
+    shim = nativehost.write_launcher(folder)
+    _register(folder, registry, shim, [PANEL_EXTENSION_ID])
+    platform = "win32" if shim.suffix == ".bat" else "linux"
+
+    assert nativehost.registration(platform).works is True
+    python.unlink()
+    assert nativehost.registration(platform).works is False
+
+
 def test_other_platforms_read_the_manifest_from_chromes_folder(machine, tmp_path):
     folder, registry = machine
     exe = _as_frozen_path(tmp_path)
@@ -286,7 +338,7 @@ def test_a_first_run_never_touches_a_helper_that_starts_the_project_files(
     engine to try a release must not move it, or Start engine would quietly launch an
     older build against a warehouse the project files have upgraded."""
     folder, registry = machine
-    shim = _project_shim(folder, r"C:\project\.venv\Scripts\python.exe")
+    shim = _project_shim(folder)
     manifest = _register(folder, registry, shim, [OTHER_ID])
     manifest_bytes = manifest.read_bytes()
     shim_bytes = shim.read_bytes()
@@ -347,6 +399,19 @@ def test_a_first_run_repairs_a_shim_whose_file_is_gone(machine, tmp_path, monkey
     assert _manifest(folder)["path"] == str(exe)
 
 
+def test_a_first_run_takes_a_helper_whose_python_is_gone(machine, tmp_path, monkeypatch):
+    """A project-files helper that starts nothing is not the project files' to keep."""
+    folder, registry = machine
+    shim = _project_shim(folder, python=str(tmp_path / "moved" / "python.exe"))
+    _register(folder, registry, shim, [PANEL_EXTENSION_ID])
+    exe = _as_frozen(monkeypatch, tmp_path)
+
+    outcome, _ = nativehost.link_installed_engine("win32")
+
+    assert outcome == "linked"
+    assert _manifest(folder)["path"] == str(exe)
+
+
 def test_a_first_run_that_finds_itself_already_registered_writes_nothing(
         machine, tmp_path, monkeypatch):
     folder, registry = machine
@@ -396,7 +461,7 @@ def test_relinking_keeps_the_project_files_launcher_when_the_engine_is_installed
     engine answered, so a panel that was refused while the downloaded engine ran moved
     the owner's helper off his project files, with nothing said."""
     folder, registry = machine
-    shim = _project_shim(folder, r"C:\project\.venv\Scripts\python.exe")
+    shim = _project_shim(folder)
     _register(folder, registry, shim, [OTHER_ID])
     shim_bytes = shim.read_bytes()
     _as_frozen(monkeypatch, tmp_path)
@@ -413,7 +478,7 @@ def test_relinking_from_another_checkout_does_not_rewrite_the_shim(machine, monk
     """A source engine's launcher is a `.bat` naming ITS interpreter, and `install`
     rewrites that file for whoever calls it. The re-link only adds an id."""
     folder, registry = machine
-    shim = _project_shim(folder, r"C:\project\.venv\Scripts\python.exe")
+    shim = _project_shim(folder)
     _register(folder, registry, shim, [OTHER_ID])
     shim_bytes = shim.read_bytes()
     monkeypatch.setattr(sys, "frozen", False, raising=False)
@@ -422,6 +487,27 @@ def test_relinking_from_another_checkout_does_not_rewrite_the_shim(machine, monk
     nativehost.link(THIRD_ID, "win32")
 
     assert shim.read_bytes() == shim_bytes, "the re-link re-pointed the project files' shim"
+
+
+def test_relinking_repairs_a_shim_whose_python_is_gone(machine, tmp_path, monkeypatch):
+    """THE MOVED FOLDER, REPAIRED FROM THE PANEL. The helper starts nothing, so the route
+    writes the running engine's own launcher: a source engine's shim, naming the Python
+    that runs now. On 2026-11-28 that was done by hand, from a terminal."""
+    folder, registry = machine
+    shim = _project_shim(folder, python=str(tmp_path / "moved" / "python.exe"))
+    _register(folder, registry, shim, [OTHER_ID])
+    python = tmp_path / "new-venv" / "python.exe"
+    python.parent.mkdir(parents=True)
+    python.write_bytes(b"MZ")
+    monkeypatch.setattr(sys, "frozen", False, raising=False)
+    monkeypatch.setattr(sys, "executable", str(python))
+
+    nativehost.link(THIRD_ID, "win32")
+
+    launcher = Path(_manifest(folder)["path"])
+    assert str(python) in launcher.read_text(encoding="utf-8"), "the dead Python was kept"
+    assert nativehost.registration("win32").works is True
+    assert _ids(_manifest(folder)) == [THIRD_ID, OTHER_ID]
 
 
 def test_relinking_with_nothing_registered_registers_the_engine_that_answered(
@@ -488,7 +574,7 @@ def test_the_route_keeps_the_launcher_a_working_registration_starts(
     sources.write_bytes(Path(MANIFEST_FILE).read_bytes())
 
     folder, registry = machine
-    shim = _project_shim(folder, r"C:\project\.venv\Scripts\python.exe")
+    shim = _project_shim(folder)
     _register(folder, registry, shim, [OTHER_ID])
     _as_frozen(monkeypatch, tmp_path)
     client = TestClient(create_app(warehouse, manifest_path=sources))
