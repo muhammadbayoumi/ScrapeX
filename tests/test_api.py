@@ -373,8 +373,8 @@ def test_the_relink_route_stays_reachable_to_the_extension_it_would_repair(
     fault it repairs — a dead panel with no route back."""
     client = _client_trusting_only(tmp_path, monkeypatch, db_path, manifest_copy, "b" * 32)
     new_id = "d" * 32
-    monkeypatch.setattr("scrapex.nativehost.install",
-                        lambda ids, **kw: tmp_path / "written.json")
+    monkeypatch.setattr("scrapex.nativehost.link",
+                        lambda extension_id, platform=None: tmp_path / "written.json")
 
     r = client.post("/api/native-host/register", json={"extension_id": new_id},
                     headers={"Origin": f"chrome-extension://{new_id}"})
