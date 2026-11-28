@@ -236,9 +236,11 @@ def test_when_nothing_silent_can_renew_it_the_card_offers_the_sign_in(panel):
         "the dead token stayed in Chrome's cache, so pressing Sign in would hand "
         f"it straight back: removed {removed(page)}")
 
-    sign_in = page.locator("#drive-backups").get_by_role(
-        "button", name=re.compile(r"sign in", re.I))
-    assert sign_in.count() == 1, (
+    # Named by its words and not by where it sits: Studio's own lapsed session
+    # (SessionTimeoutModal.tsx@86c813ec:96) ends on "Sign in again", and where the
+    # control is drawn is the design study's to settle, not this test's.
+    sign_in = page.get_by_role("button", name=re.compile(r"^sign in again$", re.I))
+    assert sign_in.count() == 1 and sign_in.is_visible(), (
         f"the card says what to do and offers no control to do it: {said!r}")
 
     sign_in.click()
