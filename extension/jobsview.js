@@ -33,6 +33,7 @@ const KIND_LABELS = {
   profile_crawl: "Profile fetch",
   dataset_interpret: "Interpretation",
   organization_enrichment: "Enrichment",
+  tender_crawl: "Tender crawl",
 };
 
 export function isSettled(job) {

@@ -47,7 +47,7 @@ import sqlite3
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from . import directories
+from . import directories, tenders
 from .config import (
     Manifest,
     SourceEntry,
@@ -400,13 +400,15 @@ def _shipped_rules(source_key: str, shipped: Shipped) -> SourceRules:
 
 def shipped_with(manifest: Manifest, source_key: str) -> Shipped:
     """What the release says about a source: its manifest entry, else its directory,
-    else None. The argument `effective` and `save` take, for a caller holding the
+    else its tender source, else None. The argument `effective` and `save` take, for a caller holding the
     manifest rather than the entry: `storage.reconcile_active` today."""
     for entry in manifest.sources:
         if entry.source_key == source_key:
             return entry
     if source_key in directories.BUILDERS:
         return directories.get(source_key)
+    if source_key in tenders.BUILDERS:
+        return tenders.get(source_key)
     return None
 
 

@@ -564,9 +564,13 @@ def test_an_engine_release_does_not_raise_the_floor_under_the_published_extensio
     # NEEDS and not about which engine is reading it. Tagging engine-v0.4.0
     # changes VERSION and nothing here.
     assert all(s != "" for s in panel_sinces)
-    assert MINIMUM_EXTENSION_VERSION == "0.3.9", (
+    assert MINIMUM_EXTENSION_VERSION == "0.3.16", (
         "the floor moved without a capability being added; if that was "
         "deliberate, the published extension must be republished first")
+    # MOVED FROM 0.3.9 with `tender_control` (#1701, milestone 51 part 3b-2b): POST
+    # /api/jobs answers a run that would read a tender source whole with 409 and
+    # `question: "cost"`, which a 0.3.15 panel shows as a bare refusal and then erases
+    # (#1332). The Chrome Web Store build must be republished at 0.3.16 first.
     # MOVED FROM 0.3.8 with `schedule_active_switch` (#1596, D1 option 2): the Active
     # switch lives on the Schedules row and the source editor no longer saves `active`,
     # which a 0.3.8 panel still does. The Chrome Web Store build must be republished at
