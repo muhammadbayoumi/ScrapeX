@@ -59,13 +59,20 @@ FRESH_MONO = """() => ['tech', 'code'].map((mark) => {
     return drawn; })"""
 #: The one h1 whose own rule sets its tracking (pages/data-model.css, .model-hero h1).
 OWN_TRACKING = {"Data Model"}
+#: Headings whose Supabase source sets their own face, by class, with what it draws. The
+#: connect interstitial's title is `font-sans ... text-lg font-medium`
+#: (InterstitialLayout.tsx@86c813ec:50), over globals.css's heading face (#1544).
+OWN_FACE = {"signin-title": ("Inter", "500")}
 
 
 def _wrong_face(headings):
     """Headings not in Supabase's face: Manrope 600, or Source Code Pro 450 in a mono context."""
+    def own(h):
+        return next((OWN_FACE[c] for c in str(h["cls"]).split() if c in OWN_FACE), None)
     return [h for h in headings
             if not ((h["family"] == "Manrope" and h["weight"] == "600")
-                    or (h["family"] == "Source Code Pro" and h["weight"] == "450"))]
+                    or (h["family"] == "Source Code Pro" and h["weight"] == "450")
+                    or (own(h) is not None and (h["family"], h["weight"]) == own(h)))]
 
 
 def _not_tight(headings):
@@ -225,7 +232,9 @@ def test_a_heading_with_no_size_rule_takes_supabases_per_level_size(browser, ope
     """typography.css@86c813ec:53-74: h1 text-2xl, here --fs-xl 22px; h2 text-xl, --fs-lg
     18px; h3 text-base, --fs 15px."""
     page = open_panel(signed_in=None)
-    welcome = page.evaluate("""() => { const s = getComputedStyle(document.querySelector('#welcome-signed-out h1'));
+    # The checking state's h1 has no rule of its own; the signed-out card's title has
+    # (the interstitial's text-lg, #1544), so it is not the sample.
+    welcome = page.evaluate("""() => { const s = getComputedStyle(document.querySelector('#welcome-checking h1'));
       return [parseFloat(s.fontSize), parseFloat(s.lineHeight), parseFloat(s.letterSpacing)]; }""")
     with tabpage_harness.serve_extension() as base:
         console = browser.new_page(viewport={"width": 1280, "height": 900})
@@ -241,7 +250,7 @@ def test_a_heading_with_no_size_rule_takes_supabases_per_level_size(browser, ope
             console.close()
     assert sizes["title"] == 18, sizes
     assert sizes["h1"] > sizes["h2"], f"the Console's page title is no larger than its card titles: {sizes}"
-    assert welcome == pytest.approx(LEVELS["h1"], abs=0.01), f"the signed-out welcome title: {welcome}"
+    assert welcome == pytest.approx(LEVELS["h1"], abs=0.01), f"the checking state's title: {welcome}"
 
 
 def test_a_heading_with_its_own_size_rule_keeps_it(open_panel):

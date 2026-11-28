@@ -249,8 +249,11 @@ def test_a_revoke_google_refuses_is_reported_rather_than_swallowed(panel):
 
     said = page.locator("#accounts-status").inner_text()
     assert "500" in said, f"the refusal was swallowed: {said!r}"
-    assert "permissions" in said.lower(), (
-        f"nothing tells the owner the grant is still listed at Google: {said!r}")
+    # One sentence for a grant that stands, with one name for Google's page, shared with
+    # the current account's note (identity.js SIGNIN_WORDS, #1544).
+    assert "still has access to that Google Account" in said, (
+        f"nothing tells the owner the grant still stands at Google: {said!r}")
+    assert "permissions page" in said, f"nothing says where to end it: {said!r}"
 
 
 def test_the_silent_mint_names_the_account_it_is_for(panel):

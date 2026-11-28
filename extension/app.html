@@ -1241,21 +1241,23 @@
       <div class="profile-stage" id="profile-stage" aria-busy="true">
         <div class="profile-card" id="profile-card">
 
-          <!-- Checking: the mark and welcome stay stable; only the status line
-               changes. The Google action is hidden until Chrome answers. -->
-          <!-- The panel's opening frame. It is the one screen with nothing to
-               read, and a card frame around emptiness reads as an error — so
-               there is no card here, and no status sentence on screen. -->
+          <!-- The opening check (#1544): Supabase's LogoLoader alone until Chrome
+               answers, as Studio draws it while it learns who is signed in. Past the
+               2.5 s deadline, Studio's ShellFallback line and the card's Google button
+               appear under it. No card frame: there is no card until it is needed. -->
           <div class="profile-state" id="welcome-checking">
-            <div class="welcome-mark" aria-hidden="true"></div>
-            <div class="checking-copy">
-              <!-- Not an <h1>: the signed-in greeting owns the panel's heading,
-                   and this state is gone in a second. -->
-              <span class="checking-name">ScrapeX</span>
-              <span class="checking-tagline">where everything begins</span>
-              <div class="checking-bar" aria-hidden="true">
-                <span class="checking-bar-thumb"></span>
-              </div>
+            <!-- The mark's outline, design/x-mark.svg's own path, generated below the
+                 sprite as #x-mark-outline by tools/sync_design_assets.py. -->
+            <svg class="welcome-loader" viewBox="0 0 24 24" aria-hidden="true"
+                 focusable="false"><use href="#x-mark-outline"></use></svg>
+            <!-- Studio's ShellFallback (ShellFallback.tsx@86c813ec:12-43): once the
+                 check outlasts its deadline the loader stays and a sentence appears
+                 under it, here with the way on, which is Google's own button. -->
+            <div class="checking-help hidden" id="checking-help">
+              <p class="checking-help-text hidden" role="status" aria-live="polite"
+                 id="checking-help-text"></p>
+              <!-- The card's own #signin is moved here while the help shows, and back:
+                   one Google button, so every guard on it reaches the one he presses. -->
             </div>
             <!-- KEPT, AND HIDDEN, both halves on purpose.
                  The design deletes these from the screen, not from the page. A
@@ -1274,13 +1276,30 @@
             </p>
           </div>
 
-          <!-- Signed out: the one question this page can answer. -->
+          <!-- Signed out: Supabase's connect interstitial (#1544;
+               ui-patterns/connect-interstitials.mdx@86c813ec, InterstitialLayout.tsx:69-88).
+               One card for signing in, every failure and the way back: a blocked or
+               changed card says so in an Admonition above the button, a press that
+               failed in one line under it. -->
           <div class="profile-state hidden" id="welcome-signed-out">
-            <div class="welcome-mark" aria-hidden="true"></div>
-            <h1>Welcome to ScrapeX</h1>
-            <p class="welcome-purpose text-sm" id="signin-purpose">
-              Sign in to identify your account and use Google Drive features you choose.
-            </p>
+            <div class="signin-header">
+              <span class="signin-logo" aria-hidden="true"><span class="brand-logo lg"></span></span>
+              <div class="signin-heading">
+                <h1 class="signin-title">Connect your Google account</h1>
+                <p class="signin-description" id="signin-purpose">Used for Drive backups and Sheets exports</p>
+              </div>
+            </div>
+            <div class="signin-body">
+            <div class="admonition hidden" id="signin-blocked" role="alert">
+              <span class="admonition-icon" aria-hidden="true">
+                <svg class="sx-icon"><use href="#material-warning"></use></svg>
+              </span>
+              <div class="admonition-text">
+                <p class="admonition-title" id="signin-blocked-title"></p>
+                <p class="admonition-description" id="signin-blocked-description"></p>
+              </div>
+            </div>
+            <div class="signin-actions">
             <!-- Google's button, to Google's rules: the official pre-approved asset,
                  never recoloured or redrawn. See
                  developers.google.com/identity/branding-guidelines. -->
@@ -1297,8 +1316,13 @@
                    aria-hidden="true" width="720" height="160">
             </button>
             <p class="signin-status hidden" role="status" aria-live="polite" id="signin-status"></p>
-            <!-- Why it did not work, when it did not. -->
-            <p class="notice hidden" role="status" aria-live="polite" id="signin-problem"></p>
+            <!-- Why it did not work, when it did not: InterstitialActionError
+                 (InterstitialLayout.tsx@86c813ec:208-218). -->
+            <div class="signin-action-error hidden" id="signin-problem-box">
+              <p role="alert" id="signin-problem"></p>
+            </div>
+            </div>
+            </div>
           </div>
 
           <!-- Signed in. Account identity is the primary content, centred

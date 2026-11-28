@@ -63,7 +63,6 @@ LEFT_TO = {
     r"\.schedule-switch": "#738 rebuilds the switch",
     r"\.rail-indicator": "#1062 rebuilds the rail as Supabase's Sidebar (sidebar.tsx@86c813ec:236)",
     r"\.bar-fill": "#720 rebuilds the bars as progress.tsx and lineLoading (animations.css@86c813ec:44)",
-    r"\.checking-bar": "#720 merges the second indeterminate bar into the first",
     r"\.skeleton": "#720 rebuilds it as Supabase's Skeleton (skeleton.tsx@86c813ec:4, animate-pulse)",
 }
 

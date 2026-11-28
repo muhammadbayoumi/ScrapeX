@@ -47,6 +47,68 @@ export const SCOPES = [
 
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 
+/** Every sentence the sign-in states show (#1544), once,
+ *  shared by both readings of Google's answer (readTokenResult and readRedirect,
+ *  which "must not have two names" for one behaviour) and by the panel. */
+export const SIGNIN_WORDS = Object.freeze({
+  declined: "Google sign-in did not finish. Nothing changed.",
+  authRequired: "Google access isn’t currently granted. Sign in with Google to try again.",
+  driveTitle: "Drive access was not granted",
+  driveDetail: "Sign in again and tick Drive on Google’s second screen.",
+  partialTitle: "Google did not grant everything ScrapeX asked for",
+  partialDetail: "Sign in again and allow everything Google’s screen asks for.",
+  noChromeAccountTitle: "Chrome is not signed in to Google",
+  noChromeAccountDetail: "Sign in to Chrome, then try again.",
+  misconfiguredTitle: "Google refused this build’s OAuth client",
+  misconfiguredDetail: "Google does not accept the client ID in this build for this " +
+                       "extension. Check the client in Google Cloud.",
+  checkFailedTitle: "Chrome could not check your account",
+  chromeSilent: "Chrome did not say why.",
+  offline: "Could not reach Google. Check your internet connection, then try again.",
+  pressTimeout: "Google sign-in did not finish in time. Try again when you are ready.",
+  checkingHelp: "Taking longer than expected? Sign in with Google to continue.",
+  signingIn: "Signing in with Google…",
+  chromeThrew: "Chrome could not check the account.",
+  revokeAnswered: (status) => `Google answered ${status} to the revoke request.`,
+  revokeUnreachable: (message) => `Could not reach Google to end the session (${message}).`,
+  ownErrorTitle: "Could not check your account",
+  ownError: (message) => `ScrapeX failed: ${message}`,
+  // A revoke Google did not accept: the grant stands. Said without a forecast that
+  // holds only for Chrome's primary account; the panel adds `reopenSignsIn` when
+  // the token it revoked came from getAuthToken. GOOGLE'S PAGE HAS ONE NAME HERE,
+  // the one the signed-in control already gives it ("Review permissions in Google",
+  // app.html) and the privacy policy's "Google Account permissions page".
+  revokeFailedTitle: "ScrapeX still has access to your Google Account",
+  endAccessYours: "To end it, remove ScrapeX on your Google Account’s permissions page.",
+  reopenSignsIn: "Until then, the panel signs you in again when it opens.",
+  otherAccessStands: "ScrapeX still has access to that Google Account. To end it, remove " +
+                     "ScrapeX on that account’s permissions page.",
+});
+
+/** A problem's words for a slot with no title of its own (the line under the button,
+ *  the switcher's status): the title, when there is one, says what failed. */
+export function fullText(problem) {
+  if (!problem) return "";
+  return problem.title ? `${problem.title}. ${problem.detail}` : problem.detail;
+}
+
+//: Chrome's "The user did not approve access." covers a closed window and a refusal;
+//: one reading for both of Google's answers (readTokenResult and readRedirect).
+const DECLINED = /did not approve|canceled|cancelled|closed/i;
+
+/** What counts as signed in, decided in one place (#858, his option a). A grant
+ *  without drive.file unlocks nothing sign-in is for, so it is not a sign-in. Option
+ *  (b) would add `|| result.state === "partial"` here, and wire ensureScope. */
+export function signsIn(result) {
+  return Boolean(result && result.state === "ok" && result.token);
+}
+
+function partialWords(missing) {
+  return missing.includes(DRIVE_SCOPE)
+    ? {title: SIGNIN_WORDS.driveTitle, detail: SIGNIN_WORDS.driveDetail}
+    : {title: SIGNIN_WORDS.partialTitle, detail: SIGNIN_WORDS.partialDetail};
+}
+
 const USERINFO = "https://www.googleapis.com/oauth2/v3/userinfo";
 
 /**
@@ -90,24 +152,21 @@ export function readTokenResult(token, lastError, grantedScopes) {
         // Named by what it COSTS, not by the scope string. "drive.file was not
         // granted" means nothing to the person reading it; "backups to Drive
         // will fail" is the sentence he can act on.
-        detail: missing.includes(DRIVE_SCOPE)
-          ? "Signed in, but Drive access was not granted — the checkbox on "
-            + "Google's second screen was left unticked, so backups to Drive "
-            + "will fail. Sign in again and tick it."
-          : "Signed in, but Google did not grant everything ScrapeX asked for: "
-            + missing.join(", "),
+        // A title for the card's Admonition, and no "Signed in, but": under #858's
+        // option (a) a grant without Drive is not a sign-in (signsIn below).
+        ...partialWords(missing),
       };
     }
     return { state: "ok", token };
   }
   const message = (lastError && lastError.message) || "";
-  if (/did not approve|canceled|closed/i.test(message)) {
-    return { state: "declined",
-             detail: "Sign-in was closed before it finished. Nothing changed." };
+  if (DECLINED.test(message)) {
+    // Chrome's "The user did not approve access." covers a closed window and a
+    // refusal alike, so the sentence claims neither.
+    return { state: "declined", detail: SIGNIN_WORDS.declined };
   }
   if (/OAuth2 not granted or revoked/i.test(message)) {
-    return { state: "authorization-required",
-             detail: "Google access isn’t currently granted. Sign in with Google to try again." };
+    return { state: "authorization-required", detail: SIGNIN_WORDS.authRequired };
   }
   if (/not signed in/i.test(message)) {
     // A CHROME PROFILE WITH NO GOOGLE ACCOUNT IS NOT A FAULT — it is the
@@ -117,21 +176,28 @@ export function readTokenResult(token, lastError, grantedScopes) {
     // check it runs on every open. The first thing such a person saw was
     // therefore Chrome's raw error string on a panel that had asked them
     // nothing. Its own state keeps it out of that list; the copy below is only
-    // ever read by someone who pressed the button.
-    return { state: "no-chrome-account",
-             detail: "Chrome has no Google account signed in, so there is " +
-                     "nobody to sign in as. Add your account to Chrome, then " +
-                     "try again." };
+    // ever read by someone who pressed the button: the opening check shows only
+    // `failed`, `offline` and `partial` (app.js visibleProblem).
+    return { state: "no-chrome-account", title: SIGNIN_WORDS.noChromeAccountTitle,
+             detail: SIGNIN_WORDS.noChromeAccountDetail };
   }
   if (/bad client id|invalid client/i.test(message)) {
     // The one failure the owner cannot fix by trying again, so it must not
     // look like the ones he can.
-    return { state: "misconfigured",
-             detail: "Chrome refused the OAuth client in this build. The " +
-                     "extension's ID and the client in Google Cloud do not match." };
+    return { state: "misconfigured", title: SIGNIN_WORDS.misconfiguredTitle,
+             detail: SIGNIN_WORDS.misconfiguredDetail };
   }
-  return { state: "failed",
-           detail: message || "Chrome did not say why sign-in failed." };
+  // OFFLINE IS READ HERE, with the other readings of Chrome's string, and only from
+  // Chrome's own words: identity_constants.h's kAuthFailure "OAuth2 request failed: "
+  // followed by google_service_auth_error.cc's "Connection failed (%d).". A
+  // navigator.onLine reading would call every unmatched message "offline" while the
+  // machine is offline, a branch broader than its case (#857).
+  if (/Connection failed/i.test(message)) {
+    return { state: "offline", title: SIGNIN_WORDS.checkFailedTitle,
+             detail: SIGNIN_WORDS.offline };
+  }
+  return { state: "failed", title: SIGNIN_WORDS.checkFailedTitle,
+           detail: message || SIGNIN_WORDS.chromeSilent };
 }
 
 /** Ask Chrome for a token. `interactive` false checks silently on open. */
@@ -140,9 +206,10 @@ export function getToken({ interactive = true, identity = chrome.identity,
                            timeoutMs = interactive
                              ? STARTUP_DEADLINES.interactiveToken
                              : STARTUP_DEADLINES.silentToken,
-                           signal = null } = {}) {
+                           signal = null, onLate = null } = {}) {
   return new Promise((resolve) => {
     let settled = false;
+    let timedOut = false;
     let timer = null;
     const finish = (result) => {
       if (settled) return;
@@ -161,23 +228,35 @@ export function getToken({ interactive = true, identity = chrome.identity,
       return;
     }
     if (signal) signal.addEventListener("abort", cancelled, {once: true});
-    timer = setTimeout(() => finish({
-      state: "timeout", retryable: true,
-      detail: interactive
-        ? "Google sign-in did not finish in time. Try again when you are ready."
-        : "Chrome did not finish checking the account in time. Try again.",
-    }), timeoutMs);
+    timer = setTimeout(() => {
+      timedOut = true;
+      finish({
+        state: "timeout", retryable: true,
+        // The opening check shows SIGNIN_WORDS.checkingHelp, not this, and keeps
+        // listening through onLate (#2005).
+        detail: interactive
+          ? SIGNIN_WORDS.pressTimeout
+          : "Chrome did not answer in time.",
+      });
+    }, timeoutMs);
 
     try {
       // The SECOND argument is the whole point: Chrome reports which scopes the
       // user actually agreed to, and this call has been throwing it away. It
       // survives the deadline wrapper unchanged — a token that arrives late is
       // still a token whose scopes have to be read.
-      identity.getAuthToken({ interactive }, (token, grantedScopes) =>
-        finish(readTokenResult(token, runtime.lastError, grantedScopes)));
+      identity.getAuthToken({ interactive }, (token, grantedScopes) => {
+        const answer = readTokenResult(token, runtime.lastError, grantedScopes);
+        // CHROME'S ANSWER AFTER THE DEADLINE IS STILL ITS ANSWER (#2005). The
+        // deadline keeps the panel from waiting on it; it is not a reason to drop it.
+        // Chrome caches the token it minted, so dropping it left a valid sign-in
+        // unused behind a sentence saying the check never finished.
+        if (timedOut && onLate) { onLate(answer); return; }
+        finish(answer);
+      });
     } catch (error) {
       finish({state: "failed", retryable: true,
-              detail: (error && error.message) || "Chrome could not check the account."});
+              detail: (error && error.message) || SIGNIN_WORDS.chromeThrew});
     }
   });
 }
@@ -217,17 +296,18 @@ export async function revokeToken(token, { identity = chrome.identity,
     // which is the same END STATE and must not be shown as a failure — the
     // grant is gone either way and the owner is not interested in which.
     revoked = answer.ok || answer.status === 400;
-    if (!revoked) detail = `Google answered ${answer.status} to the revoke request.`;
+    if (!revoked) detail = SIGNIN_WORDS.revokeAnswered(answer.status);
   } catch (error) {
-    detail = `Could not reach Google to end the session (${error && error.message
-      ? error.message : error}).`;
+    detail = SIGNIN_WORDS.revokeUnreachable(
+      error && error.message ? error.message : String(error));
   }
   // ALWAYS dropped, even when the revoke failed. Leaving Chrome holding a token
   // whose grant we tried to end is the worst of both: the panel looks signed
   // out and the browser is still carrying credentials.
   await forgetToken(token, { identity });
   return revoked ? { state: "ok", revoked: true }
-                 : { state: "local-only", revoked: false, detail };
+                 : { state: "local-only", revoked: false,
+                     title: SIGNIN_WORDS.revokeFailedTitle, detail };
 }
 
 /** Make sure one scope is actually granted, asking Google again if it is not.
@@ -442,12 +522,11 @@ export function authUrl({ clientId, redirectUri, email = "", interactive = true,
 export function readRedirect(redirectUrl, lastError) {
   if (!redirectUrl) {
     const message = (lastError && lastError.message) || "";
-    if (/did not approve|canceled|cancelled|closed/i.test(message)) {
-      return { state: "declined",
-               detail: "Sign-in was closed before it finished. Nothing changed." };
+    if (DECLINED.test(message)) {
+      return { state: "declined", detail: SIGNIN_WORDS.declined };
     }
-    return { state: "failed",
-             detail: message || "Chrome did not say why sign-in failed." };
+    return { state: "failed", title: SIGNIN_WORDS.checkFailedTitle,
+             detail: message || SIGNIN_WORDS.chromeSilent };
   }
 
   let url;
@@ -503,15 +582,7 @@ export function readRedirect(redirectUrl, lastError) {
   const granted = (fragment.get("scope") || "").split(" ").filter(Boolean);
   const missing = missingScopes(granted, SCOPES);
   if (missing && missing.length) {
-    return {
-      state: "partial", token, missing,
-      detail: missing.includes(DRIVE_SCOPE)
-        ? "Signed in, but Drive access was not granted — the checkbox on "
-          + "Google's second screen was left unticked, so backups to Drive "
-          + "will fail. Sign in again and tick it."
-        : "Signed in, but Google did not grant everything ScrapeX asked for: "
-          + missing.join(", "),
-    };
+    return { state: "partial", token, missing, ...partialWords(missing) };
   }
   return { state: "ok", token };
 }

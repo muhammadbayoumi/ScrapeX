@@ -142,7 +142,10 @@ screen that will not exist.
   - where the change moves *when* a sentence is said rather than its words, the same
     instant before and after: render `main` from a temporary worktree at that moment;
   - where a page's words depend on something that can change while it is open, the page
-    left open across that change, as well as entered after it.
+    left open across that change, as well as entered after it;
+  - every answer that can arrive after the page stopped waiting for it, and our own code
+    failing while it handles one: each is drawn as the same answer on time would be, and
+    focus lands on a control that is still there.
 - **Numbered markers** on the elements, and **one reference sheet**: marker · element ·
   reference · class. Each image shows the three widths side by side.
 - Send the images to him, and post the sheet on the study issue.
@@ -205,7 +208,10 @@ reviews the answer.
 - Tests first, which fail on today's code:
   - DOM tests through the same harness, at the three widths;
   - the contrast of every state colour;
-  - each control's route.
+  - each control's route;
+  - a state read while a request is in flight holds the request until the test releases
+    it, with the pointer off the control: a timer lets a fast machine finish first, and
+    hover brings back the style the test reads.
 - Then the change, using the shared components. Then break the fix on purpose and watch the
   tests fail.
 - The gap and mandate rows from stage 3 land in `docs/DESIGN-SYSTEM-SOURCES.md` in the same

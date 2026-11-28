@@ -1450,16 +1450,6 @@
     font-size: var(--fs-sm);
   }
 
-  /* The product's own mark, the same one Chrome shows in the toolbar. */
-  .welcome-mark {
-    width: 4rem;
-    height: 4rem;
-    flex: none;
-    -webkit-mask: var(--brand-mark) no-repeat center / contain;
-    mask: var(--brand-mark) no-repeat center / contain;
-    background: currentColor;
-    color: inherit;
-  }
   /* The account's own photo, large enough to be a greeting rather than a
      status dot. Round for the same reason the rail's is. */
   .welcome-face {
@@ -1524,23 +1514,29 @@
     scrollbar-width: thin;
     scrollbar-color: var(--muted) transparent;
   }
+  /* THE SIGN-IN CARD IS SUPABASE'S CONNECT INTERSTITIAL (#1544): one card for every
+     sign-in state (ui-patterns/connect-interstitials.mdx@86c813ec), drawn as
+     InterstitialLayout.tsx@86c813ec:69-74 on card.tsx:9-10 -- max-w-[400px], rounded-lg,
+     border, bg-surface-100, shadow-xs, and sized by its content. The checking and
+     signed-in states neutralise it below. */
   .profile-card {
     box-sizing: border-box;
     width: min(100%, 25rem);
-    min-height: clamp(16rem, 60vh, 34rem);
     max-height: 100%;
     margin-block: auto;
-    padding: var(--sp-6);
+    padding: 0;
     display: flex;
     flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: var(--sp-5);
+    align-items: stretch;
+    /* `safe`: a card taller than a short panel starts at its top edge rather than
+       splitting the overflow, half of which no scroll can reach (320 x 320). */
+    justify-content: safe center;
+    gap: 0;
     text-align: center;
     background: var(--surface);
     border: 1px solid var(--line);
-    border-radius: var(--radius-xl);
-    box-shadow: var(--shadow-sm);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-xs);
     overflow-y: auto;
     overscroll-behavior: contain;
     scrollbar-width: thin;
@@ -1584,64 +1580,135 @@
   #welcome-checking {
     flex: 1;
     justify-content: center;
+    gap: var(--sp-6);
   }
-  /* The mark is the same masked box the signed-out state uses; only its size
-     differs here, so the size is all that is restated. */
-  #welcome-checking .welcome-mark {
-    width: 6rem;
-    height: 6rem;
-    background: var(--accent);
-    color: var(--accent);
+  /* THE OPENING CHECK IS SUPABASE'S LogoLoader (#1544), drawn with our own mark: Studio
+     shows it alone while it learns who is signed in (pages/sign-in-mfa.tsx@86c813ec:92-97).
+     LogoLoader.tsx@86c813ec:6-18 is a 60 px mark stroked 2 px; loading-anim.module.css
+     @86c813ec:1-13 runs one dash round it, `30 220` from offset 52 to 280 on an outline
+     that measures 198.5 -- 15.1 % of it, gapped 110.8 %, travelling 26.2 % to 141.1 %.
+     The outline is design/x-mark.svg's (#x-mark-outline, generated into app.html), measured
+     as 100, so those proportions hold on it. The dash and its animation sit on the <svg>
+     and reach the path through inheritance.
+     ITS COLOUR IS HIS CHOICE, a mandate (docs/DESIGN-SYSTEM-SOURCES.md): LogoLoader's
+     --brand-default measured 1.96:1 on the light page, below WCAG 2.2 SC 1.4.11's 3:1 for
+     the only thing on screen, and --accent-ink, Supabase's brand ink, measures 5.15:1. */
+  .welcome-loader {
+    width: 3.75rem;
+    height: 3.75rem;
+    flex: none;
+    fill: none;
+    stroke: var(--accent-ink);
+    stroke-width: 0.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-dasharray: 15.1 110.8;
+    animation: sx-logo-loader var(--dur-logo-loader) var(--ease-logo-loader) infinite both;
   }
-  .checking-copy {
+  @keyframes sx-logo-loader {
+    from { stroke-dashoffset: 26.2; }
+    to { stroke-dashoffset: 141.1; }
+  }
+  /* Supabase guards only its shimmer (utilities.css@86c813ec:176-182); the gap row for
+     reduced motion (#701) asks this one to stop too. Still, the whole outline shows. */
+  @media (prefers-reduced-motion: reduce) {
+    .welcome-loader { animation: none; stroke-dasharray: none; }
+  }
+  @media (forced-colors: active) {
+    .welcome-loader { stroke: CanvasText; }
+  }
+
+  /* The interstitial's header and body: InterstitialLayout.tsx@86c813ec:76-88 and
+     connect-interstitials.mdx "Basic shape". */
+  .signin-header {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: var(--sp-4);
+    padding: var(--sp-5);
+    text-align: center;
   }
-  .checking-name {
-    font-size: var(--fs-2xl);
-    font-weight: var(--fw-bold);
-    letter-spacing: .01em;
+  /* LogoBox (InterstitialLayout.tsx@86c813ec:114-123) holding the mark the way
+     SupabaseLogo holds theirs (:165-169): size-12, rounded-xl, border, bg-surface-75,
+     the mark inset at size-7. */
+  .signin-logo {
+    display: grid;
+    place-items: center;
+    width: 3rem;
+    height: 3rem;
+    margin-bottom: var(--sp-4);
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-xl);
+    background: var(--surface);
+  }
+  .signin-heading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--sp-1);
+  }
+  /* text-lg font-medium tracking-tight text-balance, in the sans face (:50), on
+     text-lg's own leading, --lh-lg. The id outranks the global heading rule
+     (components.css, HEADINGS #751), as their explicit `font-sans` outranks their
+     heading face. */
+  #welcome-signed-out .signin-title {
+    margin: 0;
+    font-family: var(--font);
+    font-size: var(--fs-md);
+    font-weight: var(--fw-medium);
+    line-height: var(--lh-lg);
+    letter-spacing: -0.025em;
+    text-wrap: balance;
     color: var(--text);
   }
-  .checking-tagline {
-    max-width: 15rem;
+  /* px-3 text-balance text-sm leading-tight text-foreground-lighter (:61). */
+  .signin-description {
+    margin: 0;
+    padding-inline: var(--sp-3);
     font-size: var(--fs-sm);
-    color: var(--muted);
+    line-height: var(--lh-tight);
+    text-wrap: balance;
+    color: var(--text-subtle);
+  }
+  /* The header's pb-6 is the only space above the body (InterstitialLayout.tsx:76,
+     :86): the state's own column gap would double it, and its centring would
+     shrink the body to its content instead of the card's width. */
+  #welcome-signed-out {
+    gap: 0;
+    align-items: stretch;
+  }
+  .signin-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-4);
+    padding: 0 var(--sp-5) var(--sp-5);
+    text-align: start;
+  }
+  .signin-actions {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--sp-2);
+    text-align: center;
+  }
+  .signin-actions .signin-status { text-wrap: balance; }
+  /* InterstitialActionError (InterstitialLayout.tsx@86c813ec:208-218):
+     mt-3 border-t border-muted pt-5; text-center text-xs text-destructive text-balance. */
+  .signin-action-error {
+    align-self: stretch;
+    margin-top: var(--sp-3);
+    padding-top: calc(var(--sp-1) * 5);
+    border-top: 1px solid var(--line);
+  }
+  .signin-action-error p {
+    margin: 0;
+    font-size: var(--fs-xs);
+    line-height: var(--lh-xs);
+    text-align: center;
+    text-wrap: balance;
+    color: var(--red);
   }
 
-  /* The bar. Its geometry is TWO custom properties and nothing else: the
-     keyframe below is written in terms of them, so the travel cannot drift out
-     of step with the track the way two hand-repeated pixel values would. */
-  .checking-bar {
-    --checking-track: 10rem;
-    --checking-thumb: 2.5rem;
-    position: relative;
-    width: var(--checking-track);
-    max-width: 100%;
-    height: 3px;
-    overflow: hidden;
-    border-radius: var(--radius-pill);
-    background: var(--line);
-  }
-  .checking-bar-thumb {
-    position: absolute;
-    inset-block: 0;
-    inline-size: var(--checking-thumb);
-    border-radius: var(--radius-pill);
-    background: var(--accent);
-    animation: sx-checking-sweep 1.4s linear infinite;
-  }
-  /* One direction, no bounce: in from the start edge, across, out at the end
-     edge, then again from the start.
-     `inset-inline-start` rather than `translateX`, because a transform is
-     physical and would run backwards under dir="rtl" — the panel is LTR today,
-     and a rule that only works because of that is a trap for the day it is not. */
-  @keyframes sx-checking-sweep {
-    from { inset-inline-start: calc(-1 * var(--checking-thumb)); }
-    to { inset-inline-start: var(--checking-track); }
-  }
   .profile-state {
     display: flex;
     flex-direction: column;
@@ -1669,12 +1736,6 @@
 
   /* Profile page — Extension only. The Google sign-in button uses Google's own
      pre-approved PNG assets; this project does not colour, crop, or redraw it. */
-  .welcome-purpose {
-    max-width: 22rem;
-    margin: 0;
-    color: var(--muted);
-    font-size: var(--fs-sm);
-  }
   .profile-signin {
     display: inline-flex;
     align-items: center;
@@ -1751,6 +1812,33 @@
     margin: 0;
     color: var(--muted);
     font-size: var(--fs-sm);
+  }
+  /* A PRESS IN FLIGHT is aria-disabled, not disabled, so it keeps focus (#1542). The
+     shared `button[aria-disabled="true"]` dims to .5 (components.css), which would dim
+     Google's official image and the focus ring with it, so it is undone here, and no
+     hover ring is painted while it runs. */
+  .profile-signin[aria-disabled="true"] { cursor: default; opacity: 1; }
+  .profile-signin[aria-disabled="true"] .profile-signin-img,
+  .profile-signin[aria-disabled="true"]:hover .profile-signin-img,
+  .profile-signin[aria-disabled="true"]:active .profile-signin-img { box-shadow: none; }
+
+  /* PAST ITS DEADLINE THE CHECK SAYS SO UNDER THE LOADER, as Studio's ShellFallback does
+     (ShellFallback.tsx@86c813ec:27-43): the column's gap-8, the line max-w-md text-center
+     text-sm text-foreground-light, and here the card's own Google button, moved under it. */
+  .checking-help {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--sp-4);
+  }
+  .checking-help-text {
+    max-width: 28rem;
+    margin: 0;
+    text-align: center;
+    text-wrap: balance;
+    font-size: var(--fs-sm);
+    line-height: var(--lh-sm);
+    color: var(--muted);
   }
   /* `align-self: stretch` is load-bearing, not tidying. .profile-state centres
      its children, so without it this block sizes to its own CONTENT: a long
@@ -3487,13 +3575,6 @@
     .m3-switch-track,
     .m3-switch-handle-container,
     .m3-switch-handle { transition: none; }
-    /* Parked at the start edge, not stopped wherever it happened to be. A thumb
-       frozen mid-track reads as stalled — as if the wait had failed — which is
-       the opposite of what this screen is for. */
-    .checking-bar-thumb {
-      animation: none;
-      inset-inline-start: 0;
-    }
   }
 
 /* The install steps, folded. `summary` is a control, so it says so on hover and
@@ -4106,15 +4187,9 @@
      the one paint that survives, so each mark borrows the text colour.
      Guarded by test_every_masked_mark_survives_forced_colours. */
   @media (forced-colors: active) {
-    .welcome-mark,
-    #welcome-checking .welcome-mark,
     .appearance-preview-logo {
       background: CanvasText;
     }
-    /* The sweep is the only thing on the checking card that says "working",
-       and it is two painted backgrounds -- both blanked by the same rule. */
-    .checking-bar { border: 1px solid CanvasText; }
-    .checking-bar-thumb { background: CanvasText; }
   }
 
 /* THE JOBS PAGE (#1542) — his request of 2026-09-07, redesigned through

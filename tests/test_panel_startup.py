@@ -226,7 +226,13 @@ def test_initially_unfocused_panel_finishes_without_a_frame_or_interaction(
     }
 
     _wait_for_mark(page, "fully-settled", timeout=4_000)
-    assert page.locator("#welcome-signed-out").is_visible()
+    # A check Chrome never answers ends on the loader with Studio's ShellFallback line
+    # and the Google button under it (#1544), not on a signed-out card that claims to
+    # know he is signed out: Chrome may still answer, and the panel still listens.
+    page.wait_for_selector("#checking-help:not(.hidden)", timeout=4_000)
+    assert page.locator("#welcome-checking").is_visible()
+    assert page.locator("#checking-help #signin").is_visible()
+    assert not page.locator("#welcome-signed-out").is_visible()
     assert page.locator("#estat-text").inner_text() == "Check timed out"
     assert _calls(page).count("/api/health") == 1
 
@@ -325,32 +331,37 @@ def test_an_absent_token_callback_cannot_hold_engine_or_profile(open_starting_pa
         timeout=1_500,
     )
     assert page.locator("#welcome-checking").is_visible()
+    # Past the 2.5 s deadline the panel is not held: the way on appears under the
+    # loader, and the line says what is true, that the check is taking longer.
     page.wait_for_function(
-        "() => !document.querySelector('#signin-problem').classList.contains('hidden')",
+        "() => document.querySelector('#checking-help-text').textContent.trim() !== ''",
         timeout=3_500,
     )
-    assert "did not finish" in page.locator("#signin-problem").inner_text()
+    assert page.locator("#checking-help-text").inner_text() == (
+        "Taking longer than expected? Sign in with Google to continue.")
+    assert page.locator("#checking-help #signin").is_visible()
     assert page.locator("#view-profile").is_visible()
     assert not page.js_errors
 
 
-def test_a_late_token_callback_cannot_overwrite_the_timeout(open_starting_panel):
+def test_a_late_token_callback_signs_him_in_after_the_deadline(open_starting_panel):
+    """#2005, reversing #152's rule. Chrome's callback arrives after the 2.5 s silent
+    deadline with a token Chrome has just minted and cached. #152 dropped it as stale,
+    and the panel then said the check had not finished while Chrome had finished; his
+    next press got the same token with no window. A token is stale only when a NEWER
+    check, press or sign-out has begun, and accountGeneration still guards that."""
     page = open_starting_panel(
-        signed_in={"name": "Too late", "email": "late@example.com"},
+        signed_in={"name": "Late", "email": "late@example.com"},
         signin_delay_ms=3_000,
     )
-    page.wait_for_function(
-        "() => !document.querySelector('#signin-problem').classList.contains('hidden')",
-        timeout=3_500,
-    )
-    assert "did not finish" in page.locator("#signin-problem").inner_text()
-
-    # Chrome's callback arrives after the 2.5s silent deadline. It must be
-    # ignored instead of replacing the newer timeout state with a stale token.
-    page.wait_for_timeout(750)
-    assert page.locator("#welcome-signed-out").is_visible()
+    page.wait_for_selector("#checking-help:not(.hidden)", timeout=3_500)
     assert not page.locator("#welcome-signed-in").is_visible()
-    assert "did not finish" in page.locator("#signin-problem").inner_text()
+
+    page.wait_for_selector("#welcome-signed-in:visible", timeout=4_000)
+    assert page.locator("#welcome-name").inner_text() == "Late"
+    assert not page.locator("#checking-help").is_visible()
+    # The button the help borrowed is back in the card it belongs to.
+    assert page.locator("#welcome-signed-out #signin").count() == 1
     assert not page.js_errors
 
 

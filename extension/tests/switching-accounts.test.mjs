@@ -9,7 +9,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  SCOPES, accountFor, authUrl, authorize, readRedirect, WEB_CLIENT_ID,
+  SCOPES, accountFor, authUrl, authorize, readRedirect, readTokenResult, WEB_CLIENT_ID,
 } from "../identity.js";
 
 const DRIVE = "https://www.googleapis.com/auth/drive.file";
@@ -131,7 +131,10 @@ test("a partial grant reads the same here as it does through getAuthToken", () =
     `${REDIRECT}#access_token=ya29.TOKEN&scope=${encodeURIComponent(without.join(" "))}`);
   assert.equal(answer.state, "partial");
   assert.deepEqual(answer.missing, [DRIVE]);
-  assert.match(answer.detail, /backups to Drive will fail/);
+  // One vocabulary for both readers (#1544): the same title and the same words.
+  const throughChrome = readTokenResult("tok", null, without);
+  assert.equal(answer.title, throughChrome.title);
+  assert.equal(answer.detail, throughChrome.detail);
   assert.equal(answer.token, "ya29.TOKEN", "the token still works for what WAS granted");
 });
 

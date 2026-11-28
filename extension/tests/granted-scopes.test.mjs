@@ -12,8 +12,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { SCOPES, ensureScope, missingScopes, readTokenResult, revokeToken }
-  from "../identity.js";
+import {
+  SCOPES, SIGNIN_WORDS, ensureScope, fullText, getToken, missingScopes, readTokenResult,
+  revokeToken, signsIn,
+} from "../identity.js";
 
 const DRIVE = "https://www.googleapis.com/auth/drive.file";
 const EVERYTHING = [...SCOPES];
@@ -32,8 +34,12 @@ test("a grant missing Drive is reported, and named by what it costs", () => {
 
   assert.equal(result.state, "partial");
   assert.deepEqual(result.missing, [DRIVE]);
-  assert.match(result.detail, /backups to Drive will fail/,
-    `the message names the scope instead of the consequence: ${result.detail}`);
+  // What happened, then what to do (#1544): never the scope string, which means
+  // nothing to the person reading it.
+  assert.equal(result.title, SIGNIN_WORDS.driveTitle);
+  assert.equal(result.detail, SIGNIN_WORDS.driveDetail);
+  assert.doesNotMatch(fullText(result), /drive\.file|googleapis/,
+    `a scope URL reached the copy: ${fullText(result)}`);
   assert.equal(result.token, "tok", "the token is still usable for what WAS granted");
 });
 
@@ -62,10 +68,12 @@ test("a Chrome with no Google account is not read as a failure", () => {
     undefined, { message: "The user is not signed in." }, EVERYTHING);
 
   assert.equal(result.state, "no-chrome-account");
-  assert.doesNotMatch(result.detail, /user is not signed in/i,
-    `Chrome's raw message reached the copy: ${result.detail}`);
-  assert.match(result.detail, /no Google account signed in/,
-    `the copy does not name the cause: ${result.detail}`);
+  assert.doesNotMatch(fullText(result), /user is not signed in/i,
+    `Chrome's raw message reached the copy: ${fullText(result)}`);
+  // What Chrome said and no more (#1544): "not signed in to Google", not "has no
+  // account", which the message does not prove.
+  assert.equal(result.title, SIGNIN_WORDS.noChromeAccountTitle);
+  assert.equal(result.detail, SIGNIN_WORDS.noChromeAccountDetail);
 });
 
 test("an unexplained refusal is still reported, and still carries Chrome's words", () => {
@@ -78,6 +86,79 @@ test("an unexplained refusal is still reported, and still carries Chrome's words
 
   assert.equal(result.state, "failed");
   assert.equal(result.detail, "Something Chrome has never said before.");
+});
+
+test("a grant without Drive is not a sign-in (#858, his option a)", () => {
+  // Every feature sign-in unlocks needs drive.file, so a grant without it unlocks
+  // nothing. One rule decides it, for the sign-in path, the switcher and the chooser.
+  assert.equal(signsIn(readTokenResult("tok", null, WITHOUT_DRIVE)), false);
+  assert.equal(signsIn(readTokenResult("tok", null, EVERYTHING)), true);
+  assert.equal(signsIn(readTokenResult("tok", null, undefined)), true,
+    "a browser that cannot report scopes is not refused");
+  assert.equal(signsIn({ state: "ok" }), false, "an ok with no token signs nobody in");
+  assert.equal(signsIn(null), false);
+});
+
+test("a slot with no title of its own still says what failed", () => {
+  assert.equal(fullText({ title: "Drive access was not granted", detail: "Sign in again." }),
+               "Drive access was not granted. Sign in again.");
+  assert.equal(fullText({ detail: "Google sign-in did not finish. Nothing changed." }),
+               "Google sign-in did not finish. Nothing changed.");
+  assert.equal(fullText(null), "");
+});
+
+test("offline is read from Chrome's own words, and only from them", () => {
+  // Chromium: identity_constants.h kAuthFailure "OAuth2 request failed: " followed by
+  // google_service_auth_error.cc "Connection failed (%d).".
+  const offline = readTokenResult(
+    undefined, { message: "OAuth2 request failed: Connection failed (-106)." }, EVERYTHING);
+  assert.equal(offline.state, "offline");
+  assert.equal(offline.detail, SIGNIN_WORDS.offline);
+  // A message no branch reads stays Chrome's, whatever the network does (#857): an
+  // "offline" read from anything else would be a branch broader than its case.
+  const other = readTokenResult(
+    undefined, { message: "The user turned off browser signin" }, EVERYTHING);
+  assert.equal(other.state, "failed");
+  assert.equal(other.detail, "The user turned off browser signin");
+  assert.equal(other.title, SIGNIN_WORDS.checkFailedTitle);
+});
+
+test("a refusal and Chrome's network cancel are read alike, and claim no cause", () => {
+  // "The user did not approve access." covers a closed window and a refusal; and
+  // `/canceled/` also catches "OAuth2 request failed: Request canceled." (#857).
+  for (const message of ["The user did not approve access.",
+                         "OAuth2 request failed: Request canceled."]) {
+    const result = readTokenResult(undefined, { message }, EVERYTHING);
+    assert.equal(result.state, "declined", message);
+    assert.equal(result.detail, SIGNIN_WORDS.declined);
+    assert.doesNotMatch(result.detail, /closed|refused/, "the words claim a cause");
+  }
+});
+
+test("Chrome's answer after the deadline is still delivered (#2005)", async () => {
+  // #152 dropped it, and the panel said the check had not finished while Chrome
+  // had finished, holding a valid token his next press then received at once.
+  let late = null;
+  const identity = {
+    getAuthToken(_options, done) { setTimeout(() => done("tok", EVERYTHING), 40); },
+  };
+  const first = await getToken({ interactive: false, identity, runtime: { lastError: null },
+                                 timeoutMs: 5, onLate: (answer) => { late = answer; } });
+  assert.equal(first.state, "timeout");
+  assert.equal(late, null, "the late answer was delivered before it arrived");
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  assert.equal(late && late.state, "ok", "Chrome's late token was dropped");
+  assert.equal(late.token, "tok");
+});
+
+test("an answer that comes in time is not delivered twice", async () => {
+  let late = null;
+  const identity = { getAuthToken(_options, done) { done("tok", EVERYTHING); } };
+  const first = await getToken({ interactive: false, identity, runtime: { lastError: null },
+                                 timeoutMs: 50, onLate: (answer) => { late = answer; } });
+  assert.equal(first.state, "ok");
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  assert.equal(late, null);
 });
 
 // ---- asking again ----------------------------------------------------------
@@ -205,6 +286,9 @@ test("a revoke that could not be sent still drops the local token, and says so",
   assert.equal(result.state, "local-only");
   assert.deepEqual(fake.removed, ["tok"], "the local token survived a failed revoke");
   assert.match(result.detail, /Could not reach Google/);
+  // The grant stands, so that is the title: not "signed out on this computer", which
+  // the next open would undo (#1544).
+  assert.equal(result.title, SIGNIN_WORDS.revokeFailedTitle);
 });
 
 test("signing out with no token asks Google nothing", async () => {

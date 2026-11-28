@@ -75,6 +75,11 @@ class _Reader(HTMLParser):
         classes = attrs.get("class", "").split()
         # The profile's h1 is a greeting ("Hi, <name>"), and app.html says so beside it: it
         # names a person, not a page.
+        # The sign-in card's h1 is a connect interstitial's title, which Supabase writes in
+        # sentence case (connect-interstitials.mdx@86c813ec:262, #1544): it names the
+        # step, not a page, so it is read as a heading.
+        if tag == "h1" and "signin-title" in classes:
+            return "heading"
         if tag == "h1" and "profile-greeting" not in classes:
             return "page name"
         if tag == "button" and {"rail-item", "rail-link"} & set(classes):
