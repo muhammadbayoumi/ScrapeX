@@ -50,8 +50,10 @@ from .. import (
     source_settings,
     sourceboard,
     taxonomy,
+    tenderjob,
 )
 from .. import db as dbmod
+from .. import jobs as jobs_module
 from .. import version as engine_version
 from ..capture import capture_source, crawl_settings
 from ..catalog_models import SiteCreate
@@ -73,6 +75,7 @@ from ..databases import (
     DatabaseUnavailableError,
     EngineDatabase,
 )
+from ..enrichment.matching import registrable_domain
 from ..extract import service as extract_service
 from ..extract.api import create_extraction_router
 from ..features import manifest as feature_manifest
@@ -903,17 +906,27 @@ def create_app(
             # ordinary thing to do -- and it was the one action that put the badge out
             # for good. Before the chain he had to have started one by hand first.
             #
-            # An interpretation ends as one of three: COMPLETED, CANCELLED or FAILED,
-            # written by its runner, by a Cancel (`jobs.set_control`) or by the worker
-            # (`JobRunner._fail_orphan`). Only a COMPLETED one read everything it planned
-            # -- a cancel lands between page pairs, after some runs are already read --
-            # so only the first answers this question.
+            # An interpretation ends as one of four: COMPLETED, COMPLETED_WITH_ERRORS,
+            # CANCELLED or FAILED, written by its runner, by a Cancel (`jobs.set_control`)
+            # or by the worker (`JobRunner._fail_orphan`). The first two read every run
+            # they planned to the end, so either answers this question -- a cancel lands
+            # between page pairs, after some runs are already read, and a failure either
+            # stopped part-way or stored nothing (#1738).
+            #
+            # COMPLETED WITH ERRORS ANSWERS IT TOO, because the badge's words name the
+            # newest crawl: "a crawl finished <then> and its pages are not rows yet". A
+            # walk that read it to the end and refused page pairs on the way made those
+            # pages rows; counted as no reading, the card said otherwise beside them (the
+            # merge gate of #1999 measured 20 rows under that sentence). The refused pairs
+            # are said where they belong: in the job's summary on Jobs, and in the ledger,
+            # which leaves their runs unread for the next interpretation (his ruling).
             read = general.execute(
                 "SELECT finished_at FROM crawl_job "
-                " WHERE job_kind = ? AND source_keys LIKE ? AND status = ? "
+                " WHERE job_kind = ? AND source_keys LIKE ? AND status IN (?, ?) "
                 "   AND finished_at IS NOT NULL "
                 " ORDER BY finished_at DESC LIMIT 1",
-                (datasetjob.JOB_KIND, like, JobStatus.COMPLETED.value)).fetchone()
+                (datasetjob.JOB_KIND, like, JobStatus.COMPLETED.value,
+                 JobStatus.COMPLETED_WITH_ERRORS.value)).fetchone()
             # A JOB ALREADY ON ITS WAY IS AN ANSWER. Both queries here require
             # `finished_at IS NOT NULL`, so a QUEUED or RUNNING interpretation counted as
             # none at all and the badge offered a press that one was already doing.
@@ -2282,7 +2295,17 @@ def create_app(
         # the dataset listing so a site that already has a card keeps it and is not
         # drawn twice (`REQ-37`).
         out.extend(_registered_directories(out))
-        return {"sources": out}
+        # THE CRAWL KINDS THE DESIGN NAMES (#1872, round 5): "`directory_crawl` today;
+        # #1802's `tender_crawl` joins the tuple at build". #1802 is on main, so it joins
+        # here, and a tender row (3b-2b, #1996) says what its last crawl did. A profile sweep
+        # is not one: a part is not a pass.
+        conn = read_conn()
+        try:
+            last_crawls = jobs_module.last_settled_crawls(
+                conn, (directoryjob.JOB_KIND, tenderjob.JOB_KIND))
+        finally:
+            conn.close()
+        return {"sources": sourceboard.with_domains(out, last_crawls)}
 
     @app.get("/api/taxonomy/{dataset_key}")
     def api_taxonomy(dataset_key: str):
@@ -2307,9 +2330,18 @@ def create_app(
 
     @app.get("/api/resolve")
     def api_resolve(url: str):
+        # WHAT THE CODE HOLDS IS HIS TOO, and it runs: "Add it" here would file a second key
+        # on its host, and an unbuilt entry added there must not hide it (#1872).
+        host = jobs_module.host_of_url(url, "")
+        coded = next((one for one in sourceboard.from_code()
+                      if jobs_module.host_of_url(one.base_url, "") == host), None)
+        if coded is not None:
+            return {"matched": True, "source_key": coded.key, "source_name": coded.name,
+                    "implemented": True}
         entry = app.state.manifest.resolve_by_url(url)
         if entry is None:
-            return {"matched": False}
+            # THE DOMAIN, so the panel can say this tab belongs to a source he has (#1872).
+            return {"matched": False, "domain": registrable_domain(url)}
         return {"matched": True, "source_key": entry.source_key,
                 "source_name": entry.source_name, "implemented": _is_implemented(entry)}
 

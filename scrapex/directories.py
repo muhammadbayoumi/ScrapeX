@@ -97,6 +97,8 @@ class Directory:
     #: establishment's licence on every plan) keeps that fact once, keyed by what it
     #: depends on, rather than once per row. Empty for every directory but that one.
     derived: tuple[DerivedReader, ...] = ()
+    #: THIS LISTING'S NAME INSIDE ITS SOURCE, where its domain has more than one (#1872).
+    part_name: str = ""
 
     def partition(self) -> Any:
         return self.partition_factory()
@@ -118,6 +120,8 @@ class DerivedReader:
     dataset_name: str
     #: The field its rows are keyed by -- what the derived fact depends on.
     identity_field: str
+    #: Its name inside its source (#1872).
+    part_name: str = ""
 
     # A DERIVED ROW NEVER DEPARTS (his ruling on #1758, 2026-10-20). `mark_departures`
     # reads only the directory's own `dataset_key`, and that is right here: a licence the
@@ -274,6 +278,7 @@ def _tvtc() -> Directory:
         candidate=bilingual_listing_candidate,
         locale_pairing=locale_in_query,
         partition_factory=TvtcPartition,
+        part_name="Establishments",
         # OFF UNTIL HE TURNS IT ON. `CLAUDE.md`: no source is made active without his
         # word, and `active` here means the schedule crawls it. "Update now" works
         # either way; the switch on the Schedules row is his.
@@ -307,13 +312,15 @@ def _tvtc_plans() -> Directory:
         candidate=bilingual_listing_candidate,
         locale_pairing=locale_in_query,
         partition_factory=TvtcPlansPartition,
+        part_name="Training plans",
         active=False,
         # ES-5: each establishment's licence, which every one of its plans repeats, kept
         # once and keyed by the establishment -- his ruling on #1716, 2026-10-19.
         derived=(DerivedReader(candidate=licence_candidate,
                                dataset_key=LICENCE_DATASET_KEY,
                                dataset_name=LICENCE_DATASET_NAME,
-                               identity_field=LICENCE_IDENTITY_FIELD),),
+                               identity_field=LICENCE_IDENTITY_FIELD,
+                               part_name="Establishment licences"),),
     )
 
 
@@ -325,6 +332,11 @@ BUILDERS: dict[str, Callable[[], Directory]] = {
     "tvtc_establishments": _tvtc,
     "tvtc_training_plans": _tvtc_plans,
 }
+
+#: A SOURCE'S NAME, WHERE ITS DOMAIN HOLDS SEVERAL ENTRIES AND NO ENTRY'S NAME IS THE
+#: SOURCE'S (#1872). One entry's name serves everywhere else.
+DOMAIN_NAMES: dict[str, str] = {"tvtc.gov.sa": "TVTC licensed training",
+                                "worldbank.org": "World Bank"}
 
 #: THE DEFAULT IS STILL MUQAWIL, AND STAYS SO. It exists to keep every command line that
 #: predates `--source` working, including a crawl running right now -- so it names the

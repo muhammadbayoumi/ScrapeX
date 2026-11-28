@@ -84,6 +84,20 @@ def test_every_line_height_rung_the_tokens_declare_is_one_supabase_uses():
                      + "\nUse a value tests/fixtures/supabase-value-axes.json holds.")
 
 
+def test_each_sized_leading_rung_is_its_own_sizes():
+    """--lh-<size> is the leading Tailwind pairs with text-<size> (theme.css@v4.2.4:348-358),
+    as the fixture holds it. The guard above asks only for SOME leading Supabase uses, so
+    text-xl's would pass as text-lg's, and only the sign-in card's measured title, in part 2,
+    would notice (#2026's merge gate)."""
+    tokens = (ROOT / "design" / "tokens.css").read_text(encoding="utf-8")
+    leading = READING["axes"]["line-height"]["declared"]
+    rungs = dict(re.findall(r"^\s*--lh-(xs|sm|lg|xl|2xl)\s*:\s*([^;]+);", tokens, re.M))
+    assert set(rungs) == {"xs", "sm", "lg", "xl", "2xl"}, rungs
+    off = {size: value.strip() for size, value in rungs.items()
+           if value.strip() != leading[f"--text-{size}--line-height"]}
+    assert not off, f"leading rungs that are not their own size's: {off}"
+
+
 def _judge(css: str) -> list[tuple[str, str, bool]]:
     """(axis, literal, allowed) for every literal in a snippet of CSS."""
     return [(axis, literal, allowed(axis, selector, prop, literal, RULES))
@@ -405,3 +419,38 @@ def test_a_reading_that_finds_nothing_stops():
         _one({}, "their spacing")
     with pytest.raises(SystemExit):
         _block(".a { }", "@theme")
+
+
+#: LogoLoader's sheet as it stands at the pin
+#: (packages/ui/src/components/LogoLoader/loading-anim.module.css@86c813ec, its first rule).
+LOGO_LOADER_SHEET = """.loading path {
+  stroke-dasharray: 30 220;
+  animation: dash 1.15s cubic-bezier(0.39, 0.29, 0.5, 0.59) infinite both;
+}
+"""
+
+
+def test_logoloaders_sheet_reads_as_its_duration_and_curve():
+    """The two values --dur-logo-loader and --ease-logo-loader are judged against (#1544),
+    read from the animation, never from another rule that names a duration first."""
+    from tools.read_supabase_values import _logo_loader
+
+    expected = ("1.15s", "cubic-bezier(0.39, 0.29, 0.5, 0.59)")
+    assert _logo_loader(LOGO_LOADER_SHEET) == expected
+    assert _logo_loader(".loading { transition: opacity 0.2s ease; }\n" + LOGO_LOADER_SHEET) == expected
+
+
+@pytest.mark.parametrize("changed", [
+    LOGO_LOADER_SHEET.replace("dash 1.15s cubic-bezier(0.39, 0.29, 0.5, 0.59)",
+                              "dash cubic-bezier(0.39, 0.29, 0.5, 0.59) 1.15s"),
+    LOGO_LOADER_SHEET.replace("cubic-bezier(0.39, 0.29, 0.5, 0.59)", "ease-in-out"),
+    LOGO_LOADER_SHEET.replace("animation: dash 1.15s cubic-bezier(0.39, 0.29, 0.5, 0.59) infinite both;",
+                              "animation-name: dash;\n  animation-duration: 1.15s;"),
+], ids=["curve-first", "keyword-curve", "longhands"])
+def test_logoloaders_sheet_in_another_shape_stops_the_read(changed):
+    """Every parse asserts its shape: a sheet that names the pair another way is a moved file,
+    not a reading of nothing (#2026's merge gate)."""
+    from tools.read_supabase_values import _logo_loader
+
+    with pytest.raises(SystemExit):
+        _logo_loader(changed)
