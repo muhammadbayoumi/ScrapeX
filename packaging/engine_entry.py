@@ -260,7 +260,7 @@ def _link_chrome(report: dict) -> bool:
     elif outcome == "kept":
         _say(f"        left as it is: Chrome starts your project files ({before.launcher}).")
     elif outcome == "already":
-        # Specific, not "done" (copywriting.mdx@86c813ec:86-92).
+        # Specific, not "done", which copywriting.mdx@86c813ec:98 lists as Bad.
         _say("        already linked to this copy.")
     else:
         _say("        done. The ScrapeX panel can now start this engine itself.")
