@@ -41,6 +41,9 @@ SPACING = "packages/ui/build/css/source/global.css"
 THEME = "packages/config/css/theme.css"
 ANIMATIONS = "packages/config/css/animations.css"
 UTILITIES = "packages/config/css/utilities.css"
+# LogoLoader's timing lives in its CSS module, not in a class string or a theme token, so
+# the atom scan below never reaches it (#1544: the panel's opening check draws it).
+LOGO_LOADER = "packages/ui/src/components/LogoLoader/loading-anim.module.css"
 ATOMS = "packages/ui/src/components/"
 
 DECLARATION = re.compile(r"^\s*(--[\w-]+)\s*:\s*([^;]+);", re.M)
@@ -184,6 +187,11 @@ def read(pin: str) -> dict:
                     seen = atoms[axis].setdefault(value, {"count": 0, "first": f"{path}:{number}"})
                     seen["count"] += 1
 
+    loader = re.search(r"animation:\s*[\w-]+\s+(\d*\.?\d+m?s)\s+(cubic-bezier\([^)]*\))",
+                       fetch(LOGO_LOADER, pin))
+    if not loader:
+        sys.exit(f"{LOGO_LOADER} no longer names its duration and curve; the file changed shape")
+
     return {
         "commit": pin,
         "tailwind": version,
@@ -202,12 +210,14 @@ def read(pin: str) -> dict:
                 **_one(_declared(tailwind, r"--default-transition-duration"), "Tailwind's default duration"),
                 **{name: re.search(r"(\d*\.?\d+m?s)\b", value).group(1)
                    for name, value in _declared(_block(animations, "@theme"), r"--animate-[\w-]+").items()
-                   if re.search(r"(\d*\.?\d+m?s)\b", value)}}},
+                   if re.search(r"(\d*\.?\d+m?s)\b", value)},
+                "LogoLoader (loading-anim.module.css)": loader.group(1)}},
             "easing": {"declared": {
                 **_one(_declared(tailwind, r"--ease-(in|out|in-out)"), "Tailwind's easings"),
                 **{f"{name} (curve)": curve for name, value in
                    _declared(_block(animations, "@theme"), r"--animate-[\w-]+").items()
-                   for curve in re.findall(r"cubic-bezier\([^)]*\)", value)}}},
+                   for curve in re.findall(r"cubic-bezier\([^)]*\)", value)},
+                "LogoLoader (curve)": loader.group(2)}},
             "focus": {"declared": {
                 "focus-ring ring width": re.search(r"ring-(\d+)\b", ring.group(1)).group(1) + "px",
                 "focus-ring ring offset": re.search(r"ring-offset-(\d+)\b", ring.group(1)).group(1) + "px",

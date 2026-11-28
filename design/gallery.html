@@ -664,6 +664,54 @@
   </div>
 
   <div class="g-item">
+    <h3>Admonition</h3>
+    <p class="g-why">
+      Supabase's Admonition: a typed callout with a badge, a title and a
+      description. <code class="code">warning</code> and
+      <code class="code">destructive</code> are modifiers on
+      <code class="code">admonition</code>; with neither it is a note, and a note
+      may carry a description alone. It is named by its type, as Supabase's is. The
+      panel's sign-in card draws it (#1544).
+    </p>
+    <div class="g-demo stack">
+      <div class="admonition" role="note" aria-label="Note">
+        <span class="admonition-icon" aria-hidden="true">
+          <svg class="sx-icon"><use href="#material-info"></use></svg>
+        </span>
+        <div class="admonition-text">
+          <p class="admonition-title"></p>
+          <p class="admonition-description">Note — a description alone, with no title.</p>
+        </div>
+      </div>
+      <div class="admonition warning" role="note" aria-label="Warning">
+        <span class="admonition-icon" aria-hidden="true">
+          <svg class="sx-icon"><use href="#material-warning"></use></svg>
+        </span>
+        <div class="admonition-text">
+          <p class="admonition-title">Warning — what is wrong</p>
+          <p class="admonition-description">What he can do about it.</p>
+        </div>
+      </div>
+      <div class="admonition destructive" role="note" aria-label="Danger">
+        <span class="admonition-icon" aria-hidden="true">
+          <svg class="sx-icon"><use href="#material-warning"></use></svg>
+        </span>
+        <div class="admonition-text">
+          <p class="admonition-title">Danger — what cannot work</p>
+          <p class="admonition-description">Who can fix it, and where.</p>
+        </div>
+      </div>
+    </div>
+    <pre>&lt;div class="admonition warning" role="alert" aria-label="Warning"&gt;
+  &lt;span class="admonition-icon" aria-hidden="true"&gt;…&lt;/span&gt;
+  &lt;div class="admonition-text"&gt;
+    &lt;p class="admonition-title"&gt;…&lt;/p&gt;
+    &lt;p class="admonition-description"&gt;…&lt;/p&gt;
+  &lt;/div&gt;
+&lt;/div&gt;</pre>
+  </div>
+
+  <div class="g-item">
     <h3>Headers</h3>
     <div class="g-demo stack">
       <header class="page-header">

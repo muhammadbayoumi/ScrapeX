@@ -110,18 +110,23 @@ def test_the_generated_catalogue_is_the_same_on_every_platform() -> None:
 
 def test_ui_templates_do_not_embed_svg_paths() -> None:
     """An icon comes from the one canonical sprite, never from a shape drawn into
-    a template. The block tools/sync_design_assets.py generates into
-    extension/app.html IS that sprite (issue 1110), so it is the one exception —
-    cut out by its own markers, never by a pattern that could also excuse a
-    hand-drawn path elsewhere in the same file."""
-    from tools.sync_design_assets import SPRITE_CLOSE, SPRITE_OPEN
+    a template. The blocks tools/sync_design_assets.py generates into
+    extension/app.html ARE that sprite (issue 1110) and the mark's outline, drawn
+    from design/x-mark.svg for the opening check's loader (#1544), so they are the
+    only exceptions — each cut out by its own markers, never by a pattern that could
+    also excuse a hand-drawn path elsewhere in the same file."""
+    from tools.sync_design_assets import (MARK_OUTLINE_CLOSE, MARK_OUTLINE_OPEN, SPRITE_CLOSE,
+                                          SPRITE_OPEN)
 
     def outside_the_generated_sprite(text: str) -> str:
-        start = text.find(SPRITE_OPEN)
-        if start == -1:
-            return text
-        end = text.index(SPRITE_CLOSE, start) + len(SPRITE_CLOSE)
-        return text[:start] + text[end:]
+        for opener, closer in ((SPRITE_OPEN, SPRITE_CLOSE),
+                               (MARK_OUTLINE_OPEN, MARK_OUTLINE_CLOSE)):
+            start = text.find(opener)
+            if start == -1:
+                continue
+            end = text.index(closer, start) + len(closer)
+            text = text[:start] + text[end:]
+        return text
 
     files = [
         *ROOT.joinpath("extension").glob("*.html"),
@@ -303,6 +308,22 @@ def test_every_copy_of_the_mark_ships_tablers_notice() -> None:
         text = notice.read_text(encoding="utf-8")
         assert "MIT License" in text and "Paweł Kuna" in text, (
             f"{notice.relative_to(ROOT)} is not Tabler's MIT notice")
+
+
+def test_the_marks_outline_is_the_marks_own_stroked_path() -> None:
+    """ONE MARK (#1544). The outline the panel's opening check draws LogoLoader's dash
+    round is design/x-mark.svg's stroked path, which tools/sync_design_assets.py
+    generates into extension/app.html with pathLength="100" for the dash's geometry. A
+    hand copy would drift from the mark. It ships inside the extension, beside the
+    mark's Tabler notice (test above)."""
+    mark = (ROOT / "design" / "x-mark.svg").read_text(encoding="utf-8")
+    stroked = [d for stroke, d in re.findall(r'<path(?:\s+stroke="([^"]*)")?\s+d="([^"]+)"', mark)
+               if stroke != "none"]
+    panel = (ROOT / "extension" / "app.html").read_text(encoding="utf-8")
+    symbol = re.search(r'<symbol id="x-mark-outline"[^>]*><path pathLength="100" d="([^"]+)"/>',
+                       panel)
+    assert len(stroked) == 1 and symbol, "the mark or its generated outline is missing"
+    assert symbol.group(1) == stroked[0]
 
 
 def test_obsolete_custom_source_icons_are_not_shipped() -> None:
