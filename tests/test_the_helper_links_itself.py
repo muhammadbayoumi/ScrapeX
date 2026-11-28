@@ -169,6 +169,8 @@ def _as_frozen_path(tmp_path: Path) -> Path:
     ("no-type", False),
     ("no-path", False),
     ("no-extension", False),
+    ("origins-not-a-list", False),
+    ("an-origin-not-a-string", False),
 ])
 def test_a_manifest_chrome_cannot_load_does_not_work(machine, tmp_path, defect, works):
     """Each case is a manifest that works but for ONE field Chrome's loader requires
@@ -186,6 +188,10 @@ def test_a_manifest_chrome_cannot_load_does_not_work(machine, tmp_path, defect, 
         del body["path"]
     elif defect == "no-extension":
         body["allowed_origins"] = []
+    elif defect == "origins-not-a-list":
+        body["allowed_origins"] = f"chrome-extension://{PANEL_EXTENSION_ID}/"
+    elif defect == "an-origin-not-a-string":
+        body["allowed_origins"].append(7)
     manifest = folder / f"{HOST_NAME}.json"
     manifest.write_text("{ not json" if defect == "unparseable" else json.dumps(body),
                         encoding="utf-8")

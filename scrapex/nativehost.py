@@ -178,9 +178,10 @@ class Registration:
     `works` is Chrome's own test, from chromium/src@4b0844bf
     `chrome/browser/extensions/api/messaging/launch_context.cc:186-245`: a manifest
     the registry names (Windows) or Chrome's folder holds (elsewhere), that loads,
-    names this host, allows some extension, and whose program exists. Every other
-    state is the one Chrome reports to the panel as "not found" (`absent` in
-    extension/transport.js), so nothing that works is ever lost by replacing it.
+    names this host, allows some extension, and whose program exists. In every other
+    state Chrome starts nothing for anyone: it answers "not found" (`absent` in
+    extension/transport.js), or "forbidden" to everyone when no extension is allowed.
+    So nothing that works is ever lost by replacing it.
     """
 
     manifest: Path | None
@@ -206,10 +207,13 @@ def registration(platform: str | None = None) -> Registration:
     except (OSError, ValueError):
         body = None
     # What Chrome's loader requires before it reads `path`
-    # (native_messaging_host_manifest.cc:77-112).
+    # (native_messaging_host_manifest.cc:77-118): one entry that is not a string
+    # and it loads nothing at all.
+    origins = body.get("allowed_origins") if isinstance(body, dict) else None
     if not isinstance(body, dict) or body.get("name") != HOST_NAME \
             or not body.get("description") or body.get("type") != "stdio" \
-            or not isinstance(body.get("path"), str):
+            or not isinstance(body.get("path"), str) or not isinstance(origins, list) \
+            or not all(isinstance(origin, str) for origin in origins):
         return Registration(manifest, None, (), False)
     program = Path(body["path"])
     if not program.is_absolute() and platform == "win32":
