@@ -4,17 +4,43 @@ Chrome will only launch a native host it has a MANIFEST for, and the manifest
 must name the exact extension ids allowed to talk to it. This module writes that
 manifest and, on Windows, the registry key that points Chrome at it.
 
-The registry write is a real change to the user's machine, so it happens ONLY
-when the owner runs `scrapex install-native-host` — never as a side effect of
-importing or of any other command.
+The registry write is a real change to the user's machine, so it happens only
+when someone asks for it, and each asker may change only its own share (#839):
+
+    `scrapex install-native-host`   by hand: exactly the ids and launcher given
+    the double-clicked engine       registers itself, or moves the helper off
+                                    another copy of itself; never off the project
+                                    files (`link_installed_engine`)
+    /api/native-host/register       adds one extension; writes a launcher only
+                                    where none works (`link`)
+
+Never as a side effect of importing or of any other command.
 """
 from __future__ import annotations
 
 import json
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 HOST_NAME = "com.scrapex.engine"
+
+#: THE PANEL'S EXTENSION ID, AS IT SHIPS. `extension/manifest.json`'s `key` pins it,
+#: so every unpacked load carries it, and the store listing must keep it or Google
+#: sign-in breaks (docs/store-listing.md). The installed engine does not carry
+#: `extension/`, so this is a copy, and
+#: `tests/test_the_helper_links_itself.py` derives it from the key the way Chrome
+#: does, as `PROTOCOL_VERSION` is held to its twin in transport.js.
+PANEL_EXTENSION_ID = "ekcgggphcfdbjgfkcmjagehfjhijeang"
+
+# Where HKCU names the manifest. Chrome looks here first, then HKLM, and HKCU wins
+# (chromium/src@4b0844bf launch_context_win.cc:183-201); ScrapeX writes only HKCU.
+_REGISTRY_KEY = rf"Software\Google\Chrome\NativeMessagingHosts\{HOST_NAME}"
+
+#: A source checkout is started through an interpreter, so its launcher is a SCRIPT:
+#: the shim `write_launcher` writes, or one given by hand with `--executable`. The
+#: installed engine is one compiled program and is its own launcher.
+_SCRIPT_SUFFIXES = frozenset({".bat", ".cmd", ".sh"})
 
 # Chrome looks for the manifest in a per-OS location.
 _MANIFEST_DIRS = {
@@ -127,7 +153,9 @@ def install(extension_ids: list[str], executable: str | None = None,
     target = manifest_path(platform)
     target.parent.mkdir(parents=True, exist_ok=True)
     launcher = resolve_launcher(executable, target.parent)
-    merged = list(extension_ids)
+    # Once each, in the order given: `link` passes the asking id first and then
+    # the ids already there, which may include it.
+    merged = list(dict.fromkeys(extension_ids))
     if not replace:
         # Newest first, so the cap drops the oldest folder a developer has
         # long stopped loading from — never the id that just asked.
@@ -143,13 +171,124 @@ def install(extension_ids: list[str], executable: str | None = None,
     return target
 
 
+@dataclass(frozen=True)
+class Registration:
+    """The helper Chrome would find for HOST_NAME, read the way Chrome reads it.
+
+    `works` is Chrome's own test, from chromium/src@4b0844bf
+    `chrome/browser/extensions/api/messaging/launch_context.cc:186-245`: a manifest
+    the registry names (Windows) or Chrome's folder holds (elsewhere), that loads,
+    names this host, allows some extension, and whose program exists. Every other
+    state is the one Chrome reports to the panel as "not found" (`absent` in
+    extension/transport.js), so nothing that works is ever lost by replacing it.
+    """
+
+    manifest: Path | None
+    launcher: str | None              # the program Chrome would start
+    extension_ids: tuple[str, ...]
+    works: bool
+
+    @property
+    def starts_project_files(self) -> bool:
+        return (self.launcher is not None
+                and Path(self.launcher).suffix.lower() in _SCRIPT_SUFFIXES)
+
+
+def registration(platform: str | None = None) -> Registration:
+    platform = platform or sys.platform
+    if platform == "win32":
+        named = _read_windows_registry()
+        manifest = Path(named) if named and Path(named).is_absolute() else None
+    else:
+        manifest = manifest_path(platform)
+    try:
+        body = json.loads(manifest.read_text(encoding="utf-8")) if manifest else None
+    except (OSError, ValueError):
+        body = None
+    # What Chrome's loader requires before it reads `path`
+    # (native_messaging_host_manifest.cc:77-112).
+    if not isinstance(body, dict) or body.get("name") != HOST_NAME \
+            or not body.get("description") or body.get("type") != "stdio" \
+            or not isinstance(body.get("path"), str):
+        return Registration(manifest, None, (), False)
+    program = Path(body["path"])
+    if not program.is_absolute() and platform == "win32":
+        program = manifest.parent / program      # Chrome's rule on Windows (:224-234)
+    ids = tuple(allowed_extension_ids(platform, manifest))
+    works = bool(ids) and program.is_absolute() and program.is_file()
+    return Registration(manifest, str(program), ids, works)
+
+
+def link(extension_id: str, platform: str | None = None) -> Path:
+    """Let one more extension start the engine, WITHOUT CHANGING WHICH ENGINE STARTS.
+
+    The re-link route's write (`/api/native-host/register`). It used to call
+    `install`, which re-pointed the launcher at whichever engine answered — so any
+    extension the helper refused could move the owner's helper off his project files
+    onto a downloaded engine, with nothing said. A working launcher is now kept, and
+    this engine's own is written only where none works: the "not found" a fresh
+    machine, a deleted folder or a moved download gives (#839).
+    """
+    found = registration(platform)
+    return install([extension_id, *found.extension_ids],
+                   executable=found.launcher if found.works else None, platform=platform)
+
+
+def link_installed_engine(platform: str | None = None) -> tuple[str, Registration]:
+    """What a double-click of the installed engine does to Chrome's helper.
+
+    Returns what happened and the registration as it was before:
+
+        linked    none worked, or the panel was missing from this program's own:
+                  Chrome now starts this program for the panel
+        moved     it started another copy of the installed engine: it starts this
+                  one now, and every extension it allowed is still allowed
+        kept      it starts the project files, which are never moved by this
+        already   it already starts this program for the panel; nothing written
+
+    MOVED, BECAUSE A DOWNLOAD LANDS BESIDE THE OLD FILE: Chrome uniquifies, so the
+    next one is `scrapex-engine (1).exe`, which upgrades the warehouse on its way up,
+    and a helper still naming the old copy would start an engine that refuses it.
+    KEPT, BECAUSE THE PROJECT FILES ARE A CHOICE someone made by hand; a download
+    tried out beside them is not a reason to stop starting them.
+
+    THE INSTALLED ENGINE ONLY. From source, `sys.executable` is a bare interpreter,
+    which Chrome would start as a REPL on its pipe; the project files are registered
+    by `install-native-host`, which writes the shim.
+    """
+    if not getattr(sys, "frozen", False):
+        raise RuntimeError("only the installed engine registers itself when it is "
+                           "double-clicked; the project files use install-native-host")
+    found = registration(platform)
+    this_program = sys.executable                # the installed engine is its own launcher
+    if found.works and found.starts_project_files:
+        return "kept", found
+    mine = found.works and Path(found.launcher) == Path(this_program)
+    if mine and PANEL_EXTENSION_ID in found.extension_ids:
+        return "already", found
+    install([PANEL_EXTENSION_ID, *found.extension_ids], executable=this_program,
+            platform=platform)
+    return ("moved" if found.works and not mine else "linked"), found
+
+
+def _read_windows_registry() -> str | None:
+    """The manifest HKCU names for HOST_NAME, or None when there is no such key."""
+    import winreg
+
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, _REGISTRY_KEY) as key:
+            value, _kind = winreg.QueryValueEx(key, None)
+    except FileNotFoundError:
+        return None
+    return value if isinstance(value, str) and value else None
+
+
 def _write_windows_registry(target: Path) -> None:
     """HKCU (per-user) — never HKLM: this needs no admin rights and cannot affect
     other accounts on the machine."""
     import winreg
 
-    key_path = rf"Software\Google\Chrome\NativeMessagingHosts\{HOST_NAME}"
-    with winreg.CreateKey(winreg.HKEY_CURRENT_USER, key_path) as key:
+    with winreg.CreateKey(winreg.HKEY_CURRENT_USER, _REGISTRY_KEY) as key:
         winreg.SetValueEx(key, None, 0, winreg.REG_SZ, str(target))
 
 

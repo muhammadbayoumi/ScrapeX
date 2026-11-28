@@ -165,14 +165,14 @@ def _first_run() -> int:
 
 
 def _set_up_then_serve() -> int:
-    """The three visible steps, then the server, which does not return."""
+    """The four visible steps, then the server, which does not return."""
     from scrapex.version import VERSION
 
     _say(f"  ScrapeX-Engine {VERSION}")
     _say("  " + "-" * 46)
     _say()
 
-    _say("  [1/3] Unpacking...")
+    _say("  [1/4] Unpacking...")
     # Reaching this line at all means PyInstaller has already unpacked the
     # bundle and started Python — there is nothing left to wait for, and
     # pretending otherwise would be a fake progress bar.
@@ -180,7 +180,7 @@ def _set_up_then_serve() -> int:
     _say("        nothing else has to be installed.")
     _say()
 
-    _say("  [2/3] Preparing your database...")
+    _say("  [2/4] Preparing your database...")
     from scrapex.databases.registry import DatabaseRegistry
 
     registry = DatabaseRegistry.defaults()
@@ -189,25 +189,21 @@ def _set_up_then_serve() -> int:
          f"{registry.engine.path}")
     _say()
 
-    # THIS STEP USED TO CLAIM TO REGISTER THE NATIVE HOST, AND COULD NOT.
-    #
-    # It called `scrapex.nativehost.install()` with no arguments, whose first
-    # parameter `extension_ids` is required — so it raised TypeError on every
-    # machine, was swallowed by a bare `except`, and printed a failure line under
-    # a heading that promised Chrome had been told something. The promise was not
-    # merely unfulfilled, it was unfulfillable: Chrome only lets a native host
-    # talk to extension ids named in its manifest, and THIS PROGRAM CANNOT KNOW
-    # THE ID of an extension it has never spoken to. The panel registers itself,
-    # over HTTP, once it can reach us (see the `forbidden` repair in app.js).
-    #
-    # So the step became the one thing a double-click genuinely can do, and the
-    # one thing the person wanted: start the engine. The panel's DATA path is
-    # plain HTTP to 127.0.0.1 and needs no native host at all.
-    _say("  [3/3] Starting the engine...")
-    _say('        Open ScrapeX in Chrome and press "Check ScrapeX-Engine again".')
+    restartable = _link_chrome(report)
+
+    # The panel's DATA path is plain HTTP to 127.0.0.1 and needs no native host
+    # at all, so whatever the step above said, this one starts the engine.
+    _say("  [4/4] Starting the engine...")
+    # The control as the panel names it: Run's card and the Engine page both say
+    # "Check again". This said "Check ScrapeX-Engine again", an icon's old label.
+    _say('        Open ScrapeX in Chrome and press "Check again".')
     _say()
     _say("  LEAVE THIS WINDOW OPEN while you work — closing it stops the engine.")
     _say("  Ctrl+C stops it too.")
+    if restartable:
+        # Only where step 3 left Chrome starting THIS program: after "kept" it starts
+        # the project files, and after a refusal it starts nothing.
+        _say("  Once it is closed, Start engine in the ScrapeX panel starts it again.")
     _say()
 
     from scrapex.cli import main as cli_main
@@ -218,6 +214,58 @@ def _set_up_then_serve() -> int:
     # browser window here would offer a second, competing face.
     sys.argv = [sys.argv[0], "ui", "--no-open"]
     return cli_main()
+
+
+def _link_chrome(report: dict) -> bool:
+    """Step 3: register Chrome's helper, so the panel can start this engine (#839).
+
+    True when Chrome now starts this program for the panel.
+
+    THIS STEP ONCE CLAIMED TO REGISTER THE NATIVE HOST, AND COULD NOT. It called
+    `scrapex.nativehost.install()` with no arguments, whose `extension_ids` is
+    required, so it raised TypeError on every machine, a bare `except` swallowed it,
+    and the heading promised Chrome had been told something. The comment that
+    replaced it said this program cannot know the panel's id, and left the panel to
+    register itself over HTTP — which it did only when a helper already existed and
+    refused it, so a fresh machine never got one and Start engine stayed dead. The id
+    IS known: `extension/manifest.json`'s `key` pins it (`PANEL_EXTENSION_ID`).
+
+    WHAT IT WRITES, AND WHAT IT NEVER TAKES, is `nativehost.link_installed_engine`'s.
+
+    NOT WHEN THIS ENGINE CANNOT OPEN THE WAREHOUSE. An older copy run after a newer
+    one meets a database it refuses ("Needs a newer ScrapeX"); moving the helper to
+    it would make Start engine fail for the copy that can. A database that is only
+    behind does not stop it: `scrapex ui` backs it up and upgrades it on the way up.
+    """
+    from scrapex import nativehost
+    from scrapex.dbupgrade import BEHIND
+
+    _say("  [3/4] Linking Chrome to this engine...")
+    refused = [state["status"] for state in report["databases"].values()
+               if not state["ok"] and state["status"] != BEHIND]
+    if refused:
+        _say(f"        skipped: this engine cannot open your database ({refused[0]}).")
+        _say()
+        return False
+    try:
+        outcome, before = nativehost.link_installed_engine()
+    except Exception as exc:                       # noqa: BLE001
+        # SAID, NEVER FATAL: the panel's data path is HTTP and needs no helper, so
+        # nothing that goes wrong here may stop the engine starting below.
+        _say(f"        could not: {type(exc).__name__}: {exc}")
+        _say()
+        return False
+    if outcome == "moved":
+        _say(f"        done. Chrome now starts this copy, not {before.launcher}.")
+    elif outcome == "kept":
+        _say(f"        left as it is: Chrome starts your project files ({before.launcher}).")
+    elif outcome == "already":
+        # Specific, not "done" (copywriting.mdx@86c813ec:86-92).
+        _say("        already linked to this copy.")
+    else:
+        _say("        done. The ScrapeX panel can now start this engine itself.")
+    _say()
+    return outcome != "kept"
 
 
 if __name__ == "__main__":

@@ -1752,16 +1752,18 @@ def create_app(
         the helper from each other indefinitely with nothing said anywhere. The
         write is now additive, capped, and printed: stdout is the engine log,
         which is where the owner is already sent when the helper misbehaves.
+
+        AND IT NEVER CHANGES WHICH ENGINE CHROME STARTS (`nativehost.link`). A
+        working launcher is kept; this engine's own is written only where Chrome
+        would find none, which is the fresh machine of #839.
         """
         extension_id = str(payload.get("extension_id") or "").strip()
         if not extension_id.isalnum() or not (24 <= len(extension_id) <= 40):
             raise HTTPException(status_code=400,
                                 detail="that does not look like a Chrome extension id")
-        from ..nativehost import install
-
         before = allowed_extension_ids()
         try:
-            written = install([extension_id])
+            written = nativehost.link(extension_id)
         except Exception as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
         after = allowed_extension_ids()

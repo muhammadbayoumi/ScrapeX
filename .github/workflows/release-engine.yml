@@ -377,7 +377,7 @@ jobs:
         # AND THEN `ScrapeX UI`, WHICH IS THE ONE THAT MATTERS, because the three
         # above were not enough and 0.3.0 proved it. Every one of them is printed
         # BEFORE the server is built (`packaging/engine_entry.py`
-        # `_set_up_then_serve` announces the three steps, then hands over to
+        # `_set_up_then_serve` announces its steps, then hands over to
         # `scrapex ui`), so a published engine printed all three and then said:
         #
         #     error: Directory '...\_MEI000036d42\scrapex\webui\static' does not exist
@@ -412,7 +412,7 @@ jobs:
           echo "$spoke" | grep -q "Preparing your database"
           echo "$spoke" | grep -q "Starting the engine"
           if ! echo "$spoke" | grep -q "ScrapeX UI"; then
-            echo "REFUSED: the engine announced all three steps and never got a" >&2
+            echo "REFUSED: the engine announced every step and never got a" >&2
             echo "server up. That is 0.3.0: every line above is printed BEFORE" >&2
             echo "create_app, so the .exe was missing a file the runtime opens" >&2
             echo "and the owner met 'error: Directory ... does not exist'." >&2
