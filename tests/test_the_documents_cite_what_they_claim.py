@@ -103,6 +103,14 @@ DOCUMENTS = (
     # index, so nothing else in this test would ever have looked at them.
     ".claude/skills/review/SKILL.md",
     ".claude/skills/record-it/SKILL.md",
+    # THE REVIEW PROFILE JOINS BESIDE THE SKILL, NOT IN ITS PLACE. It is ScrapeX's half of
+    # the shared `review` skill from muhammadbayoumi/mbi-skills, which reads it before
+    # anything else, so it is a governed rule a session acts on for the same reason as the
+    # two rows above. `_read` asserts the file is there, which makes this row the guard
+    # that the profile cannot be deleted out from under the gate that requires it.
+    # Measured before adding it, so it goes green rather than arriving red: no citation
+    # and no table -- the profile is written without `file:line` on purpose.
+    ".claude/review-profile.md",
     # `study-a-source` JOINED THE MAP IN `CLAUDE.md` AND SO JOINS THIS TUPLE, in the same
     # commit -- `docs/ORCHESTRATION.md` is the precedent above for what happens when the
     # two are separated. It is a governed rule a session acts on: it tells a session which
