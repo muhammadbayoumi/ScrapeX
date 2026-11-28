@@ -935,12 +935,14 @@ def test_copy_database_path_copies_the_path_and_says_so(open_panel):
         "() => document.getElementById('db-browser-result').textContent === 'Database path copied.'")
     assert page.evaluate("() => window.__copied") == HIS_PATH
     # THE BUTTON KEEPS ITS LABEL AND ITS WIDTH, and the result line is reserved
-    # (&nbsp;), so the card below does not move. Waited for with a bound, not read once.
+    # (&nbsp;), so the card below does not move. Waited for with a bound, not read once,
+    # and within half a pixel: CI's renderer laid the same page out at 385.99997 and
+    # 386, where an unreserved line moves the card about 30 px.
     assert text_of(page, "#db-browser-copy") == "Copy database path"
-    assert page.locator("#db-browser-copy").bounding_box()["width"] == width_before
+    assert abs(page.locator("#db-browser-copy").bounding_box()["width"] - width_before) < 0.5
     try:
-        page.wait_for_function(f"(want) => ({below})() === want", arg=below_before,
-                               timeout=2_000)
+        page.wait_for_function(f"(want) => Math.abs(({below})() - want) < 0.5",
+                               arg=below_before, timeout=2_000)
     except Exception:
         raise AssertionError(f"the result moved the card below it: {below_before} px "
                              f"before, {page.evaluate(below)} px after") from None
