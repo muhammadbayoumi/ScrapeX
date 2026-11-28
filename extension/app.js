@@ -19,7 +19,10 @@ import {
   primaryControl, progressFraction, progressLine, recentRate, refusalLine, sourceOf,
   sourceMatches, sourceTitle, statusLook, statusWords, summaryClass, timeLine,
 } from "./jobsview.js";
-import { getToken, accountFor, authorize, forgetToken, revokeToken } from "./identity.js";
+import {
+  getToken, accountFor, authorize, forgetToken, revokeToken, SIGNIN_WORDS, signsIn,
+  fullText,
+} from "./identity.js";
 import {
   clearCurrentAccount, forgetAccount, readAccounts, rememberAccount,
 } from "./accounts.js";
@@ -121,6 +124,14 @@ const state = {
   // Chrome holds the token; this is the copy the panel lends onward, and
   // it is never written to storage.
   token: "", account: null, accountStatus: null,
+  // Whether `token` came from getAuthToken, Chrome's primary account, rather than the
+  // web flow: only for that account does the next open sign in again by itself, which
+  // is what a failed revoke must say (#1544).
+  tokenFromChrome: false,
+  // A grant without drive.file the last answer held. Under #858's option (a) it is
+  // not a sign-in, and the next press drops it from Chrome's cache first, or Chrome
+  // hands the same grant back without asking (identity.js ensureScope's step).
+  partialToken: "",
   // The DIRECTORY, not a keyring: who this browser has seen, read from
   // chrome.storage.local by accounts.js. It holds names and addresses the panel
   // already paints and never a credential — the owner's ruling of 2026-08-11.
@@ -2861,7 +2872,17 @@ function focusAccountSummary() {
 
 function focusSignin() {
   const btn = $("signin");
-  if (btn) btn.focus({ preventScroll: true });
+  if (!btn) return;
+  btn.focus({ preventScroll: true });
+  keepSigninInView();
+}
+
+/** A card taller than a short panel scrolls inside itself; the button he
+ *  presses next is brought into that view, never off it (WCAG 2.2 SC 2.4.11). The
+ *  card is the scroller, so `nearest` moves only the card. */
+function keepSigninInView() {
+  const btn = $("signin");
+  if (btn && document.activeElement === btn) btn.scrollIntoView({block: "nearest"});
 }
 
 function setGoogleButtonScheme() {
@@ -2870,7 +2891,7 @@ function setGoogleButtonScheme() {
   // JavaScript hook on a class means a CSS tidy can silently unwire the button.
   // The attribute is already what this function reads, so it is also what it
   // should select on.
-  $("welcome-signed-out").querySelectorAll("img[data-scheme]").forEach((img) => {
+  $("signin").querySelectorAll("img[data-scheme]").forEach((img) => {
     img.classList.toggle("hidden", img.dataset.scheme !== scheme);
   });
 }
@@ -2928,90 +2949,155 @@ async function endCurrentAccountSession() {
   } catch (_) { /* the panel works without the directory */ }
 }
 
+
+function clearAccountState() {
+  state.token = "";
+  state.account = null;
+  state.accountStatus = null;
+}
+
+/** Write a status sentence into a region that is already on screen, so it is spoken. */
+function sayStatus(node, text) {
+  announceIn(node, text);
+  node.classList.toggle("hidden", !text);
+}
+
+/** Studio's ShellFallback (ShellFallback.tsx@86c813ec:12-43). The loader stays,
+ *  and under it a sentence and the way on appear once the check outlasts its deadline. */
+function showCheckingHelp(text) {
+  $("checking-help").append($("signin"));
+  $("checking-help").classList.remove("hidden");
+  // The page has something to say and a control to offer, so it is no longer busy:
+  // ARIA lets assistive technology ignore changes inside a busy subtree.
+  $("profile-stage").setAttribute("aria-busy", "false");
+  sayStatus($("checking-help-text"), text);
+}
+
+function hideCheckingHelp() {
+  const help = $("checking-help");
+  if (!help || help.classList.contains("hidden")) return false;
+  const hadFocus = help.contains(document.activeElement);
+  help.classList.add("hidden");
+  sayStatus($("checking-help-text"), "");
+  $("signin-status").before($("signin"));
+  return hadFocus;
+}
+
+/** The opening check says only what he can act on, or what is wrong; a press hears all. */
+function visibleProblem(result, interactive) {
+  if (interactive) return {...result, interactive: true};
+  if (["failed", "offline", "partial"].includes(result.state)) {
+    return {...result, interactive: false};
+  }
+  return null;
+}
+
+/** ONE way a token answer becomes the screen (#1544, #2005), whether it came
+ *  on time or late, from the opening check or from a press. */
+async function settleTokenAnswer(result, {interactive, current, late = false}) {
+  if (!current()) return {state: "stale"};
+  const focusWasOnAButton = document.activeElement === $("signin");
+  // Focus that sat on the help's button must land somewhere when the help goes:
+  // the summary on a sign-in, the card's own button otherwise (WCAG 2.2 SC 2.4.3).
+  const helpHadFocus = hideCheckingHelp();
+  if (!signsIn(result)) {
+    clearAccountState();
+    // #858 option (a): a partial grant is not a sign-in. The press that follows must
+    // drop Chrome's cached token first, or Chrome returns it again without asking.
+    state.partialToken = result.state === "partial" ? result.token : "";
+    setChecking(false);
+    renderAccount({tokenProblem: visibleProblem(result, interactive)});
+    if (helpHadFocus) focusSignin();
+    return result;
+  }
+  state.partialToken = "";
+  // Busy again while Google is asked who this is (up to 6 s, startup.js:8).
+  $("profile-stage").setAttribute("aria-busy", "true");
+  const accountResult = await accountFor(result.token, window.fetch,
+                                         {signal: pageController.signal});
+  if (!current()) return {state: "stale"};
+  if (accountResult.state === "unauthorized") {
+    await forgetToken(result.token);
+    if (!current()) return {state: "stale"};
+    clearAccountState();
+    setChecking(false);
+    renderAccount({tokenProblem: {
+      state: "authorization-required", interactive, detail: SIGNIN_WORDS.authRequired,
+    }});
+    if (helpHadFocus) focusSignin();
+    return {state: "authorization-required"};
+  }
+  state.token = result.token;
+  state.tokenFromChrome = true;
+  state.account = accountResult.state === "ok" ? accountResult.account : null;
+  state.accountStatus = accountResult.state === "ok" ? null : accountResult;
+  // THE DIRECTORY IS UPDATED BEFORE THE CARD IS DRAWN (2026-08-12): rendering first
+  // drew the account that had just signed in as a signed-out row under itself.
+  if (state.account) await rememberSignedInAccount(state.account);
+  if (!current()) return {state: "stale"};
+  setChecking(false);
+  renderAccount({});
+  // A press's success moves focus in the click handler; an answer that arrives
+  // while focus sits on a button that has just gone takes it to the summary.
+  if (late && focusWasOnAButton) focusAccountSummary();
+  return {...result, account: state.account};
+}
+
+/** ScrapeX's own code threw while settling an answer: said, never swallowed. */
+function drawOwnError(error, interactive) {
+  clearAccountState();
+  hideCheckingHelp();
+  setChecking(false);
+  renderAccount({tokenProblem: {
+    state: "failed", interactive, title: SIGNIN_WORDS.ownErrorTitle,
+    detail: SIGNIN_WORDS.ownError((error && error.message) || String(error)),
+  }});
+}
+
 async function loadAccount({ interactive = false } = {}) {
   const generation = ++accountGeneration;
   const current = () => generation === accountGeneration && !pageController.signal.aborted;
   markStartup("account-check-start", {interactive});
-  setChecking(true);
+  // Only the opening check draws the loader. A press keeps the card
+  // (connect-interstitials.mdx: one shell for loading, error and success).
+  if (!interactive) setChecking(true);
   // Read before asking Chrome: the directory is what the switcher paints, and
   // it is known from storage alone — it must not wait on a network round trip.
   await loadAccountDirectory();
+  let pending = false;
   try {
-    const result = await getToken({interactive, signal: pageController.signal});
-    if (!current()) return {state: "stale"};
-    if (result.state !== "ok") {
-      state.account = null;
-      state.token = "";
-      state.accountStatus = null;
-      const visibleProblem = interactive || ["timeout", "failed"].includes(result.state)
-        ? result : null;
-      renderAccount({tokenProblem: visibleProblem});
-      return result;
+    if (interactive && state.partialToken) {
+      await forgetToken(state.partialToken);
+      state.partialToken = "";
     }
-
-    const accountResult = await accountFor(
-      result.token, window.fetch, {signal: pageController.signal},
-    );
-    if (!current()) return {state: "stale"};
-    if (accountResult.state === "ok") {
-      state.token = result.token;
-      state.account = accountResult.account;
-      state.accountStatus = null;
-      // THE DIRECTORY IS UPDATED BEFORE THE CARD IS DRAWN, and the order is the
-      // whole fix. It used to render first and remember afterwards, so the card
-      // read `state.currentAccountId` while it still held the empty string left
-      // by the last sign-out — and the row for the account that had just signed
-      // in failed the `id !== currentAccountId` filter, appearing in the list
-      // BELOW the header, labelled "Signed out".
-      //
-      // Reported by the owner from the running panel on 2026-08-12: one
-      // account, signed in at the top and signed out two inches under it.
-      // Nothing re-rendered afterwards, so the contradiction simply stayed on
-      // screen. The state was never wrong; it was read one step too early.
-      await rememberSignedInAccount(accountResult.account);
-      renderAccount({});
-      return { ...result, account: accountResult.account };
-    }
-
-    if (accountResult.state === "unauthorized") {
-      await forgetToken(result.token);
-      if (!current()) return {state: "stale"};
-      state.token = "";
-      state.account = null;
-      state.accountStatus = null;
-      renderAccount({
-        tokenProblem: {
-          state: "authorization-required",
-          detail: "Google access isn’t currently granted. Sign in with Google to try again.",
-        },
-      });
-      return { state: "authorization-required" };
-    }
-
-    // Token is still valid, but the account lookup failed in a way we can
-    // explain and possibly retry.
-    state.token = result.token;
-    state.account = null;
-    state.accountStatus = accountResult;
-    renderAccount({});
-    return { ...result, accountStatus: accountResult };
-  } catch (error) {
-    if (!current()) return {state: "stale"};
-    state.token = "";
-    state.account = null;
-    state.accountStatus = null;
-    renderAccount({
-      tokenProblem: {
-        state: "failed",
-        detail: "Something went wrong while checking the account.",
+    const result = await getToken({
+      interactive, signal: pageController.signal,
+      // #2005: Chrome's answer after the deadline is still its answer.
+      onLate: (late) => {
+        const hadFocus = document.activeElement === $("signin");
+        return settleTokenAnswer(late, {interactive, current, late: true})
+          .catch((error) => {
+            if (!current()) return;
+            drawOwnError(error, interactive);
+            if (hadFocus) focusSignin();
+          });
       },
     });
-    return { state: "failed", detail: String(error && error.message) };
+    if (!current()) return {state: "stale"};
+    if (!interactive && result.state === "timeout") {
+      pending = true;
+      showCheckingHelp(SIGNIN_WORDS.checkingHelp);
+      return result;
+    }
+    return await settleTokenAnswer(result, {interactive, current});
+  } catch (error) {
+    if (!current()) return {state: "stale"};
+    drawOwnError(error, interactive);
+    return {state: "failed", detail: String(error && error.message)};
   } finally {
     if (current()) {
-      setChecking(false);
       markStartup("account-check-finish", {
-        signedIn: Boolean(state.token), interactive,
+        signedIn: Boolean(state.token), interactive, pending,
       });
     }
   }
@@ -3043,7 +3129,7 @@ async function loadAccountDetails() {
       renderAccount({
         tokenProblem: {
           state: "authorization-required",
-          detail: "Google access isn’t currently granted. Sign in with Google to try again.",
+          detail: SIGNIN_WORDS.authRequired,
         },
       });
       focusSignin();
@@ -3065,9 +3151,42 @@ function renderAccount({ tokenProblem = null } = {}) {
   // ordinary state of a machine nobody has signed in on yet.
   // The box appears only when it has something to say. An empty notice frame
   // reads as "something is wrong and we are not telling you".
-  const note = $("signin-problem");
-  note.textContent = tokenProblem ? tokenProblem.detail : "";
-  note.classList.toggle("hidden", !tokenProblem);
+  // connect-interstitials.mdx@86c813ec "Action feedback" (#1544).
+  // A blocked or changed card is an Admonition above the button; a press that
+  // failed is destructive text below it. The words are identity.js's.
+  let actionError = "";
+  let block = null;
+  if (tokenProblem) {
+    const {state: kind, title = "", detail = "", interactive: pressed} = tokenProblem;
+    if (kind === "no-chrome-account" || kind === "partial") {
+      block = {type: "warning", title, detail};
+    } else if (kind === "misconfigured") {
+      block = {type: "destructive", title, detail};
+    } else if (kind === "signed-out-locally") {
+      block = {type: "note", title, detail};
+    } else if (pressed) {
+      actionError = fullText({title, detail});
+    } else if (kind === "authorization-required") {
+      block = {type: "note", title: "", detail};
+    } else {
+      block = {type: "warning", title: title || SIGNIN_WORDS.checkFailedTitle, detail};
+    }
+  }
+  $("signin-problem").textContent = actionError;
+  $("signin-problem-box").classList.toggle("hidden", !actionError);
+  const blocked = $("signin-blocked");
+  blocked.classList.toggle("hidden", !block);
+  blocked.classList.toggle("warning", Boolean(block && block.type === "warning"));
+  blocked.classList.toggle("destructive", Boolean(block && block.type === "destructive"));
+  blocked.querySelector("use").setAttribute("href",
+    block && block.type !== "note" ? "#material-warning" : "#material-info");
+  // Admonition.tsx@86c813ec:43 names the alert by its type (TYPE_LABEL).
+  blocked.setAttribute("aria-label",
+    {warning: "Warning", destructive: "Danger", note: "Note"}[block ? block.type : "note"]);
+  $("signin-blocked-title").textContent = block ? block.title : "";
+  $("signin-blocked-description").textContent = block ? block.detail : "";
+  // An Admonition drawn above a focused button pushes it down the card.
+  keepSigninInView();
 
   const status = $("account-detail-status");
   const retry = $("retry-account");
@@ -3535,13 +3654,13 @@ async function switchToAccount(id) {
   if (!account) return;
   closeAccountMenu();
   const result = await authorize({ email: account.email, interactive: false });
-  if (result.state !== "ok" && result.state !== "partial") {
+  if (!signsIn(result)) {
     // GOOGLE REFUSED TO ANSWER SILENTLY, which is what "signed out" MEANS here
     // — the session this account needed is gone. Recording it turns the row
     // into the one the design already draws, with Sign in on it, instead of
     // leaving a switch that fails the same way every time it is pressed.
     state.signedOutAccounts.add(id);
-    setAccountsStatus(result.detail);
+    setAccountsStatus(fullText(result));
     renderAccountsCard();
     return;
   }
@@ -3554,8 +3673,8 @@ async function signInToAccount(id) {
   if (!account) return;
   closeAccountMenu();
   const result = await authorize({ email: account.email, interactive: true });
-  if (result.state !== "ok" && result.state !== "partial") {
-    setAccountsStatus(result.detail);
+  if (!signsIn(result)) {
+    setAccountsStatus(fullText(result));
     return;
   }
   state.signedOutAccounts.delete(id);
@@ -3565,8 +3684,8 @@ async function signInToAccount(id) {
 async function addAnotherAccount() {
   closeAccountMenu();
   const result = await authorize({ interactive: true });
-  if (result.state !== "ok" && result.state !== "partial") {
-    setAccountsStatus(result.detail);
+  if (!signsIn(result)) {
+    setAccountsStatus(fullText(result));
     return;
   }
   await adoptAuthorizedAccount(result.token);
@@ -3581,6 +3700,7 @@ async function adoptAuthorizedAccount(token) {
     return;
   }
   state.token = token;
+  state.tokenFromChrome = false;
   state.account = lookup.account;
   state.accountStatus = null;
   await rememberSignedInAccount(lookup.account);
@@ -3617,7 +3737,9 @@ async function endOtherAccountSession(account) {
     renderAccountsCard();
   };
 
-  if (minted.state !== "ok" && minted.state !== "partial") {
+  // Whether there is a grant to END, not whether this signs him in: a partial
+  // grant is still a grant to revoke, so this is `token`, not signsIn().
+  if (!minted.token) {
     marked();
     setAccountsStatus(`${accountLabel(account)} is signed out.`);
     return;
@@ -3636,8 +3758,8 @@ async function endOtherAccountSession(account) {
   // alone leaves the tests green, and breaking both does not.
   setAccountsStatus(ended.revoked
     ? `${accountLabel(account)} is signed out.`
-    : `${accountLabel(account)} is signed out here. ${ended.detail} Google may `
-      + "still list ScrapeX under that account's permissions.");
+    : `${accountLabel(account)} is signed out here. ${ended.detail} `
+      + SIGNIN_WORDS.otherAccessStands);
 }
 
 async function signOutOfAccount(id) {
@@ -7911,10 +8033,13 @@ function jobsAnnounce(text) {
  *  own view, and a hidden view speaks nowhere: on Data, Sources, Schedules, Settings or
  *  Engine a job's end is not announced at all (one announcer outside the views is
  *  #1074's question). */
+const pendingAnnouncements = new WeakMap();
 function announceIn(node, text) {
+  // Cancellable, so a sentence never lands after a later one cleared it (#1544).
+  clearTimeout(pendingAnnouncements.get(node));
   node.textContent = "";
   // A fresh text node each time, so the same sentence twice is still spoken twice.
-  setTimeout(() => { node.textContent = text; }, 30);
+  pendingAnnouncements.set(node, setTimeout(() => { node.textContent = text; }, 30));
 }
 
 function jobsHolding() {
@@ -11188,23 +11313,31 @@ let deferredControlsWired = false;
 function wireStartupShell() {
   if (startupControlsWired) return;
   startupControlsWired = true;
-  $("signin").addEventListener("click", async () => {
+  // One press, from the card or from under the loader: one button, moved (#1544).
+  const pressSignIn = async () => {
     const btn = $("signin");
-    const status = $("signin-status");
-    btn.disabled = true;
+    // A press in flight is aria-disabled, not disabled (#1542), so the guard is here.
+    if (btn.getAttribute("aria-busy") === "true") return;
+    const fromLoader = hideCheckingHelp();
+    setChecking(false);
+    if (fromLoader) btn.focus({preventScroll: true});
+    btn.setAttribute("aria-disabled", "true");
     btn.setAttribute("aria-busy", "true");
-    status.textContent = "Signing in…";
-    status.classList.remove("hidden");
+    // Stale feedback goes when he retries (connect-interstitials.mdx).
+    $("signin-problem-box").classList.add("hidden");
+    $("signin-blocked").classList.add("hidden");
+    const status = $("signin-status");
+    sayStatus(status, SIGNIN_WORDS.signingIn);
     try {
       await loadAccount({ interactive: true });
       if (state.token) focusAccountSummary();
     } finally {
-      btn.disabled = false;
+      btn.removeAttribute("aria-disabled");
       btn.setAttribute("aria-busy", "false");
-      status.classList.add("hidden");
-      status.textContent = "";
+      sayStatus(status, "");
     }
-  });
+  };
+  $("signin").addEventListener("click", pressSignIn);
   $("signout").addEventListener("click", async () => {
     const btn = $("signout");
     btn.disabled = true;
@@ -11217,6 +11350,7 @@ function wireStartupShell() {
       // the grant standing in the owner's Google account, so the next sign-in
       // was instant, silent, and locked to the same account and the same
       // scopes. Signing out has to mean he can come back as someone else.
+      const fromChrome = Boolean(state.tokenFromChrome);
       const ended = await revokeToken(state.token);
       state.token = "";
       state.account = null;
@@ -11229,9 +11363,9 @@ function wireStartupShell() {
         // Said out loud rather than swallowed: this browser has forgotten the
         // account, and Google has not. The difference matters on a shared
         // machine, and the owner can finish the job himself.
-        ? { tokenProblem: { state: "signed-out-locally", detail: ended.detail
-              + " This browser has forgotten the account, but Google still lists"
-              + " ScrapeX under your account's permissions." } }
+        ? { tokenProblem: { state: "signed-out-locally", title: ended.title,
+              detail: [ended.detail, SIGNIN_WORDS.endAccessYours,
+                       fromChrome ? SIGNIN_WORDS.reopenSignsIn : ""].join(" ").trim() } }
         : {});
       focusSignin();
     } finally {
@@ -11663,7 +11797,7 @@ async function pickExistingSpreadsheet() {
   let token = "";
   try {
     const fresh = await getToken({interactive: false});
-    token = (fresh && fresh.token) || "";
+    token = signsIn(fresh) ? fresh.token : "";
     if (token) state.token = token;
   } catch {
     token = "";

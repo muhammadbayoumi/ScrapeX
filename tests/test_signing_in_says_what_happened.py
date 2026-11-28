@@ -193,15 +193,22 @@ def test_user_sign_out_focuses_the_google_button(open_panel):
 def test_closing_the_consent_window_changes_nothing_and_says_so(open_panel):
     """The commonest refusal by far, and the one that must not look like a
     fault. Pressing again is exactly the right remedy, so the sentence says
-    nothing changed rather than naming a problem to go and fix."""
+    nothing changed rather than naming a problem to go and fix.
+
+    It claims no cause (#1544): Chrome's "The user did not approve access." covers
+    a closed window and a refusal on Google's screen alike. A press that failed
+    is the line under the button, not a box above it (connect-interstitials.mdx)."""
     page = open_panel()
     page.click("#signin")
     page.wait_for_function(
         "() => document.getElementById('signin-problem').textContent !== ''",
         timeout=8000)
 
-    assert "closed before it finished" in page.text_content("#signin-problem")
-    assert "Nothing changed" in page.text_content("#signin-problem")
+    problem = page.text_content("#signin-problem")
+    assert problem == "Google sign-in did not finish. Nothing changed."
+    assert "closed" not in problem
+    assert page.is_visible("#signin-problem-box")
+    assert page.is_hidden("#signin-blocked")
     assert page.is_visible("#welcome-signed-out")
 
 
@@ -215,13 +222,19 @@ def test_a_mismatched_oauth_client_is_not_reported_as_a_closed_window(open_panel
     """
     page = open_panel(signin_error="Invalid client id or unknown Chrome app.")
     page.click("#signin")
-    page.wait_for_function(
-        "() => document.getElementById('signin-problem').textContent !== ''",
-        timeout=8000)
+    page.wait_for_selector("#signin-blocked:visible", timeout=8000)
 
-    problem = page.text_content("#signin-problem")
-    assert "do not match" in problem
-    assert "closed" not in problem
+    # Blocked, not retried: an Admonition above the button (connect-interstitials.mdx),
+    # destructive, named by its type as Supabase's Admonition names it.
+    assert page.get_attribute("#signin-blocked", "class").split() == [
+        "admonition", "destructive"]
+    assert page.get_attribute("#signin-blocked", "aria-label") == "Danger"
+    assert page.text_content("#signin-blocked-title") == (
+        "Google refused this build’s OAuth client")
+    problem = page.text_content("#signin-blocked-description")
+    assert "Check the client in Google Cloud" in problem
+    assert "closed" not in problem and "did not finish" not in problem
+    assert page.text_content("#signin-problem") == ""
 
 
 def test_oauth2_not_granted_uses_neutral_authorization_required_copy(open_panel):
@@ -265,14 +278,14 @@ def test_pressing_sign_in_with_no_chrome_account_says_what_to_do(open_panel):
     an answer, and Chrome's raw sentence is not one — it names no next step."""
     page = open_panel(signin_error=NO_CHROME_ACCOUNT)
     page.click("#signin")
-    page.wait_for_function(
-        "() => document.getElementById('signin-problem').textContent !== ''",
-        timeout=8000)
+    page.wait_for_selector("#signin-blocked:visible", timeout=8000)
 
-    problem = page.text_content("#signin-problem")
-    assert "no Google account signed in" in problem
-    assert "Add your account to Chrome" in problem
-    assert NO_CHROME_ACCOUNT not in problem, (
+    assert page.get_attribute("#signin-blocked", "aria-label") == "Warning"
+    # What Chrome said, and no more: "not signed in", not "has no account".
+    assert page.text_content("#signin-blocked-title") == "Chrome is not signed in to Google"
+    assert page.text_content("#signin-blocked-description") == (
+        "Sign in to Chrome, then try again.")
+    assert NO_CHROME_ACCOUNT not in page.text_content("#signin-blocked"), (
         "Chrome's own words reached the panel instead of the panel's")
 
 
@@ -411,12 +424,20 @@ def test_the_google_button_has_a_48px_click_target(open_panel):
 
 
 def test_the_google_button_is_busy_while_signing_in(open_panel):
-    """While the consent flow is in progress the button is disabled, busy, and
-    a status appears outside the Google image."""
+    """While the consent flow is in progress the button is busy, and a status
+    appears outside the Google image.
+
+    The card stays (#1544): the press used to swap it for the opening splash, so
+    the busy button and "Signing in…" were never seen. And the button is
+    aria-disabled rather than disabled, so it keeps focus (#1542), undimmed:
+    Google's official image is never dimmed."""
     page = open_panel()
+    # HELD, NOT TIMED: Chrome's answer waits until the test releases it, so every
+    # assertion below reads the press while it is in flight. A 300 ms timer let the
+    # press finish before the opacity was read on a fast machine (#670, #1492).
     page.evaluate(f"""(account) => {{
       chrome.identity.getAuthToken = (opts, cb) => {{
-        setTimeout(() => cb("stub-token"), 300);
+        window.__sx_release = () => cb("stub-token");
       }};
       const original = window.fetch;
       window.fetch = async (url, options) => {{
@@ -426,21 +447,30 @@ def test_the_google_button_is_busy_while_signing_in(open_panel):
         return original(url, options);
       }};
     }}""", ACCOUNT)
-    page.click("#signin")
+    # BY KEYBOARD, the pointer parked away: a hover would restore full opacity on its
+    # own, and the dim this guards against is the one a keyboard press meets.
+    page.mouse.move(0, 0)
+    page.focus("#signin")
+    page.keyboard.press("Enter")
     page.wait_for_function(
         """() => {
           const btn = document.getElementById('signin');
-          return btn.disabled && btn.getAttribute('aria-busy') === 'true';
+          return btn.getAttribute('aria-disabled') === 'true'
+            && btn.getAttribute('aria-busy') === 'true'
+            && document.getElementById('signin-status').textContent !== '';
         }""",
         timeout=2000)
 
-    assert "Signing in" in page.text_content("#signin-status")
+    assert page.text_content("#signin-status") == "Signing in with Google…"
+    assert page.is_visible("#signin-status")
+    assert page.is_visible("#welcome-signed-out") and page.is_hidden("#welcome-checking")
+    assert not page.evaluate("() => document.getElementById('signin').disabled")
+    assert page.evaluate("() => getComputedStyle(document.getElementById('signin')).opacity") == "1"
 
-    page.wait_for_function(
-        "() => document.getElementById('signin').disabled === false",
-        timeout=10000)
+    page.evaluate("() => window.__sx_release()")
+    page.wait_for_selector("#welcome-signed-in:visible", timeout=10000)
     assert page.get_attribute("#signin", "aria-busy") == "false"
-    assert page.is_visible("#welcome-signed-in")
+    assert page.get_attribute("#signin", "aria-disabled") is None
 
 
 def test_the_google_button_switches_light_and_dark_assets(open_panel):
@@ -464,13 +494,14 @@ def test_the_google_button_switches_light_and_dark_assets(open_panel):
 
 def test_the_welcome_mark_is_visible_in_dark_scheme(open_panel):
     """The black raster mark was replaced with a theme-aware CSS mask so it
-    remains visible on dark surfaces."""
+    remains visible on dark surfaces. It sits in the card's logo tile, as
+    Supabase's own mark sits in its LogoBox (InterstitialLayout.tsx@86c813ec:114-123)."""
     page = open_panel()
     page.evaluate("""() => {
       window.ScrapeXAppearance.set({mode: 'manual', scheme: 'dark'});
     }""")
 
-    mark = page.locator("#welcome-signed-out .welcome-mark")
+    mark = page.locator("#welcome-signed-out .signin-logo .brand-logo")
     assert mark.is_visible()
     box = mark.evaluate("""el => {
       const s = getComputedStyle(el);
@@ -683,3 +714,216 @@ def test_malformed_account_response_is_not_retryable(open_panel):
     status = page.text_content("#account-detail-status")
     assert "unreadable" in status
     assert not page.is_visible("#retry-account")
+
+
+# ---- the sign-in card's states (#1544, his approval of 2026-11-26) ------------------
+#
+# Each state below is a picture he approved: the stage 4 drawing named in each docstring
+# is in the study (#1544). They are checked through the real panel and the real Chrome
+# strings (Chromium's identity_constants.h and google_service_auth_error.cc).
+
+OFFLINE = "OAuth2 request failed: Connection failed (-106)."
+EMAIL_SCOPE = "https://www.googleapis.com/auth/userinfo.email"
+PROFILE_SCOPE = "https://www.googleapis.com/auth/userinfo.profile"
+
+
+def _late_userinfo_401(page):
+    page.evaluate("""() => {
+      const original = window.fetch;
+      window.fetch = async (url, options) => {
+        if (String(url).includes('oauth2/v3/userinfo')) {
+          return { ok: false, status: 401, json: async () => ({}) };
+        }
+        return original(url, options);
+      };
+    }""")
+
+
+def test_a_failure_that_arrives_late_is_drawn_as_one_on_time_would_be(open_panel):
+    """State 05b. The opening check gives up WAITING at 2.5 s, not LISTENING (#2005): a
+    failure Chrome reports afterwards is said exactly as the same failure on time."""
+    page = open_panel(signin_error=OFFLINE, signin_delay_ms=3500, ready="interactive")
+    page.wait_for_selector("#checking-help:not(.hidden)", timeout=3_500)
+    page.wait_for_selector("#signin-blocked:visible", timeout=4_000)
+
+    assert page.text_content("#signin-blocked-title") == "Chrome could not check your account"
+    assert page.text_content("#signin-blocked-description") == (
+        "Could not reach Google. Check your internet connection, then try again.")
+    assert page.is_hidden("#checking-help")
+
+
+def test_a_late_401_drops_the_token_chrome_was_holding(open_panel):
+    """State 05c. A late token Google refuses is a dead token: dropped from Chrome's cache
+    on the late path as on the on-time one, or the next press is handed it again."""
+    page = open_panel(signed_in=ACCOUNT, signin_delay_ms=3500, ready="interactive")
+    _late_userinfo_401(page)
+    page.wait_for_selector("#signin-blocked:visible", timeout=7_000)
+
+    assert "isn’t currently granted" in page.text_content("#signin-blocked-description")
+    assert page.evaluate("() => window.__sx_removed_tokens || []") == ["stub-token"]
+
+
+def test_a_press_from_under_the_loader_takes_the_button_back_to_the_card(open_panel):
+    """State 04b. There is ONE Google button: past the deadline it is moved under the
+    loader, and a press there takes it back to the card, busy and still focused."""
+    page = open_panel(signin_never_returns=True, ready="interactive")
+    page.wait_for_selector("#checking-help #signin:visible", timeout=3_500)
+    assert page.locator(".profile-signin").count() == 1, "the Google button exists twice"
+
+    page.focus("#signin")
+    page.keyboard.press("Enter")
+    page.wait_for_selector("#welcome-signed-out:visible", timeout=2_000)
+
+    assert page.locator("#welcome-signed-out .signin-actions #signin").count() == 1
+    assert page.evaluate("() => document.activeElement && document.activeElement.id") == "signin"
+    assert page.get_attribute("#signin", "aria-busy") == "true"
+    assert page.is_hidden("#welcome-checking")
+
+
+def test_focus_on_the_helps_button_survives_a_late_failure(open_panel):
+    """State 05d. When a late answer removes the help, focus that sat on its button lands
+    on the card's button (WCAG 2.2 SC 2.4.3), not on <body>."""
+    page = open_panel(signin_error=OFFLINE, signin_delay_ms=3500, ready="interactive")
+    page.wait_for_selector("#checking-help #signin:visible", timeout=3_500)
+    page.focus("#signin")
+    page.wait_for_selector("#signin-blocked:visible", timeout=4_000)
+
+    assert page.evaluate("() => document.activeElement && document.activeElement.id") == "signin"
+    assert page.locator("#welcome-signed-out #signin").count() == 1
+
+
+def test_a_partial_grant_is_not_a_sign_in_and_the_next_press_asks_again(open_panel):
+    """State 13, his option (a) on #858. A grant without drive.file unlocks nothing sign-in
+    is for, so it is a warning on the card, not a sign-in; and the next press first drops
+    Chrome's cached partial token, or Chrome would hand it back without asking."""
+    page = open_panel(signed_in=ACCOUNT, granted_scopes=[EMAIL_SCOPE, PROFILE_SCOPE])
+    page.wait_for_selector("#signin-blocked:visible", timeout=8_000)
+
+    assert page.text_content("#signin-blocked-title") == "Drive access was not granted"
+    assert page.is_visible("#welcome-signed-out") and page.is_hidden("#welcome-signed-in")
+    assert page.get_attribute("#tab-profile", "aria-label") == "Profile, signed out"
+    assert page.evaluate("() => window.__sx_removed_tokens || []") == []
+
+    page.click("#signin")
+    page.wait_for_function("() => (window.__sx_removed_tokens || []).length > 0", timeout=4_000)
+    assert page.evaluate("() => window.__sx_removed_tokens") == ["stub-token"]
+
+
+def test_a_failed_revoke_says_the_access_stands(open_panel):
+    """State 22. When Google refuses the revoke, Chrome's copy is dropped but the grant
+    stands, so the next open signs him back in: the words say that, not "signed out on
+    this computer", which the next open would undo."""
+    page = open_panel(signed_in=ACCOUNT, revoke_status=500)
+    page.wait_for_selector("#welcome-signed-in:visible", timeout=8_000)
+    page.click("#signout")
+    page.wait_for_selector("#signin-blocked:visible", timeout=8_000)
+
+    assert page.text_content("#signin-blocked-title") == (
+        "ScrapeX still has access to your Google Account")
+    words = page.text_content("#signin-blocked-description")
+    assert words.startswith("Google answered 500 to the revoke request.")
+    # ONE NAME FOR ONE PAGE: the note names Google's page as the signed-in control that
+    # opens it does. Renaming either one fails here until the other follows.
+    assert "remove ScrapeX on your Google Account’s permissions page" in words
+    assert page.text_content("#drive-review-permissions .manage-account-row-title") == (
+        "Review permissions in Google")
+    # True only because this token came from Chrome's own account (getAuthToken).
+    assert words.endswith("Until then, the panel signs you in again when it opens.")
+
+
+def test_our_own_error_after_a_press_is_said_and_keeps_focus(open_panel):
+    """State 23b. No silent failure: an exception in the panel's own code while it settles
+    an answer is drawn under the button, naming what failed, and focus stays put."""
+    page = open_panel()
+    page.evaluate("""() => {
+      chrome.identity.getAuthToken = (opts, cb) => cb("stub-token");
+      chrome.identity.removeCachedAuthToken = () => {
+        throw new TypeError("injected fault");
+      };
+    }""")
+    _late_userinfo_401(page)
+    page.focus("#signin")
+    page.keyboard.press("Enter")
+    page.wait_for_selector("#signin-problem-box:visible", timeout=8_000)
+
+    assert page.text_content("#signin-problem") == (
+        "Could not check your account. ScrapeX failed: injected fault")
+    assert page.evaluate("() => document.activeElement && document.activeElement.id") == "signin"
+    assert page.get_attribute("#signin", "aria-busy") == "false"
+
+
+def test_a_consent_that_finishes_after_120_seconds_signs_him_in(open_panel):
+    """State 21. A press's own deadline (120 s) is not a reason to drop the token Google
+    then sends: two-step verification can take that long."""
+    page = open_panel()
+    page.evaluate(f"""(account) => {{
+      window.__sx_grant_again(account);
+      chrome.identity.getAuthToken = (opts, cb) => setTimeout(() => cb("stub-token"), 125000);
+    }}""", ACCOUNT)
+    page.clock.install()
+    page.click("#signin")
+    page.clock.run_for(121_000)
+    page.wait_for_selector("#signin-problem-box:visible", timeout=4_000)
+    assert "did not finish in time" in page.text_content("#signin-problem")
+
+    page.clock.run_for(5_000)
+    page.wait_for_selector("#welcome-signed-in:visible", timeout=4_000)
+    assert page.text_content("#welcome-name").strip() == ACCOUNT["name"]
+
+
+def test_offline_on_open_says_so_in_the_card(open_panel):
+    """State 12. Chrome's own "Connection failed" on the opening check: nothing was
+    pressed, so it is the card's Admonition, not a line under the button."""
+    page = open_panel(signin_error=OFFLINE)
+    page.wait_for_selector("#signin-blocked:visible", timeout=8_000)
+
+    assert page.text_content("#signin-blocked-description") == (
+        "Could not reach Google. Check your internet connection, then try again.")
+    assert OFFLINE not in page.text_content("#welcome-signed-out")
+    assert page.text_content("#signin-problem") == ""
+
+
+def test_a_short_panel_keeps_the_focused_button_in_view(browser, tmp_path):
+    """State 16a. 320 x 320: an Admonition drawn above a focused button pushes it down a
+    card taller than the panel; the card scrolls just enough to keep all of it in view
+    (WCAG 2.2 SC 2.4.11), and the document still fits the viewport."""
+    page_file = harness.build_page(tmp_path, harness.stub(
+        signin_error="OAuth2 request failed: Service responded with error: 'bad client id: 1'"),
+        name="short.html")
+    page = browser.new_page(viewport={"width": 320, "height": 320})
+    try:
+        page.goto(page_file.as_uri())
+        harness.wait_until_settled(page)
+        page.focus("#signin")
+        page.keyboard.press("Enter")
+        page.wait_for_selector("#signin-blocked:visible", timeout=8_000)
+        page.wait_for_timeout(200)
+        seen = page.evaluate("""() => {
+          const b = document.getElementById('signin').getBoundingClientRect();
+          const c = document.getElementById('profile-card').getBoundingClientRect();
+          return {inside: b.top >= c.top - 0.5 && b.bottom <= c.bottom + 0.5
+                          && b.bottom <= innerHeight + 0.5,
+                  focus: document.activeElement.id,
+                  fits: document.documentElement.scrollHeight <= innerHeight + 1};
+        }""")
+        assert seen == {"inside": True, "focus": "signin", "fits": True}, seen
+    finally:
+        page.close()
+
+
+def test_our_own_error_on_a_late_answer_is_said_and_keeps_focus(open_panel):
+    """State 23c. An exception while settling Chrome's LATE answer is caught and drawn as
+    one on time is, not left as an unhandled rejection under a bare loader; and focus that
+    sat on the help's button lands on the card's button."""
+    page = open_panel(signed_in=ACCOUNT, signin_delay_ms=3500, ready="interactive")
+    _late_userinfo_401(page)
+    page.evaluate("""() => {
+      chrome.identity.removeCachedAuthToken = () => { throw new TypeError("injected fault"); };
+    }""")
+    page.wait_for_selector("#checking-help #signin:visible", timeout=3_500)
+    page.focus("#signin")
+    page.wait_for_selector("#signin-blocked:visible", timeout=4_000)
+
+    assert page.text_content("#signin-blocked-title") == "Could not check your account"
+    assert page.text_content("#signin-blocked-description") == "ScrapeX failed: injected fault"
+    assert page.evaluate("() => document.activeElement && document.activeElement.id") == "signin"

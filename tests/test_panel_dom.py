@@ -6470,7 +6470,10 @@ def test_the_panel_opens_on_one_question(open_panel):
     out = panel.locator("#welcome-signed-out")
     assert out.is_visible()
     assert not page.is_visible("#welcome-signed-in")
-    assert out.locator("h1").inner_text() == "Welcome to ScrapeX"
+    # Supabase's connect interstitial asks it as Verb -> Thing (#1544;
+    # connect-interstitials.mdx@86c813ec "Copy"); "Sign in to ScrapeX" would promise
+    # a ScrapeX account the store listing denies, so it names the Google account.
+    assert out.locator("h1").inner_text() == "Connect your Google account"
     assert out.locator(".card").count() == 0, "the empty page grew cards again"
     assert out.locator(".kv").count() == 0, "it is printing values it cannot know"
     buttons = out.locator("button")

@@ -5,7 +5,7 @@
 // that talks to it. The owner's ruling, restated 2026-08-12: «الكونسول يخص
 // extension بنسبة 100%، المحرك غير مسؤول عنه اطلاقا».
 
-import { getToken } from "./identity.js";
+import { getToken, signsIn } from "./identity.js";
 import { chooseSpreadsheet } from "./picker.js";
 import { TAB_NAMES, parseWorkbook, inspect, vocabularies, SHEETS } from "./workbook.js";
 import { KNOWN_VOCABULARIES, SHEET_GIDS, LICENSE_TIERS, ENTITY_TYPES,
@@ -1419,7 +1419,7 @@ async function pick() {
 
 async function start() {
   const result = await getToken({interactive: false});
-  if (result.state !== "ok" || !result.token) {
+  if (!signsIn(result)) {
     say("workbook-state",
         "Sign in with Google from the ScrapeX panel first — this page reads a "
         + "spreadsheet with your account, and asks for nothing else.", "err");

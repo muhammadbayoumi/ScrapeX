@@ -711,6 +711,17 @@ def _symbols(text: str) -> set[str]:
     return set(re.findall(r'<symbol\b[^>]*?\sid="([^"]+)"', text))
 
 
+def _generated_mark_symbols(text: str) -> set[str]:
+    """The symbols tools/sync_design_assets.py generates into the panel from the mark,
+    design/x-mark.svg (#1544): the brand, not an icon, so not in the icon sprite."""
+    from tools.sync_design_assets import MARK_OUTLINE_CLOSE, MARK_OUTLINE_OPEN
+
+    start = text.find(MARK_OUTLINE_OPEN)
+    if start == -1:
+        return set()
+    return _symbols(text[start:text.index(MARK_OUTLINE_CLOSE, start)])
+
+
 def test_every_material_icon_reference_exists_in_the_one_shared_sprite():
     """An icon is a component, not decoration: missing IDs leave an invisible
     control while the button remains clickable. Keep the two distributed
@@ -726,8 +737,9 @@ def test_every_material_icon_reference_exists_in_the_one_shared_sprite():
     surfaces = {
         # The extension's pages draw its sprite file, and the Side Panel its inline
         # copy; a name must be in both, since grid.js and ui.js serve either.
-        ROOT / "extension": _symbols(canonical.decode("utf-8"))
-        & _symbols((ROOT / "extension" / "app.html").read_text(encoding="utf-8")),
+        ROOT / "extension": (_symbols(canonical.decode("utf-8"))
+                             & _symbols((ROOT / "extension" / "app.html").read_text(encoding="utf-8")))
+        | _generated_mark_symbols((ROOT / "extension" / "app.html").read_text(encoding="utf-8")),
         ROOT / "scrapex" / "webui": _symbols(
             (MATERIAL_ICONS / "material-icons.svg").read_text(encoding="utf-8")),
         # The catalogue, which carries the canonical sprite inline.

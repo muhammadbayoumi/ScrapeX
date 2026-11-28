@@ -141,7 +141,7 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
          engine_version=None, version_reporting=True, omit_capabilities=(),
          timezone=None, schedules=None, rates_status=None,
          protocol_version=None, engine_manifest=None,
-         signed_in=None, signin_error=None, signin_delay_ms=0,
+         signed_in=None, signin_error=None, signin_delay_ms=0, granted_scopes=None,
          signin_never_returns=False, route_delays=None, blackhole_routes=(),
          native_mode="absent", google_account_mode="ok",
          remembered_accounts=None, drive=None,
@@ -164,6 +164,10 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
     /api/version is answered by the REAL scrapex.version.version_report, never
     by a hand-written fixture: a stub ledger would let the panel be tested
     against a compatibility rule the engine does not have.
+
+    `granted_scopes` is the second argument Chrome's getAuthToken callback carries:
+    None leaves it undefined, as an old Chrome does; a list is a grant, and a list
+    without drive.file is the partial grant #858 is about, which no test could reach.
 
     `signed_in` is the account chrome.identity hands back — None for the
     machine nobody has signed in on, which is every machine before M1c and the
@@ -489,20 +493,21 @@ window.chrome = {{
   identity: {{
     getAuthToken: (opts, cb) => {{
       if (SIGNIN_NEVER_RETURNS) return;
-      if (SIGNIN_ERROR) {{ chrome.runtime.lastError = {{message: SIGNIN_ERROR}};
-                           cb(undefined);
-                           chrome.runtime.lastError = null; return; }}
       // The delay is about WHEN Chrome answers, not WHAT it answers, so it
-      // wraps both outcomes. It used to sit below the signed-out branch, which
+      // wraps every outcome. It used to sit below the signed-out branch, which
       // returned first -- so `signin_delay_ms` did nothing for a signed-out
       // panel and the waiting state was unobservable in the one case a test
-      // wanted to see it.
+      // wanted to see it. The error branch sat above it too, so a refusal that
+      // arrives after the opening check's deadline could not be drawn (#2005).
       const answer = () => {{
+        if (SIGNIN_ERROR) {{ chrome.runtime.lastError = {{message: SIGNIN_ERROR}};
+                             cb(undefined);
+                             chrome.runtime.lastError = null; return; }}
         if (!SIGNED_IN) {{ chrome.runtime.lastError =
                              {{message: "The user did not approve access."}};
                            cb(undefined);
                            chrome.runtime.lastError = null; return; }}
-        cb("stub-token");
+        cb("stub-token", GRANTED_SCOPES === null ? undefined : GRANTED_SCOPES);
       }};
       if (SIGNIN_DELAY_MS) {{ setTimeout(answer, SIGNIN_DELAY_MS); return; }}
       answer();
@@ -565,6 +570,7 @@ window.__sx_grant_again = (account) => {{ SIGNED_IN = account; }};
 let SIGNED_IN = {json.dumps(signed_in)};
 const SIGNIN_ERROR = {json.dumps(signin_error)};
 const SIGNIN_DELAY_MS = {json.dumps(signin_delay_ms)};
+const GRANTED_SCOPES = {json.dumps(granted_scopes)};
 const SIGNIN_NEVER_RETURNS = {str(signin_never_returns).lower()};
 // `null` means Google answers a silent mint for ANY account, which is the
 // ordinary case. A list names the ones with a live session, so a test can say
