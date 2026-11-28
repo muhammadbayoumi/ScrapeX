@@ -1358,9 +1358,10 @@ def test_an_interpretation_that_never_read_the_pages_does_not_count_as_one(serve
     So the worst case is not a missing badge, it is a WRONG one: he cancels an
     interpretation, its finish time lands after the crawl's, and the card concludes the
     pages have been read. The badge goes out and stays out until the next crawl of that
-    source -- and `run_dataset_interpret_job_once` closes as exactly one of three,
+    source -- and `run_dataset_interpret_job_once` then closed as exactly one of three,
     `completed`, `cancelled` or `failed`, so two of its three endings silently said
-    "read".
+    "read". (A fourth, `completed_with_errors`, came with #1738; it read every run it
+    planned, so it does count as a reading.)
 
     THE CHAIN IN THIS PR IS WHAT MAKES IT ROUTINE. An interpretation now exists after
     every crawl whether or not he asked for one, so cancelling the one he did not ask for

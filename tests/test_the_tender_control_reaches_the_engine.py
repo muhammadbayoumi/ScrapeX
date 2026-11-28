@@ -98,7 +98,30 @@ def test_the_world_bank_is_a_tender_row_before_any_crawl(client):
                    "base_url": "https://search.worldbank.org", "family": "generic",
                    "implemented": True, "supports_history": False,
                    "runs_blocked": {"full_rebuild": BLOCKED}, "observations": 0,
-                   "products": 0, "last_success": None, "kept_pages": 0, "kept_at": None}
+                   "products": 0, "last_success": None, "kept_pages": 0, "kept_at": None,
+                   # ONE DOMAIN, ONE SOURCE (#1872, merged as #2000): the row names its
+                   # domain, which the Pink Sheet shares, and its last crawl, none yet.
+                   "domain": "worldbank.org", "domain_name": "World Bank", "part_name": "",
+                   "listing": True, "last_job": None}
+
+
+def test_the_tender_row_names_its_last_settled_crawl(client, warehouse):
+    """A TENDER PART SAYS WHAT ITS LAST CRAWL DID (#1872's row, with #1802's `tender_crawl`
+    among the crawl kinds), as the directory rows already do."""
+    ref = past_job(warehouse, {}, status="failed")
+    last = tender_row(client)["last_job"]
+    assert (last["job_ref"], last["status"]) == (ref, "failed"), last
+
+
+def test_a_tab_on_the_tender_host_selects_the_tender_source(client):
+    """#1733's DUTY FOR THE CHANGE THAT LISTS TENDER ROWS (its comment of 2026-11-03): a tab
+    on search.worldbank.org answers the tender source, not "another address of worldbank.org"
+    with Add it, which would file a second key on the notices' own host."""
+    answer = client.get("/api/resolve",
+                        params={"url": "https://search.worldbank.org/procurement/notices"})
+    assert answer.json() == {"matched": True, "source_key": "worldbank_org",
+                             "source_name": "World Bank procurement notices",
+                             "implemented": True}, answer.json()
 
 
 def test_a_first_crawl_that_ended_partway_is_on_its_row(client, warehouse):
