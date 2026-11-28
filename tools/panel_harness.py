@@ -147,7 +147,8 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
          remembered_accounts=None, drive=None,
          silent_for=None, revoke_status=200,
          worker_alive=True, engine_build=None, engine_sqlite=None, engine_python=None,
-         bundle=None, bundle_light_route=True, ui=None, schema_lag=None) -> str:
+         bundle=None, bundle_light_route=True, ui=None, schema_lag=None,
+         transfer=None) -> str:
     """A chrome.* shim plus a fetch() interceptor.
 
     Any state can be rendered deterministically, including ones a live engine
@@ -186,6 +187,25 @@ def stub(backend: str = DEFAULT_BACKEND, *, engine_up=True, sources=None, jobs=N
     route: its build reply carries the light file's index, and
     `GET /api/bundle/light` answers FastAPI's 404, because the route shipped a
     release after the file (#1199).
+
+    `transfer` drives Fetch the latest backup all the way through, which this
+    harness could not: its Drive answered every read of the archive whole, with no
+    body to stream, so the fetch could only ever fail (#2034). It is a dict:
+      * `bytes`: the archive's size. Drive then answers a ranged read of the file
+        the pointer names with a 206 and that range's bytes, and the engine's
+        `POST /api/storage/receive-bundle` keeps the transfer's offset as the real
+        route does -- a question at offset 0 answers where it stands, a piece at
+        that offset is appended, any other is a 409 naming it, and the piece that
+        reaches `bytes` lands the archive as `name`.
+      * `drive_faults`: {window index: "reject" | "cut"}, counting the ranged reads
+        of the archive from 0. "reject" is a request that never answers; "cut" is
+        an answer whose body is cut off mid-download. Both are Chromium's
+        `TypeError: Failed to fetch`.
+      * `engine_faults`: {piece index: "drop" | "lost-reply"}, counting the pieces
+        the engine is sent from 0. "drop" hangs up before the piece is written;
+        "lost-reply" writes it and hangs up before answering, so only a fresh
+        question finds out where the transfer stands.
+    `window.__sx_transfer` reports what the engine holds and what was asked.
     """
     from scrapex.native import PROTOCOL_VERSION
     from scrapex.version import VERSION, MINIMUM_EXTENSION_VERSION, version_report
@@ -574,6 +594,11 @@ const REVOKE_STATUS = {json.dumps(revoke_status)};
 const NATIVE_MODE = {json.dumps(native_mode)};
 const GOOGLE_ACCOUNT_MODE = {json.dumps(google_account_mode)};
 const DRIVE = {json.dumps(drive)};
+// THE WHOLE FETCH, when `transfer` is given (#2034). What the engine holds, what
+// Drive was asked for, and the faults still to fire.
+const TRANSFER = {json.dumps(transfer)};
+window.__sx_transfer = {{held: 0, windows: 0, pieces: 0, asked: [], questions: 0}};
+const failedToFetch = () => new TypeError("Failed to fetch");
 // THE BUNDLE ROUTES, so a whole backup can be driven end to end.
 // Without this the harness could show the Manage-account screen and never
 // press its button: `/api/bundle` 404s, so every test of the control that
@@ -708,6 +733,27 @@ window.fetch = async (url, options = {{}}) => {{
     const target = String(url);
     if (target.includes("alt=media")) {{
       const id = decodeURIComponent(target.split("/files/")[1].split("?")[0]);
+      // THE ARCHIVE, READ IN RANGES, when `transfer` is given (#2034): a 206 and the
+      // range's bytes, as Drive answers it -- or the fault this window was given.
+      if (TRANSFER && DRIVE.pointer && id === DRIVE.pointer.file_id) {{
+        const state = window.__sx_transfer;
+        const index = state.windows++;
+        const sent = (options && options.headers) || {{}};
+        const range = /bytes=(\\d+)-(\\d+)/.exec(sent.Range || sent.range || "");
+        state.asked.push(range ? range[0] : "whole");
+        const fault = (TRANSFER.drive_faults || {{}})[String(index)];
+        if (fault === "reject") throw failedToFetch();
+        const total = Number(TRANSFER.bytes);
+        const start = range ? Number(range[1]) : 0;
+        const end = range ? Math.min(Number(range[2]), total - 1) : total - 1;
+        return {{ ok: true, status: range ? 206 : 200, body: null,
+                  headers: {{get: (k) => String(k).toLowerCase() === "content-range"
+                    ? `bytes ${{start}}-${{end}}/${{total}}` : null}},
+                  blob: async () => {{
+                    if (fault === "cut") throw failedToFetch();
+                    return new Blob([new Uint8Array(Math.max(0, end - start + 1))]);
+                  }} }};
+      }}
       const pointer = (DRIVE.files || []).find(f => f.name === "latest.json");
       const body = pointer && pointer.id === id
         ? JSON.stringify(DRIVE.pointer || {{}}) : "";
@@ -718,6 +764,16 @@ window.fetch = async (url, options = {{}}) => {{
     if (target.includes("orderBy")) {{
       return {{ ok: true, status: 200, headers: {{get: () => null}},
                 json: async () => ({{files: DRIVE.files || []}}) }};
+    }}
+    // ONE FILE'S METADATA (`files/<id>?fields=...`), which `verifyLatest` reads
+    // before a check or a fetch moves a byte. Answered for a file the folder
+    // holds; any other id falls through to the folder search, as before.
+    const one = /\\/drive\\/v3\\/files\\/([^/?]+)\\?/.exec(target);
+    const held = one && (DRIVE.files || []).find(
+      (file) => file.id === decodeURIComponent(one[1]));
+    if (held) {{
+      return {{ ok: true, status: 200, headers: {{get: () => null}},
+                json: async () => held }};
     }}
     return {{ ok: true, status: 200, headers: {{get: () => null}},
               json: async () => ({{files: DRIVE.folder
@@ -751,6 +807,36 @@ window.fetch = async (url, options = {{}}) => {{
     return {{ ok: false, status: 500, statusText: "engine error",
               json: async () => ({{detail: "the engine could not do that"}}) }};
   }}
+  // THE ENGINE'S HALF OF A FETCH, when `transfer` is given (#2034): the resume
+  // protocol of `api_storage_receive_bundle` (scrapex/webui/app.py), offsets and all.
+  // A fault "drop" hangs up before the piece is written; "lost-reply" writes it and
+  // hangs up before saying so, which only a fresh question can find out.
+  if (TRANSFER && path.startsWith("/api/storage/receive-bundle") && method === "POST") {{
+    const state = window.__sx_transfer;
+    const query = new URLSearchParams(path.split("?")[1] || "");
+    const offset = Number(query.get("offset"));
+    const total = Number(query.get("total"));
+    const size = (options.body && options.body.size) || 0;
+    const answer = (status, payload) => ({{ ok: status < 300, status, statusText: "",
+      headers: {{get: () => null}}, json: async () => payload }});
+    if (!size) {{
+      state.questions += 1;
+      return answer(200, {{received: state.held, total, complete: false}});
+    }}
+    const fault = (TRANSFER.engine_faults || {{}})[String(state.pieces++)];
+    if (fault === "drop") throw failedToFetch();
+    if (offset !== state.held) {{
+      return answer(409, {{detail: `This transfer is at ${{state.held}} bytes, not `
+        + `${{offset}}. Send from there, or start again from zero.`}});
+    }}
+    state.held += size;
+    if (fault === "lost-reply") throw failedToFetch();
+    if (state.held < total) return answer(200, {{received: state.held, total, complete: false}});
+    return answer(200, {{received: total, total, complete: true,
+                         name: TRANSFER.name || "from-drive-harness.zip",
+                         already_here: false}});
+  }}
+
   // THE BUNDLE, BEFORE THE FLAT TABLE. These three cannot be rows in `ROUTES`:
   // that table answers `{{ok, status, json}}` and nothing else, and an archive
   // needs a byte range, a `Content-Range`, an `ETag` and a blob. The panel reads
