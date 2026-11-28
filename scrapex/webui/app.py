@@ -50,8 +50,10 @@ from .. import (
     source_settings,
     sourceboard,
     taxonomy,
+    tenderjob,
 )
 from .. import db as dbmod
+from .. import jobs as jobs_module
 from .. import version as engine_version
 from ..capture import capture_source, crawl_settings
 from ..catalog_models import SiteCreate
@@ -73,6 +75,7 @@ from ..databases import (
     DatabaseUnavailableError,
     EngineDatabase,
 )
+from ..enrichment.matching import registrable_domain
 from ..extract import service as extract_service
 from ..extract.api import create_extraction_router
 from ..features import manifest as feature_manifest
@@ -2292,7 +2295,17 @@ def create_app(
         # the dataset listing so a site that already has a card keeps it and is not
         # drawn twice (`REQ-37`).
         out.extend(_registered_directories(out))
-        return {"sources": out}
+        # THE CRAWL KINDS THE DESIGN NAMES (#1872, round 5): "`directory_crawl` today;
+        # #1802's `tender_crawl` joins the tuple at build". #1802 is on main, so it joins
+        # here, and a tender row (3b-2b, #1996) says what its last crawl did. A profile sweep
+        # is not one: a part is not a pass.
+        conn = read_conn()
+        try:
+            last_crawls = jobs_module.last_settled_crawls(
+                conn, (directoryjob.JOB_KIND, tenderjob.JOB_KIND))
+        finally:
+            conn.close()
+        return {"sources": sourceboard.with_domains(out, last_crawls)}
 
     @app.get("/api/taxonomy/{dataset_key}")
     def api_taxonomy(dataset_key: str):
@@ -2317,9 +2330,18 @@ def create_app(
 
     @app.get("/api/resolve")
     def api_resolve(url: str):
+        # WHAT THE CODE HOLDS IS HIS TOO, and it runs: "Add it" here would file a second key
+        # on its host, and an unbuilt entry added there must not hide it (#1872).
+        host = jobs_module.host_of_url(url, "")
+        coded = next((one for one in sourceboard.from_code()
+                      if jobs_module.host_of_url(one.base_url, "") == host), None)
+        if coded is not None:
+            return {"matched": True, "source_key": coded.key, "source_name": coded.name,
+                    "implemented": True}
         entry = app.state.manifest.resolve_by_url(url)
         if entry is None:
-            return {"matched": False}
+            # THE DOMAIN, so the panel can say this tab belongs to a source he has (#1872).
+            return {"matched": False, "domain": registrable_domain(url)}
         return {"matched": True, "source_key": entry.source_key,
                 "source_name": entry.source_name, "implemented": _is_implemented(entry)}
 
